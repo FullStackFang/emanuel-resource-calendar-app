@@ -12,24 +12,26 @@ function EventForm({ event, categories, eventCodes, onSave, onCancel }) {
     eventCode: ''
   });
 
+  // In EventForm.jsx, adjust your useEffect to handle this case:
   useEffect(() => {
     if (event) {
+      // Format dates for datetime-local input
       const formatDateForInput = (dateString) => {
         const date = new Date(dateString);
         return date.toISOString().slice(0, 16); // Format: YYYY-MM-DDThh:mm
       };
 
       setFormData({
-        id: event.id || '',
+        id: event.id || '', // This might be undefined for new events
         subject: event.subject || '',
         start: formatDateForInput(event.start?.dateTime) || '',
         end: formatDateForInput(event.end?.dateTime) || '',
         location: event.location?.displayName || '',
         category: event.category || categories[0],
-        eventCode: event.eventCode || ''
+        eventCode: event.eventCode || eventCodes[0] || ''
       });
     }
-  }, [event, categories]);
+  }, [event, categories, eventCodes]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -39,16 +41,19 @@ function EventForm({ event, categories, eventCodes, onSave, onCancel }) {
     }));
   };
 
+  // Then in your handleSubmit function, only include the id if it's present
   const handleSubmit = (e) => {
     e.preventDefault();
-
+    
+    // Validate form
     if (!formData.subject || !formData.start || !formData.end) {
       alert('Please fill out all required fields');
       return;
     }
-
+    
+    // Create formatted event object (only include id if it exists and isn't a temporary id)
     const eventData = {
-      id: formData.id || `event_${Date.now()}`,
+      ...(formData.id && !formData.id.includes('event_') ? { id: formData.id } : {}),
       subject: formData.subject,
       start: { dateTime: new Date(formData.start).toISOString() },
       end: { dateTime: new Date(formData.end).toISOString() },
@@ -56,7 +61,7 @@ function EventForm({ event, categories, eventCodes, onSave, onCancel }) {
       category: formData.category,
       eventCode: formData.eventCode
     };
-
+    
     onSave(eventData);
   };
 
