@@ -3,38 +3,153 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Modal from './Modal';
 import EventForm from './EventForm';
 import MultiSelect from './MultiSelect';
+import { Link } from 'react-router-dom';
 
-// Mock categories
+/*****************************************************************************
+ * CONSTANTS AND CONFIGURATION
+ *****************************************************************************/
 const categories = [
 ]; 
 
+// Event code options for the dropdown menu
 const eventCodes = [
   'Board of Trustees',
   'Communications',
   'Membership'
 ];
 
+/*****************************************************************************
+ * MAIN CALENDAR COMPONENT
+ *****************************************************************************/
 function Calendar({ accessToken }) {
+  //---------------------------------------------------------------------------
+  // STATE MANAGEMENT
+  //---------------------------------------------------------------------------
+  
+  // Core calendar data
   const [allEvents, setAllEvents] = useState([]);
   const [filteredEvents, setFilteredEvents] = useState([]);
+  const [outlookCategories, setOutlookCategories] = useState([]);
+
+  // UI state
   const [loading, setLoading] = useState(true);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [viewType, setViewType] = useState('week');
   const [dateRange, setDateRange] = useState({
     start: new Date(),
     end: calculateEndDate(new Date(), 'week')
   });
+  const [selectedCategories, setSelectedCategories] = useState([]);
 
-  // State for modal and event operations
-  const [selectedCategories, setSelectedCategories] = useState(categories);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const [outlookCategories, setOutlookCategories] = useState([]);
+  // Modal and context menu state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'delete'
   const [currentEvent, setCurrentEvent] = useState(null);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [showContextMenu, setShowContextMenu] = useState(false);
 
-  // Calculate end date based on view type
+  //---------------------------------------------------------------------------
+  // UTILITY FUNCTIONS
+  //---------------------------------------------------------------------------
+  
+  // Extract data from schema extensions
+  const extractExtensionData = (event, availableExtensions) => {
+    const extractedData = {};
+    
+    if (!availableExtensions || availableExtensions.length === 0) {
+      return extractedData;
+    }
+    
+    // Check each available extension
+    for (const extension of availableExtensions) {
+      if (extension.targetTypes.includes('event')) {
+        // If this extension exists on the event
+        if (event[extension.id]) {
+          // Extract each property from the extension
+          for (const prop of extension.properties) {
+            if (event[extension.id][prop.name] !== undefined) {
+              extractedData[prop.name] = event[extension.id][prop.name];
+            }
+          }
+        }
+      }
+    }
+    
+    return extractedData;
+  };
+
+  // Load and use all applicable schema extensions
+  const applySchemaExtensions = (event, eventBody, availableExtensions) => {
+    if (!availableExtensions || availableExtensions.length === 0) {
+      console.log('No schema extensions available');
+      return;
+    }
+    
+    // For each available extension that targets events
+    for (const extension of availableExtensions) {
+      if (extension.targetTypes.includes('event')) {
+        // Create an empty object for this extension's data
+        const extensionData = {};
+        let hasData = false;
+        
+        // Check each property defined in the schema
+        for (const prop of extension.properties) {
+          // If this property exists in our event object, add it to the extension data
+          if (event[prop.name] !== undefined) {
+            extensionData[prop.name] = event[prop.name];
+            hasData = true;
+          }
+        }
+        
+        // Only add the extension if we have data for it
+        if (hasData) {
+          // Add the extension data to the event body
+          eventBody[extension.id] = extensionData;
+          console.log(`Applied schema extension ${extension.id} with properties: ${Object.keys(extensionData).join(', ')}`);
+        }
+      }
+    }
+  };
+
+  /**
+   * Standardize date for API operations, ensuring consistent time zone handling
+   * @param {Date} date - Local date to standardize
+   * @returns {string} ISO date string in UTC
+   */
+    const standardizeDate = (date) => {
+      if (!date) return '';
+      
+      // Convert to UTC ISO string
+      return date.toISOString();
+    };
+
+  /**
+   * Consistently format date range for API queries
+   * @param {Date} startDate - Range start date
+   * @param {Date} endDate - Range end date
+   * @returns {Object} Formatted start and end dates
+   */
+    const formatDateRangeForAPI = (startDate, endDate) => {
+      // Set startDate to beginning of day in UTC
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      
+      // Set endDate to end of day in UTC
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      return {
+        start: start.toISOString(),
+        end: end.toISOString()
+      };
+    };
+
+  /**
+   * Calculate the end date based on the view type (day, week, month)
+   * @param {Date} startDate - The starting date
+   * @param {string} viewType - 'day', 'week', or 'month'
+   * @returns {Date} The calculated end date
+   */
   function calculateEndDate(startDate, viewType) {
     const endDate = new Date(startDate);
     
@@ -59,7 +174,11 @@ function Calendar({ accessToken }) {
     return endDate;
   }
 
-  /* HELPER FUNCTIONS */
+  /**
+   * Get the color associated with a category from Outlook
+   * @param {string} categoryName - The name of the category
+   * @returns {string} The hex color code
+   */
   const getCategoryColor = (categoryName) => {
     const category = outlookCategories.find(cat => cat.name === categoryName);
     
@@ -88,7 +207,10 @@ function Calendar({ accessToken }) {
     return colorMap[category.color] || '#cccccc';
   };
 
-  // Get days for current view
+  /**
+   * Get all days within the current date range for the calendar view
+   * @returns {Array} Array of Date objects for each day in the range
+   */
   const getDaysInRange = () => {
     const days = [];
     const currentDate = new Date(dateRange.start);
@@ -101,127 +223,11 @@ function Calendar({ accessToken }) {
     return days;
   };
 
-  // Update selected categories when Outlook categories change
-  useEffect(() => {
-    if (outlookCategories.length > 0) {
-      // Get all unique category names, including Uncategorized
-      const allCategories = ['Uncategorized', 
-        ...outlookCategories
-          .map(cat => cat.name)
-          .filter(name => name !== 'Uncategorized')
-      ];
-      
-      // Select all categories by default
-      setSelectedCategories(allCategories);
-      console.log('Updated selected categories to include all Outlook categories:', allCategories);
-    }
-  }, [outlookCategories]);
-
-  // Filter events based on date range and categories
-  useEffect(() => {
-    setLoading(true);
-    
-    console.log('Filtering with date range:', dateRange.start.toISOString(), 'to', dateRange.end.toISOString());
-    console.log('All events before filtering:', allEvents.length);
-    console.log('Selected categories:', selectedCategories);
-    
-    const filtered = allEvents.filter(event => {
-      const eventDate = new Date(event.start.dateTime);
-      // console.log('Event date:', event.subject, eventDate.toISOString());
-      
-      // Check date range
-      const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
-      
-      // Check category
-      const hasCategory = event.category && event.category.trim() !== '';
-      let inSelectedCategory;
-      
-      if (hasCategory) {
-        inSelectedCategory = selectedCategories.includes(event.category);
-      } else {
-        inSelectedCategory = selectedCategories.includes('Uncategorized');
-      }
-      
-      /*
-      console.log(
-        `Event: ${event.subject}, ` +
-        `Category: ${event.category || 'Uncategorized'}, ` +
-        `In date range: ${inDateRange}, ` +
-        `Category selected: ${inSelectedCategory}`
-      );
-      */
-     
-      return inDateRange && inSelectedCategory;
-    });
-    
-    console.log('Filtered events count:', filtered.length);
-    setFilteredEvents(filtered);
-    setLoading(false);
-  }, [allEvents, dateRange, selectedCategories]);
-
-  // Handle view type change
-  const handleViewChange = (newView) => {
-    setViewType(newView);
-    setDateRange({
-      start: dateRange.start,
-      end: calculateEndDate(dateRange.start, newView)
-    });
-  };
-
-  // Navigation handlers
-  const handlePrevious = () => {
-    let newStart = new Date(dateRange.start);
-    
-    switch(viewType) {
-      case 'day':
-        newStart.setDate(newStart.getDate() - 1);
-        break;
-      case 'week':
-        newStart.setDate(newStart.getDate() - 7);
-        break;
-      case 'month':
-        newStart.setMonth(newStart.getMonth() - 1);
-        newStart.setDate(1);
-        break;
-    }
-    
-    setDateRange({
-      start: newStart,
-      end: calculateEndDate(newStart, viewType)
-    });
-  };
-
-  const handleNext = () => {
-    let newStart = new Date(dateRange.start);
-    
-    switch(viewType) {
-      case 'day':
-        newStart.setDate(newStart.getDate() + 1);
-        break;
-      case 'week':
-        newStart.setDate(newStart.getDate() + 7);
-        break;
-      case 'month':
-        newStart.setMonth(newStart.getMonth() + 1);
-        newStart.setDate(1);
-        break;
-    }
-    
-    setDateRange({
-      start: newStart,
-      end: calculateEndDate(newStart, viewType)
-    });
-  };
-
-  const handleToday = () => {
-    const today = new Date();
-    setDateRange({
-      start: today,
-      end: calculateEndDate(today, viewType)
-    });
-  };
-
-  // Format date for grid header
+  /**
+  * Format date for display in the calendar header
+  * @param {Date} date - The date to format
+  * @returns {string} Formatted date string
+  */
   const formatDateHeader = (date) => {
     return date.toLocaleDateString('en-US', { 
       weekday: 'short', 
@@ -230,69 +236,99 @@ function Calendar({ accessToken }) {
     });
   };
 
-  // Format time for events
+  /**
+   * Format time for event display
+   * @param {string} dateString - ISO date string
+   * @returns {string} Formatted time string
+   */
   const formatEventTime = (dateString) => {
-    return new Date(dateString).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-  };
-
-  // Get position and duration for event in grid
-  const getEventPosition = (event, day) => {
-    const eventDay = new Date(event.start.dateTime).getDate();
-    const currentDay = day.getDate();
+    if (!dateString) return '';
     
-    return eventDay === currentDay;
-  };
-
-  // Day cell click handler (for adding events)
-  const handleDayCellClick = async (day, category) => {
-    // Close context menu if open
-    setShowContextMenu(false);
-    
-    // Set up start and end times (1 hour duration)
-    const startTime = new Date(day);
-    startTime.setHours(9, 0, 0, 0); // Default to 9 AM
-    
-    const endTime = new Date(startTime);
-    endTime.setHours(startTime.getHours() + 1);
-    
-    // Check if this category exists in Outlook categories
-    if (category !== 'Uncategorized') {
-      const categoryExists = outlookCategories.some(cat => cat.name === category);
+    try {
+      // Create a date object from the ISO string
+      // This will handle the UTC to local conversion automatically
+      const date = new Date(dateString);
       
-      if (!categoryExists) {
-        console.log(`Category ${category} doesn't exist in Outlook categories, creating it...`);
-        await createOutlookCategory(category);
-      }
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (err) {
+      console.error('Error formatting event time:', err);
+      return '';
     }
-    
-    // Create a new event template without an ID
-    const newEvent = {
-      // Remove the id field entirely for new events
-      subject: '',
-      start: { dateTime: startTime.toISOString() },
-      end: { dateTime: endTime.toISOString() },
-      location: { displayName: '' },
-      category: category,
-      eventCode: '' 
-    };
-    
-    setCurrentEvent(newEvent);
-    setModalType('add');
-    setIsModalOpen(true);
   };
 
-  // Event click handler
-  const handleEventClick = (event, e) => {
-    e.stopPropagation();
-    setCurrentEvent(event);
-    setContextMenuPosition({ x: e.clientX, y: e.clientY });
-    setShowContextMenu(true);
+  /**
+   * Check if an event occurs on a specific day
+   * @param {Object} event - The event object
+   * @param {Date} day - The day to check
+   * @returns {boolean} True if the event occurs on the day
+   */
+  const getEventPosition = (event, day) => {
+    try {
+      // Create date objects from the event's start time
+      const eventDate = new Date(event.start.dateTime);
+      
+      // Make copies of both dates and reset to midnight for comparison
+      const eventDay = new Date(eventDate);
+      eventDay.setHours(0, 0, 0, 0);
+      
+      const compareDay = new Date(day);
+      compareDay.setHours(0, 0, 0, 0);
+      
+      // Compare the dates (ignoring time)
+      return eventDay.getTime() === compareDay.getTime();
+    } catch (err) {
+      console.error('Error comparing event date:', err, event);
+      return false;
+    }
   };
 
+  //---------------------------------------------------------------------------
+  // DATA FUNCTIONS
+  //---------------------------------------------------------------------------
+  
+  /**
+   * Load schema extensions available for this application
+   */
+  const loadSchemaExtensions = useCallback(async () => {
+    try {
+      console.log('Loading schema extensions...');
+      
+      const response = await fetch('https://graph.microsoft.com/v1.0/schemaExtensions', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to load schema extensions');
+        return [];
+      }
+      
+      const data = await response.json();
+      console.log('Available schema extensions:', data.value);
+      
+      // Filter to extensions your app can use
+      // This includes ones created by your app and published extensions
+      const usableExtensions = data.value.filter(ext => 
+        ext.status === 'Available' && 
+        ext.targetTypes.includes('event')
+      );
+      
+      return usableExtensions;
+    } catch (err) {
+      console.error('Error loading schema extensions:', err);
+      return [];
+    }
+  }, [accessToken]);
+
+  /**
+   * Load categories from Outlook
+   * @returns {Array} Array of category objects
+   */
   const loadOutlookCategories = useCallback(async () => {
     try {
       console.log('Fetching Outlook categories...');
@@ -326,6 +362,10 @@ function Calendar({ accessToken }) {
     }
   }, [accessToken]);
 
+  /**
+   * Load events from Microsoft Graph API
+   *
+  */
   const loadGraphEvents = useCallback(async () => {
     try {
       // Calculate date range (±1 year from today)
@@ -335,16 +375,23 @@ function Calendar({ accessToken }) {
       
       const oneYearFromNow = new Date(now);
       oneYearFromNow.setFullYear(now.getFullYear() + 1);
+
+      // const startDateTime = dateRange.start.toISOString();
+      // const endDateTime = dateRange.end.toISOString();
+
+      // Use formatDateRangeForAPI to get consistent date range formatting
+      const formattedRange = formatDateRangeForAPI(dateRange.start, dateRange.end);
       
-      // Format dates for the API query
-      const startDateTime = oneYearAgo.toISOString();
-      const endDateTime = oneYearFromNow.toISOString();
-      
-      console.log('Fetching events from Graph API between', startDateTime, 'and', endDateTime);
-      
+      // console.log('Fetching events from Graph API between', startDateTime, 'and', endDateTime);
+      console.log('Fetching events from Graph API for date range', formattedRange);
+
+      // Load available schema extensions once
+      const availableExtensions = await loadSchemaExtensions();
+
       let allFetchedEvents = [];
-      let nextLink = `https://graph.microsoft.com/v1.0/me/events?$top=50&$orderby=start/dateTime desc&$filter=start/dateTime ge '${startDateTime}' and start/dateTime le '${endDateTime}'`;
-      
+      // let nextLink = `https://graph.microsoft.com/v1.0/me/events?$top=50&$orderby=start/dateTime desc&$filter=start/dateTime ge '${startDateTime}' and start/dateTime le '${endDateTime}'`;
+      let nextLink = `https://graph.microsoft.com/v1.0/me/events?$top=50&$orderby=start/dateTime desc&$filter=start/dateTime ge '${formattedRange.start}' and start/dateTime le '${formattedRange.end}'`;
+    
       // Loop through all pages
       while (nextLink) {
         // Fetch the current page
@@ -373,7 +420,7 @@ function Calendar({ accessToken }) {
       }
       
       console.log(`Total events fetched: ${allFetchedEvents.length}`);
-  
+
       if (allFetchedEvents.length > 0) {
         console.log('Debug: Inspecting first event raw data from Graph:');
         console.log(JSON.stringify(allFetchedEvents[0], null, 2));
@@ -394,8 +441,12 @@ function Calendar({ accessToken }) {
 
       // Process all fetched events
       const converted = allFetchedEvents.map((event) => {
-        let eventCode = '';
-        
+        // Extract data from all schema extensions
+        const extensionData = extractExtensionData(event, availableExtensions);
+
+        // Use extension data if available, otherwise fall back to body content
+        let eventCode = extensionData.eventCode || '';
+
         // Extract event code from body content
         if (event.body?.content) {
           try {
@@ -420,12 +471,39 @@ function Calendar({ accessToken }) {
           }
         }
         
-        // Get category from Outlook categories
+        // First try to get category from the categories array (Microsoft Graph API standard)
         let category = 'Uncategorized';
         if (event.categories && event.categories.length > 0) {
           // Use the first category assigned to the event
           category = event.categories[0];
-          console.log(`Found Outlook category for event "${event.subject}": ${category}`);
+          console.log(`Found Graph API category for event "${event.subject}": ${category}`);
+        } 
+        // Fall back to body content if no categories array is present
+        else {
+          // Try to extract category from body content as a fallback
+          try {
+            if (event.body?.content) {
+              const bodyContent = event.body.content.trim();
+              if (!bodyContent.startsWith('<')) {
+                try {
+                  const parsed = JSON.parse(bodyContent);
+                  if (parsed.category && parsed.category !== '') {
+                    category = parsed.category;
+                    console.log(`Found category in body for event "${event.subject}": ${category}`);
+                  }
+                } catch (e) {
+                  // Try regex fallback if JSON parsing fails
+                  const categoryMatch = bodyContent.match(/category["']?\s*:\s*["']?([^"',}\s]+)/);
+                  if (categoryMatch && categoryMatch[1]) {
+                    category = categoryMatch[1];
+                    console.log(`Extracted category with regex for event "${event.subject}": ${category}`, e);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`Error extracting category from body content for event: ${event.subject}`, e);
+          }
         }
         
         return {
@@ -434,6 +512,8 @@ function Calendar({ accessToken }) {
           start: { dateTime: event.start.dateTime },
           end: { dateTime: event.end.dateTime },
           location: { displayName: event.location?.displayName || '' },
+          // Add all extension data properties to the event
+          ...extensionData,
           eventCode,
           category
         };
@@ -447,66 +527,11 @@ function Calendar({ accessToken }) {
       console.error('Failed to load events from Graph:', err);
       setLoading(false); // Make sure to set loading to false even on error
     }
-  }, [accessToken]);
+  }, [accessToken, dateRange, loadSchemaExtensions]);
 
-  // Load Categories
-  useEffect(() => {
-    if (accessToken) {
-      const fetchCategories = async () => {
-        const categories = await loadOutlookCategories();
-        setOutlookCategories(categories);
-        
-        // If no categories exist yet, you might want to create default ones
-        if (categories.length === 0) {
-          console.log('No Outlook categories found, creating defaults...');
-          await createDefaultCategories();
-        }
-      };
-      
-      fetchCategories();
-    }
-  }, [accessToken, loadOutlookCategories]);
-
-  useEffect(() => {
-    if (accessToken) {
-      setLoading(true);
-      loadGraphEvents();
-    }
-  }, [accessToken, loadGraphEvents]);
-
-  // Close context menu when clicking outside
-  useEffect(() => {
-    console.log('accessToken:', accessToken);
-    
-    const handleClickOutside = () => {
-      setShowContextMenu(false);
-    };
-    
-    document.addEventListener('click', handleClickOutside);
-    
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, []);
-
-  // Event operations
-  const handleAddEvent = () => {
-    setModalType('add');
-    setIsModalOpen(true);
-  };
-
-  const handleEditEvent = () => {
-    setShowContextMenu(false);
-    setModalType('edit');
-    setIsModalOpen(true);
-  };
-
-  const handleDeleteEvent = () => {
-    setShowContextMenu(false);
-    setModalType('delete');
-    setIsModalOpen(true);
-  };
-
+  /**
+   * Create default categories in Outlook if none exist
+   */
   const createDefaultCategories = async () => {
     try {
       const defaultCategories = [
@@ -544,6 +569,11 @@ function Calendar({ accessToken }) {
     }
   };
 
+  /**
+   * Create a new category in Outlook
+   * @param {string} categoryName - The name of the new category
+   * @returns {Object|null} The created category or null if failed
+   */
   const createOutlookCategory = useCallback(async (categoryName) => {
     try {
       // Define a list of possible colors to use
@@ -593,6 +623,11 @@ function Calendar({ accessToken }) {
     }
   }, [accessToken]);
 
+  /**
+   * Save an event to Microsoft Graph
+   * @param {Object} event - The event to save
+   * @returns {Object} The saved event with updated data
+   */
   const saveToGraph = async (event) => {
     try {
       // Check if it's a new event by looking for Graph API ID format
@@ -614,25 +649,49 @@ function Calendar({ accessToken }) {
       
       console.log(`Saving category "${event.category}" in event body content: ${bodyContent}`);
       
+      // Create an array of categories for the Graph API
+      // If category is "Uncategorized", use an empty array
+      const categoriesArray = (event.category && event.category !== 'Uncategorized') 
+        ? [event.category] 
+        : [];
+        
+      console.log(`Setting categories array for Graph API:`, categoriesArray);
+
+      // Get the current user's time zone
+      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      console.log(`Using user's time zone: ${userTimeZone}`);
+      
+      // Load available schema extensions
+      
+      const availableExtensions = await loadSchemaExtensions();
+      
       const eventBody = {
         subject: event.subject,
         start: {
           dateTime: event.start.dateTime,
-          timeZone: 'Eastern Standard Time'
+          timeZone: 'UTC'  // Always use UTC for consistency
         },
         end: {
           dateTime: event.end.dateTime,
-          timeZone: 'Eastern Standard Time'
+          timeZone: 'UTC'  // Always use UTC for consistency
         },
         location: {
           displayName: event.location?.displayName || ''
         },
         body: {
-          contentType: 'text', // Changed from 'Text' to lowercase 'text'
+          contentType: 'text',
           content: bodyContent
-        }
+        },
+        // Add the categories array to the request
+        categories: categoriesArray,
+        // Set the original time zones to ensure consistency
+        originalStartTimeZone: 'UTC',
+        originalEndTimeZone: 'UTC'
       };
-      
+
+      // Apply all relevant schema extensions
+      applySchemaExtensions(event, eventBody, availableExtensions);
+
       console.log('Event data being sent to Graph:', JSON.stringify(eventBody));
       
       const response = await fetch(url, {
@@ -693,6 +752,174 @@ function Calendar({ accessToken }) {
     }
   };
 
+  //---------------------------------------------------------------------------
+  // EVENT HANDLERS
+  //---------------------------------------------------------------------------
+  
+  /**
+   * Handle changing the calendar view type (day/week/month)
+   * @param {string} newView - The new view type
+   */
+  // 
+  const handleViewChange = (newView) => {
+    const newEnd = calculateEndDate(dateRange.start, newView);
+    
+    const formattedRange = formatDateRangeForAPI(dateRange.start, newEnd);
+    console.log(`View changed to ${newView}, date range: ${formattedRange.start} - ${formattedRange.end}`);
+    
+    setViewType(newView);
+    setDateRange({
+      start: dateRange.start,
+      end: newEnd
+    });
+  };
+
+  /**
+   * Navigate to the previous time period
+   */
+  // Navigation handlers
+  const handlePrevious = () => {
+    let newStart = new Date(dateRange.start);
+    
+    switch(viewType) {
+      case 'day':
+        newStart.setDate(newStart.getDate() - 1);
+        break;
+      case 'week':
+        newStart.setDate(newStart.getDate() - 7);
+        break;
+      case 'month':
+        newStart.setMonth(newStart.getMonth() - 1);
+        newStart.setDate(1);
+        break;
+    }
+    
+    let newEnd = calculateEndDate(newStart, viewType);
+    
+    // Keep using Date objects in state, not strings
+    setDateRange({
+      start: newStart,
+      end: newEnd
+    });
+  };
+
+  /**
+   * Navigate to the next time period
+   */
+  const handleNext = () => {
+    let newStart = new Date(dateRange.start);
+    
+    switch(viewType) {
+      case 'day':
+        newStart.setDate(newStart.getDate() + 1);
+        break;
+      case 'week':
+        newStart.setDate(newStart.getDate() + 7);
+        break;
+      case 'month':
+        newStart.setMonth(newStart.getMonth() + 1);
+        newStart.setDate(1);
+        break;
+    }
+    
+    let newEnd = calculateEndDate(newStart, viewType);
+
+    setDateRange({
+      start: newStart,
+      end: newEnd
+    });
+  };
+
+  /**
+   * Navigate to today
+   */
+  const handleToday = () => {
+    const newStart = new Date();
+    const newEnd = calculateEndDate(newStart, viewType)
+    setDateRange({
+      start: newStart,
+      end: newEnd
+    });
+  };
+
+  /**
+   * Handle clicking on a day cell to add a new event
+   * @param {Date} day - The day that was clicked
+   * @param {string} category - The category row that was clicked
+   */
+  const handleDayCellClick = async (day, category) => {
+    // Close context menu if open
+    setShowContextMenu(false);
+    
+    // Set up start and end times (1 hour duration)
+    const startTime = new Date(day);
+    startTime.setHours(9, 0, 0, 0); // Default to 9 AM
+    
+    const endTime = new Date(startTime);
+    endTime.setHours(startTime.getHours() + 1);
+    
+    // Check if this category exists in Outlook categories
+    if (category !== 'Uncategorized') {
+      const categoryExists = outlookCategories.some(cat => cat.name === category);
+      
+      if (!categoryExists) {
+        console.log(`Category ${category} doesn't exist in Outlook categories, creating it...`);
+        await createOutlookCategory(category);
+      }
+    }
+    
+    // Create a new event template without an ID
+    const newEvent = {
+      // Remove the id field entirely for new events
+      subject: '',
+      start: { dateTime: standardizeDate(startTime) },
+      end: { dateTime: standardizeDate(endTime) },
+      location: { displayName: '' },
+      category: category,
+      eventCode: '' 
+    };
+    
+    setCurrentEvent(newEvent);
+    setModalType('add');
+    setIsModalOpen(true);
+  };
+
+  /**
+   * Handle clicking on an event to open the context menu
+   * @param {Object} event - The event that was clicked
+   * @param {Object} e - The click event
+   */
+  const handleEventClick = (event, e) => {
+    e.stopPropagation();
+    setCurrentEvent(event);
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  /**
+   * Open the Add, Edit, Delete, Save modal
+   */
+  const handleAddEvent = () => {
+    setModalType('add');
+    setIsModalOpen(true);
+  };
+
+  const handleEditEvent = () => {
+    setShowContextMenu(false);
+    setModalType('edit');
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteEvent = () => {
+    setShowContextMenu(false);
+    setModalType('delete');
+    setIsModalOpen(true);
+  };
+
+  /**
+   * Save an event (create or update)
+   * @param {Object} eventData - The event data to save
+   */
   const handleSaveEvent = async (eventData) => {
     try {
       let updatedEvent = eventData;
@@ -723,6 +950,9 @@ function Calendar({ accessToken }) {
     }
   };
 
+  /**
+   * Delete an event
+   */
   const handleDeleteConfirm = async () => {
     if (accessToken && currentEvent?.id) {
       try {
@@ -752,11 +982,115 @@ function Calendar({ accessToken }) {
     loadGraphEvents();
   };
 
+  //---------------------------------------------------------------------------
+  // EFFECTS
+  //---------------------------------------------------------------------------
+
+  // Update selected categories when Outlook categories change
+  useEffect(() => {
+    if (outlookCategories.length > 0) {
+      // Get all unique category names, including Uncategorized
+      const allCategories = ['Uncategorized', 
+        ...outlookCategories
+          .map(cat => cat.name)
+          .filter(name => name !== 'Uncategorized')
+      ];
+      
+      // Select all categories by default
+      setSelectedCategories(allCategories);
+      console.log('Updated selected categories to include all Outlook categories:', allCategories);
+    }
+  }, [outlookCategories]);
+
+  // Filter events based on date range and categories
+  useEffect(() => {
+    setLoading(true);
+    
+    console.log('Filtering with date range:', dateRange.start.toISOString(), 'to', dateRange.end.toISOString());
+    console.log('All events before filtering:', allEvents.length);
+    console.log('Selected categories:', selectedCategories);
+    
+    const filtered = allEvents.filter(event => {
+      const eventDate = new Date(event.start.dateTime);
+      // console.log('Event date:', event.subject, eventDate.toISOString());
+      
+      // Check date range
+      const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
+      
+      // Check category
+      const hasCategory = event.category && event.category.trim() !== '';
+      let inSelectedCategory;
+      
+      if (hasCategory) {
+        inSelectedCategory = selectedCategories.includes(event.category);
+      } else {
+        inSelectedCategory = selectedCategories.includes('Uncategorized');
+      }
+      
+      /*
+      console.log(
+        `Event: ${event.subject}, ` +
+        `Category: ${event.category || 'Uncategorized'}, ` +
+        `In date range: ${inDateRange}, ` +
+        `Category selected: ${inSelectedCategory}`
+      );
+      */
+     
+      return inDateRange && inSelectedCategory;
+    });
+    
+    console.log('Filtered events count:', filtered.length);
+    setFilteredEvents(filtered);
+    setLoading(false);
+  }, [allEvents, dateRange, selectedCategories]);
+
+  // Load Categories when access token is available
+  useEffect(() => {
+    if (accessToken) {
+      const fetchCategories = async () => {
+        const categories = await loadOutlookCategories();
+        setOutlookCategories(categories);
+        
+        // If no categories exist yet, you might want to create default ones
+        if (categories.length === 0) {
+          console.log('No Outlook categories found, creating defaults...');
+          await createDefaultCategories();
+        }
+      };
+      
+      fetchCategories();
+    }
+  }, [accessToken, loadOutlookCategories]);
+
+  // Load events when access token is available
+  useEffect(() => {
+    if (accessToken) {
+      setLoading(true);
+      loadGraphEvents();
+    }
+  }, [accessToken, loadGraphEvents]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    console.log('accessToken:', accessToken);
+    
+    const handleClickOutside = () => {
+      setShowContextMenu(false);
+    };
+    
+    document.addEventListener('click', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, []);
+
+  //---------------------------------------------------------------------------
+  // RENDER
+  //---------------------------------------------------------------------------
   return (
     <div className="calendar-container">
       <div className="calendar-header">
-        <h2>Add-in: In Development</h2>
-        
         <div className="calendar-controls">
           <div className="view-selector">
             <button 

@@ -4,6 +4,9 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from './config/authConfig';
 import Authentication from './components/Authentication';
 import Calendar from './components/Calendar';
+import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Navigation from './components/Navigation'
 import './App.css';
 
 function App() {
@@ -42,30 +45,39 @@ function App() {
   }, [instance]);
 
   return (
-    <div className="app-container">
-      <header>
-        <h1>Outlook Resource Scheduler</h1>
-        <Authentication
-          onSignIn={handleSignIn}
-          onSignOut={handleSignOut}
-        />
-      </header>
-      <main>
-        {accessToken ? (
-          <Calendar accessToken={accessToken} />
-        ) : signedOut ? (
-          <div className="signed-out-landing">
-            <h2>See you next time!</h2>
-            <p>You’ve successfully signed out.</p>
-          </div>
-        ) : (
-          <div className="welcome-message">
-            <p>Welcome to the Outlook Custom Calendar App.</p>
-            <p>Please sign in with your Microsoft account to view your calendar.</p>
-          </div>
-        )}
-      </main>
-    </div>
+    <Router>
+      <div className="app-container">
+        <header>
+          <h1>Outlook Resource Scheduler</h1>
+          <Authentication
+            onSignIn={handleSignIn}
+            onSignOut={handleSignOut}
+          />
+        </header>
+        <main>
+          {accessToken ? (
+            <>
+              <Navigation />
+              <Routes>
+                <Route path="/" element={<Calendar accessToken={accessToken} />} />
+                <Route path="/admin" element={<SchemaExtensionAdmin accessToken={accessToken} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </>
+          ) : signedOut ? (
+            <div className="signed-out-landing">
+              <h2>See you next time!</h2>
+              <p>You've successfully signed out.</p>
+            </div>
+          ) : (
+            <div className="welcome-message">
+              <p>Welcome to the Outlook Custom Calendar App.</p>
+              <p>Please sign in with your Microsoft account to view your calendar.</p>
+            </div>
+          )}
+        </main>
+      </div>
+    </Router>
   );
 }
 
