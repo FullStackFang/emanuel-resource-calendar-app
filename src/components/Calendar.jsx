@@ -3,7 +3,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Modal from './Modal';
 import EventForm from './EventForm';
 import MultiSelect from './MultiSelect';
-import { Link } from 'react-router-dom';
+import { msalConfig } from '../config/authConfig';
+import ExportToPdfButton from './CalendarExport';
+
 
 /*****************************************************************************
  * CONSTANTS AND CONFIGURATION
@@ -11,12 +13,18 @@ import { Link } from 'react-router-dom';
 const categories = [
 ]; 
 
-// Event code options for the dropdown menu
-const eventCodes = [
-  'Board of Trustees',
-  'Communications',
-  'Membership'
+const availableLocations = [
+  'Unspecified',
+  'TPL',
+  'CPL',
+  'MUS',
+  'Nursery School',
+  '402',
+  '602',
+  'Virtual',
+  'Microsoft Teams Meeting'
 ];
+
 
 /*****************************************************************************
  * MAIN CALENDAR COMPONENT
@@ -32,14 +40,19 @@ function Calendar({ accessToken }) {
   const [outlookCategories, setOutlookCategories] = useState([]);
 
   // UI state
+  const [groupBy, setGroupBy] = useState('categories'); // default categories
   const [loading, setLoading] = useState(true);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [schemaExtensions, setSchemaExtensions] = useState([]);
   const [viewType, setViewType] = useState('week');
   const [dateRange, setDateRange] = useState({
     start: new Date(),
     end: calculateEndDate(new Date(), 'week')
   });
+
+  // Toggle states
   const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedLocations, setSelectedLocations] = useState(availableLocations);
 
   // Modal and context menu state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,65 +64,6 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   // UTILITY FUNCTIONS
   //---------------------------------------------------------------------------
-  
-  // Extract data from schema extensions
-  const extractExtensionData = (event, availableExtensions) => {
-    const extractedData = {};
-    
-    if (!availableExtensions || availableExtensions.length === 0) {
-      return extractedData;
-    }
-    
-    // Check each available extension
-    for (const extension of availableExtensions) {
-      if (extension.targetTypes.includes('event')) {
-        // If this extension exists on the event
-        if (event[extension.id]) {
-          // Extract each property from the extension
-          for (const prop of extension.properties) {
-            if (event[extension.id][prop.name] !== undefined) {
-              extractedData[prop.name] = event[extension.id][prop.name];
-            }
-          }
-        }
-      }
-    }
-    
-    return extractedData;
-  };
-
-  // Load and use all applicable schema extensions
-  const applySchemaExtensions = (event, eventBody, availableExtensions) => {
-    if (!availableExtensions || availableExtensions.length === 0) {
-      console.log('No schema extensions available');
-      return;
-    }
-    
-    // For each available extension that targets events
-    for (const extension of availableExtensions) {
-      if (extension.targetTypes.includes('event')) {
-        // Create an empty object for this extension's data
-        const extensionData = {};
-        let hasData = false;
-        
-        // Check each property defined in the schema
-        for (const prop of extension.properties) {
-          // If this property exists in our event object, add it to the extension data
-          if (event[prop.name] !== undefined) {
-            extensionData[prop.name] = event[prop.name];
-            hasData = true;
-          }
-        }
-        
-        // Only add the extension if we have data for it
-        if (hasData) {
-          // Add the extension data to the event body
-          eventBody[extension.id] = extensionData;
-          console.log(`Applied schema extension ${extension.id} with properties: ${Object.keys(extensionData).join(', ')}`);
-        }
-      }
-    }
-  };
 
   /**
    * Standardize date for API operations, ensuring consistent time zone handling
@@ -295,9 +249,11 @@ function Calendar({ accessToken }) {
    */
   const loadSchemaExtensions = useCallback(async () => {
     try {
-      console.log('Loading schema extensions...');
+      // Get your app ID
+      const schemaOwnerId = msalConfig.auth.clientId;
       
-      const response = await fetch('https://graph.microsoft.com/v1.0/schemaExtensions', {
+      // Filter for schema extensions owned by your app
+      const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
         headers: {
           Authorization: `Bearer ${accessToken}`
         }
@@ -309,16 +265,17 @@ function Calendar({ accessToken }) {
       }
       
       const data = await response.json();
-      console.log('Available schema extensions:', data.value);
       
-      // Filter to extensions your app can use
-      // This includes ones created by your app and published extensions
-      const usableExtensions = data.value.filter(ext => 
+      // Filter to extensions that target events
+      const eventExtensions = data.value.filter(ext => 
         ext.status === 'Available' && 
         ext.targetTypes.includes('event')
       );
       
-      return usableExtensions;
+      // Store in state for use in UI
+      setSchemaExtensions(eventExtensions);
+      
+      return eventExtensions;
     } catch (err) {
       console.error('Error loading schema extensions:', err);
       return [];
@@ -331,8 +288,6 @@ function Calendar({ accessToken }) {
    */
   const loadOutlookCategories = useCallback(async () => {
     try {
-      console.log('Fetching Outlook categories...');
-      
       const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
         headers: {
           Authorization: `Bearer ${accessToken}`
@@ -346,7 +301,7 @@ function Calendar({ accessToken }) {
       }
       
       const data = await response.json();
-      console.log('Fetched Outlook categories:', data.value);
+      console.log('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
       
       // Extract category names
       const outlookCategories = data.value.map(cat => ({
@@ -366,166 +321,100 @@ function Calendar({ accessToken }) {
    * Load events from Microsoft Graph API
    *
   */
+
   const loadGraphEvents = useCallback(async () => {
+    // 0. Don't even start until we have a token
+    if (!accessToken) {
+      console.warn("loadGraphEvents: no access token yet");
+      return;
+    }
+  
+    setLoading(true);
     try {
-      // Calculate date range (±1 year from today)
-      const now = new Date();
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(now.getFullYear() - 1);
+      // 1. Format your dates
+      const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
+  
+      // 2. Pull down your registered schema‑extension IDs
+      const available = await loadSchemaExtensions();
+      const extIds = available.map(e => e.id);
+      if (extIds.length === 0) {
+        console.log("No schema extensions registered; skipping extension expand.");
+      } else {
+        console.log("Found schema extensions:", extIds);
+      }
+  
+      // 3. Build your extensionName filter (OData)
+      const extFilter = extIds
+        .map(id => `id eq '${id}'`)
+        .join(" or ");
+  
+      // 4. Page through /me/events, expanding extensions inline
+      let all = [];
+      let nextLink =
+        `https://graph.microsoft.com/v1.0/me/events` +
+        `?$top=50` +
+        `&$orderby=start/dateTime desc` +
+        `&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'` +
+        (extFilter
+          ? `&$expand=extensions($filter=${encodeURIComponent(extFilter)})`
+          : "");
       
-      const oneYearFromNow = new Date(now);
-      oneYearFromNow.setFullYear(now.getFullYear() + 1);
-
-      // const startDateTime = dateRange.start.toISOString();
-      // const endDateTime = dateRange.end.toISOString();
-
-      // Use formatDateRangeForAPI to get consistent date range formatting
-      const formattedRange = formatDateRangeForAPI(dateRange.start, dateRange.end);
-      
-      // console.log('Fetching events from Graph API between', startDateTime, 'and', endDateTime);
-      console.log('Fetching events from Graph API for date range', formattedRange);
-
-      // Load available schema extensions once
-      const availableExtensions = await loadSchemaExtensions();
-
-      let allFetchedEvents = [];
-      // let nextLink = `https://graph.microsoft.com/v1.0/me/events?$top=50&$orderby=start/dateTime desc&$filter=start/dateTime ge '${startDateTime}' and start/dateTime le '${endDateTime}'`;
-      let nextLink = `https://graph.microsoft.com/v1.0/me/events?$top=50&$orderby=start/dateTime desc&$filter=start/dateTime ge '${formattedRange.start}' and start/dateTime le '${formattedRange.end}'`;
-    
-      // Loop through all pages
       while (nextLink) {
-        // Fetch the current page
-        const response = await fetch(nextLink, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
+        const resp = await fetch(nextLink, {
+          headers: { Authorization: `Bearer ${accessToken}` }
         });
-      
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Graph API error:', errorData);
+        if (!resp.ok) {
+          console.error("Graph error paging events:", await resp.json());
           break;
         }
-        
-        const data = await response.json();
-        console.log(`Fetched page with ${data.value?.length} events`);
-        
-        // Add the events from this page to our collection
-        if (data.value && data.value.length > 0) {
-          allFetchedEvents = [...allFetchedEvents, ...data.value];
-        }
-        
-        // Check if there's another page
-        nextLink = data['@odata.nextLink'] || null;
+        const js = await resp.json();
+        all = all.concat(js.value || []);
+        nextLink = js["@odata.nextLink"] || null;
       }
-      
-      console.log(`Total events fetched: ${allFetchedEvents.length}`);
-
-      if (allFetchedEvents.length > 0) {
-        console.log('Debug: Inspecting first event raw data from Graph:');
-        console.log(JSON.stringify(allFetchedEvents[0], null, 2));
-        
-        // Specifically check the body content format
-        if (allFetchedEvents[0].body) {
-          console.log('Event body content type:', allFetchedEvents[0].body.contentType);
-          console.log('Event body content:', allFetchedEvents[0].body.content);
+      console.log(`Fetched ${all.length} events.`);
+  
+      // 5. Normalize into your UI model
+      const converted = all.map(evt => {
+        // Extract extension data
+        const extData = {};
+        if (evt.extensions && evt.extensions.length > 0) {
+          console.log(`Processing extensions for event ${evt.id}:`, evt.extensions);
           
-          try {
-            const parsedBody = JSON.parse(allFetchedEvents[0].body.content);
-            console.log('Successfully parsed body content as JSON:', parsedBody);
-          } catch (e) {
-            console.warn('Body content is not valid JSON:', e.message);
-          }
-        }
-      }
-
-      // Process all fetched events
-      const converted = allFetchedEvents.map((event) => {
-        // Extract data from all schema extensions
-        const extensionData = extractExtensionData(event, availableExtensions);
-
-        // Use extension data if available, otherwise fall back to body content
-        let eventCode = extensionData.eventCode || '';
-
-        // Extract event code from body content
-        if (event.body?.content) {
-          try {
-            const bodyContent = event.body.content.trim();
-            
-            // Skip HTML content
-            if (!bodyContent.startsWith('<')) {
-              try {
-                const parsed = JSON.parse(bodyContent);
-                eventCode = parsed.eventCode || '';
-              } catch (jsonError) {
-                console.warn(`Could not parse body content as JSON for event: ${event.subject}`, jsonError);
-                // Try to extract eventCode with regex if JSON parsing fails
-                const codeMatch = bodyContent.match(/eventCode["']?\s*:\s*["']?([^"',}\s]+)/);
-                if (codeMatch && codeMatch[1]) {
-                  eventCode = codeMatch[1];
-                }
+          // Flatten out any extension props
+          evt.extensions.forEach(x =>
+            Object.entries(x).forEach(([k, v]) => {
+              if (!k.startsWith("@") && k !== "id" && k !== "extensionName") {
+                extData[k] = v;
+                console.log(`  Extracted property: ${k} = ${v}`);
               }
-            }
-          } catch (e) {
-            console.warn(`Error processing body content for event: ${event.subject}`, e);
-          }
+            })
+          );
         }
-        
-        // First try to get category from the categories array (Microsoft Graph API standard)
-        let category = 'Uncategorized';
-        if (event.categories && event.categories.length > 0) {
-          // Use the first category assigned to the event
-          category = event.categories[0];
-          console.log(`Found Graph API category for event "${event.subject}": ${category}`);
-        } 
-        // Fall back to body content if no categories array is present
-        else {
-          // Try to extract category from body content as a fallback
-          try {
-            if (event.body?.content) {
-              const bodyContent = event.body.content.trim();
-              if (!bodyContent.startsWith('<')) {
-                try {
-                  const parsed = JSON.parse(bodyContent);
-                  if (parsed.category && parsed.category !== '') {
-                    category = parsed.category;
-                    console.log(`Found category in body for event "${event.subject}": ${category}`);
-                  }
-                } catch (e) {
-                  // Try regex fallback if JSON parsing fails
-                  const categoryMatch = bodyContent.match(/category["']?\s*:\s*["']?([^"',}\s]+)/);
-                  if (categoryMatch && categoryMatch[1]) {
-                    category = categoryMatch[1];
-                    console.log(`Extracted category with regex for event "${event.subject}": ${category}`, e);
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn(`Error extracting category from body content for event: ${event.subject}`, e);
-          }
-        }
-        
+  
         return {
-          id: event.id,
-          subject: event.subject,
-          start: { dateTime: event.start.dateTime },
-          end: { dateTime: event.end.dateTime },
-          location: { displayName: event.location?.displayName || '' },
-          // Add all extension data properties to the event
-          ...extensionData,
-          eventCode,
-          category
+          id: evt.id,
+          subject: evt.subject,
+          start:  { dateTime: evt.start.dateTime },
+          end:    { dateTime: evt.end.dateTime },
+          location: { displayName: evt.location?.displayName || "" },
+          category: evt.categories?.[0] || "Uncategorized",
+          extensions: evt.extensions || [],
+          ...extData
         };
       });
+  
+      if (converted.length > 0) {
+        console.log("[loadGraphEvents] Sample converted event with extensions:", JSON.stringify(converted[0], null, 2));
+      }
+
+      console.log("[loadGraphEvents] events:", converted);
       
-      console.log('Converted events:', converted);
       setAllEvents(converted);
       setInitialLoadComplete(true);
-      setLoading(false); // Add this to ensure loading state is updated after fetching
     } catch (err) {
-      console.error('Failed to load events from Graph:', err);
-      setLoading(false); // Make sure to set loading to false even on error
+      console.error("loadGraphEvents failed:", err);
+    } finally {
+      setLoading(false);
     }
   }, [accessToken, dateRange, loadSchemaExtensions]);
 
@@ -627,129 +516,132 @@ function Calendar({ accessToken }) {
    * Save an event to Microsoft Graph
    * @param {Object} event - The event to save
    * @returns {Object} The saved event with updated data
+   * Note: On update, Event & Schema Extensions need to be saved on separate calls
    */
-  const saveToGraph = async (event) => {
-    try {
-      // Check if it's a new event by looking for Graph API ID format
-      // Graph API IDs typically start with "AAMkA" and don't contain underscores
-      const isNewEvent = !event.id || event.id.includes('event_');
-      
-      const method = isNewEvent ? 'POST' : 'PATCH';
-      const url = isNewEvent
-        ? `https://graph.microsoft.com/v1.0/me/events`
-        : `https://graph.microsoft.com/v1.0/me/events/${event.id}`;
-          
-      console.log(`${isNewEvent ? 'Creating' : 'Updating'} event with method ${method} to ${url}`);
-      
-      // Create the JSON content for the body
-      const bodyContent = JSON.stringify({
-        eventCode: event.eventCode || '',
-        category: event.category || ''
-      });
-      
-      console.log(`Saving category "${event.category}" in event body content: ${bodyContent}`);
-      
-      // Create an array of categories for the Graph API
-      // If category is "Uncategorized", use an empty array
-      const categoriesArray = (event.category && event.category !== 'Uncategorized') 
-        ? [event.category] 
-        : [];
-        
-      console.log(`Setting categories array for Graph API:`, categoriesArray);
-
-      // Get the current user's time zone
-      const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      console.log(`Using user's time zone: ${userTimeZone}`);
-      
-      // Load available schema extensions
-      
-      const availableExtensions = await loadSchemaExtensions();
-      
-      const eventBody = {
-        subject: event.subject,
-        start: {
-          dateTime: event.start.dateTime,
-          timeZone: 'UTC'  // Always use UTC for consistency
-        },
-        end: {
-          dateTime: event.end.dateTime,
-          timeZone: 'UTC'  // Always use UTC for consistency
-        },
-        location: {
-          displayName: event.location?.displayName || ''
-        },
-        body: {
-          contentType: 'text',
-          content: bodyContent
-        },
-        // Add the categories array to the request
-        categories: categoriesArray,
-        // Set the original time zones to ensure consistency
-        originalStartTimeZone: 'UTC',
-        originalEndTimeZone: 'UTC'
-      };
-
-      // Apply all relevant schema extensions
-      applySchemaExtensions(event, eventBody, availableExtensions);
-
-      console.log('Event data being sent to Graph:', JSON.stringify(eventBody));
-      
+  const saveToGraph = async (eventData) => {
+    if (!accessToken) {
+      throw new Error('No Graph token available');
+    }
+  
+    const { id, ...body } = eventData;
+    const isNew = !id || id.includes('event_');
+    const url = isNew
+      ? `https://graph.microsoft.com/v1.0/me/events`
+      : `https://graph.microsoft.com/v1.0/me/events/${id}`;
+  
+    // 1) CREATE: POST everything at once
+    if (isNew) {
+      console.log("CREATING NEW EVENT with data:", JSON.stringify(body, null, 2));
       const response = await fetch(url, {
-        method,
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(eventBody)
+        body: JSON.stringify(body)
       });
-    
-      const responseText = await response.text();
-      let responseData = null;
-      
-      try {
-        if (responseText.trim()) {
-          responseData = JSON.parse(responseText);
-        }
-      } catch (e) {
-        console.log('Response is not JSON:', responseText, e);
-      }
-    
       if (!response.ok) {
-        console.error('Graph API error:', response.status, responseData);
-        throw new Error(`Graph API error (${response.status}): ${responseData?.error?.message || 'Unknown error'}`);
-      } 
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Graph error ${response.status}`);
+      }
+      const created = await response.json();
+      console.log("CREATED EVENT response:", JSON.stringify(created, null, 2));
+      // return with the new id plus all your props
+      return { id: created.id, ...body };
+    }
+  
+    // 2) UPDATE core fields
+    const corePayload = {
+      subject:    body.subject,
+      start:      body.start,
+      end:        body.end,
+      location:   body.location,
+      categories: body.categories
+    };
+    
+    console.log("UPDATING CORE FIELDS with:", JSON.stringify(corePayload, null, 2));
+    {
+      const r = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(corePayload)
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Graph error ${r.status}`);
+      }
+      console.log("CORE UPDATE successful");
+    }
+  
+    // 3) UPDATE each schema extension separately
+    console.log("CHECKING FOR SCHEMA EXTENSIONS in:", Object.keys(body).filter(k => k.includes('.')));
+    for (const extension of schemaExtensions) {
+      const extId = extension.id;
+      const extValue = body[extId];
       
-      console.log('Event saved successfully to Microsoft Calendar:', responseData);
-      
-      // For new events, ensure we have a proper return value even if responseData is undefined
-      if (isNewEvent) {
-        if (responseData) {
-          // We have a response with an ID, use it
-          return {
-            ...responseData,
-            category: event.category || 'Uncategorized', // Ensure category is preserved
-            eventCode: event.eventCode || '' // Ensure eventCode is preserved
-          };
-        } else {
-          // No responseData, just return the event with a note
-          console.warn('No response data received from Graph API, using original event data');
-          return {
-            ...event,
-            id: `local_${Date.now()}`, // Generate a temporary ID
-            category: event.category || 'Uncategorized'
-          };
+      if (extValue && Object.keys(extValue).length) {
+        console.log(`UPDATING EXTENSION ${extId} with:`, JSON.stringify(extValue, null, 2));
+        const patchBody = { [extId]: extValue };
+        const r = await fetch(url, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(patchBody)
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          console.error(`Extension update failed:`, err);
+          throw new Error(`Ext ${extId} error: ${err.error?.message||r.status}`);
         }
+        console.log(`EXTENSION ${extId} UPDATE successful`);
       } else {
-        // For updates, return the original event with category preserved
-        return {
-          ...event,
-          category: event.category || 'Uncategorized'
+        console.log(`No update needed for extension ${extId}`);
+      }
+    }
+  
+    // 4) Verify the updated event by fetching it again
+    console.log("VERIFYING updated event by fetching it...");
+    try {
+      const verifyResponse = await fetch(`https://graph.microsoft.com/v1.0/me/events/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (verifyResponse.ok) {
+        const verifiedEvent = await verifyResponse.json();
+        console.log("VERIFIED EVENT after update:", JSON.stringify(verifiedEvent, null, 2));
+        
+        // Return a properly structured event with extensions integrated
+        const result = {
+          id: verifiedEvent.id,
+          subject: verifiedEvent.subject,
+          start: verifiedEvent.start,
+          end: verifiedEvent.end,
+          location: verifiedEvent.location,
+          category: verifiedEvent.categories?.[0] || "Uncategorized",
+          extensions: verifiedEvent.extensions || []
         };
+        
+        // Also include any extension properties directly on the event
+        // from our original eventData object
+        return { ...result, ...eventData };
+      } else {
+        console.warn("Could not verify updated event:", await verifyResponse.text());
       }
     } catch (err) {
-      console.error('Error saving event to Graph:', err);
-      throw err;
+      console.warn("Error verifying updated event:", err);
     }
+
+    // If verification fails, we still want to return success using our original data
+    console.log("Using original event data due to verification failure");
+    return eventData;
   };
 
   //---------------------------------------------------------------------------
@@ -847,7 +739,7 @@ function Calendar({ accessToken }) {
    * @param {Date} day - The day that was clicked
    * @param {string} category - The category row that was clicked
    */
-  const handleDayCellClick = async (day, category) => {
+  const handleDayCellClick = async (day, category = null, location = null) => {
     // Close context menu if open
     setShowContextMenu(false);
     
@@ -858,25 +750,33 @@ function Calendar({ accessToken }) {
     const endTime = new Date(startTime);
     endTime.setHours(startTime.getHours() + 1);
     
-    // Check if this category exists in Outlook categories
-    if (category !== 'Uncategorized') {
-      const categoryExists = outlookCategories.some(cat => cat.name === category);
+    // Set the category based on what view we're in
+    let eventCategory = 'Uncategorized';
+    let eventLocation = 'Unspecified';
+
+    if (groupBy === 'categories' && category) {
+      eventCategory = category;
       
-      if (!categoryExists) {
-        console.log(`Category ${category} doesn't exist in Outlook categories, creating it...`);
-        await createOutlookCategory(category);
+      // Check if this category exists in Outlook categories
+      if (category !== 'Uncategorized') {
+        const categoryExists = outlookCategories.some(cat => cat.name === category);
+        
+        if (!categoryExists) {
+          console.log(`Category ${category} doesn't exist in Outlook categories, creating it...`);
+          await createOutlookCategory(category);
+        }
       }
+    } else if (groupBy === 'locations' && location && location !== 'Unspecified') {
+      eventLocation = location;
     }
     
-    // Create a new event template without an ID
+    // Create a new event template
     const newEvent = {
-      // Remove the id field entirely for new events
       subject: '',
       start: { dateTime: standardizeDate(startTime) },
       end: { dateTime: standardizeDate(endTime) },
-      location: { displayName: '' },
-      category: category,
-      eventCode: '' 
+      location: { displayName: eventLocation },
+      category: eventCategory
     };
     
     setCurrentEvent(newEvent);
@@ -891,6 +791,15 @@ function Calendar({ accessToken }) {
    */
   const handleEventClick = (event, e) => {
     e.stopPropagation();
+    console.log('Event clicked:', event);
+    console.log('Extension data in clicked event:', Object.keys(event).filter(key => 
+      key !== 'id' && key !== 'subject' && key !== 'start' && 
+      key !== 'end' && key !== 'location' && key !== 'category'
+    ).reduce((obj, key) => {
+      obj[key] = event[key];
+      return obj;
+    }, {}));
+    
     setCurrentEvent(event);
     setContextMenuPosition({ x: e.clientX, y: e.clientY });
     setShowContextMenu(true);
@@ -917,39 +826,32 @@ function Calendar({ accessToken }) {
   };
 
   /**
-   * Save an event (create or update)
-   * @param {Object} eventData - The event data to save
+   * Called by EventForm when the user hits “Save”
+   * @param {Object} eventData - The payload from EventForm.handleSubmit
    */
   const handleSaveEvent = async (eventData) => {
     try {
-      let updatedEvent = eventData;
-      
-      if (accessToken) {
-        // Save to Graph and get the updated data
-        updatedEvent = await saveToGraph(eventData);
-      }
-      
+      console.log("BEFORE SAVE - Event data with extensions:", JSON.stringify(eventData, null, 2));
+      const saved = await saveToGraph(eventData);
+      console.log("AFTER SAVE - Returned event data:", JSON.stringify(saved, null, 2));
+
       if (modalType === 'add') {
-        // Add new event with possibly updated ID from Graph
-        setAllEvents([...allEvents, updatedEvent]);
-      } else if (modalType === 'edit') {
-        // Update existing event
-        setAllEvents(allEvents.map(event => 
-          event.id === eventData.id ? updatedEvent : event
-        ));
+        setAllEvents(prev => [...prev, saved]);
+      } else {
+        setAllEvents(prev =>
+          prev.map(ev => (ev.id === saved.id ? saved : ev))
+        );
       }
-      
+
       setIsModalOpen(false);
       setCurrentEvent(null);
-      
-      // Add this line to reload all events after saving
-      loadGraphEvents();
+      await loadGraphEvents();
     } catch (err) {
       console.error('Failed to save event:', err);
-      alert('There was an error saving the event. Please try again.');
+      alert('There was an error saving the event:\n' + err.message);
     }
   };
-
+  
   /**
    * Delete an event
    */
@@ -983,8 +885,13 @@ function Calendar({ accessToken }) {
   };
 
   //---------------------------------------------------------------------------
-  // EFFECTS
+  // USE EFFECTS
   //---------------------------------------------------------------------------
+
+  // Initialize selectedLocations when availableLocations changes
+  useEffect(() => {
+    setSelectedLocations(availableLocations);
+  }, []);
 
   // Update selected categories when Outlook categories change
   useEffect(() => {
@@ -998,51 +905,52 @@ function Calendar({ accessToken }) {
       
       // Select all categories by default
       setSelectedCategories(allCategories);
-      console.log('Updated selected categories to include all Outlook categories:', allCategories);
     }
   }, [outlookCategories]);
 
-  // Filter events based on date range and categories
+  // Filter events based on date range and categories/locations
   useEffect(() => {
     setLoading(true);
     
     console.log('Filtering with date range:', dateRange.start.toISOString(), 'to', dateRange.end.toISOString());
-    console.log('All events before filtering:', allEvents.length);
-    console.log('Selected categories:', selectedCategories);
     
     const filtered = allEvents.filter(event => {
       const eventDate = new Date(event.start.dateTime);
-      // console.log('Event date:', event.subject, eventDate.toISOString());
       
       // Check date range
       const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
       
-      // Check category
-      const hasCategory = event.category && event.category.trim() !== '';
-      let inSelectedCategory;
-      
-      if (hasCategory) {
-        inSelectedCategory = selectedCategories.includes(event.category);
+      // Check category or location depending on groupBy
+      let inSelectedGroup = true;
+      if (groupBy === 'categories') {
+        const hasCategory = event.category && event.category.trim() !== '';
+        
+        if (hasCategory) {
+          inSelectedGroup = selectedCategories.includes(event.category);
+        } else {
+          inSelectedGroup = selectedCategories.includes('Uncategorized');
+        }
       } else {
-        inSelectedCategory = selectedCategories.includes('Uncategorized');
+        // Check location if we're grouping by locations
+        const eventLocations = event.location?.displayName 
+        ? event.location.displayName.split('; ').map(loc => loc.trim())
+        : [];
+        
+        // Handle events with no location
+        if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
+          return selectedLocations.includes('Unspecified');
+        }
+        
+        // Event should be included if it contains ANY of the selected locations
+        inSelectedGroup = eventLocations.some(loc => selectedLocations.includes(loc));
       }
       
-      /*
-      console.log(
-        `Event: ${event.subject}, ` +
-        `Category: ${event.category || 'Uncategorized'}, ` +
-        `In date range: ${inDateRange}, ` +
-        `Category selected: ${inSelectedCategory}`
-      );
-      */
-     
-      return inDateRange && inSelectedCategory;
+      return inDateRange && inSelectedGroup;
     });
     
-    console.log('Filtered events count:', filtered.length);
     setFilteredEvents(filtered);
     setLoading(false);
-  }, [allEvents, dateRange, selectedCategories]);
+  }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy]);
 
   // Load Categories when access token is available
   useEffect(() => {
@@ -1062,13 +970,20 @@ function Calendar({ accessToken }) {
     }
   }, [accessToken, loadOutlookCategories]);
 
-  // Load events when access token is available
+  // Load Events when access token is available
   useEffect(() => {
     if (accessToken) {
       setLoading(true);
       loadGraphEvents();
     }
   }, [accessToken, loadGraphEvents]);
+
+  // Load Schema Extensions when access token is available
+  useEffect(() => {
+    if (accessToken) {
+      loadSchemaExtensions();
+    }
+  }, [accessToken, loadSchemaExtensions]);
 
   // Close context menu when clicking outside
   useEffect(() => {
@@ -1112,6 +1027,22 @@ function Calendar({ accessToken }) {
               Month
             </button>
           </div>
+  
+          {/* View mode selectors */}
+          <div className="view-mode-selector">
+            <button 
+              className={groupBy === 'categories' ? 'active' : ''} 
+              onClick={() => setGroupBy('categories')}
+            >
+              Group by Category
+            </button>
+            <button 
+              className={groupBy === 'locations' ? 'active' : ''} 
+              onClick={() => setGroupBy('locations')}
+            >
+              Group by Location
+            </button>
+          </div>
           
           <div className="navigation">
             <button onClick={handlePrevious}>Previous</button>
@@ -1129,25 +1060,42 @@ function Calendar({ accessToken }) {
           <button className="add-event-button" onClick={handleAddEvent}>
             + Add Event
           </button>
+          <ExportToPdfButton 
+            events={filteredEvents} 
+            dateRange={dateRange} 
+          />
         </div>
       </div>
   
-
       {!initialLoadComplete ? (
         <div className="loading">Loading your calendar data...</div>
       ) : (
         <div className="calendar-layout">
           <div className="calendar-sidebar">
-            <h3>Categories</h3>
-            <MultiSelect 
-              options={outlookCategories.length > 0 
-                ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
-              }
-              selected={selectedCategories}
-              onChange={setSelectedCategories}
-              label="Filter by categories"
-            />
+            {groupBy === 'categories' ? (
+              <>
+                <h3>Categories</h3>
+                <MultiSelect 
+                  options={outlookCategories.length > 0 
+                    ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                    : categories
+                  }
+                  selected={selectedCategories}
+                  onChange={setSelectedCategories}
+                  label="Filter by categories"
+                />
+              </>
+            ) : (
+              <>
+                <h3>Locations</h3>
+                <MultiSelect 
+                  options={availableLocations}
+                  selected={selectedLocations}
+                  onChange={setSelectedLocations}
+                  label="Filter by locations"
+                />
+              </>
+            )}
           </div>
   
           {loading ? (
@@ -1157,7 +1105,7 @@ function Calendar({ accessToken }) {
               {/* Grid Header (Days) */}
               <div className="grid-header">
                 <div className="grid-cell header-cell category-header">
-                  Categories
+                  {groupBy === 'categories' ? 'Categories' : 'Locations'}
                 </div>
                 {getDaysInRange().map((day, index) => (
                   <div key={index} className="grid-cell header-cell">
@@ -1166,71 +1114,165 @@ function Calendar({ accessToken }) {
                 ))}
               </div>
   
-              {/* Grid Rows (Categories) */}
-              {(outlookCategories.length > 0 
-                ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
-              ).filter(category => selectedCategories.includes(category))
-                .map(category => (
-                  <div key={category} className="grid-row">
-                    <div className="grid-cell category-cell">
-                      {/* Add color indicator if it's an Outlook category */}
-                      {outlookCategories.find(cat => cat.name === category) && (
-                        <div 
-                          className="category-color" 
-                          style={{ 
-                            display: 'inline-block',
-                            width: '12px',
-                            height: '12px',
-                            borderRadius: '50%',
-                            marginRight: '5px',
-                            backgroundColor: getCategoryColor(category)
-                          }}
-                        />
-                      )}
-                      {category}
-                    </div>
-                    
-                    {/* Days */}
-                    {getDaysInRange().map((day, dayIndex) => (
-                      <div 
-                        key={dayIndex} 
-                        className="grid-cell day-cell"
-                        onClick={() => handleDayCellClick(day, category)}
-                      >
-                        {/* Events for this category and day */}
-                        {filteredEvents
-                          .filter(event => 
-                            event.category === category && 
-                            getEventPosition(event, day)
-                          )
-                          .map(event => (
-                            <div 
-                              key={event.id} 
-                              className="event-item"
-                              style={{
-                                borderLeft: `4px solid ${getCategoryColor(event.category)}`
-                              }}
-                              onClick={(e) => handleEventClick(event, e)}
-                            >
-                              <div className="event-time">
-                                {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
-                              </div>
-                              <div className="event-title">{event.subject}</div>
-                              {event.eventCode && (
-                                <div className="event-code">Code: {event.eventCode}</div>
-                              )}
-                              {event.location?.displayName && (
-                                <div className="event-location">{event.location.displayName}</div>
-                              )}
-                            </div>
-                          ))
-                        }
+              {/* Grid Rows (Categories or Locations) */}
+              {groupBy === 'categories' ? (
+                // Categories View
+                (outlookCategories.length > 0 
+                  ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                  : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
+                ).filter(category => selectedCategories.includes(category))
+                  .map(category => (
+                    <div key={category} className="grid-row">
+                      <div className="grid-cell category-cell">
+                        {/* Add color indicator if it's an Outlook category */}
+                        {outlookCategories.find(cat => cat.name === category) && (
+                          <div 
+                            className="category-color" 
+                            style={{ 
+                              display: 'inline-block',
+                              width: '12px',
+                              height: '12px',
+                              borderRadius: '50%',
+                              marginRight: '5px',
+                              backgroundColor: getCategoryColor(category)
+                            }}
+                          />
+                        )}
+                        {category}
                       </div>
-                    ))}
-                  </div>
-                ))
-              }
+                      
+                      {/* Days */}
+                      {getDaysInRange().map((day, dayIndex) => (
+                        <div 
+                          key={dayIndex} 
+                          className="grid-cell day-cell"
+                          onClick={() => handleDayCellClick(day, category)}
+                        >
+                          {/* Events for this category and day */}
+                          {filteredEvents
+                            .filter(event => 
+                              event.category === category && 
+                              getEventPosition(event, day)
+                            )
+                            .map(event => (
+                              <div 
+                                key={event.id} 
+                                className="event-item"
+                                style={{
+                                  borderLeft: `4px solid ${getCategoryColor(event.category)}`
+                                }}
+                                onClick={(e) => handleEventClick(event, e)}
+                              >
+                                <div className="event-time">
+                                  {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
+                                </div>
+                                <div className="event-title">{event.subject}</div>
+                                {event.location?.displayName && (
+                                  <div className="event-location">
+                                    {event.location.displayName}
+                                  </div>
+                                )}
+                                {/* Display extension properties */}
+                                {Object.entries(event).filter(([key, value]) => 
+                                  key !== 'id' && 
+                                  key !== 'subject' && 
+                                  key !== 'start' && 
+                                  key !== 'end' && 
+                                  key !== 'location' && 
+                                  key !== 'category' &&
+                                  key !== 'extensions' &&
+                                  value !== undefined &&
+                                  value !== null &&
+                                  value !== ''
+                                ).map(([key, value]) => (
+                                  <div key={key} className="event-extension">
+                                    <small>{key}: {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value.toString()}</small>
+                                  </div>
+                                ))}
+                              </div>
+                            ))
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  ))
+              ) : (
+                <>
+                  {/* Regular location rows */}
+                  {availableLocations
+                    .filter(location => 
+                      selectedLocations.includes(location))
+                    .map(location => (
+                      <div key={location} className="grid-row">
+                        <div className="grid-cell location-cell">
+                          {location}
+                        </div>
+                        
+                        {/* Days */}
+                        {getDaysInRange().map((day, dayIndex) => (
+                          <div 
+                            key={dayIndex} 
+                            className="grid-cell day-cell"
+                            onClick={() => handleDayCellClick(day, null, location)}
+                          >
+                            {filteredEvents
+                              .filter(event => {
+                                // Check if event is for this day
+                                if (!getEventPosition(event, day)) return false;
+                                
+                                // Get event locations
+                                const eventLocations = event.location?.displayName 
+                                  ? event.location.displayName.split('; ').map(loc => loc.trim())
+                                  : [];
+                                
+                                if (location === 'Unspecified') {
+                                  // For Unspecified, show events with:
+                                  // 1. No location/empty location, OR
+                                  // 2. Locations not in availableLocations
+                                  
+                                  // Check for empty locations
+                                  if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
+                                    return true;
+                                  }
+                                  
+                                  // Check if NONE of the locations are in availableLocations
+                                  // (excluding 'Unspecified' itself)
+                                  const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
+                                  return !eventLocations.some(loc => validLocations.includes(loc));
+                                } else {
+                                  // For regular locations, check if this specific location is included
+                                  return eventLocations.includes(location);
+                                }
+                              })
+                              .map(event => (
+                                <div 
+                                  key={event.id} 
+                                  className="event-item"
+                                  style={{
+                                    borderLeft: `4px solid ${getCategoryColor(event.category)}`
+                                  }}
+                                  onClick={(e) => handleEventClick(event, e)}
+                                >
+                                  {/* Event content remains the same */}
+                                  <div className="event-time">
+                                    {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
+                                  </div>
+                                  <div className="event-title">{event.subject}</div>
+                                  <div className="event-category">
+                                    {event.category || 'Uncategorized'}
+                                  </div>
+                                  {/* Extension properties remain the same */}
+                                  {/* ... */}
+                                </div>
+                              ))
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  }
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1261,13 +1303,14 @@ function Calendar({ accessToken }) {
         onClose={() => setIsModalOpen(false)}
         title={modalType === 'add' ? 'Add Event' : 'Edit Event'}
       >
+        {console.log('Current event passed to form:', currentEvent)}
         <EventForm 
           event={currentEvent}
           categories={outlookCategories.length > 0 
             ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-            : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
-          }
-          eventCodes={eventCodes}
+            : categories}
+          availableLocations={availableLocations}
+          schemaExtensions={schemaExtensions}
           onSave={handleSaveEvent}
           onCancel={() => setIsModalOpen(false)}
         />
