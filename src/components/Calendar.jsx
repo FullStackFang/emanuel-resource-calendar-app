@@ -25,7 +25,6 @@ const availableLocations = [
   'Microsoft Teams Meeting'
 ];
 
-
 /*****************************************************************************
  * MAIN CALENDAR COMPONENT
  *****************************************************************************/
@@ -43,12 +42,17 @@ function Calendar({ accessToken }) {
   const [groupBy, setGroupBy] = useState('categories'); // default categories
   const [loading, setLoading] = useState(true);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [isFullyLoaded, setIsFullyLoaded] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(100);
   const [schemaExtensions, setSchemaExtensions] = useState([]);
   const [viewType, setViewType] = useState('week');
   const [dateRange, setDateRange] = useState({
     start: new Date(),
     end: calculateEndDate(new Date(), 'week')
   });
+
+  // Calendar View States
+  const [monthViewTab, setMonthViewTab] = useState(groupBy);
 
   // Toggle states
   const [selectedCategories, setSelectedCategories] = useState([]);
@@ -62,8 +66,152 @@ function Calendar({ accessToken }) {
   const [showContextMenu, setShowContextMenu] = useState(false);
 
   //---------------------------------------------------------------------------
-  // UTILITY FUNCTIONS
+  // UTILITY/HELPER FUNCTIONS
   //---------------------------------------------------------------------------
+
+  function getMonthWeeks() {
+    const days = [];
+    const year = dateRange.start.getFullYear();
+    const month = dateRange.start.getMonth();
+    
+    // Get first day of month and last day of month
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    // Get days from previous month to fill first week
+    const firstDayOfWeek = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    // Adjust for week starting on Monday (0 = Monday, 6 = Sunday)
+    const prevMonthDays = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; 
+    
+    for (let i = prevMonthDays; i > 0; i--) {
+      const day = new Date(year, month, 1 - i);
+      days.push({ date: day, isCurrentMonth: false });
+    }
+    
+    // Add all days from current month
+    for (let i = 1; i <= lastDay.getDate(); i++) {
+      const day = new Date(year, month, i);
+      days.push({ date: day, isCurrentMonth: true });
+    }
+    
+    // Add days from next month to complete the grid
+    const totalDaysAdded = days.length;
+    const nextMonthDays = Math.ceil(totalDaysAdded / 7) * 7 - totalDaysAdded;
+    
+    for (let i = 1; i <= nextMonthDays; i++) {
+      const day = new Date(year, month + 1, i);
+      days.push({ date: day, isCurrentMonth: false });
+    }
+    
+    // Group days into weeks
+    const weeks = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+    
+    return weeks;
+  }
+  
+  function getMonthDayEventPosition(event, day) {
+    try {
+      // Create date objects from the event's start time
+      const eventDate = new Date(event.start.dateTime);
+      
+      // Make copies of both dates and reset to midnight for comparison
+      const eventDay = new Date(eventDate);
+      eventDay.setHours(0, 0, 0, 0);
+      
+      const compareDay = new Date(day);
+      compareDay.setHours(0, 0, 0, 0);
+      
+      // Compare the dates (ignoring time)
+      return eventDay.getTime() === compareDay.getTime();
+    } catch (err) {
+      console.error('Error comparing event date:', err, event);
+      return false;
+    }
+  }
+
+  // Add this function to your Calendar component
+  const getEventContentStyle = (viewType) => {
+    switch(viewType) {
+      case 'day':
+        return {
+          fontSize: '14px',
+          lineHeight: '1.4',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: '-webkit-box',
+          WebkitLineClamp: 3,
+          WebkitBoxOrient: 'vertical'
+        };
+      case 'week':
+        return {
+          fontSize: '12px',
+          lineHeight: '1.3',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical'
+        };
+      case 'month':
+        return {
+          fontSize: '11px',
+          lineHeight: '1.2',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis'
+        };
+      default:
+        return {};
+    }
+  };
+
+  // Use this function to conditionally render event content
+  const renderEventContent = (event, viewType) => {
+    const styles = getEventContentStyle(viewType);
+    
+    return (
+      <>
+        <div className="event-time" style={styles}>
+          {formatEventTime(event.start.dateTime)}
+          {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime)}`}
+        </div>
+        
+        <div className="event-title" style={styles}>
+          {event.subject}
+        </div>
+        
+        {/* Only show location in day and week views */}
+        {viewType !== 'month' && event.location?.displayName && (
+          <div className="event-location" style={styles}>
+            {event.location.displayName}
+          </div>
+        )}
+        
+        {/* Only show extension properties in day view */}
+        {viewType === 'day' && 
+          Object.entries(event).filter(([key, value]) => 
+            key !== 'id' && 
+            key !== 'subject' && 
+            key !== 'start' && 
+            key !== 'end' && 
+            key !== 'location' && 
+            key !== 'category' &&
+            key !== 'extensions' &&
+            value !== undefined &&
+            value !== null &&
+            value !== ''
+          ).map(([key, value]) => (
+            <div key={key} className="event-extension" style={styles}>
+              <small>{key}: {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value.toString()}</small>
+            </div>
+          ))
+        }
+      </>
+    );
+  };
 
   /**
    * Standardize date for API operations, ensuring consistent time zone handling
@@ -159,6 +307,28 @@ function Calendar({ accessToken }) {
     };
     
     return colorMap[category.color] || '#cccccc';
+  };
+
+  /**
+   * Get the color associated with a location
+   * @param {string} locationName - The name of the location
+   * @returns {string} The hex color code
+   */
+  const getLocationColor = (locationName) => {
+    // Map location names to specific colors
+    const locationColorMap = {
+      'TPL': '#4285F4', // Blue
+      'CPL': '#EA4335', // Red
+      'MUS': '#FBBC05', // Yellow
+      'Nursery School': '#34A853', // Green
+      '402': '#8E24AA', // Purple
+      '602': '#FB8C00', // Orange
+      'Virtual': '#00ACC1', // Cyan
+      'Microsoft Teams Meeting': '#039BE5', // Light Blue
+      'Unspecified': '#9E9E9E' // Gray
+    };
+    
+    return locationColorMap[locationName] || '#9E9E9E'; // Default to gray
   };
 
   /**
@@ -649,6 +819,19 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   
   /**
+   * Handle calendar zoom in and zoom out
+   * @param {string} direction - The new direction
+   */
+  // 
+  const handleZoom = (direction) => {
+    if (direction === 'in' && zoomLevel < 150) {
+      setZoomLevel(zoomLevel + 10);
+    } else if (direction === 'out' && zoomLevel > 70) {
+      setZoomLevel(zoomLevel - 10);
+    }
+  };
+
+  /**
    * Handle changing the calendar view type (day/week/month)
    * @param {string} newView - The new view type
    */
@@ -888,6 +1071,15 @@ function Calendar({ accessToken }) {
   // USE EFFECTS
   //---------------------------------------------------------------------------
 
+  // Then add this useEffect to handle the loading state
+  useEffect(() => {
+    if (initialLoadComplete && !loading) {
+      setIsFullyLoaded(true);
+    } else {
+      setIsFullyLoaded(false);
+    }
+  }, [initialLoadComplete, loading]);
+
   // Initialize selectedLocations when availableLocations changes
   useEffect(() => {
     setSelectedLocations(availableLocations);
@@ -1000,6 +1192,11 @@ function Calendar({ accessToken }) {
     };
   }, []);
 
+  // Set the initial Month view type based on groupBy
+  useEffect(() => {
+    setMonthViewTab(groupBy);
+  }, [groupBy]);
+
   //---------------------------------------------------------------------------
   // RENDER
   //---------------------------------------------------------------------------
@@ -1027,7 +1224,7 @@ function Calendar({ accessToken }) {
               Month
             </button>
           </div>
-  
+
           {/* View mode selectors */}
           <div className="view-mode-selector">
             <button 
@@ -1056,6 +1253,13 @@ function Calendar({ accessToken }) {
               : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
             }
           </div>
+
+          {/* Add zoom controls here */}
+          <div className="zoom-controls">
+            <button onClick={() => handleZoom('out')} title="Zoom Out">−</button>
+            <span>{zoomLevel}%</span>
+            <button onClick={() => handleZoom('in')} title="Zoom In">+</button>
+          </div>
           
           <button className="add-event-button" onClick={handleAddEvent}>
             + Add Event
@@ -1066,237 +1270,356 @@ function Calendar({ accessToken }) {
           />
         </div>
       </div>
-  
-      {!initialLoadComplete ? (
-        <div className="loading">Loading your calendar data...</div>
+
+      {!isFullyLoaded ? (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '400px', 
+          width: '100%', 
+          fontSize: '18px' 
+        }}>
+          Loading your calendar data...
+        </div>
       ) : (
-        <div className="calendar-layout">
-          <div className="calendar-sidebar">
-            {groupBy === 'categories' ? (
-              <>
-                <h3>Categories</h3>
-                <MultiSelect 
-                  options={outlookCategories.length > 0 
-                    ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                    : categories
-                  }
-                  selected={selectedCategories}
-                  onChange={setSelectedCategories}
-                  label="Filter by categories"
-                />
-              </>
-            ) : (
-              <>
-                <h3>Locations</h3>
-                <MultiSelect 
-                  options={availableLocations}
-                  selected={selectedLocations}
-                  onChange={setSelectedLocations}
-                  label="Filter by locations"
-                />
-              </>
-            )}
-          </div>
-  
-          {loading ? (
-            <div className="loading">Loading calendar...</div>
-          ) : (
-            <div className={`calendar-grid ${viewType}-view`}>
-              {/* Grid Header (Days) */}
-              <div className="grid-header">
-                <div className="grid-cell header-cell category-header">
-                  {groupBy === 'categories' ? 'Categories' : 'Locations'}
-                </div>
-                {getDaysInRange().map((day, index) => (
-                  <div key={index} className="grid-cell header-cell">
-                    {formatDateHeader(day)}
-                  </div>
-                ))}
-              </div>
-  
-              {/* Grid Rows (Categories or Locations) */}
+        <>
+          <div className="calendar-layout">
+            <div className="calendar-sidebar">
               {groupBy === 'categories' ? (
-                // Categories View
-                (outlookCategories.length > 0 
-                  ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                  : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
-                ).filter(category => selectedCategories.includes(category))
-                  .map(category => (
-                    <div key={category} className="grid-row">
-                      <div className="grid-cell category-cell">
-                        {/* Add color indicator if it's an Outlook category */}
-                        {outlookCategories.find(cat => cat.name === category) && (
-                          <div 
-                            className="category-color" 
-                            style={{ 
-                              display: 'inline-block',
-                              width: '12px',
-                              height: '12px',
-                              borderRadius: '50%',
-                              marginRight: '5px',
-                              backgroundColor: getCategoryColor(category)
-                            }}
-                          />
-                        )}
-                        {category}
-                      </div>
-                      
-                      {/* Days */}
-                      {getDaysInRange().map((day, dayIndex) => (
-                        <div 
-                          key={dayIndex} 
-                          className="grid-cell day-cell"
-                          onClick={() => handleDayCellClick(day, category)}
-                        >
-                          {/* Events for this category and day */}
-                          {filteredEvents
-                            .filter(event => 
-                              event.category === category && 
-                              getEventPosition(event, day)
-                            )
-                            .map(event => (
-                              <div 
-                                key={event.id} 
-                                className="event-item"
-                                style={{
-                                  borderLeft: `4px solid ${getCategoryColor(event.category)}`
-                                }}
-                                onClick={(e) => handleEventClick(event, e)}
-                              >
-                                <div className="event-time">
-                                  {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
-                                </div>
-                                <div className="event-title">{event.subject}</div>
-                                {event.location?.displayName && (
-                                  <div className="event-location">
-                                    {event.location.displayName}
-                                  </div>
-                                )}
-                                {/* Display extension properties */}
-                                {Object.entries(event).filter(([key, value]) => 
-                                  key !== 'id' && 
-                                  key !== 'subject' && 
-                                  key !== 'start' && 
-                                  key !== 'end' && 
-                                  key !== 'location' && 
-                                  key !== 'category' &&
-                                  key !== 'extensions' &&
-                                  value !== undefined &&
-                                  value !== null &&
-                                  value !== ''
-                                ).map(([key, value]) => (
-                                  <div key={key} className="event-extension">
-                                    <small>{key}: {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value.toString()}</small>
-                                  </div>
-                                ))}
-                              </div>
-                            ))
-                          }
-                        </div>
-                      ))}
-                    </div>
-                  ))
+                <>
+                  <h3>Categories</h3>
+                  <MultiSelect 
+                    options={outlookCategories.length > 0 
+                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                      : categories
+                    }
+                    selected={selectedCategories}
+                    onChange={setSelectedCategories}
+                    label="Filter by categories"
+                  />
+                </>
               ) : (
                 <>
-                  {/* Regular location rows */}
-                  {availableLocations
-                    .filter(location => 
-                      selectedLocations.includes(location))
-                    .map(location => (
-                      <div key={location} className="grid-row">
-                        <div className="grid-cell location-cell">
-                          {location}
-                        </div>
-                        
-                        {/* Days */}
-                        {getDaysInRange().map((day, dayIndex) => (
-                          <div 
-                            key={dayIndex} 
-                            className="grid-cell day-cell"
-                            onClick={() => handleDayCellClick(day, null, location)}
-                          >
-                            {filteredEvents
-                              .filter(event => {
-                                // Check if event is for this day
-                                if (!getEventPosition(event, day)) return false;
-                                
-                                // Get event locations
-                                const eventLocations = event.location?.displayName 
-                                  ? event.location.displayName.split('; ').map(loc => loc.trim())
-                                  : [];
-                                
-                                if (location === 'Unspecified') {
-                                  // For Unspecified, show events with:
-                                  // 1. No location/empty location, OR
-                                  // 2. Locations not in availableLocations
-                                  
-                                  // Check for empty locations
-                                  if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
-                                    return true;
-                                  }
-                                  
-                                  // Check if NONE of the locations are in availableLocations
-                                  // (excluding 'Unspecified' itself)
-                                  const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
-                                  return !eventLocations.some(loc => validLocations.includes(loc));
-                                } else {
-                                  // For regular locations, check if this specific location is included
-                                  return eventLocations.includes(location);
-                                }
-                              })
-                              .map(event => (
-                                <div 
-                                  key={event.id} 
-                                  className="event-item"
-                                  style={{
-                                    borderLeft: `4px solid ${getCategoryColor(event.category)}`
-                                  }}
-                                  onClick={(e) => handleEventClick(event, e)}
-                                >
-                                  {/* Event content remains the same */}
-                                  <div className="event-time">
-                                    {formatEventTime(event.start.dateTime)} - {formatEventTime(event.end.dateTime)}
-                                  </div>
-                                  <div className="event-title">{event.subject}</div>
-                                  <div className="event-category">
-                                    {event.category || 'Uncategorized'}
-                                  </div>
-                                  {/* Extension properties remain the same */}
-                                  {/* ... */}
-                                </div>
-                              ))
-                            }
-                          </div>
-                        ))}
-                      </div>
-                    ))
-                  }
+                  <h3>Locations</h3>
+                  <MultiSelect 
+                    options={availableLocations}
+                    selected={selectedLocations}
+                    onChange={setSelectedLocations}
+                    label="Filter by locations"
+                  />
                 </>
               )}
             </div>
+
+            {loading ? (
+              <div className="loading">Updating calendar...</div>
+            ) : (
+              <div 
+                className={`calendar-grid ${viewType}-view`}
+                style={{ 
+                  transform: `scale(${zoomLevel / 100})`, 
+                  transformOrigin: 'top left',
+                  width: '100%'
+                }}
+              >
+                {viewType === 'month' ? (
+                  <>
+                    <div className="month-header">
+                      <div className="weekday-header">
+                        <div className="weekday">Mon</div>
+                        <div className="weekday">Tue</div>
+                        <div className="weekday">Wed</div>
+                        <div className="weekday">Thu</div>
+                        <div className="weekday">Fri</div>
+                        <div className="weekday">Sat</div>
+                        <div className="weekday">Sun</div>
+                      </div>
+                    </div>
+                    
+                    <div className="month-days">
+                      {getMonthWeeks().map((week, weekIndex) => (
+                        <div key={weekIndex} className="week-row">
+                          {week.map((day, dayIndex) => (
+                            <div 
+                              key={dayIndex}
+                              className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''}`}
+                              onClick={() => handleDayCellClick(day.date, null, null)}
+                            >
+                              <div className="day-number">{day.date.getDate()}</div>
+                              <div className="day-events">
+                                {groupBy === 'categories' ? (
+                                  <>
+                                    {(outlookCategories.length > 0 
+                                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                                      : categories)
+                                      .filter(category => selectedCategories.includes(category))
+                                      .map(category => {
+                                        const categoryEvents = filteredEvents.filter(event => 
+                                          event.category === category && 
+                                          getMonthDayEventPosition(event, day.date)
+                                        );
+                                        
+                                        return categoryEvents.length > 0 ? (
+                                          <div key={category} className="day-category-group">
+                                            <div className="category-label">
+                                              <div 
+                                                className="category-color"
+                                                style={{ 
+                                                  width: '8px',
+                                                  height: '8px',
+                                                  borderRadius: '50%',
+                                                  marginRight: '4px',
+                                                  backgroundColor: getCategoryColor(category)
+                                                }}
+                                              />
+                                              <span>{category}</span>
+                                            </div>
+                                            <div className="events-count">{categoryEvents.length}</div>
+                                          </div>
+                                        ) : null;
+                                      })
+                                    }
+                                  </>
+                                ) : (
+                                  <>
+                                    {availableLocations
+                                      .filter(location => selectedLocations.includes(location))
+                                      .map(location => {
+                                        const locationEvents = filteredEvents.filter(event => {
+                                          if (!getMonthDayEventPosition(event, day.date)) return false;
+                                          
+                                          const eventLocations = event.location?.displayName 
+                                            ? event.location.displayName.split('; ').map(loc => loc.trim())
+                                            : [];
+                                          
+                                          if (location === 'Unspecified') {
+                                            if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
+                                              return true;
+                                            }
+                                            
+                                            const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
+                                            return !eventLocations.some(loc => validLocations.includes(loc));
+                                          } else {
+                                            return eventLocations.includes(location);
+                                          }
+                                        });
+                                        
+                                        return locationEvents.length > 0 ? (
+                                          <div key={location} className="day-location-group">
+                                            <div className="location-label">
+                                              <div 
+                                                className="location-color"
+                                                style={{ 
+                                                  width: '8px',
+                                                  height: '8px',
+                                                  borderRadius: '50%',
+                                                  marginRight: '4px',
+                                                  backgroundColor: getLocationColor(location)
+                                                }}
+                                              />
+                                              <span>{location}</span>
+                                            </div>
+                                            <div className="events-count">{locationEvents.length}</div>
+                                          </div>
+                                        ) : null;
+                                      })
+                                    }
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* Grid Header (Days) */}
+                    <div className="grid-header">
+                      <div className="grid-cell header-cell category-header">
+                        {groupBy === 'categories' ? 'Categories' : 'Locations'}
+                      </div>
+                      {getDaysInRange().map((day, index) => (
+                        <div key={index} className="grid-cell header-cell">
+                          {formatDateHeader(day)}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Grid Rows (Categories or Locations) */}
+                    {groupBy === 'categories' ? (
+                      // Categories View
+                      (outlookCategories.length > 0 
+                        ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                        : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
+                      ).filter(category => selectedCategories.includes(category))
+                        .map(category => (
+                          <div key={category} className="grid-row">
+                            <div className="grid-cell category-cell">
+                              {/* Add color indicator if it's an Outlook category */}
+                              {outlookCategories.find(cat => cat.name === category) && (
+                                <div 
+                                  className="category-color" 
+                                  style={{ 
+                                    display: 'inline-block',
+                                    width: '12px',
+                                    height: '12px',
+                                    borderRadius: '50%',
+                                    marginRight: '5px',
+                                    backgroundColor: getCategoryColor(category)
+                                  }}
+                                />
+                              )}
+                              {category}
+                            </div>
+                            
+                            {/* Days */}
+                            {getDaysInRange().map((day, dayIndex) => (
+                              <div 
+                                key={dayIndex} 
+                                className="grid-cell day-cell"
+                                onClick={() => handleDayCellClick(day, category)}
+                              >
+                                {/* Events for this category and day */}
+                                {filteredEvents
+                                  .filter(event => 
+                                    event.category === category && 
+                                    getEventPosition(event, day)
+                                  )
+                                  .map(event => (
+                                    <div 
+                                      key={event.id} 
+                                      className="event-item"
+                                      style={{
+                                        borderLeft: `4px solid ${groupBy === 'locations' 
+                                          ? getLocationColor(event.location?.displayName) 
+                                          : getCategoryColor(event.category)}`,
+                                        padding: viewType === 'month' ? '2px 4px' : '4px 8px',
+                                        margin: viewType === 'month' ? '1px 0' : '2px 0'
+                                      }}
+                                      onClick={(e) => handleEventClick(event, e)}
+                                    >
+                                      {renderEventContent(event, viewType)}
+                                    </div>
+                                  ))
+                                }
+                              </div>
+                            ))}
+                          </div>
+                        ))
+                    ) : (
+                      <>
+                        {/* Regular location rows */}
+                        {availableLocations
+                          .filter(location => 
+                            selectedLocations.includes(location))
+                          .map(location => (
+                            <div key={location} className="grid-row">
+                              {/* Add color indicator for locations */}
+                              <div className="grid-cell location-cell">
+                              <div 
+                                  className="location-color" 
+                                  style={{ 
+                                    display: 'inline-block',
+                                    width: '12px',
+                                    height: '12px',
+                                    borderRadius: '50%',
+                                    marginRight: '5px',
+                                    backgroundColor: getLocationColor(location)
+                                  }}
+                                />
+                                {location}
+                              </div>
+                              
+                              {/* Days */}
+                              {getDaysInRange().map((day, dayIndex) => (
+                                <div 
+                                  key={dayIndex} 
+                                  className="grid-cell day-cell"
+                                  onClick={() => handleDayCellClick(day, null, location)}
+                                >
+                                  {filteredEvents
+                                    .filter(event => {
+                                      // Check if event is for this day
+                                      if (!getEventPosition(event, day)) return false;
+                                      
+                                      // Get event locations
+                                      const eventLocations = event.location?.displayName 
+                                        ? event.location.displayName.split('; ').map(loc => loc.trim())
+                                        : [];
+                                      
+                                      if (location === 'Unspecified') {
+                                        // For Unspecified, show events with:
+                                        // 1. No location/empty location, OR
+                                        // 2. Locations not in availableLocations
+                                        
+                                        // Check for empty locations
+                                        if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
+                                          return true;
+                                        }
+                                        
+                                        // Check if NONE of the locations are in availableLocations
+                                        // (excluding 'Unspecified' itself)
+                                        const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
+                                        return !eventLocations.some(loc => validLocations.includes(loc));
+                                      } else {
+                                        // For regular locations, check if this specific location is included
+                                        return eventLocations.includes(location);
+                                      }
+                                    })
+                                    .map(event => (
+                                      <div 
+                                        key={event.id} 
+                                        className="event-item"
+                                        style={{
+                                          borderLeft: `4px solid ${groupBy === 'locations' 
+                                            ? getLocationColor(event.location?.displayName) 
+                                            : getCategoryColor(event.category)}`,
+                                          padding: viewType === 'month' ? '2px 4px' : '4px 8px',
+                                          margin: viewType === 'month' ? '1px 0' : '2px 0'
+                                        }}
+                                        onClick={(e) => handleEventClick(event, e)}
+                                      >
+                                        {renderEventContent(event, viewType)}
+                                      </div>
+                                    ))
+                                  }
+                                </div>
+                              ))}
+                            </div>
+                          ))
+                        }
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Context Menu */}
+          {showContextMenu && currentEvent && (
+            <div 
+              className="context-menu"
+              style={{ 
+                top: `${contextMenuPosition.y}px`, 
+                left: `${contextMenuPosition.x}px` 
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="context-menu-item" onClick={handleEditEvent}>
+                Edit Event
+              </div>
+              <div className="context-menu-item delete" onClick={handleDeleteEvent}>
+                Delete Event
+              </div>
+            </div>
           )}
-        </div>
+        </>
       )}
-  
-      {/* Context Menu */}
-      {showContextMenu && currentEvent && (
-        <div 
-          className="context-menu"
-          style={{ 
-            top: `${contextMenuPosition.y}px`, 
-            left: `${contextMenuPosition.x}px` 
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="context-menu-item" onClick={handleEditEvent}>
-            Edit Event
-          </div>
-          <div className="context-menu-item delete" onClick={handleDeleteEvent}>
-            Delete Event
-          </div>
-        </div>
-      )}
-  
+
       {/* Modal for Add/Edit Event */}
       <Modal 
         isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit')} 
@@ -1315,7 +1638,7 @@ function Calendar({ accessToken }) {
           onCancel={() => setIsModalOpen(false)}
         />
       </Modal>
-  
+
       {/* Modal for Delete Confirmation */}
       <Modal
         isOpen={isModalOpen && modalType === 'delete'}
