@@ -8,7 +8,7 @@ function Navigation() {
   return (
     <div className="app-header">
       <div className="app-title">
-        <h2>Outlook Resource Scheduler</h2>
+        <h2></h2>
       </div>
       <div className="app-navigation">
         <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>

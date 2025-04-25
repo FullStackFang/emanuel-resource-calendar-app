@@ -55,6 +55,7 @@ function Calendar({ accessToken }) {
   const [monthViewTab, setMonthViewTab] = useState(groupBy);
 
   // Toggle states
+  const [selectedFilter, setSelectedFilter] = useState(''); 
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedLocations, setSelectedLocations] = useState(availableLocations);
 
@@ -68,6 +69,32 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   // UTILITY/HELPER FUNCTIONS
   //---------------------------------------------------------------------------
+
+  // Add this helper function to filter events for month view
+  const getFilteredMonthEvents = (day) => {
+    if (!selectedFilter) return [];
+    
+    return filteredEvents.filter(event => {
+      // Check if event occurs on this day
+      if (!getMonthDayEventPosition(event, day)) return false;
+      
+      // Filter by category or location based on groupBy
+      if (groupBy === 'categories') {
+        return event.category === selectedFilter;
+      } else {
+        // For locations
+        const eventLocations = event.location?.displayName 
+          ? event.location.displayName.split('; ').map(loc => loc.trim())
+          : [];
+          
+        if (selectedFilter === 'Unspecified') {
+          return eventLocations.length === 0 || eventLocations.every(loc => loc === '');
+        } else {
+          return eventLocations.includes(selectedFilter);
+        }
+      }
+    });
+  };
 
   function getMonthWeeks() {
     const days = [];
@@ -818,6 +845,11 @@ function Calendar({ accessToken }) {
   // EVENT HANDLERS
   //---------------------------------------------------------------------------
   
+  // Add this new handler for the month filter dropdown
+  const handleMonthFilterChange = (value) => {
+    setSelectedFilter(value);
+  };
+
   /**
    * Handle calendar zoom in and zoom out
    * @param {string} direction - The new direction
@@ -1177,6 +1209,32 @@ function Calendar({ accessToken }) {
     }
   }, [accessToken, loadSchemaExtensions]);
 
+  // Initialize date range for month view
+  useEffect(() => {
+    if (viewType === 'month') {
+      // Reset date to first day of month
+      const firstDayOfMonth = new Date(dateRange.start);
+      firstDayOfMonth.setDate(1);
+      
+      const endOfMonth = calculateEndDate(firstDayOfMonth, 'month');
+      
+      setDateRange({
+        start: firstDayOfMonth,
+        end: endOfMonth
+      });
+    }
+  }, [viewType]);
+
+  // Initialize filter for month view
+  useEffect(() => {
+    // Set default filter based on the groupBy setting
+    if (groupBy === 'categories' && outlookCategories.length > 0) {
+      setSelectedFilter('Uncategorized');
+    } else if (groupBy === 'locations') {
+      setSelectedFilter('Unspecified');
+    }
+  }, [groupBy, outlookCategories]);
+
   // Close context menu when clicking outside
   useEffect(() => {
     console.log('accessToken:', accessToken);
@@ -1224,7 +1282,7 @@ function Calendar({ accessToken }) {
               Month
             </button>
           </div>
-
+  
           {/* View mode selectors */}
           <div className="view-mode-selector">
             <button 
@@ -1250,10 +1308,12 @@ function Calendar({ accessToken }) {
           <div className="current-range">
             {viewType === 'day' 
               ? dateRange.start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-              : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+              : viewType === 'month'
+                ? dateRange.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) /* CHANGE: Better formatting for month view */
+                : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
             }
           </div>
-
+  
           {/* Add zoom controls here */}
           <div className="zoom-controls">
             <button onClick={() => handleZoom('out')} title="Zoom Out">−</button>
@@ -1270,7 +1330,7 @@ function Calendar({ accessToken }) {
           />
         </div>
       </div>
-
+  
       {!isFullyLoaded ? (
         <div style={{ 
           display: 'flex', 
@@ -1286,32 +1346,60 @@ function Calendar({ accessToken }) {
         <>
           <div className="calendar-layout">
             <div className="calendar-sidebar">
-              {groupBy === 'categories' ? (
+              {viewType === 'month' ? (
                 <>
-                  <h3>Categories</h3>
-                  <MultiSelect 
-                    options={outlookCategories.length > 0 
-                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                      : categories
-                    }
-                    selected={selectedCategories}
-                    onChange={setSelectedCategories}
-                    label="Filter by categories"
-                  />
+                  <h3>{groupBy === 'categories' ? 'Filter by Category' : 'Filter by Location'}</h3>
+                  <select 
+                    value={selectedFilter}
+                    onChange={(e) => handleMonthFilterChange(e.target.value)}
+                    className="month-filter-select"
+                  >
+                    <option value="">-- Select {groupBy === 'categories' ? 'Category' : 'Location'} --</option>
+                    {groupBy === 'categories' ? (
+                      // Show categories
+                      outlookCategories.length > 0 
+                        ? ['Uncategorized', ...outlookCategories.map(cat => cat.name)
+                            .filter(name => name !== 'Uncategorized')] // Filter out duplicate "Uncategorized"
+                          .map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))
+                        : null
+                    ) : (
+                      // Show locations
+                      availableLocations.map(loc => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))
+                    )}
+                  </select>
                 </>
               ) : (
-                <>
-                  <h3>Locations</h3>
-                  <MultiSelect 
-                    options={availableLocations}
-                    selected={selectedLocations}
-                    onChange={setSelectedLocations}
-                    label="Filter by locations"
-                  />
-                </>
+                groupBy === 'categories' ? (
+                  <>
+                    <h3>Categories</h3>
+                    <MultiSelect 
+                      options={outlookCategories.length > 0 
+                        ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                        : categories
+                      }
+                      selected={selectedCategories}
+                      onChange={setSelectedCategories}
+                      label="Filter by categories"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <h3>Locations</h3>
+                    <MultiSelect 
+                      options={availableLocations}
+                      selected={selectedLocations}
+                      onChange={setSelectedLocations}
+                      label="Filter by locations"
+                    />
+                  </>
+                )
               )}
             </div>
-
+  
             {loading ? (
               <div className="loading">Updating calendar...</div>
             ) : (
@@ -1324,7 +1412,8 @@ function Calendar({ accessToken }) {
                 }}
               >
                 {viewType === 'month' ? (
-                  <>
+                  // Month View
+                  <div className="month-view-container"> {/* CHANGE: Added container div with class for styling */}
                     <div className="month-header">
                       <div className="weekday-header">
                         <div className="weekday">Mon</div>
@@ -1344,16 +1433,20 @@ function Calendar({ accessToken }) {
                             <div 
                               key={dayIndex}
                               className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''}`}
-                              onClick={() => handleDayCellClick(day.date, null, null)}
+                              onClick={() => handleDayCellClick(day.date)}
                             >
                               <div className="day-number">{day.date.getDate()}</div>
+                              
+                              {/* Events for this day */}
                               <div className="day-events">
-                                {groupBy === 'categories' ? (
-                                  <>
-                                    {(outlookCategories.length > 0 
-                                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
+                                {/* CHANGE: Added conditional rendering based on selectedFilter */}
+                                {!selectedFilter ? (
+                                  // No filter selected - show summary by category/location
+                                  groupBy === 'categories' ? (
+                                    // Group by categories
+                                    (outlookCategories.length > 0 
+                                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name)]
                                       : categories)
-                                      .filter(category => selectedCategories.includes(category))
                                       .map(category => {
                                         const categoryEvents = filteredEvents.filter(event => 
                                           event.category === category && 
@@ -1379,12 +1472,9 @@ function Calendar({ accessToken }) {
                                           </div>
                                         ) : null;
                                       })
-                                    }
-                                  </>
-                                ) : (
-                                  <>
-                                    {availableLocations
-                                      .filter(location => selectedLocations.includes(location))
+                                  ) : (
+                                    // Group by locations
+                                    availableLocations
                                       .map(location => {
                                         const locationEvents = filteredEvents.filter(event => {
                                           if (!getMonthDayEventPosition(event, day.date)) return false;
@@ -1424,8 +1514,27 @@ function Calendar({ accessToken }) {
                                           </div>
                                         ) : null;
                                       })
-                                    }
-                                  </>
+                                  )
+                                ) : (
+                                  // CHANGE: Filter is selected - show actual events
+                                  getFilteredMonthEvents(day.date).map(event => (
+                                    <div 
+                                      key={event.id} 
+                                      className="event-item"
+                                      style={{
+                                        borderLeft: `4px solid ${groupBy === 'categories' 
+                                          ? getCategoryColor(event.category) 
+                                          : getLocationColor(event.location?.displayName || 'Unspecified')}`,
+                                        padding: '2px 4px',
+                                        margin: '1px 0'
+                                      }}
+                                      onClick={(e) => handleEventClick(event, e)}
+                                    >
+                                      <div className="event-title" style={getEventContentStyle('month')}>
+                                        {formatEventTime(event.start.dateTime)} {event.subject}
+                                      </div>
+                                    </div>
+                                  ))
                                 )}
                               </div>
                             </div>
@@ -1433,7 +1542,7 @@ function Calendar({ accessToken }) {
                         </div>
                       ))}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <>
                     {/* Grid Header (Days) */}
@@ -1447,7 +1556,7 @@ function Calendar({ accessToken }) {
                         </div>
                       ))}
                     </div>
-
+  
                     {/* Grid Rows (Categories or Locations) */}
                     {groupBy === 'categories' ? (
                       // Categories View
@@ -1598,7 +1707,7 @@ function Calendar({ accessToken }) {
               </div>
             )}
           </div>
-
+  
           {/* Context Menu */}
           {showContextMenu && currentEvent && (
             <div 
@@ -1619,7 +1728,7 @@ function Calendar({ accessToken }) {
           )}
         </>
       )}
-
+  
       {/* Modal for Add/Edit Event */}
       <Modal 
         isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit')} 
@@ -1638,7 +1747,7 @@ function Calendar({ accessToken }) {
           onCancel={() => setIsModalOpen(false)}
         />
       </Modal>
-
+  
       {/* Modal for Delete Confirmation */}
       <Modal
         isOpen={isModalOpen && modalType === 'delete'}

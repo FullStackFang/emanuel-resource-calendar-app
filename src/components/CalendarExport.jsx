@@ -200,6 +200,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
   return (
     <button
       onClick={handleExport}
+      className='export-pdf-button'
       style={{
         padding: '10px 15px',
         backgroundColor: '#0078d4',
