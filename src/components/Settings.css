@@ -1,0 +1,40 @@
+/* src/components/Settings.css */
+
+.settings-container {
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  max-width: 400px;
+  margin: 20px auto;
+}
+
+.settings-container h2 {
+  margin-bottom: 12px;
+  font-size: 1.25rem;
+}
+
+.setting-item {
+  margin-bottom: 12px;
+}
+
+.setting-item label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.setting-item select,
+.setting-item input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.settings-loading {
+  padding: 16px;
+  text-align: center;
+  font-style: italic;
+}

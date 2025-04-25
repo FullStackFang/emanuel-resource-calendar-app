@@ -1,107 +1,136 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <OfficeApp
-          xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
-          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
-          xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
-          xsi:type="MailApp">
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+  xsi:type="MailApp">
 
+  <!-- Basic metadata -->
   <Id>9c968ce7-9e77-4afa-ae40-7cdaf47b9c34</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>Your Name or Company</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Custom Outlook Calendar" />
-  <Description DefaultValue="A custom calendar view with category organization for Outlook"/>
-  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
 
+  <DisplayName DefaultValue="Custom Outlook Calendar"/>
+  <Description DefaultValue="A custom calendar view with category organization for Outlook"/>
+
+  <!-- Adding icon URLs back (required) -->
+  <IconUrl DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/assets/icon-64.png"/>
+  <HighResolutionIconUrl DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/assets/icon-128.png"/>
+
+  <!-- Adding required SupportUrl -->
+  <SupportUrl DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/support.html"/>
+
+  <!-- Which domains your add-in will call -->
   <AppDomains>
+    <AppDomain>https://teal-decent-pleasantly.ngrok-free.app</AppDomain>
     <AppDomain>https://login.microsoftonline.com</AppDomain>
     <AppDomain>https://login.windows.net</AppDomain>
   </AppDomains>
 
   <Hosts>
-    <Host Name="Mailbox" />
+    <Host Name="Mailbox"/>
   </Hosts>
+
   <Requirements>
     <Sets>
-      <Set Name="Mailbox" MinVersion="1.1" />
+      <Set Name="Mailbox" MinVersion="1.1"/>
     </Sets>
   </Requirements>
+
+  <!-- Taskpane definition for Message Read -->
   <FormSettings>
     <Form xsi:type="ItemRead">
       <DesktopSettings>
-        <SourceLocation DefaultValue="https://localhost:3000/index.html"/>
-        <RequestedHeight>650</RequestedHeight>
+        <SourceLocation DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/index.html"/>
+        <RequestedHeight>350</RequestedHeight>
       </DesktopSettings>
       <TabletSettings>
-        <SourceLocation DefaultValue="https://localhost:3000/index.html"/>
-        <RequestedHeight>650</RequestedHeight>
+        <SourceLocation DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/index.html"/>
+        <RequestedHeight>350</RequestedHeight>
       </TabletSettings>
       <PhoneSettings>
-        <SourceLocation DefaultValue="https://localhost:3000/index.html"/>
+        <SourceLocation DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/index.html"/>
       </PhoneSettings>
     </Form>
   </FormSettings>
 
   <Permissions>ReadWriteMailbox</Permissions>
   <Rule xsi:type="RuleCollection" Mode="Or">
-    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
   </Rule>
 
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+  <!-- VersionOverrides for newer Mail API (1.3+) -->
+  <VersionOverrides
+    xmlns="http://schemas.microsoft.com/office/mailappversionoverrides"
+    xsi:type="VersionOverridesV1_0">
+
     <Requirements>
       <bt:Sets>
-        <bt:Set Name="Mailbox" MinVersion="1.3" />
+        <bt:Set Name="Mailbox" MinVersion="1.3"/>
       </bt:Sets>
     </Requirements>
+
     <Hosts>
       <Host xsi:type="MailHost">
         <DesktopFormFactor>
-          <FunctionFile resid="functionFile" />
+
+          <!-- This shim page must be present, see public/function-file.html -->
+          <FunctionFile resid="functionFile"/>
+
           <ExtensionPoint xsi:type="MessageReadCommandSurface">
             <OfficeTab id="TabDefault">
               <Group id="msgReadGroup">
-                <Label resid="groupLabel" />
+                <Label resid="groupLabel"/>
                 <Control xsi:type="Button" id="msgReadOpenPaneButton">
-                  <Label resid="paneReadButtonLabel" />
+                  <Label resid="paneReadButtonLabel"/>
                   <Supertip>
-                    <Title resid="paneReadSuperTipTitle" />
-                    <Description resid="paneReadSuperTipDescription" />
+                    <Title resid="paneReadSuperTipTitle"/>
+                    <Description resid="paneReadSuperTipDescription"/>
                   </Supertip>
                   <Icon>
-                    <bt:Image size="16" resid="icon16" />
-                    <bt:Image size="32" resid="icon32" />
-                    <bt:Image size="80" resid="icon80" />
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <SourceLocation resid="messageReadTaskPaneUrl" />
+                    <SourceLocation resid="messageReadTaskPaneUrl"/>
                   </Action>
                 </Control>
               </Group>
             </OfficeTab>
           </ExtensionPoint>
+
         </DesktopFormFactor>
       </Host>
     </Hosts>
+
     <Resources>
       <bt:Images>
-        <bt:Image id="icon16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
-        <bt:Image id="icon32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
-        <bt:Image id="icon80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+        <bt:Image id="icon16" DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/assets/icon-16.png"/>
+        <bt:Image id="icon32" DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/assets/icon-32.png"/>
+        <bt:Image id="icon80" DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/assets/icon-80.png"/>
       </bt:Images>
+
       <bt:Urls>
-        <bt:Url id="functionFile" DefaultValue="https://localhost:3000/function-file.html"/>
-        <bt:Url id="messageReadTaskPaneUrl" DefaultValue="https://localhost:3000/index.html"/>
+        <!-- function-file.html lives in public/ -->
+        <bt:Url id="functionFile" DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/function-file.html"/>
+        <!-- main React entrypoint -->
+        <bt:Url id="messageReadTaskPaneUrl" DefaultValue="https://teal-decent-pleasantly.ngrok-free.app/index.html"/>
       </bt:Urls>
+
       <bt:ShortStrings>
         <bt:String id="groupLabel" DefaultValue="Calendar Add-in"/>
         <bt:String id="paneReadButtonLabel" DefaultValue="Custom Calendar"/>
         <bt:String id="paneReadSuperTipTitle" DefaultValue="Open Custom Calendar"/>
       </bt:ShortStrings>
+
       <bt:LongStrings>
-        <bt:String id="paneReadSuperTipDescription" DefaultValue="Opens a custom calendar view with advanced category organization"/>
+        <bt:String id="paneReadSuperTipDescription"
+                   DefaultValue="Opens a custom calendar view with advanced category organization"/>
       </bt:LongStrings>
     </Resources>
+
   </VersionOverrides>
 </OfficeApp>

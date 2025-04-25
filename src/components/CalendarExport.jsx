@@ -143,7 +143,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
           }
           
           // Starting position for this row
-          const rowStartY = y;
+          // const rowStartY = y;
           let maxHeight = 0;
           
           // Draw date and day only for first event of the date

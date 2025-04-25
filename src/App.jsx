@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { loginRequest } from './config/authConfig';
 import Authentication from './components/Authentication';
 import Calendar from './components/Calendar';
+import Settings from './components/Settings';
 import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation'
@@ -60,6 +61,7 @@ function App() {
               <Navigation />
               <Routes>
                 <Route path="/" element={<Calendar accessToken={accessToken} />} />
+                <Route path="/settings" element={<Settings />} />
                 <Route path="/admin" element={<SchemaExtensionAdmin accessToken={accessToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

@@ -2,9 +2,11 @@
 import React from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '../config/authConfig';
+import { useNavigate } from 'react-router-dom';
 
 function Authentication({ onSignIn, onSignOut }) {
   const { instance, accounts } = useMsal();
+  const navigate = useNavigate();
 
   const handleLogin = async () => {
     try {
@@ -38,6 +40,12 @@ function Authentication({ onSignIn, onSignOut }) {
       ) : (
         <div className="authenticated-user">
           <span>Signed in as: {accounts[0].username}</span>
+          <button
+            onClick={() => navigate('/settings')}
+            className="settings-button"
+          >
+            Settings
+          </button>
           <button onClick={handleLogout} className="logout-button">
             Sign Out
           </button>

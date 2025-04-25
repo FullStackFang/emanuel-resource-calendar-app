@@ -369,6 +369,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
       </div>
 
       {/* Schema Extension Fields */}
+      {/* 
       {schemaExtensions && schemaExtensions.length > 0 && (
         <div className="schema-extensions-section">
           <h3>Additional Properties</h3>
@@ -401,6 +402,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           ))}
         </div>
       )}
+      */}
 
       <div className="form-actions">
         <button type="button" className="cancel-button" onClick={onCancel}>

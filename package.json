@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@azure/app-configuration": "^1.9.0",
+    "@azure/identity": "^4.9.1",
     "@azure/msal-browser": "^4.11.0",
     "@azure/msal-react": "^3.0.10",
     "@fluentui/react-components": "^9.61.6",
@@ -34,5 +36,10 @@
     "globals": "^16.0.0",
     "selfsigned": "^2.4.1",
     "vite": "^6.3.0"
+  },
+  "overrides": {
+    "@azure/msal-react": {
+      "react": "^16.8.0 || ^17 || ^18 || ^19"
+    }
   }
 }

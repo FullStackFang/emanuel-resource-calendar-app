@@ -5,7 +5,7 @@ import EventForm from './EventForm';
 import MultiSelect from './MultiSelect';
 import { msalConfig } from '../config/authConfig';
 import ExportToPdfButton from './CalendarExport';
-
+import { useUserPreferences } from '../hooks/useUserPreferences';
 
 /*****************************************************************************
  * CONSTANTS AND CONFIGURATION
@@ -43,6 +43,9 @@ function Calendar({ accessToken }) {
   const [loading, setLoading] = useState(true);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [isFullyLoaded, setIsFullyLoaded] = useState(false);
+
+  const { prefs, loading: prefsLoading, updatePrefs } = useUserPreferences();
+
   const [zoomLevel, setZoomLevel] = useState(100);
   const [schemaExtensions, setSchemaExtensions] = useState([]);
   const [viewType, setViewType] = useState('week');
@@ -50,9 +53,6 @@ function Calendar({ accessToken }) {
     start: new Date(),
     end: calculateEndDate(new Date(), 'week')
   });
-
-  // Calendar View States
-  const [monthViewTab, setMonthViewTab] = useState(groupBy);
 
   // Toggle states
   const [selectedFilter, setSelectedFilter] = useState(''); 
@@ -69,6 +69,38 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   // UTILITY/HELPER FUNCTIONS
   //---------------------------------------------------------------------------
+
+  const makeBatchBody = (eventId, coreBody, extPayload) => ({
+    requests: [
+      {
+        id: '1', method: eventId ? 'PATCH' : 'POST',
+        url: eventId ? `/me/events/${eventId}` : '/me/events',
+        headers: { 'Content-Type': 'application/json' },
+        body: coreBody
+      },
+      ...(
+        Object.keys(extPayload).length
+          ? [{ id: '2', method: 'PATCH', url: `/me/events/${eventId}`, headers: { 'Content-Type': 'application/json' }, body: extPayload }]
+          : []
+      )
+    ]
+  });
+
+  const patchEventBatch = async (eventId, coreBody, extPayload) => {
+    const batchBody = makeBatchBody(eventId, coreBody, extPayload);
+    const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(batchBody)
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Batch call failed: ${resp.status}`);
+    }
+  };
 
   // Add this helper function to filter events for month view
   const getFilteredMonthEvents = (day) => {
@@ -518,14 +550,9 @@ function Calendar({ accessToken }) {
    * Load events from Microsoft Graph API
    *
   */
-
   const loadGraphEvents = useCallback(async () => {
     // 0. Don't even start until we have a token
-    if (!accessToken) {
-      console.warn("loadGraphEvents: no access token yet");
-      return;
-    }
-  
+    if (!accessToken) { return; }
     setLoading(true);
     try {
       // 1. Format your dates
@@ -772,7 +799,7 @@ function Calendar({ accessToken }) {
       }
       console.log("CORE UPDATE successful");
     }
-  
+
     // 3) UPDATE each schema extension separately
     console.log("CHECKING FOR SCHEMA EXTENSIONS in:", Object.keys(body).filter(k => k.includes('.')));
     for (const extension of schemaExtensions) {
@@ -844,7 +871,7 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   // EVENT HANDLERS
   //---------------------------------------------------------------------------
-  
+
   // Add this new handler for the month filter dropdown
   const handleMonthFilterChange = (value) => {
     setSelectedFilter(value);
@@ -1044,6 +1071,7 @@ function Calendar({ accessToken }) {
    * Called by EventForm when the user hits “Save”
    * @param {Object} eventData - The payload from EventForm.handleSubmit
    */
+  /*
   const handleSaveEvent = async (eventData) => {
     try {
       console.log("BEFORE SAVE - Event data with extensions:", JSON.stringify(eventData, null, 2));
@@ -1064,6 +1092,37 @@ function Calendar({ accessToken }) {
     } catch (err) {
       console.error('Failed to save event:', err);
       alert('There was an error saving the event:\n' + err.message);
+    }
+  };
+  */
+    const handleSaveEvent = async (data) => {
+    try {
+      // Core payload
+      const core = {
+        subject: data.subject,
+        start:   data.start,
+        end:     data.end,
+        location:data.location,
+        categories: data.categories
+      };
+      // Extensions payload
+      const ext = {};
+      schemaExtensions.forEach(extDef => {
+        const props = {};
+        extDef.properties.forEach(p => {
+          const v = data[extDef.id]?.[p.name];
+          if (v !== undefined) props[p.name] = v;
+        });
+        if (Object.keys(props).length) ext[extDef.id] = props;
+      });
+      // Batch update
+      await patchEventBatch(data.id, core, ext);
+      // Refresh
+      await loadGraphEvents();
+      setIsModalOpen(false);
+    } catch (e) {
+      console.error(e);
+      alert('Save failed: ' + e.message);
     }
   };
   
@@ -1116,6 +1175,25 @@ function Calendar({ accessToken }) {
   useEffect(() => {
     setSelectedLocations(availableLocations);
   }, []);
+
+  // Initialize user preferences from office roam settings
+  useEffect(() => {
+    if (prefsLoading) return;
+  
+    // once roamingSettings are ready, push them into state
+    setViewType(prefs.defaultView);
+    setGroupBy(prefs.defaultGroupBy);
+    setZoomLevel(prefs.preferredZoomLevel);
+    setSelectedCategories(prefs.selectedCategories || selectedCategories);
+
+    if (prefs.selectedLocations?.length) {
+      setSelectedLocations(prefs.selectedLocations);
+    }
+
+    // adjust your date range to match the loaded view
+    const newEnd = calculateEndDate(dateRange.start, prefs.defaultView);
+    setDateRange({ start: dateRange.start, end: newEnd });
+  }, [prefsLoading, prefs, dateRange.start, selectedCategories, selectedLocations]);  
 
   // Update selected categories when Outlook categories change
   useEffect(() => {
@@ -1250,11 +1328,6 @@ function Calendar({ accessToken }) {
     };
   }, []);
 
-  // Set the initial Month view type based on groupBy
-  useEffect(() => {
-    setMonthViewTab(groupBy);
-  }, [groupBy]);
-
   //---------------------------------------------------------------------------
   // RENDER
   //---------------------------------------------------------------------------
@@ -1265,19 +1338,31 @@ function Calendar({ accessToken }) {
           <div className="view-selector">
             <button 
               className={viewType === 'day' ? 'active' : ''} 
-              onClick={() => handleViewChange('day')}
+              onClick={() => {
+                  handleViewChange('day');
+                  updatePrefs({ defaultView: 'day' });
+                }
+              }
             >
               Day
             </button>
             <button 
               className={viewType === 'week' ? 'active' : ''} 
-              onClick={() => handleViewChange('week')}
+              onClick={() => {
+                  handleViewChange('week');
+                  updatePrefs({ defaultView: 'week' });
+                }
+              }
             >
               Week
             </button>
             <button 
               className={viewType === 'month' ? 'active' : ''} 
-              onClick={() => handleViewChange('month')}
+              onClick={() => {
+                  handleViewChange('month');
+                  updatePrefs({ defaultView: 'month' });
+                }
+              }
             >
               Month
             </button>
@@ -1287,13 +1372,21 @@ function Calendar({ accessToken }) {
           <div className="view-mode-selector">
             <button 
               className={groupBy === 'categories' ? 'active' : ''} 
-              onClick={() => setGroupBy('categories')}
+              onClick={() => {
+                  setGroupBy('categories');
+                  updatePrefs({ defaultGroupBy: 'categories' });
+                }
+              }
             >
               Group by Category
             </button>
             <button 
               className={groupBy === 'locations' ? 'active' : ''} 
-              onClick={() => setGroupBy('locations')}
+              onClick={() => {
+                  setGroupBy('locations');
+                  updatePrefs({ defaultGroupBy: 'locations' });
+                }
+              }
             >
               Group by Location
             </button>
@@ -1316,9 +1409,18 @@ function Calendar({ accessToken }) {
   
           {/* Add zoom controls here */}
           <div className="zoom-controls">
-            <button onClick={() => handleZoom('out')} title="Zoom Out">−</button>
+            <button onClick={() => {
+                handleZoom('out');
+                const newZoom = zoomLevel - 10;
+                updatePrefs({ preferredZoomLevel: newZoom });
+              }
+            } title="Zoom Out">−</button>
             <span>{zoomLevel}%</span>
-            <button onClick={() => handleZoom('in')} title="Zoom In">+</button>
+            <button onClick={() => {
+                handleZoom('in');
+                updatePrefs({ preferredZoomLevel: zoomLevel + 10 });
+              }
+             } title="Zoom In">+</button>
           </div>
           
           <button className="add-event-button" onClick={handleAddEvent}>
@@ -1382,7 +1484,11 @@ function Calendar({ accessToken }) {
                         : categories
                       }
                       selected={selectedCategories}
-                      onChange={setSelectedCategories}
+                      onChange={val => {
+                          setSelectedCategories(val);
+                          updatePrefs({ selectedCategories: val });
+                        }
+                      }
                       label="Filter by categories"
                     />
                   </>
@@ -1392,7 +1498,11 @@ function Calendar({ accessToken }) {
                     <MultiSelect 
                       options={availableLocations}
                       selected={selectedLocations}
-                      onChange={setSelectedLocations}
+                      onChange={val => {
+                          setSelectedLocations(val);
+                          updatePrefs({ selectedLocations: val });
+                        }
+                      }
                       label="Filter by locations"
                     />
                   </>
