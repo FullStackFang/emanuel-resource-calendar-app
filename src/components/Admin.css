@@ -1,0 +1,371 @@
+/* 
+ * Admin.css - Styles for admin interfaces
+ * 
+ * Table of Contents:
+ * 1. Layout & Containers
+ * 2. Tables & Data Display
+ * 3. Notifications
+ * 4. Form Elements
+ * 5. Buttons & Actions
+ * 6. Inline Editing
+ */
+
+/* ====================================
+   1. LAYOUT & CONTAINERS
+   ==================================== */
+
+   .admin-container {
+    width: 100%;
+    max-width: 1600px; /* Increased from 1200px for better screen utilization */
+    margin: 0 auto;
+    padding: 20px;
+    box-sizing: border-box; /* Ensures padding doesn't increase width */
+  }
+  
+  .admin-loading {
+    text-align: center;
+    padding: 40px;
+    font-style: italic;
+    color: #777;
+  }
+  
+  .user-edit-form {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  
+  .user-edit-form h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #dee2e6;
+  }
+  
+  .user-edit-form h4 {
+    margin-top: 30px;
+    margin-bottom: 10px;
+    color: #495057;
+  }
+  
+  /* ====================================
+     2. TABLES & DATA DISPLAY
+     ==================================== */
+  
+  .admin-table-container {
+    overflow-x: auto; /* Enables horizontal scrolling on small screens */
+    margin-top: 20px;
+    width: 100%;
+  }
+  
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    table-layout: fixed; /* Makes table respect column widths */
+  }
+  
+  .admin-table th,
+  .admin-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Shows ellipsis for overflowing content */
+  }
+  
+  .admin-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #333;
+    position: sticky; /* Makes headers sticky when scrolling */
+    top: 0;
+    z-index: 10;
+  }
+  
+  /* Column width distribution */
+  .admin-table th:nth-child(1),
+  .admin-table td:nth-child(1) {
+    width: 15%; /* Name column */
+  }
+  
+  .admin-table th:nth-child(2),
+  .admin-table td:nth-child(2) {
+    width: 20%; /* Email column */
+  }
+  
+  .admin-table th:nth-child(3),
+  .admin-table th:nth-child(4),
+  .admin-table td:nth-child(3),
+  .admin-table td:nth-child(4) {
+    width: 10%; /* Default View and Start of Week columns */
+  }
+  
+  .admin-table th:nth-child(5),
+  .admin-table td:nth-child(5) {
+    width: 20%; /* Permissions column */
+  }
+  
+  .admin-table th:nth-child(6),
+  .admin-table td:nth-child(6) {
+    width: 15%; /* Last Login column */
+  }
+  
+  .admin-table tr:hover {
+    background-color: #f5f5f5;
+  }
+  
+  .admin-table .no-results {
+    text-align: center;
+    padding: 30px;
+    font-style: italic;
+    color: #888;
+  }
+  
+  .current-user-row {
+    background-color: rgba(0, 123, 255, 0.05);
+  }
+  
+  /* Permission display styles */
+  .permissions-list {
+    display: flex;
+    flex-wrap: wrap; /* Allows wrapping on smaller screens */
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    gap: 6px;
+  }
+  
+  .permissions-list li {
+    background-color: #e9ecef;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  
+  /* Action buttons column */
+  .actions-cell {
+    white-space: nowrap;
+    min-width: 160px;
+    width: 10%; /* Actions column */
+  }
+  
+  /* ====================================
+     3. NOTIFICATIONS
+     ==================================== */
+  
+  .error-message,
+  .success-message {
+    padding: 10px 15px;
+    margin: 10px 0;
+    border-radius: 4px;
+  }
+  
+  .error-message {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+  }
+  
+  .success-message {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+  }
+  
+  /* ====================================
+     4. FORM ELEMENTS
+     ==================================== */
+  
+  .form-group {
+    margin-bottom: 15px;
+  }
+  
+  .form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+  
+  .checkbox-group label {
+    display: flex;
+    align-items: center;
+    font-weight: normal;
+  }
+  
+  .checkbox-group input[type="checkbox"] {
+    margin-right: 10px;
+  }
+  
+  .form-group input[type="text"],
+  .form-group input[type="email"],
+  .form-group input[type="number"],
+  .form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  
+  .form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  /* ====================================
+     5. BUTTONS & ACTIONS
+     ==================================== */
+  
+  .button-group {
+    display: flex;
+    gap: 5px;
+  }
+  
+  .button-group button {
+    flex: 1;
+    min-width: 60px;
+  }
+  
+  .save-button,
+  .edit-button,
+  .delete-button,
+  .cancel-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  
+  .admin-table button {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    margin-right: 0; /* Remove default margin to let button-group handle spacing */
+    margin-bottom: 0;
+  }
+  
+  .save-button {
+    background-color: #007bff;
+    color: white;
+  }
+  
+  .save-button:hover {
+    background-color: #0069d9;
+  }
+  
+  .save-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+  }
+  
+  .cancel-button {
+    background-color: #6c757d;
+    color: white;
+  }
+  
+  .cancel-button:hover {
+    background-color: #5a6268;
+  }
+  
+  .edit-button {
+    background-color: #6c757d;
+    color: white;
+  }
+  
+  .edit-button:hover {
+    background-color: #5a6268;
+  }
+  
+  .delete-button {
+    background-color: #dc3545;
+    color: white;
+  }
+  
+  .delete-button:hover {
+    background-color: #c82333;
+  }
+  
+  /* ====================================
+     6. INLINE EDITING
+     ==================================== */
+  
+  .inline-edit-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+  
+  .inline-edit-select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    background-color: white;
+  }
+  
+  .inline-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  
+  .inline-checkboxes label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+  }
+  
+  .inline-checkboxes input[type="checkbox"] {
+    margin: 0;
+  }
+  
+  /* Highlight row being edited */
+  tr:has(.inline-edit-input), 
+  tr:has(.inline-edit-select) {
+    background-color: rgba(0, 123, 255, 0.05);
+  }
+  
+  /* ====================================
+     MEDIA QUERIES - RESPONSIVE DESIGN
+     ==================================== */
+  
+  /* Adjust layout for smaller screens */
+  @media (max-width: 992px) {
+    .admin-container {
+      padding: 15px;
+    }
+    
+    .admin-table th,
+    .admin-table td {
+      padding: 10px;
+    }
+  }
+  
+  /* Further adjustments for mobile */
+  @media (max-width: 768px) {
+    .inline-checkboxes {
+      font-size: 12px;
+    }
+    
+    .permissions-list {
+      flex-direction: column;
+      gap: 3px;
+    }
+    
+    .button-group {
+      flex-direction: column;
+    }
+  }

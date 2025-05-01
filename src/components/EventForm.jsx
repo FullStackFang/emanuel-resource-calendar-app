@@ -68,28 +68,6 @@ const formatDateForInput = (dateString) => {
 };
 
 /**
- * Helper function to map schema property types to HTML input types
- * @param {string} propertyType - Schema property type
- * @returns {string} Corresponding HTML input type
- */
-const getInputTypeFromPropertyType = (propertyType) => {
-  switch (propertyType) {
-    case 'Integer':
-      return 'number';
-    case 'Boolean':
-      return 'checkbox';
-    case 'DateTimeOffset':
-    case 'DateTime':
-      return 'datetime-local';
-    case 'Binary':
-      return 'file';
-    case 'String':
-    default:
-      return 'text';
-  }
-};
-
-/**
  * Parse location string to array and filter to only include values from availableLocations
  * @param {string|object} location - Location data from event
  * @param {array} availableOptions - Available location options from MultiSelect
@@ -113,7 +91,7 @@ const parseLocationsFromEvent = (location, availableOptions) => {
   return parsedLocations.filter(loc => availableOptions.includes(loc));
 };
 
-function EventForm({ event, categories, availableLocations = [], schemaExtensions = [], onSave, onCancel }) {
+function EventForm({ event, categories, availableLocations = [], schemaExtensions = [], onSave, onCancel, readOnly = false }) {
   const [formData, setFormData] = useState({
     id: '',
     subject: '',
@@ -232,19 +210,6 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
     }));
   };
 
-  // Handle extension field changes
-  const handleExtensionFieldChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    
-    // For checkbox inputs, use the checked property instead of value
-    const fieldValue = type === 'checkbox' ? checked : value;
-    
-    setExtensionFields(prev => ({
-      ...prev,
-      [name]: fieldValue
-    }));
-  };
-
   const handleSubmit = (e) => {
     e.preventDefault();
   
@@ -315,6 +280,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           value={formData.subject}
           onChange={handleChange}
           required
+          disabled={readOnly}
         />
       </div>
 
@@ -327,6 +293,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           value={formData.start}
           onChange={handleChange}
           required
+          disabled={readOnly}
         />
       </div>
 
@@ -339,17 +306,28 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           value={formData.end}
           onChange={handleChange}
           required
+          disabled={readOnly}
         />
       </div>
 
       <div className="form-group">
-      <label htmlFor="location">Locations</label>
-        <MultiSelect
-          options={availableLocations}
-          selected={formData.locations || []}
-          onChange={handleLocationChange}
-          label="Select location(s)"
-        />
+        <label htmlFor="location">Locations</label>
+        {readOnly ? (
+          // Show a read-only display when in view mode
+          <div className="readonly-display">
+            {formData.locations && formData.locations.length > 0 
+              ? formData.locations.join(', ') 
+              : 'No locations selected'}
+          </div>
+        ) : (
+          // Show the interactive MultiSelect when not in read-only mode
+          <MultiSelect
+            options={availableLocations}
+            selected={formData.locations || []}
+            onChange={handleLocationChange}
+            label="Select location(s)"
+          />
+        )}
       </div>
 
       <div className="form-group">
@@ -359,6 +337,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           name="category"
           value={formData.category}
           onChange={handleChange}
+          disabled={readOnly}
         >
           {categories.map(category => (
             <option key={category} value={category}>
@@ -406,11 +385,13 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
 
       <div className="form-actions">
         <button type="button" className="cancel-button" onClick={onCancel}>
-          Cancel
+          {readOnly ? 'Close' : 'Cancel'}
         </button>
-        <button type="submit" className="save-button">
-          Save
-        </button>
+        {!readOnly && (
+          <button type="submit" className="save-button">
+            Save
+          </button>
+        )}
       </div>
     </form>
   );

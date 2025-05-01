@@ -6,6 +6,10 @@ import MultiSelect from './MultiSelect';
 import { msalConfig } from '../config/authConfig';
 import ExportToPdfButton from './CalendarExport';
 import { useUserPreferences } from '../hooks/useUserPreferences';
+import './Calendar.css';
+
+// API endpoint - use the full URL to your API server
+const API_BASE_URL = 'http://localhost:3001/api';
 
 /*****************************************************************************
  * CONSTANTS AND CONFIGURATION
@@ -28,7 +32,7 @@ const availableLocations = [
 /*****************************************************************************
  * MAIN CALENDAR COMPONENT
  *****************************************************************************/
-function Calendar({ accessToken }) {
+function Calendar({ graphToken, apiToken }) {
   //---------------------------------------------------------------------------
   // STATE MANAGEMENT
   //---------------------------------------------------------------------------
@@ -44,7 +48,19 @@ function Calendar({ accessToken }) {
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [isFullyLoaded, setIsFullyLoaded] = useState(false);
 
+  // Profile states
   const { prefs, loading: prefsLoading, updatePrefs } = useUserPreferences();
+  const [userProfile, setUserProfile] = useState(null);
+  const [userPermissions, setUserPermissions] = useState({
+    startOfWeek: 'Monday',
+    defaultView: 'week',
+    defaultGroupBy: 'categories',
+    preferredZoomLevel: 100,
+    createEvents: false,
+    editEvents: false,
+    deleteEvents: false,
+    isAdmin: false
+  });
 
   const [zoomLevel, setZoomLevel] = useState(100);
   const [schemaExtensions, setSchemaExtensions] = useState([]);
@@ -61,14 +77,24 @@ function Calendar({ accessToken }) {
 
   // Modal and context menu state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'delete'
+  const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
   const [currentEvent, setCurrentEvent] = useState(null);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [showContextMenu, setShowContextMenu] = useState(false);
 
+  // Notifications
+  const [notification, setNotification] = useState({ show: false, message: '', type: 'info' });
+
   //---------------------------------------------------------------------------
   // UTILITY/HELPER FUNCTIONS
   //---------------------------------------------------------------------------
+
+  const showNotification = (message, type = 'error') => {
+    setNotification({ show: true, message, type });
+    console.log(`[Notification] ${type}: ${message}`);
+    // Auto-hide after 3 seconds
+    setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 3000);
+  };
 
   const makeBatchBody = (eventId, coreBody, extPayload) => ({
     requests: [
@@ -91,7 +117,7 @@ function Calendar({ accessToken }) {
     const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${graphToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(batchBody)
@@ -484,7 +510,7 @@ function Calendar({ accessToken }) {
       // Filter for schema extensions owned by your app
       const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
         headers: {
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${graphToken}`
         }
       });
       
@@ -509,7 +535,7 @@ function Calendar({ accessToken }) {
       console.error('Error loading schema extensions:', err);
       return [];
     }
-  }, [accessToken]);
+  }, [graphToken]);
 
   /**
    * Load categories from Outlook
@@ -519,7 +545,7 @@ function Calendar({ accessToken }) {
     try {
       const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
         headers: {
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${graphToken}`
         }
       });
       
@@ -544,7 +570,7 @@ function Calendar({ accessToken }) {
       console.error('Error fetching Outlook categories:', err);
       return [];
     }
-  }, [accessToken]);
+  }, [graphToken]);
 
   /**
    * Load events from Microsoft Graph API
@@ -552,7 +578,7 @@ function Calendar({ accessToken }) {
   */
   const loadGraphEvents = useCallback(async () => {
     // 0. Don't even start until we have a token
-    if (!accessToken) { return; }
+    if (!graphToken) { return; }
     setLoading(true);
     try {
       // 1. Format your dates
@@ -585,7 +611,7 @@ function Calendar({ accessToken }) {
       
       while (nextLink) {
         const resp = await fetch(nextLink, {
-          headers: { Authorization: `Bearer ${accessToken}` }
+          headers: { Authorization: `Bearer ${graphToken}` }
         });
         if (!resp.ok) {
           console.error("Graph error paging events:", await resp.json());
@@ -640,7 +666,7 @@ function Calendar({ accessToken }) {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, dateRange, loadSchemaExtensions]);
+  }, [graphToken, dateRange, loadSchemaExtensions]);
 
   /**
    * Create default categories in Outlook if none exist
@@ -656,7 +682,7 @@ function Calendar({ accessToken }) {
         const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${graphToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(cat)
@@ -702,7 +728,7 @@ function Calendar({ accessToken }) {
       const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${graphToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -734,139 +760,7 @@ function Calendar({ accessToken }) {
       console.error(`Error creating category ${categoryName}:`, err);
       return null;
     }
-  }, [accessToken]);
-
-  /**
-   * Save an event to Microsoft Graph
-   * @param {Object} event - The event to save
-   * @returns {Object} The saved event with updated data
-   * Note: On update, Event & Schema Extensions need to be saved on separate calls
-   */
-  const saveToGraph = async (eventData) => {
-    if (!accessToken) {
-      throw new Error('No Graph token available');
-    }
-  
-    const { id, ...body } = eventData;
-    const isNew = !id || id.includes('event_');
-    const url = isNew
-      ? `https://graph.microsoft.com/v1.0/me/events`
-      : `https://graph.microsoft.com/v1.0/me/events/${id}`;
-  
-    // 1) CREATE: POST everything at once
-    if (isNew) {
-      console.log("CREATING NEW EVENT with data:", JSON.stringify(body, null, 2));
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Graph error ${response.status}`);
-      }
-      const created = await response.json();
-      console.log("CREATED EVENT response:", JSON.stringify(created, null, 2));
-      // return with the new id plus all your props
-      return { id: created.id, ...body };
-    }
-  
-    // 2) UPDATE core fields
-    const corePayload = {
-      subject:    body.subject,
-      start:      body.start,
-      end:        body.end,
-      location:   body.location,
-      categories: body.categories
-    };
-    
-    console.log("UPDATING CORE FIELDS with:", JSON.stringify(corePayload, null, 2));
-    {
-      const r = await fetch(url, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(corePayload)
-      });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Graph error ${r.status}`);
-      }
-      console.log("CORE UPDATE successful");
-    }
-
-    // 3) UPDATE each schema extension separately
-    console.log("CHECKING FOR SCHEMA EXTENSIONS in:", Object.keys(body).filter(k => k.includes('.')));
-    for (const extension of schemaExtensions) {
-      const extId = extension.id;
-      const extValue = body[extId];
-      
-      if (extValue && Object.keys(extValue).length) {
-        console.log(`UPDATING EXTENSION ${extId} with:`, JSON.stringify(extValue, null, 2));
-        const patchBody = { [extId]: extValue };
-        const r = await fetch(url, {
-          method: 'PATCH',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(patchBody)
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          console.error(`Extension update failed:`, err);
-          throw new Error(`Ext ${extId} error: ${err.error?.message||r.status}`);
-        }
-        console.log(`EXTENSION ${extId} UPDATE successful`);
-      } else {
-        console.log(`No update needed for extension ${extId}`);
-      }
-    }
-  
-    // 4) Verify the updated event by fetching it again
-    console.log("VERIFYING updated event by fetching it...");
-    try {
-      const verifyResponse = await fetch(`https://graph.microsoft.com/v1.0/me/events/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-      });
-      
-      if (verifyResponse.ok) {
-        const verifiedEvent = await verifyResponse.json();
-        console.log("VERIFIED EVENT after update:", JSON.stringify(verifiedEvent, null, 2));
-        
-        // Return a properly structured event with extensions integrated
-        const result = {
-          id: verifiedEvent.id,
-          subject: verifiedEvent.subject,
-          start: verifiedEvent.start,
-          end: verifiedEvent.end,
-          location: verifiedEvent.location,
-          category: verifiedEvent.categories?.[0] || "Uncategorized",
-          extensions: verifiedEvent.extensions || []
-        };
-        
-        // Also include any extension properties directly on the event
-        // from our original eventData object
-        return { ...result, ...eventData };
-      } else {
-        console.warn("Could not verify updated event:", await verifyResponse.text());
-      }
-    } catch (err) {
-      console.warn("Error verifying updated event:", err);
-    }
-
-    // If verification fails, we still want to return success using our original data
-    console.log("Using original event data due to verification failure");
-    return eventData;
-  };
+  }, [graphToken]);
 
   //---------------------------------------------------------------------------
   // EVENT HANDLERS
@@ -982,6 +876,10 @@ function Calendar({ accessToken }) {
    * @param {string} category - The category row that was clicked
    */
   const handleDayCellClick = async (day, category = null, location = null) => {
+    if(!userPermissions.createEvents) {
+      showNotification("User don't have permission to create events");
+      return;
+    }
     // Close context menu if open
     setShowContextMenu(false);
     
@@ -1033,6 +931,7 @@ function Calendar({ accessToken }) {
    */
   const handleEventClick = (event, e) => {
     e.stopPropagation();
+
     console.log('Event clicked:', event);
     console.log('Extension data in clicked event:', Object.keys(event).filter(key => 
       key !== 'id' && key !== 'subject' && key !== 'start' && 
@@ -1051,17 +950,29 @@ function Calendar({ accessToken }) {
    * Open the Add, Edit, Delete, Save modal
    */
   const handleAddEvent = () => {
+    if(!userPermissions.createEvents) {
+      console.log("User does not have permission to create events");
+      return;
+    }
     setModalType('add');
     setIsModalOpen(true);
   };
 
   const handleEditEvent = () => {
+    if(!userPermissions.editEvents) {
+      console.log("User does not have permission to edit events");
+      return;
+    }
     setShowContextMenu(false);
     setModalType('edit');
     setIsModalOpen(true);
   };
 
   const handleDeleteEvent = () => {
+    if(!userPermissions.deleteEvents) {
+      console.log("User does not have permission to delete events");
+      return;
+    }
     setShowContextMenu(false);
     setModalType('delete');
     setIsModalOpen(true);
@@ -1069,40 +980,27 @@ function Calendar({ accessToken }) {
 
   /**
    * Called by EventForm when the user hits “Save”
-   * @param {Object} eventData - The payload from EventForm.handleSubmit
+   * @param {Object} data - The payload from EventForm.handleSubmit
    */
-  /*
-  const handleSaveEvent = async (eventData) => {
-    try {
-      console.log("BEFORE SAVE - Event data with extensions:", JSON.stringify(eventData, null, 2));
-      const saved = await saveToGraph(eventData);
-      console.log("AFTER SAVE - Returned event data:", JSON.stringify(saved, null, 2));
-
-      if (modalType === 'add') {
-        setAllEvents(prev => [...prev, saved]);
-      } else {
-        setAllEvents(prev =>
-          prev.map(ev => (ev.id === saved.id ? saved : ev))
-        );
-      }
-
-      setIsModalOpen(false);
-      setCurrentEvent(null);
-      await loadGraphEvents();
-    } catch (err) {
-      console.error('Failed to save event:', err);
-      alert('There was an error saving the event:\n' + err.message);
+  const handleSaveEvent = async (data) => {
+    // Add permission check
+    const isNew = !data.id || data.id.includes('event_');
+    if (isNew && !userPermissions.createEvents) {
+      alert("You don't have permission to create events");
+      return;
     }
-  };
-  */
-    const handleSaveEvent = async (data) => {
+    if (!isNew && !userPermissions.editEvents) {
+      alert("You don't have permission to edit events");
+      return;
+    }
+  
     try {
       // Core payload
       const core = {
         subject: data.subject,
-        start:   data.start,
-        end:     data.end,
-        location:data.location,
+        start: data.start,
+        end: data.end,
+        location: data.location,
         categories: data.categories
       };
       // Extensions payload
@@ -1130,12 +1028,12 @@ function Calendar({ accessToken }) {
    * Delete an event
    */
   const handleDeleteConfirm = async () => {
-    if (accessToken && currentEvent?.id) {
+    if (graphToken && currentEvent?.id) {
       try {
         const response = await fetch(`https://graph.microsoft.com/v1.0/me/events/${currentEvent.id}`, {
           method: 'DELETE',
           headers: {
-            Authorization: `Bearer ${accessToken}`
+            Authorization: `Bearer ${graphToken}`
           }
         });
   
@@ -1161,7 +1059,6 @@ function Calendar({ accessToken }) {
   //---------------------------------------------------------------------------
   // USE EFFECTS
   //---------------------------------------------------------------------------
-
   // Then add this useEffect to handle the loading state
   useEffect(() => {
     if (initialLoadComplete && !loading) {
@@ -1170,6 +1067,53 @@ function Calendar({ accessToken }) {
       setIsFullyLoaded(false);
     }
   }, [initialLoadComplete, loading]);
+
+  // Loads user profile and permissions for calendar
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!apiToken) {
+        console.log("No API token available");
+        return;
+      }
+      
+      try {
+        console.log("Fetching user profile for calendar permissions");
+        const response = await fetch(`${API_BASE_URL}/users/current`, {
+          headers: {
+            Authorization: `Bearer ${apiToken}`
+          }
+        });
+        
+        if (response.status === 404) {
+          console.log("User profile not found - permissions will use defaults");
+          return;
+        }
+        
+        if (response.ok) {
+          const data = await response.json();
+          setUserProfile(data);
+          
+          const permissions = {
+            startOfWeek: data.preferences?.startOfWeek || 'Monday',
+            defaultView: data.preferences?.defaultView || 'week',
+            defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
+            preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
+            createEvents: data.preferences?.createEvents ?? false,
+            editEvents: data.preferences?.editEvents ?? false,
+            deleteEvents: data.preferences?.deleteEvents ?? false,
+            isAdmin: data.isAdmin || false
+          };
+          
+          setUserPermissions(permissions);
+          console.log("User permissions loaded:", permissions);
+        }
+      } catch (error) {
+        console.error("Error fetching user permissions:", error);
+      }
+    };
+    
+    fetchUserProfile();
+  }, [apiToken]);
 
   // Initialize selectedLocations when availableLocations changes
   useEffect(() => {
@@ -1254,9 +1198,9 @@ function Calendar({ accessToken }) {
     setLoading(false);
   }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy]);
 
-  // Load Categories when access token is available
+  // Load Categories when graph token is available
   useEffect(() => {
-    if (accessToken) {
+    if (graphToken) {
       const fetchCategories = async () => {
         const categories = await loadOutlookCategories();
         setOutlookCategories(categories);
@@ -1270,22 +1214,22 @@ function Calendar({ accessToken }) {
       
       fetchCategories();
     }
-  }, [accessToken, loadOutlookCategories]);
+  }, [graphToken, loadOutlookCategories]);
 
-  // Load Events when access token is available
+  // Load Events when graph token is available
   useEffect(() => {
-    if (accessToken) {
+    if (graphToken) {
       setLoading(true);
       loadGraphEvents();
     }
-  }, [accessToken, loadGraphEvents]);
+  }, [graphToken, loadGraphEvents]);
 
-  // Load Schema Extensions when access token is available
+  // Load Schema Extensions when graph token is available
   useEffect(() => {
-    if (accessToken) {
+    if (graphToken) {
       loadSchemaExtensions();
     }
-  }, [accessToken, loadSchemaExtensions]);
+  }, [graphToken, loadSchemaExtensions]);
 
   // Initialize date range for month view
   useEffect(() => {
@@ -1315,7 +1259,7 @@ function Calendar({ accessToken }) {
 
   // Close context menu when clicking outside
   useEffect(() => {
-    console.log('accessToken:', accessToken);
+    console.log('graphToken:', graphToken);
     
     const handleClickOutside = () => {
       setShowContextMenu(false);
@@ -1423,9 +1367,11 @@ function Calendar({ accessToken }) {
              } title="Zoom In">+</button>
           </div>
           
-          <button className="add-event-button" onClick={handleAddEvent}>
-            + Add Event
-          </button>
+          {userPermissions.createEvents && (
+            <button className="add-event-button" onClick={handleAddEvent}>
+              + Add Event
+            </button>
+          )}
           <ExportToPdfButton 
             events={filteredEvents} 
             dateRange={dateRange} 
@@ -1828,12 +1774,18 @@ function Calendar({ accessToken }) {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="context-menu-item" onClick={handleEditEvent}>
-                Edit Event
+              <div className="context-menu-item" onClick={() => {
+                setModalType(userPermissions.editEvents ? 'edit' : 'view');
+                setShowContextMenu(false);
+                setIsModalOpen(true);
+              }}>
+                {userPermissions.editEvents ? 'Edit Event' : 'View Event'}
               </div>
-              <div className="context-menu-item delete" onClick={handleDeleteEvent}>
-                Delete Event
-              </div>
+              {userPermissions.deleteEvents && (
+                <div className="context-menu-item delete" onClick={handleDeleteEvent}>
+                  Delete Event
+                </div>
+              )}
             </div>
           )}
         </>
@@ -1841,9 +1793,12 @@ function Calendar({ accessToken }) {
   
       {/* Modal for Add/Edit Event */}
       <Modal 
-        isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit')} 
+        isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
         onClose={() => setIsModalOpen(false)}
-        title={modalType === 'add' ? 'Add Event' : 'Edit Event'}
+        title={
+          modalType === 'add' ? 'Add Event' : 
+          modalType === 'edit' ? 'Edit Event' : 'View Event'
+        }
       >
         {console.log('Current event passed to form:', currentEvent)}
         <EventForm 
@@ -1855,6 +1810,7 @@ function Calendar({ accessToken }) {
           schemaExtensions={schemaExtensions}
           onSave={handleSaveEvent}
           onCancel={() => setIsModalOpen(false)}
+          readOnly={modalType === 'view'}
         />
       </Modal>
   
