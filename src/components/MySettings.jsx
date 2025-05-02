@@ -7,7 +7,7 @@ import './Settings.css'; // Assuming you have this CSS file already
 const API_BASE_URL = 'http://localhost:3001/api';
 
 export default function MySettings({ apiToken }) {
-    const { instance, accounts } = useMsal();
+    const { accounts } = useMsal();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState('');
@@ -33,6 +33,7 @@ export default function MySettings({ apiToken }) {
         // Add these debug logs
         console.log("API Token available:", !!apiToken);
         console.log("API Token length:", apiToken?.length);
+        console.log('Auth header:', `Bearer ${apiToken.substring(0, 20)}...`);
         
         setLoading(true);
         if (!apiToken) {

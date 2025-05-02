@@ -81,6 +81,18 @@ const verifyToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     console.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
     
+    // Decode token to inspect it
+    try {
+      const tokenParts = token.split('.');
+      if (tokenParts.length === 3) {
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
+        console.log('Token audience:', payload.aud);
+        console.log('Expected audience:', process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e');
+      }
+    } catch (e) {
+      console.error('Error decoding token:', e);
+    }
+
     // Get the signing key
     const getKey = (header, callback) => {
       msalJwksClient.getSigningKey(header.kid, (err, key) => {
@@ -92,12 +104,20 @@ const verifyToken = async (req, res, next) => {
         callback(null, signingKey);
       });
     };
-    
+  
     // Verify token
     jwt.verify(token, getKey, { 
       algorithms: ['RS256'],
-      audience: process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e', // Your app's client ID
-      issuer: `https://login.microsoftonline.com/${process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302'}/v2.0` 
+      audience: [
+        process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e',
+        `api://${process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e'}`,
+        `api://${process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e'}/access_as_user`
+      ],
+      issuer: [
+        `https://login.microsoftonline.com/${process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302'}/v2.0`,
+        `https://login.microsoftonline.com/common/v2.0`,
+        `https://sts.windows.net/${process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302'}/`
+      ]
     }, (err, decoded) => {
       if (err) {
         console.error('Token verification error:', err);

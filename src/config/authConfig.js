@@ -7,7 +7,7 @@ export const TENANT_ID = 'fcc71126-2b16-4653-b639-0f1ef8332302';
 
 export const msalConfig = {
     auth: {
-      clientId: "c2187009-796d-4fea-b58c-f83f7a89589e",
+      clientId: APP_ID,
       authority: 'https://login.microsoftonline.com/fcc71126-2b16-4653-b639-0f1ef8332302',
       redirectUri: window.location.origin,
       postLogoutRedirectUri: window.location.origin
