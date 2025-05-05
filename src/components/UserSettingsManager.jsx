@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useUserPreferences } from '../hooks/useUserPreferences';
 import './Settings.css';
+import APP_CONFIG from '../config/config';
 
 // MongoDB API endpoint - replace with your Azure Function or API endpoint
-const API_BASE_URL = 'https://your-api-endpoint.azurewebsites.net/api';
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+// const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
 
 export default function UserSettingsManager() {
   const { instance } = useMsal();

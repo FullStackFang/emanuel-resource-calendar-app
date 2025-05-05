@@ -134,7 +134,7 @@ function App() {
     <Router>
       <div className="app-container">
         <header>
-          <h1>Outlook Resource Scheduler</h1>
+          <h1>Temple Events Scheduler</h1>
           <Authentication onSignIn={handleSignIn} onSignOut={handleSignOut} />
         </header>
         <main>

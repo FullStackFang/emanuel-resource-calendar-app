@@ -2,8 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import './Admin.css'; // Assuming you have similar styling for admin pages
+import APP_CONFIG from '../config/config';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+// const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
+// const API_BASE_URL = 'http://localhost:3001/api';
 
 export default function UserAdmin({ apiToken }) {
   const { accounts } = useMsal();
@@ -12,6 +15,22 @@ export default function UserAdmin({ apiToken }) {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [editingRows, setEditingRows] = useState({});
+  // New state for creating user
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [newUser, setNewUser] = useState({
+    displayName: '',
+    email: '',
+    preferences: {
+      startOfWeek: 'Sunday',
+      defaultView: 'week',
+      defaultGroupBy: 'categories',
+      preferredZoomLevel: 100,
+      createEvents: false,
+      editEvents: false,
+      deleteEvents: false,
+      isAdmin: false
+    }
+  });
   
   // Fetch all users when component mounts
   useEffect(() => {
@@ -82,6 +101,27 @@ export default function UserAdmin({ apiToken }) {
     }));
   };
 
+  // New function to handle input changes for the new user form
+  const handleNewUserInputChange = (field, value) => {
+    if (field.includes('.')) {
+      // Handle nested fields (preferences)
+      const [parent, child] = field.split('.');
+      setNewUser({
+        ...newUser,
+        [parent]: {
+          ...newUser[parent],
+          [child]: value
+        }
+      });
+    } else {
+      // Handle top-level fields
+      setNewUser({
+        ...newUser,
+        [field]: value
+      });
+    }
+  };
+
   // Save changes for a specific user
   const saveChanges = async (userId) => {
     setError(null);
@@ -126,6 +166,99 @@ export default function UserAdmin({ apiToken }) {
     } catch (err) {
       console.error('Error updating user:', err);
       setError('Failed to update user. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // New function to create a user
+  const createUser = async () => {
+    setError(null);
+    setSuccessMessage('');
+    setLoading(true);
+
+    try {
+      // Validate required fields
+      if (!newUser.email || !newUser.displayName) {
+        setError('Email and Display Name are required fields.');
+        setLoading(false);
+        return;
+      }
+
+      // Create a properly formatted user object based on your API requirements
+      const userToCreate = {
+        email: newUser.email,
+        displayName: newUser.displayName,
+        // Add this field which might be required by your API
+        userId: newUser.email.split('@')[0] + Date.now(), // Generate a unique userId
+        preferences: {
+          startOfWeek: newUser.preferences.startOfWeek || 'Sunday',
+          defaultView: newUser.preferences.defaultView || 'week',
+          defaultGroupBy: newUser.preferences.defaultGroupBy || 'categories',
+          preferredZoomLevel: newUser.preferences.preferredZoomLevel || 100,
+          createEvents: newUser.preferences.createEvents ?? true,
+          editEvents: newUser.preferences.editEvents ?? true,
+          deleteEvents: newUser.preferences.deleteEvents ?? false,
+          isAdmin: newUser.preferences.isAdmin ?? false
+        },
+        // Add creation timestamp
+        createdAt: new Date().toISOString()
+      };
+
+      console.log('Creating user with data:', userToCreate);
+
+      const response = await fetch(`${API_BASE_URL}/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(userToCreate)
+      });
+
+      console.log('API response status:', response.status);
+
+      if (!response.ok) {
+        // Try to get the error details from the response
+        let errorMessage = 'Error creating user';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || `${errorMessage}: ${response.statusText}`;
+          console.error('Error response body:', errorData);
+        } catch (parseError) {
+          errorMessage = `${errorMessage}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const createdUser = await response.json();
+      console.log('User created successfully:', createdUser);
+
+      // Add the new user to the state
+      setUsers([...users, createdUser]);
+      
+      // Reset the form and exit creating mode
+      setNewUser({
+        displayName: '',
+        email: '',
+        preferences: {
+          startOfWeek: 'Sunday',
+          defaultView: 'week',
+          defaultGroupBy: 'categories',
+          preferredZoomLevel: 100,
+          createEvents: true,
+          editEvents: true,
+          deleteEvents: false,
+          isAdmin: false
+        }
+      });
+      setIsCreatingUser(false);
+      
+      setSuccessMessage(`User ${createdUser.displayName} created successfully.`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error('Error creating user:', err);
+      setError(`Failed to create user: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -176,6 +309,130 @@ export default function UserAdmin({ apiToken }) {
       
       {error && <div className="error-message">{error}</div>}
       {successMessage && <div className="success-message">{successMessage}</div>}
+      
+      <div className="admin-actions">
+        <button 
+          className="create-user-button"
+          onClick={() => setIsCreatingUser(!isCreatingUser)}
+        >
+          {isCreatingUser ? 'Cancel' : '+ Add New User'}
+        </button>
+      </div>
+      
+      {/* New User Form */}
+      {isCreatingUser && (
+        <div className="new-user-form">
+          <h3>Create New User</h3>
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="newDisplayName">Display Name:</label>
+              <input
+                id="newDisplayName"
+                type="text"
+                value={newUser.displayName}
+                onChange={(e) => handleNewUserInputChange('displayName', e.target.value)}
+                placeholder="Display Name"
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="newEmail">Email:</label>
+              <input
+                id="newEmail"
+                type="email"
+                value={newUser.email}
+                onChange={(e) => handleNewUserInputChange('email', e.target.value)}
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+          </div>
+          
+          <h4>Preferences</h4>
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="newDefaultView">Default View:</label>
+              <select
+                id="newDefaultView"
+                value={newUser.preferences.defaultView}
+                onChange={(e) => handleNewUserInputChange('preferences.defaultView', e.target.value)}
+              >
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label htmlFor="newStartOfWeek">Start of Week:</label>
+              <select
+                id="newStartOfWeek"
+                value={newUser.preferences.startOfWeek}
+                onChange={(e) => handleNewUserInputChange('preferences.startOfWeek', e.target.value)}
+              >
+                <option value="Sunday">Sunday</option>
+                <option value="Monday">Monday</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="form-row">
+            <div className="form-group">
+              <label>Permissions:</label>
+              <div className="checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUser.preferences.createEvents}
+                    onChange={(e) => handleNewUserInputChange('preferences.createEvents', e.target.checked)}
+                  />
+                  Create Events
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUser.preferences.editEvents}
+                    onChange={(e) => handleNewUserInputChange('preferences.editEvents', e.target.checked)}
+                  />
+                  Edit Events
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUser.preferences.deleteEvents}
+                    onChange={(e) => handleNewUserInputChange('preferences.deleteEvents', e.target.checked)}
+                  />
+                  Delete Events
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={newUser.preferences.isAdmin}
+                    onChange={(e) => handleNewUserInputChange('preferences.isAdmin', e.target.checked)}
+                  />
+                  Admin Access
+                </label>
+              </div>
+            </div>
+          </div>
+          
+          <div className="form-actions">
+            <button 
+              className="save-button"
+              onClick={createUser}
+              disabled={loading}
+            >
+              {loading ? 'Creating...' : 'Create User'}
+            </button>
+            <button 
+              className="cancel-button"
+              onClick={() => setIsCreatingUser(false)}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       
       <div className="admin-table-container">
         <table className="admin-table">

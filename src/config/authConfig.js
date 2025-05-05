@@ -1,6 +1,8 @@
 // src/config/authConfig.js
-// Azure CLI Deployment Command: 
-// az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --src-path dist.zip
+// Azure CLI Deployment Workflow
+// 1. npm run build
+// 2. zip -r dist.zip dist
+// 3. az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --src-path dist.zip
 export const APP_ID = 'c2187009-796d-4fea-b58c-f83f7a89589e';
 export const OBJECT_ID = 'ed86ca1a-8acc-4250-b700-6c563a0c056f';
 export const TENANT_ID = 'fcc71126-2b16-4653-b639-0f1ef8332302';

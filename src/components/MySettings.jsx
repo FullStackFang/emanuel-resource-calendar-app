@@ -2,9 +2,20 @@
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import './Settings.css'; // Assuming you have this CSS file already
+import APP_CONFIG from '../config/config';
 
 // API endpoint - use the full URL to your API server
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+//const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
+
+// Time zone options
+const timeZoneOptions = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
+];
 
 export default function MySettings({ apiToken }) {
     const { accounts } = useMsal();
@@ -24,6 +35,7 @@ export default function MySettings({ apiToken }) {
             defaultView: 'week',
             defaultGroupBy: 'categories',
             preferredZoomLevel: 100,
+            preferredTimeZone: 'America/New_York',
         }
     });
 
@@ -74,7 +86,8 @@ export default function MySettings({ apiToken }) {
                         isAdmin: false,
                         defaultView: 'week',
                         defaultGroupBy: 'categories',
-                        preferredZoomLevel: 100
+                        preferredZoomLevel: 100,
+                        preferredTimeZone: 'America/New_York'
                     }
                 };
                 
@@ -110,7 +123,8 @@ export default function MySettings({ apiToken }) {
                             isAdmin: createdUser.preferences?.isAdmin ?? false,
                             defaultView: createdUser.preferences?.defaultView || 'week',
                             defaultGroupBy: createdUser.preferences?.defaultGroupBy || 'categories',
-                            preferredZoomLevel: createdUser.preferences?.preferredZoomLevel || 100
+                            preferredZoomLevel: createdUser.preferences?.preferredZoomLevel || 100,
+                            preferredTimeZone: createdUser.preferences?.preferredTimeZone || 'America/New_York'
                         }
                     });
                 } catch (createErr) {
@@ -140,7 +154,8 @@ export default function MySettings({ apiToken }) {
                     isAdmin: data.preferences?.isAdmin ?? false,
                     defaultView: data.preferences?.defaultView || 'week',
                     defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
-                    preferredZoomLevel: data.preferences?.preferredZoomLevel || 100
+                    preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
+                    preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York'
                 }
             });
         } catch (err) {
@@ -206,7 +221,8 @@ export default function MySettings({ apiToken }) {
                 isAdmin: formData.preferences.isAdmin,
                 defaultView: formData.preferences.defaultView,
                 defaultGroupBy: formData.preferences.defaultGroupBy,
-                preferredZoomLevel: formData.preferences.preferredZoomLevel
+                preferredZoomLevel: formData.preferences.preferredZoomLevel,
+                preferredTimeZone: formData.preferences.preferredTimeZone
             }
         };
 
@@ -322,6 +338,22 @@ export default function MySettings({ apiToken }) {
         </div>
         
         <div className="form-group">
+          <label htmlFor="preferences.preferredTimeZone">Preferred Time Zone:</label>
+          <select
+            id="preferences.preferredTimeZone"
+            name="preferences.preferredTimeZone"
+            value={formData.preferences.preferredTimeZone}
+            onChange={handleInputChange}
+          >
+            {timeZoneOptions.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="form-group">
           <label htmlFor="preferences.preferredZoomLevel">Zoom Level:</label>
           <input
             id="preferences.preferredZoomLevel"
@@ -334,61 +366,7 @@ export default function MySettings({ apiToken }) {
             onChange={handleInputChange}
           />
         </div>
-        
-        <h3>Event Permissions</h3>
-        
-        <div className="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              id="preferences.createEvents"
-              name="preferences.createEvents"
-              checked={formData.preferences.createEvents}
-              onChange={handleInputChange}
-            />
-            Allow Creating Events
-          </label>
-        </div>
-        
-        <div className="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              id="preferences.editEvents"
-              name="preferences.editEvents"
-              checked={formData.preferences.editEvents}
-              onChange={handleInputChange}
-            />
-            Allow Editing Events
-          </label>
-        </div>
-        
-        <div className="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              id="preferences.deleteEvents"
-              name="preferences.deleteEvents"
-              checked={formData.preferences.deleteEvents}
-              onChange={handleInputChange}
-            />
-            Allow Deleting Events
-          </label>
-        </div>
-
-        <div className="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              id="preferences.isAdmin"
-              name="preferences.isAdmin"
-              checked={formData.preferences.isAdmin}
-              onChange={handleInputChange}
-            />
-            Allow Admin Rights
-          </label>
-        </div>
-        
+                
         <div className="form-actions">
           <button type="submit" className="save-button" disabled={loading}>
             {loading ? 'Saving...' : 'Save Changes'}

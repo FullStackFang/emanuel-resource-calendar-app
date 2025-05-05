@@ -7,9 +7,12 @@ import { msalConfig } from '../config/authConfig';
 import ExportToPdfButton from './CalendarExport';
 import { useUserPreferences } from '../hooks/useUserPreferences';
 import './Calendar.css';
+import APP_CONFIG from '../config/config';
 
 // API endpoint - use the full URL to your API server
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+// const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api'
+// const API_BASE_URL = 'http://localhost:3001/api';
 
 /*****************************************************************************
  * CONSTANTS AND CONFIGURATION
@@ -50,16 +53,19 @@ function Calendar({ graphToken, apiToken }) {
 
   // Profile states
   const { prefs, loading: prefsLoading, updatePrefs } = useUserPreferences();
+  const [selectedTimeZone, setSelectedTimeZone] = useState('America/New_York'); 
+  const [userTimeZone, setUserTimeZone] = useState('America/New_York');
   const [, setUserProfile] = useState(null);
   const [userPermissions, setUserPermissions] = useState({
     startOfWeek: 'Monday',
     defaultView: 'week',
     defaultGroupBy: 'categories',
     preferredZoomLevel: 100,
+    preferredTimeZone: 'America/New_York',
     createEvents: false,
     editEvents: false,
     deleteEvents: false,
-    isAdmin: false
+    isAdmin: false,
   });
 
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -84,6 +90,15 @@ function Calendar({ graphToken, apiToken }) {
 
   // Notifications
   const [, setNotification] = useState({ show: false, message: '', type: 'info' });
+
+  // For display purposes only
+  const commonTimeZones = [
+    { value: 'America/New_York', label: 'Eastern Time (ET)' },
+    { value: 'America/Chicago', label: 'Central Time (CT)' },
+    { value: 'America/Denver', label: 'Mountain Time (MT)' },
+    { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+    { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
+  ];
 
   //---------------------------------------------------------------------------
   // UTILITY/HELPER FUNCTIONS
@@ -260,8 +275,8 @@ function Calendar({ graphToken, apiToken }) {
     return (
       <>
         <div className="event-time" style={styles}>
-          {formatEventTime(event.start.dateTime)}
-          {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime)}`}
+          {formatEventTime(event.start.dateTime, event.subject)}
+          {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, event.subject)}`}
         </div>
         
         <div className="event-title" style={styles}>
@@ -441,7 +456,8 @@ function Calendar({ graphToken, apiToken }) {
     return date.toLocaleDateString('en-US', { 
       weekday: 'short', 
       month: 'numeric', 
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: userTimeZone
     });
   };
 
@@ -450,21 +466,34 @@ function Calendar({ graphToken, apiToken }) {
    * @param {string} dateString - ISO date string
    * @returns {string} Formatted time string
    */
-  const formatEventTime = (dateString) => {
+  const formatEventTime = (dateString, eventSubject = 'Unknown') => {
     if (!dateString) return '';
     
     try {
-      // Create a date object from the ISO string
-      // This will handle the UTC to local conversion automatically
-      const date = new Date(dateString);
+      // Add 'Z' to indicate this is UTC time if it doesn't already have a timezone indicator
+      const utcDateString = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
       
+      // For debugging
+      const isTargetEvent = eventSubject.includes("TESTING");
+      if (isTargetEvent) {
+        console.log(`⏰ TIME DEBUG FOR EVENT: "${eventSubject}" ⏰`);
+        console.log("Original time string:", dateString);
+        console.log("Modified time string with UTC indicator:", utcDateString);
+        console.log("Current userTimeZone:", userTimeZone);
+      }
+      
+      // Create date object with explicit UTC time
+      const date = new Date(utcDateString);
+      
+      // Format with user's timezone
       return date.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
+        timeZone: userTimeZone,
       });
     } catch (err) {
-      console.error('Error formatting event time:', err);
+      console.error(`Error formatting event time for "${eventSubject}":`, err);
       return '';
     }
   };
@@ -1101,9 +1130,10 @@ function Calendar({ graphToken, apiToken }) {
             defaultView: 'week',
             defaultGroupBy: 'categories',
             preferredZoomLevel: 100,
-            createEvents: true,  // Set to true for testing
-            editEvents: true,    // Set to true for testing
-            deleteEvents: true,  // Set to true for testing
+            preferredTimeZone: 'America/New_York',
+            createEvents: false, 
+            editEvents: false,  
+            deleteEvents: false, 
             isAdmin: false
           });
           return;
@@ -1118,10 +1148,11 @@ function Calendar({ graphToken, apiToken }) {
             defaultView: data.preferences?.defaultView || 'week',
             defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
             preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
-            createEvents: data.preferences?.createEvents ?? true,  // Default to true
-            editEvents: data.preferences?.editEvents ?? true,      // Default to true
-            deleteEvents: data.preferences?.deleteEvents ?? true,  // Default to true
-            isAdmin: data.isAdmin || false
+            createEvents: data.preferences?.createEvents ?? false,
+            editEvents: data.preferences?.editEvents ?? false,
+            deleteEvents: data.preferences?.deleteEvents ?? false,  
+            isAdmin: data.isAdmin || false,
+            preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York'
           };
           
           setUserPermissions(permissions);
@@ -1135,9 +1166,9 @@ function Calendar({ graphToken, apiToken }) {
           defaultView: 'week',
           defaultGroupBy: 'categories',
           preferredZoomLevel: 100,
-          createEvents: true,  // Set to true for testing
-          editEvents: true,    // Set to true for testing
-          deleteEvents: true,  // Set to true for testing
+          createEvents: false,
+          editEvents: false,
+          deleteEvents: false,
           isAdmin: false
         });
       }
@@ -1145,6 +1176,14 @@ function Calendar({ graphToken, apiToken }) {
     
     fetchUserProfile();
   }, [apiToken, API_BASE_URL]);
+
+  // Set user time zone from user permissions
+  useEffect(() => {
+    if (userPermissions.preferredTimeZone) {
+      console.log("Setting userTimeZone from userPermissions:", userPermissions.preferredTimeZone);
+      setUserTimeZone(userPermissions.preferredTimeZone);
+    }
+  }, [userPermissions.preferredTimeZone]);
 
   // Initialize selectedLocations when availableLocations changes
   useEffect(() => {
@@ -1154,8 +1193,12 @@ function Calendar({ graphToken, apiToken }) {
   // Initialize user preferences from office roam settings
   useEffect(() => {
     if (prefsLoading) return;
+
+    console.log("Loading preferences:", prefs);
+    console.log("TimeZone in prefs:", prefs.preferredTimeZone);
   
     // once roamingSettings are ready, push them into state
+    setUserTimeZone(prefs.preferredTimeZone || 'America/New_York');
     setViewType(prefs.defaultView);
     setGroupBy(prefs.defaultGroupBy);
     setZoomLevel(prefs.preferredZoomLevel);
@@ -1304,10 +1347,23 @@ function Calendar({ graphToken, apiToken }) {
   }, []);
 
   //---------------------------------------------------------------------------
+  // LOADING SCREEN
+  //---------------------------------------------------------------------------
+  const LoadingOverlay = () => (
+    <div className="loading-overlay">
+      <div className="loading-content">
+        <div className="loading-spinner"></div>
+        <p>Loading your calendar...</p>
+      </div>
+    </div>
+  );
+  
+  //---------------------------------------------------------------------------
   // RENDER
   //---------------------------------------------------------------------------
   return (
     <div className="calendar-container">
+      {!isFullyLoaded && <LoadingOverlay/>}
       <div className="calendar-header">
         <div className="calendar-controls">
           <div className="view-selector">
@@ -1341,6 +1397,22 @@ function Calendar({ graphToken, apiToken }) {
             >
               Month
             </button>
+          </div>
+
+          <div className="time-zone-selector">
+            <select
+              value={userTimeZone}
+              onChange={(e) => {
+                setUserTimeZone(e.target.value);
+                updatePrefs({ preferredTimeZone: e.target.value });
+              }}
+            >
+              <option value="America/New_York">Eastern Time</option>
+              <option value="America/Chicago">Central Time</option>
+              <option value="America/Denver">Mountain Time</option>
+              <option value="America/Los_Angeles">Pacific Time</option>
+              <option value="UTC">UTC</option>
+            </select>
           </div>
   
           {/* View mode selectors */}
@@ -1398,15 +1470,17 @@ function Calendar({ graphToken, apiToken }) {
              } title="Zoom In">+</button>
           </div>
           
-          {userPermissions.createEvents && (
-            <button className="add-event-button" onClick={handleAddEvent}>
-              + Add Event
-            </button>
-          )}
-          <ExportToPdfButton 
-            events={filteredEvents} 
-            dateRange={dateRange} 
-          />
+          <div className="calendar-action-buttons">
+            {userPermissions.createEvents && (
+              <button className="add-event-button" onClick={handleAddEvent}>
+                + Add Event
+              </button>
+            )}
+            <ExportToPdfButton 
+              events={filteredEvents} 
+              dateRange={dateRange} 
+            />
+          </div>
         </div>
       </div>
   
@@ -1618,7 +1692,7 @@ function Calendar({ graphToken, apiToken }) {
                                       onClick={(e) => handleEventClick(event, e)}
                                     >
                                       <div className="event-title" style={getEventContentStyle('month')}>
-                                        {formatEventTime(event.start.dateTime)} {event.subject}
+                                        {formatEventTime(event.start.dateTime, event.subject)} {event.subject}
                                       </div>
                                     </div>
                                   ))

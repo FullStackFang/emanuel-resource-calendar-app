@@ -10,7 +10,11 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const webAppURL = 'emanuel-resourcescheduler-d4echehehaf3dxfg.canadacentral-01.azurewebsites.net';
+const webAppURL = 'https://emanuel-resourcescheduler-d4echehehaf3dxfg.canadacentral-01.azurewebsites.net';
+
+// Use the same App ID for both frontend and backend
+const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
+const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
 
 // Middleware
 // Updated CORS configuration to allow requests from your deployed app domain
@@ -68,7 +72,7 @@ const msalJwksClient = jwksClient({
   timeout: 30000 // 30 second timeout
 });
 
-// MSAL Authentication Middleware - Properly implemented for production
+// MSAL Authentication Middleware - Simplified for single app registration
 const verifyToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -81,18 +85,18 @@ const verifyToken = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     console.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
     
-    // Decode token to inspect it
+    // Decode token to inspect it (for debugging)
     try {
       const tokenParts = token.split('.');
       if (tokenParts.length === 3) {
         const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
         console.log('Token audience:', payload.aud);
-        console.log('Expected audience:', process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e');
+        console.log('Expected audience:', APP_ID);
       }
     } catch (e) {
       console.error('Error decoding token:', e);
     }
-
+    
     // Get the signing key
     const getKey = (header, callback) => {
       msalJwksClient.getSigningKey(header.kid, (err, key) => {
@@ -105,18 +109,20 @@ const verifyToken = async (req, res, next) => {
       });
     };
   
-    // Verify token
+    // Verify token with multiple acceptable audiences
     jwt.verify(token, getKey, { 
       algorithms: ['RS256'],
       audience: [
-        process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e',
-        `api://${process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e'}`,
-        `api://${process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e'}/access_as_user`
+        APP_ID,                                 // Our app
+        `api://${APP_ID}`,                      // Our app as an API
+        `api://${APP_ID}/access_as_user`,       // Our app with scope
+        'https://graph.microsoft.com',          // Microsoft Graph
+        '00000003-0000-0000-c000-000000000000'  // Microsoft Graph AppID
       ],
       issuer: [
-        `https://login.microsoftonline.com/${process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302'}/v2.0`,
+        `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
         `https://login.microsoftonline.com/common/v2.0`,
-        `https://sts.windows.net/${process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302'}/`
+        `https://sts.windows.net/${TENANT_ID}/`
       ]
     }, (err, decoded) => {
       if (err) {
@@ -383,6 +389,8 @@ async function startServer() {
   
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
+    console.log(`Using App ID: ${APP_ID}`);
+    console.log(`Tenant ID: ${TENANT_ID}`);
   });
 }
 
