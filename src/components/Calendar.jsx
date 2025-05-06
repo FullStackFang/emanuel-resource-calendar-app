@@ -1,5 +1,5 @@
 // src/components/Calendar.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Modal from './Modal';
 import EventForm from './EventForm';
 import MultiSelect from './MultiSelect';
@@ -32,6 +32,10 @@ const availableLocations = [
   'Microsoft Teams Meeting'
 ];
 
+const getFilteredLocationsForMultiSelect = () => {
+  return availableLocations.filter(location => location !== 'Unspecified');
+};
+
 /*****************************************************************************
  * MAIN CALENDAR COMPONENT
  *****************************************************************************/
@@ -39,21 +43,32 @@ function Calendar({ graphToken, apiToken }) {
   //---------------------------------------------------------------------------
   // STATE MANAGEMENT
   //---------------------------------------------------------------------------
+  // Loading state
+  const [initializing, setInitializing] = useState(true);
+  const [initState, setInitState] = useState('idle');
+  const [loading, setLoading] = useState(false);
   
   // Core calendar data
   const [allEvents, setAllEvents] = useState([]);
-  const [filteredEvents, setFilteredEvents] = useState([]);
+  // const [filteredEvents, setFilteredEvents] = useState([]);
   const [outlookCategories, setOutlookCategories] = useState([]);
+  const [schemaExtensions, setSchemaExtensions] = useState([]);
 
   // UI state
-  const [groupBy, setGroupBy] = useState('categories'); // default categories
-  const [loading, setLoading] = useState(true);
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const [isFullyLoaded, setIsFullyLoaded] = useState(false);
+  const [groupBy, setGroupBy] = useState('categories'); 
+  const [viewType, setViewType] = useState('week');
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [selectedFilter, setSelectedFilter] = useState(''); 
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedLocations, setSelectedLocations] = useState(availableLocations);
+  const [dateRange, setDateRange] = useState({
+    start: new Date(),
+    end: calculateEndDate(new Date(), 'week')
+  });
+  
 
   // Profile states
   const { prefs, loading: prefsLoading, updatePrefs } = useUserPreferences();
-  const [selectedTimeZone, setSelectedTimeZone] = useState('America/New_York'); 
   const [userTimeZone, setUserTimeZone] = useState('America/New_York');
   const [, setUserProfile] = useState(null);
   const [userPermissions, setUserPermissions] = useState({
@@ -68,37 +83,263 @@ function Calendar({ graphToken, apiToken }) {
     isAdmin: false,
   });
 
-  const [zoomLevel, setZoomLevel] = useState(100);
-  const [schemaExtensions, setSchemaExtensions] = useState([]);
-  const [viewType, setViewType] = useState('week');
-  const [dateRange, setDateRange] = useState({
-    start: new Date(),
-    end: calculateEndDate(new Date(), 'week')
-  });
-
-  // Toggle states
-  const [selectedFilter, setSelectedFilter] = useState(''); 
-  const [selectedCategories, setSelectedCategories] = useState([]);
-  const [selectedLocations, setSelectedLocations] = useState(availableLocations);
-
   // Modal and context menu state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
   const [currentEvent, setCurrentEvent] = useState(null);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [showContextMenu, setShowContextMenu] = useState(false);
-
-  // Notifications
   const [, setNotification] = useState({ show: false, message: '', type: 'info' });
 
-  // For display purposes only
-  const commonTimeZones = [
-    { value: 'America/New_York', label: 'Eastern Time (ET)' },
-    { value: 'America/Chicago', label: 'Central Time (CT)' },
-    { value: 'America/Denver', label: 'Mountain Time (MT)' },
-    { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
-    { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
-  ];
+  //---------------------------------------------------------------------------
+  // DATA FUNCTIONS
+  //---------------------------------------------------------------------------
+  /**
+   * Load schema extensions available for this application
+   */
+  const loadSchemaExtensions = useCallback(async () => {
+    try {
+      // Get your app ID
+      const schemaOwnerId = msalConfig.auth.clientId;
+      
+      // Filter for schema extensions owned by your app
+      const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
+        headers: {
+          Authorization: `Bearer ${graphToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to load schema extensions');
+        return [];
+      }
+      
+      const data = await response.json();
+      
+      // Filter to extensions that target events
+      const eventExtensions = data.value.filter(ext => 
+        ext.status === 'Available' && 
+        ext.targetTypes.includes('event')
+      );
+      
+      // Store in state for use in UI
+      setSchemaExtensions(eventExtensions);
+      
+      return eventExtensions;
+    } catch (err) {
+      console.error('Error loading schema extensions:', err);
+      return [];
+    }
+  }, [graphToken]);
+
+  /**
+   * Load categories from Outlook
+   * @returns {Array} Array of category objects
+   */
+  const loadOutlookCategories = useCallback(async () => {
+    try {
+      const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
+        headers: {
+          Authorization: `Bearer ${graphToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to fetch Outlook categories:', errorData);
+        return [];
+      }
+      
+      const data = await response.json();
+      console.log('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
+      
+      // Extract category names
+      const outlookCategories = data.value.map(cat => ({
+        id: cat.id,
+        name: cat.displayName,
+        color: cat.color
+      }));
+      
+      return outlookCategories;
+    } catch (err) {
+      console.error('Error fetching Outlook categories:', err);
+      return [];
+    }
+  }, [graphToken]);
+
+  /**
+   * Load events from Microsoft Graph API
+   *
+  */
+  const loadGraphEvents = useCallback(async () => {
+    // 0. Don't even start until we have a token
+    if (!graphToken) { return; }
+    setLoading(true);
+    try {
+      // 1. Format your dates
+      const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
+  
+      // 2. Pull down your registered schema‑extension IDs
+      const available = await loadSchemaExtensions();
+      const extIds = available.map(e => e.id);
+      if (extIds.length === 0) {
+        console.log("No schema extensions registered; skipping extension expand.");
+      } else {
+        console.log("Found schema extensions:", extIds);
+      }
+  
+      // 3. Build your extensionName filter (OData)
+      const extFilter = extIds
+        .map(id => `id eq '${id}'`)
+        .join(" or ");
+  
+      // 4. Page through /me/events, expanding extensions inline
+      let all = [];
+      let nextLink =
+        `https://graph.microsoft.com/v1.0/me/events` +
+        `?$top=50` +
+        `&$orderby=start/dateTime desc` +
+        `&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'` +
+        (extFilter
+          ? `&$expand=extensions($filter=${encodeURIComponent(extFilter)})`
+          : "");
+      
+      while (nextLink) {
+        const resp = await fetch(nextLink, {
+          headers: { Authorization: `Bearer ${graphToken}` }
+        });
+        if (!resp.ok) {
+          console.error("Graph error paging events:", await resp.json());
+          break;
+        }
+        const js = await resp.json();
+        all = all.concat(js.value || []);
+        nextLink = js["@odata.nextLink"] || null;
+      }
+      console.log(`Fetched ${all.length} events.`);
+  
+      // 5. Normalize into your UI model
+      const converted = all.map(evt => {
+        // Extract extension data
+        const extData = {};
+        if (evt.extensions && evt.extensions.length > 0) {
+          console.log(`Processing extensions for event ${evt.id}:`, evt.extensions);
+          
+          // Flatten out any extension props
+          evt.extensions.forEach(x =>
+            Object.entries(x).forEach(([k, v]) => {
+              if (!k.startsWith("@") && k !== "id" && k !== "extensionName") {
+                extData[k] = v;
+                console.log(`  Extracted property: ${k} = ${v}`);
+              }
+            })
+          );
+        }
+  
+        return {
+          id: evt.id,
+          subject: evt.subject,
+          start:  { dateTime: evt.start.dateTime },
+          end:    { dateTime: evt.end.dateTime },
+          location: { displayName: evt.location?.displayName || "" },
+          category: evt.categories?.[0] || "Uncategorized",
+          extensions: evt.extensions || [],
+          ...extData
+        };
+      });
+  
+      if (converted.length > 0) {
+        console.log("[loadGraphEvents] Sample converted event with extensions:", JSON.stringify(converted[0], null, 2));
+      }
+
+      console.log("[loadGraphEvents] events:", converted);
+      
+      setAllEvents(converted);
+      setInitializing(false);
+    } catch (err) {
+      console.error("loadGraphEvents failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [graphToken, dateRange, loadSchemaExtensions]);
+
+  /**
+   * Fetch user profile and permissions for calendar
+   */
+  const fetchUserProfile = useCallback(async () => {
+    if (!apiToken) return null;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/current`, {
+        headers: {
+          Authorization: `Bearer ${apiToken}`
+        }
+      });
+      
+      if (response.status === 404) {
+        console.log("User profile not found - permissions will use defaults");
+        return null;
+      }
+      
+      if (response.status === 401) {
+        console.log("Unauthorized - authentication issue with API token");
+        
+        // Set default permissions
+        setUserPermissions({
+          startOfWeek: 'Monday',
+          defaultView: 'week',
+          defaultGroupBy: 'categories',
+          preferredZoomLevel: 100,
+          preferredTimeZone: 'America/New_York',
+          createEvents: false, 
+          editEvents: false,  
+          deleteEvents: false, 
+          isAdmin: false
+        });
+        
+        return null;
+      }
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUserProfile(data);
+        
+        const permissions = {
+          startOfWeek: data.preferences?.startOfWeek || 'Monday',
+          defaultView: data.preferences?.defaultView || 'week',
+          defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
+          preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
+          createEvents: data.preferences?.createEvents ?? false,
+          editEvents: data.preferences?.editEvents ?? false,
+          deleteEvents: data.preferences?.deleteEvents ?? false,  
+          isAdmin: data.isAdmin || false,
+          preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York'
+        };
+        
+        setUserPermissions(permissions);
+        
+        return data;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Error fetching user permissions:", error);
+      
+      // Set fallback permissions
+      setUserPermissions({
+        startOfWeek: 'Monday',
+        defaultView: 'week',
+        defaultGroupBy: 'categories',
+        preferredZoomLevel: 100,
+        createEvents: false,
+        editEvents: false,
+        deleteEvents: false,
+        isAdmin: false
+      });
+      
+      return null;
+    }
+  }, [apiToken, API_BASE_URL]);
 
   //---------------------------------------------------------------------------
   // UTILITY/HELPER FUNCTIONS
@@ -169,6 +410,7 @@ function Calendar({ graphToken, apiToken }) {
     });
   };
 
+  // Generate the weeks for the calendar view
   function getMonthWeeks() {
     const days = [];
     const year = dateRange.start.getFullYear();
@@ -180,15 +422,24 @@ function Calendar({ graphToken, apiToken }) {
     
     // Get days from previous month to fill first week
     const firstDayOfWeek = firstDay.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    // Adjust for week starting on Monday (0 = Monday, 6 = Sunday)
-    const prevMonthDays = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; 
+    
+    // Adjust based on user preference for start of week
+    const startOfWeekIndex = userPermissions.startOfWeek === 'Sunday' ? 0 : 1; // 0 for Sunday, 1 for Monday
+    
+    // Calculate how many days from previous month to include
+    let prevMonthDays;
+    if (startOfWeekIndex === 0) { // Sunday start
+      prevMonthDays = firstDayOfWeek;
+    } else { // Monday start
+      prevMonthDays = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+    }
     
     for (let i = prevMonthDays; i > 0; i--) {
       const day = new Date(year, month, 1 - i);
       days.push({ date: day, isCurrentMonth: false });
     }
     
-    // Add all days from current month
+    // Add all days from current month (same as before)
     for (let i = 1; i <= lastDay.getDate(); i++) {
       const day = new Date(year, month, i);
       days.push({ date: day, isCurrentMonth: true });
@@ -211,6 +462,18 @@ function Calendar({ graphToken, apiToken }) {
     
     return weeks;
   }
+
+  // Add this function to generate weekday headers based on start of week preference
+  const getWeekdayHeaders = () => {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // Monday start
+    
+    if (userPermissions.startOfWeek === 'Sunday') {
+      // Rearrange for Sunday start: move Sunday from end to beginning
+      weekdays.unshift(weekdays.pop());
+    }
+    
+    return weekdays;
+  };
   
   function getMonthDayEventPosition(event, day) {
     try {
@@ -360,6 +623,7 @@ function Calendar({ graphToken, apiToken }) {
         endDate.setHours(23, 59, 59, 999);
         break;
       case 'week':
+        // For week view, always add 6 days to include entire week
         endDate.setDate(startDate.getDate() + 6);
         endDate.setHours(23, 59, 59, 999);
         break;
@@ -523,179 +787,6 @@ function Calendar({ graphToken, apiToken }) {
       return false;
     }
   };
-
-  //---------------------------------------------------------------------------
-  // DATA FUNCTIONS
-  //---------------------------------------------------------------------------
-  
-  /**
-   * Load schema extensions available for this application
-   */
-  const loadSchemaExtensions = useCallback(async () => {
-    try {
-      // Get your app ID
-      const schemaOwnerId = msalConfig.auth.clientId;
-      
-      // Filter for schema extensions owned by your app
-      const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
-        headers: {
-          Authorization: `Bearer ${graphToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        console.error('Failed to load schema extensions');
-        return [];
-      }
-      
-      const data = await response.json();
-      
-      // Filter to extensions that target events
-      const eventExtensions = data.value.filter(ext => 
-        ext.status === 'Available' && 
-        ext.targetTypes.includes('event')
-      );
-      
-      // Store in state for use in UI
-      setSchemaExtensions(eventExtensions);
-      
-      return eventExtensions;
-    } catch (err) {
-      console.error('Error loading schema extensions:', err);
-      return [];
-    }
-  }, [graphToken]);
-
-  /**
-   * Load categories from Outlook
-   * @returns {Array} Array of category objects
-   */
-  const loadOutlookCategories = useCallback(async () => {
-    try {
-      const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
-        headers: {
-          Authorization: `Bearer ${graphToken}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Failed to fetch Outlook categories:', errorData);
-        return [];
-      }
-      
-      const data = await response.json();
-      console.log('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
-      
-      // Extract category names
-      const outlookCategories = data.value.map(cat => ({
-        id: cat.id,
-        name: cat.displayName,
-        color: cat.color
-      }));
-      
-      return outlookCategories;
-    } catch (err) {
-      console.error('Error fetching Outlook categories:', err);
-      return [];
-    }
-  }, [graphToken]);
-
-  /**
-   * Load events from Microsoft Graph API
-   *
-  */
-  const loadGraphEvents = useCallback(async () => {
-    // 0. Don't even start until we have a token
-    if (!graphToken) { return; }
-    setLoading(true);
-    try {
-      // 1. Format your dates
-      const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
-  
-      // 2. Pull down your registered schema‑extension IDs
-      const available = await loadSchemaExtensions();
-      const extIds = available.map(e => e.id);
-      if (extIds.length === 0) {
-        console.log("No schema extensions registered; skipping extension expand.");
-      } else {
-        console.log("Found schema extensions:", extIds);
-      }
-  
-      // 3. Build your extensionName filter (OData)
-      const extFilter = extIds
-        .map(id => `id eq '${id}'`)
-        .join(" or ");
-  
-      // 4. Page through /me/events, expanding extensions inline
-      let all = [];
-      let nextLink =
-        `https://graph.microsoft.com/v1.0/me/events` +
-        `?$top=50` +
-        `&$orderby=start/dateTime desc` +
-        `&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'` +
-        (extFilter
-          ? `&$expand=extensions($filter=${encodeURIComponent(extFilter)})`
-          : "");
-      
-      while (nextLink) {
-        const resp = await fetch(nextLink, {
-          headers: { Authorization: `Bearer ${graphToken}` }
-        });
-        if (!resp.ok) {
-          console.error("Graph error paging events:", await resp.json());
-          break;
-        }
-        const js = await resp.json();
-        all = all.concat(js.value || []);
-        nextLink = js["@odata.nextLink"] || null;
-      }
-      console.log(`Fetched ${all.length} events.`);
-  
-      // 5. Normalize into your UI model
-      const converted = all.map(evt => {
-        // Extract extension data
-        const extData = {};
-        if (evt.extensions && evt.extensions.length > 0) {
-          console.log(`Processing extensions for event ${evt.id}:`, evt.extensions);
-          
-          // Flatten out any extension props
-          evt.extensions.forEach(x =>
-            Object.entries(x).forEach(([k, v]) => {
-              if (!k.startsWith("@") && k !== "id" && k !== "extensionName") {
-                extData[k] = v;
-                console.log(`  Extracted property: ${k} = ${v}`);
-              }
-            })
-          );
-        }
-  
-        return {
-          id: evt.id,
-          subject: evt.subject,
-          start:  { dateTime: evt.start.dateTime },
-          end:    { dateTime: evt.end.dateTime },
-          location: { displayName: evt.location?.displayName || "" },
-          category: evt.categories?.[0] || "Uncategorized",
-          extensions: evt.extensions || [],
-          ...extData
-        };
-      });
-  
-      if (converted.length > 0) {
-        console.log("[loadGraphEvents] Sample converted event with extensions:", JSON.stringify(converted[0], null, 2));
-      }
-
-      console.log("[loadGraphEvents] events:", converted);
-      
-      setAllEvents(converted);
-      setInitialLoadComplete(true);
-    } catch (err) {
-      console.error("loadGraphEvents failed:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [graphToken, dateRange, loadSchemaExtensions]);
 
   /**
    * Create default categories in Outlook if none exist
@@ -887,12 +978,37 @@ function Calendar({ graphToken, apiToken }) {
     });
   };
 
+  const snapToStartOfWeek = (date) => {
+    const newDate = new Date(date);
+    const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+    
+    // Determine how many days to go back
+    let daysToSubtract;
+    if (userPermissions.startOfWeek === 'Sunday') {
+      daysToSubtract = day; // If Sunday start, just subtract the current day
+    } else {
+      // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
+      daysToSubtract = day === 0 ? 6 : day - 1;
+    }
+    
+    newDate.setDate(newDate.getDate() - daysToSubtract);
+    return newDate;
+  };
+
   /**
    * Navigate to today
    */
   const handleToday = () => {
-    const newStart = new Date();
-    const newEnd = calculateEndDate(newStart, viewType)
+    let newStart;
+    
+    if (viewType === 'week') {
+      // For week view, snap to start of the week based on preference
+      newStart = snapToStartOfWeek(new Date());
+    } else {
+      newStart = new Date();
+    }
+    
+    const newEnd = calculateEndDate(newStart, viewType);
     setDateRange({
       start: newStart,
       end: newEnd
@@ -1086,16 +1202,50 @@ function Calendar({ graphToken, apiToken }) {
   };
 
   //---------------------------------------------------------------------------
-  // USE EFFECTS
+  // MAIN INITIALIZATION FUNCTION
   //---------------------------------------------------------------------------
-  // Then add this useEffect to handle the loading state
   useEffect(() => {
-    if (initialLoadComplete && !loading) {
-      setIsFullyLoaded(true);
-    } else {
-      setIsFullyLoaded(false);
+    // This will run whenever dateRange changes
+    if (graphToken && !initializing) {
+      console.log("Date range changed, loading events for:", {
+        start: dateRange.start.toISOString(),
+        end: dateRange.end.toISOString()
+      });
+      
+      // Call the existing loadGraphEvents function
+      loadGraphEvents();
     }
-  }, [initialLoadComplete, loading]);
+  }, [dateRange, graphToken, initializing, loadGraphEvents]);
+  
+  useEffect(() => {
+    const initializeCalendar = async () => {
+      if (!graphToken || !apiToken || prefsLoading) {
+        return;
+      }
+      
+      try {
+        // Wait for user profile/permissions to load first
+        // You can keep your existing user profile loading logic here
+        
+        // Load categories
+        const categories = await loadOutlookCategories();
+        setOutlookCategories(categories);
+        
+        // Load schema extensions
+        await loadSchemaExtensions();
+        
+        // Load events
+        await loadGraphEvents();
+        
+        // All data is loaded, set initializing to false
+        setInitializing(false);
+      } catch (error) {
+        console.error("Failed to initialize calendar:", error);
+      }
+    };
+    
+    initializeCalendar();
+  }, [graphToken, apiToken, prefsLoading]);
 
   // Loads user profile and permissions for calendar
   useEffect(() => {
@@ -1194,8 +1344,8 @@ function Calendar({ graphToken, apiToken }) {
   useEffect(() => {
     if (prefsLoading) return;
 
-    console.log("Loading preferences:", prefs);
-    console.log("TimeZone in prefs:", prefs.preferredTimeZone);
+    // console.log("Loading preferences:", prefs);
+    // console.log("TimeZone in prefs:", prefs.preferredTimeZone);
   
     // once roamingSettings are ready, push them into state
     setUserTimeZone(prefs.preferredTimeZone || 'America/New_York');
@@ -1229,7 +1379,8 @@ function Calendar({ graphToken, apiToken }) {
   }, [outlookCategories]);
 
   // Filter events based on date range and categories/locations
-  useEffect(() => {
+  const filteredEvents = useMemo(() => {
+    // Set loading state at the beginning of calculation
     setLoading(true);
     
     console.log('Filtering with date range:', dateRange.start.toISOString(), 'to', dateRange.end.toISOString());
@@ -1261,15 +1412,17 @@ function Calendar({ graphToken, apiToken }) {
           return selectedLocations.includes('Unspecified');
         }
         
-        // Event should be included if it contains ANY of the selected locations
-        inSelectedGroup = eventLocations.some(loc => selectedLocations.includes(loc));
+        const visibleLocations = selectedLocations.filter(loc => loc !== 'Unspecified');
+        inSelectedGroup = eventLocations.some(loc => visibleLocations.includes(loc));
       }
       
       return inDateRange && inSelectedGroup;
     });
     
-    setFilteredEvents(filtered);
+    // Set loading state to false after calculation is complete
     setLoading(false);
+    
+    return filtered;
   }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy]);
 
   // Load Categories when graph token is available
@@ -1289,14 +1442,6 @@ function Calendar({ graphToken, apiToken }) {
       fetchCategories();
     }
   }, [graphToken, loadOutlookCategories]);
-
-  // Load Events when graph token is available
-  useEffect(() => {
-    if (graphToken) {
-      setLoading(true);
-      loadGraphEvents();
-    }
-  }, [graphToken, loadGraphEvents]);
 
   // Load Schema Extensions when graph token is available
   useEffect(() => {
@@ -1320,6 +1465,21 @@ function Calendar({ graphToken, apiToken }) {
       });
     }
   }, [viewType]);
+
+  useEffect(() => {
+    if (viewType === 'week') {
+      const weekStart = snapToStartOfWeek(dateRange.start);
+      const weekEnd = calculateEndDate(weekStart, 'week');
+      
+      // Only update if it's different to avoid infinite loop
+      if (weekStart.getDate() !== dateRange.start.getDate()) {
+        setDateRange({
+          start: weekStart,
+          end: weekEnd
+        });
+      }
+    }
+  }, [viewType, userPermissions.startOfWeek]);
 
   // Initialize filter for month view
   useEffect(() => {
@@ -1363,7 +1523,7 @@ function Calendar({ graphToken, apiToken }) {
   //---------------------------------------------------------------------------
   return (
     <div className="calendar-container">
-      {!isFullyLoaded && <LoadingOverlay/>}
+      {initializing && <LoadingOverlay/>}
       <div className="calendar-header">
         <div className="calendar-controls">
           <div className="view-selector">
@@ -1399,20 +1559,73 @@ function Calendar({ graphToken, apiToken }) {
             </button>
           </div>
 
-          <div className="time-zone-selector">
-            <select
-              value={userTimeZone}
-              onChange={(e) => {
-                setUserTimeZone(e.target.value);
-                updatePrefs({ preferredTimeZone: e.target.value });
-              }}
-            >
-              <option value="America/New_York">Eastern Time</option>
-              <option value="America/Chicago">Central Time</option>
-              <option value="America/Denver">Mountain Time</option>
-              <option value="America/Los_Angeles">Pacific Time</option>
-              <option value="UTC">UTC</option>
-            </select>
+          <div className="selector-group" style={{ display: 'flex', gap: '2px' }}>
+            <div className="time-zone-selector">
+              <select
+                value={userTimeZone}
+                onChange={(e) => {
+                  setUserTimeZone(e.target.value);
+                  updatePrefs({ preferredTimeZone: e.target.value });
+                }}
+              >
+                <option value="America/New_York">Eastern Time</option>
+                <option value="America/Chicago">Central Time</option>
+                <option value="America/Denver">Mountain Time</option>
+                <option value="America/Los_Angeles">Pacific Time</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </div>
+            
+            {/* Week Start Selector - NEW */}
+            <div className="week-start-selector">
+              <select
+                value={userPermissions.startOfWeek}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  
+                  // Update user preferences
+                  setUserPermissions(prev => ({
+                    ...prev,
+                    startOfWeek: newValue
+                  }));
+                  updatePrefs({ startOfWeek: newValue });
+                  
+                  // Only adjust date range if in week view
+                  if (viewType === 'week') {
+                    // Get the current start date
+                    const currentStartDate = new Date(dateRange.start);
+                    let newStart;
+                    
+                    // If switching from Sunday to Monday, add 1 day to the current start
+                    if (newValue === 'Monday' && userPermissions.startOfWeek === 'Sunday') {
+                      newStart = new Date(currentStartDate);
+                      newStart.setDate(currentStartDate.getDate() + 1);
+                    } 
+                    // If switching from Monday to Sunday, subtract 1 day from current start
+                    else if (newValue === 'Sunday' && userPermissions.startOfWeek === 'Monday') {
+                      newStart = new Date(currentStartDate);
+                      newStart.setDate(currentStartDate.getDate() - 1);
+                    }
+                    // Otherwise use current start
+                    else {
+                      newStart = currentStartDate;
+                    }
+                    
+                    // Calculate the new end date based on the new start
+                    const newEnd = calculateEndDate(newStart, 'week');
+                    
+                    // Update date range
+                    setDateRange({
+                      start: newStart,
+                      end: newEnd
+                    });
+                  }
+                }}
+              >
+                <option value="Sunday">Sunday start of Week</option>
+                <option value="Monday">Monday start of Week</option>
+              </select>
+            </div>
           </div>
   
           {/* View mode selectors */}
@@ -1449,7 +1662,7 @@ function Calendar({ graphToken, apiToken }) {
             {viewType === 'day' 
               ? dateRange.start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
               : viewType === 'month'
-                ? dateRange.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) /* CHANGE: Better formatting for month view */
+                ? dateRange.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
                 : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
             }
           </div>
@@ -1484,7 +1697,7 @@ function Calendar({ graphToken, apiToken }) {
         </div>
       </div>
   
-      {!isFullyLoaded ? (
+      {initializing ? (
         <div style={{ 
           display: 'flex', 
           justifyContent: 'center', 
@@ -1550,10 +1763,9 @@ function Calendar({ graphToken, apiToken }) {
                       options={availableLocations}
                       selected={selectedLocations}
                       onChange={val => {
-                          setSelectedLocations(val);
-                          updatePrefs({ selectedLocations: val });
-                        }
-                      }
+                        setSelectedLocations(val);
+                        updatePrefs({ selectedLocations: val });
+                      }}
                       label="Filter by locations"
                     />
                   </>
@@ -1574,19 +1786,14 @@ function Calendar({ graphToken, apiToken }) {
               >
                 {viewType === 'month' ? (
                   // Month View
-                  <div className="month-view-container"> {/* CHANGE: Added container div with class for styling */}
-                    <div className="month-header">
-                      <div className="weekday-header">
-                        <div className="weekday">Mon</div>
-                        <div className="weekday">Tue</div>
-                        <div className="weekday">Wed</div>
-                        <div className="weekday">Thu</div>
-                        <div className="weekday">Fri</div>
-                        <div className="weekday">Sat</div>
-                        <div className="weekday">Sun</div>
+                  <div className="month-view-container">
+                      <div className="month-header">
+                        <div className="weekday-header">
+                          {getWeekdayHeaders().map((day, index) => (
+                            <div key={index} className="weekday">{day}</div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    
                     <div className="month-days">
                       {getMonthWeeks().map((week, weekIndex) => (
                         <div key={weekIndex} className="week-row">
@@ -1911,7 +2118,7 @@ function Calendar({ graphToken, apiToken }) {
           categories={outlookCategories.length > 0 
             ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
             : categories}
-          availableLocations={availableLocations}
+          availableLocations={getFilteredLocationsForMultiSelect()}
           schemaExtensions={schemaExtensions}
           onSave={handleSaveEvent}
           onCancel={() => setIsModalOpen(false)}

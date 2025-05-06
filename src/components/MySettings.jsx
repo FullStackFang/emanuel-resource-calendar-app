@@ -1,12 +1,10 @@
 // src/components/MySettings.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
-import './Settings.css'; // Assuming you have this CSS file already
+import './Settings.css';
 import APP_CONFIG from '../config/config';
 
-// API endpoint - use the full URL to your API server
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
-//const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
 
 // Time zone options
 const timeZoneOptions = [
@@ -17,6 +15,19 @@ const timeZoneOptions = [
   { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
 ];
 
+// Default preferences object - used multiple times
+const defaultPreferences = {
+  startOfWeek: 'Sunday',
+  createEvents: false,
+  editEvents: false,
+  deleteEvents: false,
+  isAdmin: false,
+  defaultView: 'week',
+  defaultGroupBy: 'categories',
+  preferredZoomLevel: 100,
+  preferredTimeZone: 'America/New_York'
+};
+
 export default function MySettings({ apiToken }) {
     const { accounts } = useMsal();
     const [loading, setLoading] = useState(true);
@@ -26,151 +37,108 @@ export default function MySettings({ apiToken }) {
     const [formData, setFormData] = useState({
         displayName: '',
         email: '',
-        preferences: {
-            startOfWeek: 'Sunday',
-            createEvents: true,
-            editEvents: true,
-            deleteEvents: false,
-            isAdmin: false,
-            defaultView: 'week',
-            defaultGroupBy: 'categories',
-            preferredZoomLevel: 100,
-            preferredTimeZone: 'America/New_York',
-        }
+        preferences: { ...defaultPreferences }
     });
 
-  // Fetch the current user from MongoDB when apiToken becomes available
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-        // Add these debug logs
-        console.log("API Token available:", !!apiToken);
-        console.log("API Token length:", apiToken?.length);
-        console.log('Auth header:', `Bearer ${apiToken.substring(0, 20)}...`);
-        
-        setLoading(true);
-        if (!apiToken) {
-            setError('Not signed in. Please sign in to view your settings.');
-            setLoading(false);
-            return;
+  // Separate function for creating a new user
+  const createNewUser = useCallback(async (userData) => {
+    if (!apiToken) return null;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/current`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(userData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to create user profile: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
+  }, [apiToken]);
+
+  // Fetch user profile
+  const fetchUserProfile = useCallback(async () => {
+    if (!apiToken) {
+      setError('Not signed in. Please sign in to view your settings.');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/current`, {
+        headers: {
+          Authorization: `Bearer ${apiToken}`
         }
+      });
+      
+      if (response.status === 404) {
+        // Get account info
+        const userAccount = accounts.length > 0 ? accounts[0] : null;
+        const userEmail = userAccount?.username || '';
+        const userName = userAccount?.name || (userEmail ? userEmail.split('@')[0] : 'New User');
         
+        // Prepare user data
+        const newUserData = {
+          displayName: userName,
+          email: userEmail,
+          preferences: { ...defaultPreferences }
+        };
+        
+        // Create new user
         try {
-            console.log("Fetching user profile from:", `${API_BASE_URL}/users/current`);
-            const response = await fetch(`${API_BASE_URL}/users/current`, {
-                headers: {
-                    Authorization: `Bearer ${apiToken}`
-                }
-            });
-            
-            console.log("Response status:", response.status);
-            
-            if (response.status === 404) {
-                console.log('User not found in database, will create new user profile');
-                
-                // Get MSAL account info
-                const userAccount = accounts.length > 0 ? accounts[0] : null;
-                const userEmail = userAccount?.username || '';
-                const userName = userAccount?.name || (userEmail ? userEmail.split('@')[0] : 'New User');
-                
-                console.log('Using MSAL account info:', { userEmail, userName });
-                
-                // Prepare user data
-                const newUserData = {
-                    displayName: userName,
-                    email: userEmail,
-                    preferences: {
-                        startOfWeek: 'Sunday',
-                        createEvents: false,
-                        editEvents: false,
-                        deleteEvents: false,
-                        isAdmin: false,
-                        defaultView: 'week',
-                        defaultGroupBy: 'categories',
-                        preferredZoomLevel: 100,
-                        preferredTimeZone: 'America/New_York'
-                    }
-                };
-                
-                console.log('Creating new user with data:', newUserData);
-                
-                // Immediately create the user
-                try {
-                    const createResponse = await fetch(`${API_BASE_URL}/users/current`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            Authorization: `Bearer ${apiToken}`
-                        },
-                        body: JSON.stringify(newUserData)
-                    });
-                    
-                    if (!createResponse.ok) {
-                        throw new Error(`Failed to create user profile: ${createResponse.statusText}`);
-                    }
-                    
-                    const createdUser = await createResponse.json();
-                    console.log('Successfully created new user:', createdUser);
-                    
-                    setUserProfile(createdUser);
-                    setFormData({
-                        displayName: createdUser.displayName || '',
-                        email: createdUser.email || '',
-                        preferences: {
-                            startOfWeek: createdUser.preferences?.startOfWeek || 'Sunday',
-                            createEvents: createdUser.preferences?.createEvents ?? false,
-                            editEvents: createdUser.preferences?.editEvents ?? false,
-                            deleteEvents: createdUser.preferences?.deleteEvents ?? false,
-                            isAdmin: createdUser.preferences?.isAdmin ?? false,
-                            defaultView: createdUser.preferences?.defaultView || 'week',
-                            defaultGroupBy: createdUser.preferences?.defaultGroupBy || 'categories',
-                            preferredZoomLevel: createdUser.preferences?.preferredZoomLevel || 100,
-                            preferredTimeZone: createdUser.preferences?.preferredTimeZone || 'America/New_York'
-                        }
-                    });
-                } catch (createErr) {
-                    console.error('Error creating new user profile:', createErr);
-                    setError('Error creating your profile. Please try again later.');
-                }
-                
-                setLoading(false);
-                return;
+          const createdUser = await createNewUser(newUserData);
+          setUserProfile(createdUser);
+          setFormData({
+            displayName: createdUser.displayName || '',
+            email: createdUser.email || '',
+            preferences: {
+              ...defaultPreferences,
+              ...createdUser.preferences
             }
-            
-            if (!response.ok) {
-                throw new Error(`Failed to fetch user profile: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            console.log('User profile data received:', data);
-            setUserProfile(data);
-            setFormData({
-                displayName: data.displayName || '',
-                email: data.email || '',
-                preferences: {
-                    startOfWeek: data.preferences?.startOfWeek || 'Sunday',
-                    createEvents: data.preferences?.createEvents ?? true,
-                    editEvents: data.preferences?.editEvents ?? true,
-                    deleteEvents: data.preferences?.deleteEvents ?? false,
-                    isAdmin: data.preferences?.isAdmin ?? false,
-                    defaultView: data.preferences?.defaultView || 'week',
-                    defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
-                    preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
-                    preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York'
-                }
-            });
-        } catch (err) {
-            console.error('Error fetching user profile:', err);
-            setError('Error loading your settings. Please try again later.');
-        } finally {
-            setLoading(false);
+          });
+        } catch (createErr) {
+          setError('Error creating your profile. Please try again later.');
         }
-    };
+        
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user profile: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setUserProfile(data);
+      setFormData({
+        displayName: data.displayName || '',
+        email: data.email || '',
+        preferences: {
+          ...defaultPreferences,
+          ...data.preferences
+        }
+      });
+    } catch (err) {
+      setError('Error loading your settings. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  }, [apiToken, accounts, createNewUser]);
 
+  // Load user data on mount
+  useEffect(() => {
     fetchUserProfile();
-  }, [apiToken, accounts]);
+  }, [fetchUserProfile]);
 
-  // Handle form input changes
-  const handleInputChange = (e) => {
+  // Handle form input changes - memoized to prevent recreating on every render
+  const handleInputChange = useCallback((e) => {
     const { name, value, type, checked } = e.target;
     
     if (name.includes('.')) {
@@ -188,7 +156,7 @@ export default function MySettings({ apiToken }) {
         [name]: value
       }));
     }
-  };
+  }, []);
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -204,63 +172,40 @@ export default function MySettings({ apiToken }) {
     }
 
     try {
-        const method = 'PUT';  // Always use PUT
-        const endpoint = `${API_BASE_URL}/users/current`;  // Always use /users/current
+      const userAccount = accounts.length > 0 ? accounts[0] : null;
+      const userEmail = userAccount?.username || '';
 
-        const userAccount = accounts.length > 0 ? accounts[0] : null;
-        const userEmail = userAccount?.username || '';
+      const userData = {
+        displayName: formData.displayName,
+        email: userEmail,
+        preferences: { ...formData.preferences }
+      };
 
-        const userData = {
-            displayName: formData.displayName,
-            email: userEmail,
-            preferences: {
-                startOfWeek: formData.preferences.startOfWeek,
-                createEvents: formData.preferences.createEvents,
-                editEvents: formData.preferences.editEvents,
-                deleteEvents: formData.preferences.deleteEvents,
-                isAdmin: formData.preferences.isAdmin,
-                defaultView: formData.preferences.defaultView,
-                defaultGroupBy: formData.preferences.defaultGroupBy,
-                preferredZoomLevel: formData.preferences.preferredZoomLevel,
-                preferredTimeZone: formData.preferences.preferredTimeZone
-            }
-        };
+      const response = await fetch(`${API_BASE_URL}/users/current`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(userData)
+      });
 
-        // Add these debug logs
-        console.log("Submitting to endpoint:", endpoint);
-        console.log("With method:", method);
-        console.log("Authorization available:", !!apiToken);
-        console.log("Request headers:", {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken?.substring(0, 10)}...`
-        });
-        console.log("Request payload:", userData);
+      if (!response.ok) {
+        throw new Error(`Error saving settings: ${response.statusText}`);
+      }
 
-        const response = await fetch(endpoint, {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiToken}`
-            },
-            body: JSON.stringify(userData)
-        });
+      const updatedUser = await response.json();
+      setUserProfile(updatedUser);
+      setSuccessMessage('Settings saved successfully!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      setError('Failed to save settings. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        if (!response.ok) {
-            throw new Error(`Error saving settings: ${response.statusText}`);
-        }
-
-        const updatedUser = await response.json();
-        setUserProfile(updatedUser);
-        setSuccessMessage('Settings saved successfully!');
-        setTimeout(() => setSuccessMessage(''), 3000);
-        } catch (err) {
-            console.error('Error saving settings:', err);
-            setError('Failed to save settings. Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
+  // Show loading indicator
   if (loading && !userProfile) {
     return <div className="settings-loading">Loading your settings...</div>;
   }
@@ -283,16 +228,15 @@ export default function MySettings({ apiToken }) {
           />
         </div>
         <div className="form-group">
-            <label htmlFor="email">Email:</label>
-            <input
-                type="email"
-                id="email"
-                name="email"
-                // Use the account email directly from MSAL if available
-                value={accounts.length > 0 ? accounts[0].username : formData.email}
-                disabled
-            />
-            <small>Email is linked to your Microsoft account and cannot be changed.</small>
+          <label htmlFor="email">Email:</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            value={accounts.length > 0 ? accounts[0].username : formData.email}
+            disabled
+          />
+          <small>Email is linked to your Microsoft account and cannot be changed.</small>
         </div>
         
         <h3>Calendar Preferences</h3>

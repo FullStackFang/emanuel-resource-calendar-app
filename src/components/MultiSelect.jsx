@@ -1,4 +1,4 @@
-// src/components/MultiSelect.jsx
+// Updated MultiSelect component
 import React, { useState, useRef, useEffect } from 'react';
 
 function MultiSelect({ options, selected, onChange, label }) {
@@ -29,11 +29,17 @@ function MultiSelect({ options, selected, onChange, label }) {
     };
   }, [isOpen, localSelected, onChange]);
 
-  const toggleOption = (option) => {
+  const toggleOption = (option, event) => {
+    // Prevent default to avoid issues with label's native behavior
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
     // Update only local state when toggling options
     setLocalSelected(prev => 
-      prev.includes(option)
-        ? prev.filter(item => item !== option)
+      prev.includes(option) 
+        ? prev.filter(item => item !== option) 
         : [...prev, option]
     );
   };
@@ -66,18 +72,24 @@ function MultiSelect({ options, selected, onChange, label }) {
       {isOpen && (
         <div className="multi-select-options">
           {options.map(option => (
-            <div 
-              key={option} 
+            <div
+              key={option}
               className={`multi-select-option ${localSelected.includes(option) ? 'selected' : ''}`}
-              onClick={() => toggleOption(option)}
+              onClick={(e) => toggleOption(option, e)}
             >
               <input
                 type="checkbox"
                 checked={localSelected.includes(option)}
-                onChange={() => {}}
+                onChange={(e) => toggleOption(option, e)}
                 id={`option-${option}`}
+                onClick={(e) => e.stopPropagation()}
               />
-              <label htmlFor={`option-${option}`}>{option}</label>
+              <label 
+                htmlFor={`option-${option}`}
+                onClick={(e) => toggleOption(option, e)}
+              >
+                {option}
+              </label>
             </div>
           ))}
         </div>
