@@ -1,5 +1,5 @@
 // src/components/EventForm.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
 import './EventForm.css';
 
@@ -31,41 +31,8 @@ const formatDateForAPI = (date) => {
  */
 const parseAPIDateToLocal = (isoString) => {
   if (!isoString) return new Date();
-  
-  // Create a date object from the ISO string
-  // This will automatically convert from UTC to local time
-  const date = new Date(isoString);
-  
-  console.log(`Parsed API date: ${isoString} to local date: ${date.toString()}`);
-  
-  return date;
-};
-
-/**
- * Format date for datetime-local input
- * @param {string} dateString - ISO date string
- * @returns {string} Formatted date string for input
- */
-const formatDateForInput = (dateString) => {
-  if (!dateString) return '';
-  
-  try {
-    // First convert the API date to local time
-    const localDate = parseAPIDateToLocal(dateString);
-    
-    // Then format to YYYY-MM-DDThh:mm for datetime-local input
-    // Using padStart to ensure we have leading zeros
-    const year = localDate.getFullYear();
-    const month = String(localDate.getMonth() + 1).padStart(2, '0');
-    const day = String(localDate.getDate()).padStart(2, '0');
-    const hours = String(localDate.getHours()).padStart(2, '0');
-    const minutes = String(localDate.getMinutes()).padStart(2, '0');
-    
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
-  } catch (err) {
-    console.error('Error formatting date for input:', err);
-    return '';
-  }
+  // Remove console.log to prevent unnecessary logging
+  return new Date(isoString);
 };
 
 /**
@@ -93,6 +60,11 @@ const parseLocationsFromEvent = (location, availableOptions) => {
 };
 
 function EventForm({ event, categories, availableLocations = [], schemaExtensions = [], onSave, onCancel, readOnly = false }) {
+  // Use a ref to track if this is the first render
+  const isFirstRender = useRef(true);
+  // Track the previous event to avoid unnecessary updates
+  const prevEventRef = useRef(null);
+  
   const [formData, setFormData] = useState({
     id: '',
     subject: '',
@@ -107,22 +79,38 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
   const [isAllDay, setIsAllDay] = useState(false);
   const [extensionFields, setExtensionFields] = useState({});
   
-  // Initialize form with event data
+  // Format functions for separate date and time fields
+  function formatDateOnly(date) {
+    if (!date) return '';
+    return date.toISOString().split('T')[0];
+  }
+
+  function formatTimeOnly(date) {
+    if (!date) return '';
+    return date.toTimeString().substring(0, 5);
+  }
+  
+  // Initialize form with event data - only run when event changes
   useEffect(() => {
+    // Check if event has actually changed (by ID)
+    if (event && prevEventRef.current && event.id === prevEventRef.current.id) {
+      return;
+    }
+    
+    // Update the previous event ref
+    prevEventRef.current = event;
+    
     if (event) {
-      // Check if this is an all-day event
-      const isAllDayEvent = event.isAllDay || 
-        (event.start?.dateTime && event.end?.dateTime && 
-        new Date(event.start.dateTime).getHours() === 0 &&
-        new Date(event.start.dateTime).getMinutes() === 0 &&
-        new Date(event.end.dateTime).getHours() === 0 &&
-        new Date(event.end.dateTime).getMinutes() === 0);
-      
-      setIsAllDay(isAllDayEvent);
-      
-      // Process dates
+      // Process dates only once when the event changes
       const startDateTime = event.start?.dateTime ? parseAPIDateToLocal(event.start.dateTime) : new Date();
       const endDateTime = event.end?.dateTime ? parseAPIDateToLocal(event.end.dateTime) : new Date();
+      
+      // Check if this is an all-day event
+      const isAllDayEvent = event.isAllDay || 
+        (startDateTime.getHours() === 0 &&
+         startDateTime.getMinutes() === 0 &&
+         endDateTime.getHours() === 0 &&
+         endDateTime.getMinutes() === 0);
       
       // Format date and time separately
       const startDate = formatDateOnly(startDateTime);
@@ -133,6 +121,8 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
       // Handle locations
       const locationValues = parseLocationsFromEvent(event.location, availableLocations);
       
+      // Set form data in a single state update
+      setIsAllDay(isAllDayEvent);
       setFormData({
         id: event.id || '', 
         subject: event.subject || '',
@@ -144,21 +134,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
         category: event.category || categories[0] || ''
       });
     }
-
-    // Process schema extensions...
-    // (keep your existing code for schema extensions)
-  }, [event, categories, schemaExtensions, availableLocations]);
-
-  // Format functions for separate date and time fields
-  function formatDateOnly(date) {
-    if (!date) return '';
-    return date.toISOString().split('T')[0];
-  }
-
-  function formatTimeOnly(date) {
-    if (!date) return '';
-    return date.toTimeString().substring(0, 5);
-  }
+  }, [event, categories, availableLocations]); // Removed parsedDates and schemaExtensions
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -237,8 +213,8 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
       isAllDay: isAllDay
     };
   
-    // Add schema extensions
-    // (keep your existing code for schema extensions)
+    // Handle schema extensions if needed
+    // (Keep your existing code for schema extensions)
   
     onSave(eventData);
   };  

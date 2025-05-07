@@ -1,14 +1,23 @@
-// Updated MultiSelect component
 import React, { useState, useRef, useEffect } from 'react';
 
 function MultiSelect({ options, selected, onChange, label }) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState(selected);
   const dropdownRef = useRef(null);
+  
+  // Track previous selected value to avoid unnecessary updates
+  const prevSelectedRef = useRef(selected);
 
-  // Sync local state with prop when prop changes
+  // Only update localSelected when props.selected actually changes
   useEffect(() => {
-    setLocalSelected(selected);
+    // Deep comparison for arrays
+    const selectedChanged = 
+      JSON.stringify(prevSelectedRef.current) !== JSON.stringify(selected);
+    
+    if (selectedChanged) {
+      setLocalSelected(selected);
+      prevSelectedRef.current = selected;
+    }
   }, [selected]);
 
   // Close dropdown when clicking outside
@@ -16,9 +25,11 @@ function MultiSelect({ options, selected, onChange, label }) {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         if (isOpen) {
-          // Apply changes when closing dropdown
           setIsOpen(false);
-          onChange(localSelected);
+          // Only call onChange if values actually changed
+          if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
+            onChange(localSelected);
+          }
         }
       }
     }
@@ -27,7 +38,7 @@ function MultiSelect({ options, selected, onChange, label }) {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen, localSelected, onChange]);
+  }, [isOpen, localSelected, onChange, selected]);
 
   const toggleOption = (option, event) => {
     // Prevent default to avoid issues with label's native behavior
@@ -47,7 +58,9 @@ function MultiSelect({ options, selected, onChange, label }) {
   const toggleDropdown = () => {
     if (isOpen) {
       // Apply changes when closing dropdown
-      onChange(localSelected);
+      if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
+        onChange(localSelected);
+      }
     }
     setIsOpen(!isOpen);
   };

@@ -39,13 +39,7 @@ function Authentication({ onSignIn, onSignOut }) {
         </button>
       ) : (
         <div className="authenticated-user">
-          <span>Signed in as: {accounts[0].username}</span>
-          <button
-            onClick={() => navigate('/settings')}
-            className="settings-button"
-          >
-            Settings
-          </button>
+          <span style={{ marginRight: '5px' }}>Signed in as: {accounts[0].username}</span>
           <button onClick={handleLogout} className="logout-button">
             Sign Out
           </button>
