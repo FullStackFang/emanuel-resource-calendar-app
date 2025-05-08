@@ -3,25 +3,34 @@ import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
 import './EventForm.css';
 
+// Add this to EventForm.jsx
+function formatTimeForInput(date, userTimeZone) {
+  if (!date) return '';
+  
+  // Format the time in 24-hour format (HH:MM) expected by time inputs
+  // This ensures the time shown in the form matches what the user expects to see
+  // in their preferred timezone
+  const options = { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: false,
+    timeZone: userTimeZone 
+  };
+  
+  const timeString = date.toLocaleTimeString('en-US', options);
+  return timeString;
+}
+
 /**
  * Format date for ISO string for consistent API usage
  * @param {Date} date - The date object
  * @returns {string} ISO formatted date string
  */
-const formatDateForAPI = (date) => {
-  if (!date) return null;
+const formatDateForAPI = (localDate) => {
+  if (!localDate) return null;
   
-  // Create a new date in UTC
-  const dateInUTC = new Date(Date.UTC(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    date.getHours(),
-    date.getMinutes(),
-    date.getSeconds()
-  ));
-  
-  return dateInUTC.toISOString();
+  // Create a UTC ISO string by explicitly building it
+  return localDate.toISOString();
 };
 
 /**
@@ -31,8 +40,12 @@ const formatDateForAPI = (date) => {
  */
 const parseAPIDateToLocal = (isoString) => {
   if (!isoString) return new Date();
-  // Remove console.log to prevent unnecessary logging
-  return new Date(isoString);
+  
+  // Ensure the string has a Z to indicate UTC
+  const utcDateString = isoString.endsWith('Z') ? isoString : `${isoString}Z`;
+  
+  // Create a date object - it will be in the user's local time zone
+  return new Date(utcDateString);
 };
 
 /**
@@ -59,9 +72,44 @@ const parseLocationsFromEvent = (location, availableOptions) => {
   return parsedLocations.filter(loc => availableOptions.includes(loc));
 };
 
-function EventForm({ event, categories, availableLocations = [], schemaExtensions = [], onSave, onCancel, readOnly = false }) {
-  // Use a ref to track if this is the first render
-  const isFirstRender = useRef(true);
+// Add a helper function to format time in the user's timezone
+const formatTimeInUserTimezone = (date) => {
+  if (!date) return '';
+  
+  // Use the same approach as in Calendar.jsx's formatEventTime
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: userTimeZone,
+  });
+};
+
+function EventForm({ 
+  event, 
+  categories, 
+  availableLocations = [], 
+  schemaExtensions = [], 
+  onSave, 
+  onCancel, 
+  readOnly = false,
+  userTimeZone = 'America/New_York' // Default fallback
+}) {
+  // Add this time zone mapping
+  const timeZoneOptions = [
+    { value: 'America/New_York', label: 'Eastern Time (ET)' },
+    { value: 'America/Chicago', label: 'Central Time (CT)' },
+    { value: 'America/Denver', label: 'Mountain Time (MT)' },
+    { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+    { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
+  ];
+
+  // Helper function to get the label for the current time zone
+  const getTimeZoneLabel = (tzValue) => {
+    const option = timeZoneOptions.find(opt => opt.value === tzValue);
+    return option ? option.label : tzValue;
+  };
+
   // Track the previous event to avoid unnecessary updates
   const prevEventRef = useRef(null);
   
@@ -77,7 +125,6 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
   });
   
   const [isAllDay, setIsAllDay] = useState(false);
-  const [extensionFields, setExtensionFields] = useState({});
   
   // Format functions for separate date and time fields
   function formatDateOnly(date) {
@@ -85,9 +132,20 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
     return date.toISOString().split('T')[0];
   }
 
+  // Format time only for the time input
   function formatTimeOnly(date) {
     if (!date) return '';
-    return date.toTimeString().substring(0, 5);
+    
+    // Option 1: Use the 24-hour format expected by the time input
+    // This converts the time to the user's timezone first
+    const timeStr = date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: userTimeZone,
+    });
+    
+    return timeStr;
   }
   
   // Initialize form with event data - only run when event changes
@@ -112,11 +170,13 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
          endDateTime.getHours() === 0 &&
          endDateTime.getMinutes() === 0);
       
-      // Format date and time separately
+      // Format date in YYYY-MM-DD format for the date input
       const startDate = formatDateOnly(startDateTime);
-      const startTime = formatTimeOnly(startDateTime);
       const endDate = formatDateOnly(endDateTime);
-      const endTime = formatTimeOnly(endDateTime);
+      
+      // Format time in user's timezone for the time input
+      const startTime = formatTimeForInput(startDateTime, userTimeZone);
+      const endTime = formatTimeForInput(endDateTime, userTimeZone);
       
       // Handle locations
       const locationValues = parseLocationsFromEvent(event.location, availableLocations);
@@ -127,9 +187,9 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
         id: event.id || '', 
         subject: event.subject || '',
         startDate,
-        startTime,
+        startTime: isAllDayEvent ? '' : startTime,
         endDate,
-        endTime,
+        endTime: isAllDayEvent ? '' : endTime,
         locations: locationValues,
         category: event.category || categories[0] || ''
       });
@@ -182,8 +242,7 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
     const endDate = new Date(`${formData.endDate}T${endTime}`);
     
     // For all-day events spanning a single day, end date should be next day
-    if (isAllDay && 
-        formData.startDate === formData.endDate) {
+    if (isAllDay && formData.startDate === formData.endDate) {
       endDate.setDate(endDate.getDate() + 1);
     }
     
@@ -232,6 +291,10 @@ function EventForm({ event, categories, availableLocations = [], schemaExtension
           required
           disabled={readOnly}
         />
+      </div>
+      {/* Add this new time zone indicator with the friendly label */}
+      <div className="timezone-indicator">
+        Displayed In: {getTimeZoneLabel(userTimeZone)}
       </div>
 
       <div className="datetime-section">

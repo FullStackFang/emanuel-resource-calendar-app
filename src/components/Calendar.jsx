@@ -2181,6 +2181,7 @@ function Calendar({ graphToken, apiToken }) {
           onSave={handleSaveEvent}
           onCancel={() => setIsModalOpen(false)}
           readOnly={modalType === 'view'}
+          userTimeZone={userTimeZone}
         />
       </Modal>
   

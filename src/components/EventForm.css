@@ -224,3 +224,10 @@ input:checked + .toggle-slider:before {
   border-radius: 4px;
   min-height: 38px;
 }
+
+.timezone-indicator {
+  margin-bottom: 8px;
+  font-size: 0.9em;
+  color: #666;
+  font-style: italic
+}
