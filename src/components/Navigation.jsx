@@ -1,9 +1,15 @@
 // src/components/Navigation.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import CalendarSelector from './CalendarSelector';
 import './Navigation.css';
 
-export default function Navigation() {
+export default function Navigation({
+  selectedCalendarId,
+  availableCalendars,
+  onCalendarChange,
+  changingCalendar
+}) {
   const [adminExpanded, setAdminExpanded] = useState(false);
   const location = useLocation();
   const dropdownRef = useRef(null);
@@ -37,6 +43,9 @@ export default function Navigation() {
     setAdminExpanded(false);
   };
 
+  // Only render calendar selector when on the main calendar page
+  const showCalendarSelector = location.pathname === '/';
+
   return (
     <nav className="main-navigation">
       <ul className="nav-list">
@@ -45,6 +54,19 @@ export default function Navigation() {
             Calendar
           </NavLink>
         </li>
+
+        {/* Add calendar selector as a new list item */}
+        {showCalendarSelector && availableCalendars && availableCalendars.length > 0 && (
+          <li className="calendar-select-item">
+            <CalendarSelector
+              selectedCalendarId={selectedCalendarId}
+              availableCalendars={availableCalendars}
+              onCalendarChange={onCalendarChange}
+              changingCalendar={changingCalendar}
+            />
+          </li>
+        )}
+
         <li>
           <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
             My Profile

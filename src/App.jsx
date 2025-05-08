@@ -5,6 +5,7 @@ import Authentication from './components/Authentication';
 import Calendar from './components/Calendar';
 import Settings from './components/Settings';
 import MySettings from './components/MySettings';
+import CalendarSelector from './components/CalendarSelector';
 import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
 import UserAdmin from './components/UserAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -17,6 +18,16 @@ function App() {
   const [signedOut, setSignedOut] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const { instance } = useMsal();
+
+  const [selectedCalendarId, setSelectedCalendarId] = useState(null);
+  const [availableCalendars, setAvailableCalendars] = useState([]);
+  const [changingCalendar, setChangingCalendar] = useState(false);
+
+  // Handle calendar change
+  const handleCalendarChange = (newCalendarId) => {
+    setChangingCalendar(true);
+    setSelectedCalendarId(newCalendarId);
+  };
 
   // Memoized token acquisition function
   const acquireTokens = useCallback(async (account) => {
@@ -140,8 +151,26 @@ function App() {
         <main>
           {apiToken && graphToken ? (
             <>
-              <Navigation />
+              <Navigation 
+                selectedCalendarId={selectedCalendarId}
+                availableCalendars={availableCalendars}
+                onCalendarChange={handleCalendarChange}
+                changingCalendar={changingCalendar}
+              />
               <Routes>
+              <Route path="/" element={
+                  <Calendar 
+                    apiToken={apiToken} 
+                    graphToken={graphToken}
+                    // Add these props
+                    selectedCalendarId={selectedCalendarId}
+                    setSelectedCalendarId={setSelectedCalendarId}
+                    availableCalendars={availableCalendars}
+                    setAvailableCalendars={setAvailableCalendars}
+                    changingCalendar={changingCalendar}
+                    setChangingCalendar={setChangingCalendar}
+                  />
+                } />
                 <Route path="/" element={<Calendar apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/settings" element={<Settings graphToken={graphToken} />} />
                 <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />

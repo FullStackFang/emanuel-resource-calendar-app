@@ -25,6 +25,9 @@ const ensureOfficeReady = () =>
     defaultGroupBy: 'categories',
     preferredZoomLevel: 100,
     selectedLocations: [],
+    preferredTimeZone: 'America/New_York',
+    startOfWeek: 'Monday',
+    selectedCategories: []
   });
   
   ////////////////////////////////////////////////////////////////////////////////
@@ -71,6 +74,7 @@ const ensureOfficeReady = () =>
   
       // Set each updated key
       Object.entries(updates).forEach(([key, value]) => {
+        console.log(`Saving preference: ${key} = ${value}`);
         settings.set(key, value);
       });
   
