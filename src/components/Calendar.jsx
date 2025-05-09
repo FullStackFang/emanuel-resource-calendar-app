@@ -1,11 +1,14 @@
   // src/components/Calendar.jsx
   import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+  import { msalConfig } from '../config/authConfig';
   import Modal from './Modal';
   import EventForm from './EventForm';
   import MultiSelect from './MultiSelect';
-  import { msalConfig } from '../config/authConfig';
   import ExportToPdfButton from './CalendarExport';
   import EventSearch from './EventSearch';
+  import MonthView from './MonthView';
+  import WeekView from './WeekView';
+  import DayView from './DayView';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
 
@@ -35,6 +38,36 @@
   const getFilteredLocationsForMultiSelect = () => {
     return availableLocations.filter(location => location !== 'Unspecified');
   };
+
+  /**
+   * Calculate the end date based on the view type (day, week, month)
+   * @param {Date} startDate - The starting date
+   * @param {string} viewType - 'day', 'week', or 'month'
+   * @returns {Date} The calculated end date
+   */
+  function calculateEndDate(startDate, viewType) {
+    const endDate = new Date(startDate);
+    
+    switch(viewType) {
+      case 'day':
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'week':
+        endDate.setDate(startDate.getDate() + 6);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      case 'month':
+        endDate.setMonth(endDate.getMonth() + 1);
+        endDate.setDate(0);
+        endDate.setHours(23, 59, 59, 999);
+        break;
+      default:
+        endDate.setDate(startDate.getDate() + 6);
+        endDate.setHours(23, 59, 59, 999);
+    }
+    
+    return endDate;
+  }
 
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
@@ -521,12 +554,6 @@
     //---------------------------------------------------------------------------
     // UTILITY/HELPER FUNCTIONS
     //---------------------------------------------------------------------------
-    const isUncategorizedEvent = (event) => {
-      return !event.category || 
-            event.category.trim() === '' || 
-            event.category === 'Uncategorized';
-    };
-
     const showNotification = (message, type = 'error') => {
       setNotification({ show: true, message, type });
       console.log(`[Notification] ${type}: ${message}`);
@@ -581,37 +608,313 @@
       }
     };
 
-    // Add this helper function to filter events for month view
-    const getFilteredMonthEvents = (day) => {
-      if (!selectedFilter) return [];
-      
-      return filteredEvents.filter(event => {
-        // Check if event occurs on this day
-        if (!getMonthDayEventPosition(event, day)) return false;
-        
-        // Filter by category or location based on groupBy
-        if (groupBy === 'categories') {
-          if (isUncategorizedEvent(event)) {
-            return selectedFilter === 'Uncategorized';
-          }
-          return event.category === selectedFilter;
-        } else {
-          // For locations
-          const eventLocations = event.location?.displayName 
-            ? event.location.displayName.split('; ').map(loc => loc.trim())
-            : [];
-            
-          if (selectedFilter === 'Unspecified') {
-            return eventLocations.length === 0 || eventLocations.every(loc => loc === '');
-          } else {
-            return eventLocations.includes(selectedFilter);
-          }
-        }
-      });
-    };
+    //---------------------------------------------------------------------------
+    // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
+    //---------------------------------------------------------------------------
+    /**
+     * TBD
+     */
+    const isUncategorizedEvent = useCallback((event) => {
+      return !event.category || 
+            event.category.trim() === '' || 
+            event.category === 'Uncategorized';
+    }, []);
 
-    // Generate the weeks for the calendar view
-    function getMonthWeeks() {
+    /**
+     * Standardize date for API operations, ensuring consistent time zone handling
+     * @param {Date} date - Local date to standardize
+     * @returns {string} ISO date string in UTC
+     */
+    const standardizeDate = useCallback((date) => {
+      if (!date) return '';
+      return date.toISOString();
+    }, []);
+
+    /**
+     * Consistently format date range for API queries
+     * @param {Date} startDate - Range start date
+     * @param {Date} endDate - Range end date
+     * @returns {Object} Formatted start and end dates
+     */
+    const formatDateRangeForAPI = useCallback((startDate, endDate) => {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      return {
+        start: start.toISOString(),
+        end: end.toISOString()
+      };
+    }, []);
+
+    /**
+     * TBD
+     */
+    const getMonthDayEventPosition = useCallback((event, day) => {
+      try {
+        // Create date objects from the event's start time
+        const eventDate = new Date(event.start.dateTime);
+        
+        // Make copies of both dates and reset to midnight for comparison
+        const eventDay = new Date(eventDate);
+        eventDay.setHours(0, 0, 0, 0);
+        
+        const compareDay = new Date(day);
+        compareDay.setHours(0, 0, 0, 0);
+        
+        // Compare the dates (ignoring time)
+        return eventDay.getTime() === compareDay.getTime();
+      } catch (err) {
+        console.error('Error comparing event date:', err, event);
+        return false;
+      }
+    }, []);
+
+    /**
+     * Check if an event occurs on a specific day
+     * @param {Object} event - The event object
+     * @param {Date} day - The day to check
+     * @returns {boolean} True if the event occurs on the day
+     */
+    const getEventPosition = useCallback((event, day) => {
+      try {
+        // Create date objects from the event's start time
+        const utcDateString = event.start.dateTime.endsWith('Z') ? 
+          event.start.dateTime : `${event.start.dateTime}Z`;
+        const eventDate = new Date(utcDateString);
+        
+        // Convert to the same timezone for comparison
+        const eventDay = new Date(eventDate.toLocaleString('en-US', {timeZone: userTimeZone}));
+        eventDay.setHours(0, 0, 0, 0);
+        
+        const compareDay = new Date(day);
+        compareDay.setHours(0, 0, 0, 0);
+        
+        // Compare the dates (ignoring time)
+        return eventDay.getTime() === compareDay.getTime();
+      } catch (err) {
+        console.error('Error comparing event date:', err, event);
+        return false;
+      }
+    }, [userTimeZone]);
+
+    //---------------------------------------------------------------------------
+    // DEPENDENT UTILITY FUNCTIONS - functions that depend on state or other functions
+    //---------------------------------------------------------------------------
+    /**
+     * TBD
+     */
+    const isKnownCategory = useCallback((categoryName) => {
+      if (isUncategorizedEvent({ category: categoryName })) {
+        return true; 
+      }
+      return outlookCategories.some(cat => cat.name === categoryName);
+    }, [outlookCategories, isUncategorizedEvent]);
+
+    /**
+     * TBD
+     */
+    const getDynamicCategoryColor = useCallback((categoryName) => {
+      // Simple hash function to generate color
+      const hash = categoryName.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+      
+      // Pre-defined colors
+      const colors = [
+        '#FF6B6B', '#4ECDC4', '#556270', '#C7F464', '#FF8C94',
+        '#9DE0AD', '#45ADA8', '#547980', '#594F4F', '#FE4365',
+        '#83AF9B', '#FC9D9A', '#F18D9E', '#3A89C9', '#F9CDAD'
+      ];
+      
+      return colors[Math.abs(hash) % colors.length];
+    }, []);
+
+    /**
+     * Get the color associated with a category from Outlook
+     * @param {string} categoryName - The name of the category
+     * @returns {string} The hex color code
+     */
+    const getCategoryColor = useCallback((categoryName) => {
+      const category = outlookCategories.find(cat => cat.name === categoryName);
+      
+      if (category) {
+        // Color mapping logic
+        const colorMap = {
+          'preset0': '#ff8c00',   // Orange
+          'preset1': '#e51400',   // Red
+          'preset2': '#60a917',   // Green
+          'preset3': '#f472d0',   // Pink
+          'preset4': '#00aba9',   // Teal
+          'preset5': '#008a00',   // Dark Green
+          'preset6': '#ba141a',   // Dark Red
+          'preset7': '#fa6800',   // Dark Orange
+          'preset8': '#1ba1e2',   // Blue
+          'preset9': '#0050ef',   // Dark Blue
+          'preset10': '#6a00ff',  // Purple
+          'preset11': '#aa00ff',  // Dark Purple
+          'preset12': '#825a2c',  // Brown
+          'preset13': '#6d8764',  // Olive
+          'preset14': '#647687',  // Steel
+          'preset15': '#76608a',  // Mauve
+        };
+        return colorMap[category.color] || '#cccccc';
+      } else if (isUncategorizedEvent({ category: categoryName })) {
+        return '#cccccc'; // Default gray for uncategorized
+      } else {
+        return getDynamicCategoryColor(categoryName);
+      }
+    }, [outlookCategories, isUncategorizedEvent, getDynamicCategoryColor]);
+
+    /**
+     * Get the color associated with a location
+     * @param {string} locationName - The name of the location
+     * @returns {string} The hex color code
+     */
+    const getLocationColor = useCallback((locationName) => {
+      // Map location names to specific colors
+      const locationColorMap = {
+        'TPL': '#4285F4', // Blue
+        'CPL': '#EA4335', // Red
+        'MUS': '#FBBC05', // Yellow
+        'Nursery School': '#34A853', // Green
+        '402': '#8E24AA', // Purple
+        '602': '#FB8C00', // Orange
+        'Virtual': '#00ACC1', // Cyan
+        'Microsoft Teams Meeting': '#039BE5', // Light Blue
+        'Unspecified': '#9E9E9E' // Gray
+      };
+      
+      return locationColorMap[locationName] || '#9E9E9E';
+    }, []);
+
+    /**
+     * TBD
+     */
+    const getEventContentStyle = useCallback((viewType) => {
+      switch(viewType) {
+        case 'day':
+          return {
+            fontSize: '14px',
+            lineHeight: '1.4',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical'
+          };
+        // Other cases...
+        default:
+          return {};
+      }
+    }, []);
+
+    /**
+     * Format time for event display
+     * @param {string} dateString - ISO date string
+     * @returns {string} Formatted time string
+     */
+    const formatEventTime = useCallback((dateString, eventSubject = 'Unknown') => {
+      if (!dateString) return '';
+      
+      try {
+        // Time formatting logic...
+        const utcDateString = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
+        const date = new Date(utcDateString);
+        
+        return date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: userTimeZone,
+        });
+      } catch (err) {
+        console.error(`Error formatting event time for "${eventSubject}":`, err);
+        return '';
+      }
+    }, [userTimeZone]);
+
+    /**
+    * Format date for display in the calendar header
+    * @param {Date} date - The date to format
+    * @returns {string} Formatted date string
+    */
+    const formatDateHeader = useCallback((date) => {
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'short', 
+        month: 'numeric', 
+        day: 'numeric',
+        timeZone: userTimeZone
+      });
+    }, [userTimeZone]);
+
+    /**
+     * TBD
+     */
+    const renderEventContent = useCallback((event, viewType) => {
+      const styles = getEventContentStyle(viewType);
+      return (
+        <>
+          <div className="event-time" style={styles}>
+            {formatEventTime(event.start.dateTime, event.subject)}
+            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, event.subject)}`}
+          </div>
+          
+          <div className="event-title" style={styles}>
+            {event.subject}
+          </div>
+          
+          {/* Only show location in day and week views */}
+          {viewType !== 'month' && event.location?.displayName && (
+            <div className="event-location" style={styles}>
+              {event.location.displayName}
+            </div>
+          )}
+          
+          {/* Only show extension properties in day view */}
+          {viewType === 'day' && 
+            Object.entries(event).filter(([key, value]) => 
+              key !== 'id' && 
+              key !== 'subject' && 
+              key !== 'start' && 
+              key !== 'end' && 
+              key !== 'location' && 
+              key !== 'category' &&
+              key !== 'extensions' &&
+              value !== undefined &&
+              value !== null &&
+              value !== ''
+            ).map(([key, value]) => (
+              <div key={key} className="event-extension" style={styles}>
+                <small>{key}: {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value.toString()}</small>
+              </div>
+            ))
+          }
+        </>
+      );
+    }, [getEventContentStyle, formatEventTime]);
+
+    //---------------------------------------------------------------------------
+    // MEMOIZED VALUES - derived state
+    //---------------------------------------------------------------------------
+    /**
+     * TBD
+     */
+    const getWeekdayHeaders = useMemo(() => {
+      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      if (userPermissions.startOfWeek === 'Sunday') {
+        weekdays.unshift(weekdays.pop());
+      }
+      return weekdays;
+    }, [userPermissions.startOfWeek]);
+
+    /**
+     * TBD
+     */
+    const getMonthWeeks = useMemo(() => {
       const days = [];
       const year = dateRange.start.getFullYear();
       const month = dateRange.start.getMonth();
@@ -661,245 +964,13 @@
       }
       
       return weeks;
-    }
-
-    // Add this function to generate weekday headers based on start of week preference
-    const getWeekdayHeaders = () => {
-      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // Monday start
-      
-      if (userPermissions.startOfWeek === 'Sunday') {
-        // Rearrange for Sunday start: move Sunday from end to beginning
-        weekdays.unshift(weekdays.pop());
-      }
-      
-      return weekdays;
-    };
-    
-    function getMonthDayEventPosition(event, day) {
-      try {
-        // Create date objects from the event's start time
-        const eventDate = new Date(event.start.dateTime);
-        
-        // Make copies of both dates and reset to midnight for comparison
-        const eventDay = new Date(eventDate);
-        eventDay.setHours(0, 0, 0, 0);
-        
-        const compareDay = new Date(day);
-        compareDay.setHours(0, 0, 0, 0);
-        
-        // Compare the dates (ignoring time)
-        return eventDay.getTime() === compareDay.getTime();
-      } catch (err) {
-        console.error('Error comparing event date:', err, event);
-        return false;
-      }
-    }
-
-    // Add this function to your Calendar component
-    const getEventContentStyle = (viewType) => {
-      switch(viewType) {
-        case 'day':
-          return {
-            fontSize: '14px',
-            lineHeight: '1.4',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical'
-          };
-        case 'week':
-          return {
-            fontSize: '12px',
-            lineHeight: '1.3',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical'
-          };
-        case 'month':
-          return {
-            fontSize: '11px',
-            lineHeight: '1.2',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
-          };
-        default:
-          return {};
-      }
-    };
-
-    // Use this function to conditionally render event content
-    const renderEventContent = (event, viewType) => {
-      const styles = getEventContentStyle(viewType);
-      
-      return (
-        <>
-          <div className="event-time" style={styles}>
-            {formatEventTime(event.start.dateTime, event.subject)}
-            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, event.subject)}`}
-          </div>
-          
-          <div className="event-title" style={styles}>
-            {event.subject}
-          </div>
-          
-          {/* Only show location in day and week views */}
-          {viewType !== 'month' && event.location?.displayName && (
-            <div className="event-location" style={styles}>
-              {event.location.displayName}
-            </div>
-          )}
-          
-          {/* Only show extension properties in day view */}
-          {viewType === 'day' && 
-            Object.entries(event).filter(([key, value]) => 
-              key !== 'id' && 
-              key !== 'subject' && 
-              key !== 'start' && 
-              key !== 'end' && 
-              key !== 'location' && 
-              key !== 'category' &&
-              key !== 'extensions' &&
-              value !== undefined &&
-              value !== null &&
-              value !== ''
-            ).map(([key, value]) => (
-              <div key={key} className="event-extension" style={styles}>
-                <small>{key}: {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value.toString()}</small>
-              </div>
-            ))
-          }
-        </>
-      );
-    };
-
-    /**
-     * Standardize date for API operations, ensuring consistent time zone handling
-     * @param {Date} date - Local date to standardize
-     * @returns {string} ISO date string in UTC
-     */
-      const standardizeDate = (date) => {
-        if (!date) return '';
-        
-        // Convert to UTC ISO string
-        return date.toISOString();
-      };
-
-    /**
-     * Consistently format date range for API queries
-     * @param {Date} startDate - Range start date
-     * @param {Date} endDate - Range end date
-     * @returns {Object} Formatted start and end dates
-     */
-    const formatDateRangeForAPI = (startDate, endDate) => {
-      // Set startDate to beginning of day in UTC
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      
-      // Set endDate to end of day in UTC
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      return {
-        start: start.toISOString(),
-        end: end.toISOString()
-      };
-    };
-
-    /**
-     * Calculate the end date based on the view type (day, week, month)
-     * @param {Date} startDate - The starting date
-     * @param {string} viewType - 'day', 'week', or 'month'
-     * @returns {Date} The calculated end date
-     */
-    function calculateEndDate(startDate, viewType) {
-      const endDate = new Date(startDate);
-      
-      switch(viewType) {
-        case 'day':
-          endDate.setHours(23, 59, 59, 999);
-          break;
-        case 'week':
-          // For week view, always add 6 days to include entire week
-          endDate.setDate(startDate.getDate() + 6);
-          endDate.setHours(23, 59, 59, 999);
-          break;
-        case 'month':
-          endDate.setMonth(endDate.getMonth() + 1);
-          endDate.setDate(0);
-          endDate.setHours(23, 59, 59, 999);
-          break;
-        default:
-          endDate.setDate(startDate.getDate() + 6);
-          endDate.setHours(23, 59, 59, 999);
-      }
-      
-      return endDate;
-    }
-
-    /**
-     * Get the color associated with a category from Outlook
-     * @param {string} categoryName - The name of the category
-     * @returns {string} The hex color code
-     */
-    const getCategoryColor = (categoryName) => {
-      const category = outlookCategories.find(cat => cat.name === categoryName);
-      
-      if (!category) return '#cccccc'; // Default gray for uncategorized
-      
-      // Map Outlook preset colors to actual CSS colors
-      const colorMap = {
-        'preset0': '#ff8c00',   // Orange
-        'preset1': '#e51400',   // Red
-        'preset2': '#60a917',   // Green
-        'preset3': '#f472d0',   // Pink
-        'preset4': '#00aba9',   // Teal
-        'preset5': '#008a00',   // Dark Green
-        'preset6': '#ba141a',   // Dark Red
-        'preset7': '#fa6800',   // Dark Orange
-        'preset8': '#1ba1e2',   // Blue
-        'preset9': '#0050ef',   // Dark Blue
-        'preset10': '#6a00ff',  // Purple
-        'preset11': '#aa00ff',  // Dark Purple
-        'preset12': '#825a2c',  // Brown
-        'preset13': '#6d8764',  // Olive
-        'preset14': '#647687',  // Steel
-        'preset15': '#76608a',  // Mauve
-      };
-      
-      return colorMap[category.color] || '#cccccc';
-    };
-
-    /**
-     * Get the color associated with a location
-     * @param {string} locationName - The name of the location
-     * @returns {string} The hex color code
-     */
-    const getLocationColor = (locationName) => {
-      // Map location names to specific colors
-      const locationColorMap = {
-        'TPL': '#4285F4', // Blue
-        'CPL': '#EA4335', // Red
-        'MUS': '#FBBC05', // Yellow
-        'Nursery School': '#34A853', // Green
-        '402': '#8E24AA', // Purple
-        '602': '#FB8C00', // Orange
-        'Virtual': '#00ACC1', // Cyan
-        'Microsoft Teams Meeting': '#039BE5', // Light Blue
-        'Unspecified': '#9E9E9E' // Gray
-      };
-      
-      return locationColorMap[locationName] || '#9E9E9E'; // Default to gray
-    };
+    }, [dateRange.start, userPermissions.startOfWeek]);
 
     /**
      * Get all days within the current date range for the calendar view
      * @returns {Array} Array of Date objects for each day in the range
      */
-    const getDaysInRange = () => {
+    const getDaysInRange = useCallback(() => {
       const days = [];
       const currentDate = new Date(dateRange.start);
       
@@ -909,89 +980,102 @@
       }
       
       return days;
-    };
+    }, [dateRange.start, dateRange.end]);
 
     /**
-    * Format date for display in the calendar header
-    * @param {Date} date - The date to format
-    * @returns {string} Formatted date string
-    */
-    const formatDateHeader = (date) => {
-      return date.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        month: 'numeric', 
-        day: 'numeric',
-        timeZone: userTimeZone
-      });
-    };
-
-    /**
-     * Format time for event display
-     * @param {string} dateString - ISO date string
-     * @returns {string} Formatted time string
+     * TBD
      */
-    const formatEventTime = (dateString, eventSubject = 'Unknown') => {
-      if (!dateString) return '';
-      
-      try {
-        // Always ensure we have a UTC indicator by adding 'Z' if missing
-        const utcDateString = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
-        
-        // Create date object from UTC time string
-        const date = new Date(utcDateString);
-        
-        // Log just what we need to see
-        if (eventSubject.includes("DEBUG")) {
-          console.log(`DISPLAY TIME - ${eventSubject}:`);
-          console.log(`  Input string: ${dateString}`);
-          console.log(`  Display time (${userTimeZone}): ${date.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-            timeZone: userTimeZone,
-          })}`);
+    const filteredEvents = useMemo(() => {
+      const filtered = allEvents.filter(event => {
+        const eventDate = new Date(event.start.dateTime);
+        const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
+        let inSelectedGroup = true;
+
+        if (groupBy === 'categories') {
+          if (isUncategorizedEvent(event)) {
+            inSelectedGroup = selectedCategories.includes('Uncategorized');
+          } else if (isKnownCategory(event.category)) {
+            inSelectedGroup = selectedCategories.includes(event.category);
+          } else {
+            const showAllCategoriesSelected = selectedCategories.includes('Show All Categories');
+            inSelectedGroup = showAllCategoriesSelected;
+          }
+        } else {
+          const eventLocations = event.location?.displayName 
+            ? event.location.displayName.split('; ').map(loc => loc.trim())
+            : [];
+          
+          if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
+            return selectedLocations.includes('Unspecified');
+          }
+          
+          const visibleLocations = selectedLocations.filter(loc => loc !== 'Unspecified');
+          inSelectedGroup = eventLocations.some(loc => visibleLocations.includes(loc));
         }
         
-        // Format with user's timezone
-        return date.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-          timeZone: userTimeZone,
-        });
-      } catch (err) {
-        console.error(`Error formatting event time for "${eventSubject}":`, err);
-        return '';
-      }
-    };
+        return inDateRange && inSelectedGroup;
+      });
+      
+      // Sort the filtered events by start time
+      const sorted = [...filtered].sort((a, b) => {
+        // Convert date strings to Date objects for comparison
+        const aStartTime = new Date(a.start.dateTime);
+        const bStartTime = new Date(b.start.dateTime);
+        
+        // Primary sort by start time (ascending)
+        if (aStartTime.getTime() !== bStartTime.getTime()) {
+          return aStartTime - bStartTime;
+        }
+        
+        // Secondary sort by end time (for events that start at the same time)
+        const aEndTime = new Date(a.end.dateTime);
+        const bEndTime = new Date(b.end.dateTime);
+        return aEndTime - bEndTime;
+      });
+      
+      // Set loading state to false after calculation is complete
+      setLoading(false);
+      
+      return sorted;
+    }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy, isKnownCategory, isUncategorizedEvent]);
 
     /**
-     * Check if an event occurs on a specific day
-     * @param {Object} event - The event object
-     * @param {Date} day - The day to check
-     * @returns {boolean} True if the event occurs on the day
+     * TBD
      */
-    const getEventPosition = (event, day) => {
-      try {
-        // Create date objects from the event's start time
-        const utcDateString = event.start.dateTime.endsWith('Z') ? 
-          event.start.dateTime : `${event.start.dateTime}Z`;
-        const eventDate = new Date(utcDateString);
+    const getFilteredMonthEvents = useCallback((day) => {
+      if (!selectedFilter) return [];
+      
+      // Use allEvents directly instead of filteredEvents
+      return allEvents.filter(event => {
+        // First filter by date
+        if (!getMonthDayEventPosition(event, day)) return false;
         
-        // Convert to the same timezone for comparison
-        const eventDay = new Date(eventDate.toLocaleString('en-US', {timeZone: userTimeZone}));
-        eventDay.setHours(0, 0, 0, 0);
+        // Then apply all the same filters used in filteredEvents
+        const eventDate = new Date(event.start.dateTime);
+        const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
         
-        const compareDay = new Date(day);
-        compareDay.setHours(0, 0, 0, 0);
-        
-        // Compare the dates (ignoring time)
-        return eventDay.getTime() === compareDay.getTime();
-      } catch (err) {
-        console.error('Error comparing event date:', err, event);
-        return false;
-      }
-    };
+        // Filter by category or location based on groupBy
+        if (groupBy === 'categories') {
+          if (selectedFilter === 'Show All Categories') {
+            return !isKnownCategory(event.category) && !isUncategorizedEvent(event);
+          } else if (isUncategorizedEvent(event)) {
+            return selectedFilter === 'Uncategorized';
+          }
+          return event.category === selectedFilter;
+        } else {
+          // For locations
+          const eventLocations = event.location?.displayName 
+            ? event.location.displayName.split('; ').map(loc => loc.trim())
+            : [];
+            
+          if (selectedFilter === 'Unspecified') {
+            return eventLocations.length === 0 || eventLocations.every(loc => loc === '');
+          } else {
+            return eventLocations.includes(selectedFilter);
+          }
+        }
+      });
+    }, [selectedFilter, allEvents, getMonthDayEventPosition, dateRange.start, dateRange.end, groupBy, isKnownCategory, isUncategorizedEvent]);
 
     /**
      * Create default categories in Outlook if none exist
@@ -1112,32 +1196,49 @@
       }
     };
 
-    // Add this new handler for the month filter dropdown
-    const handleMonthFilterChange = (value) => {
+    /**
+     * Add this new handler for the month filter dropdown
+     * 
+     */
+    const handleMonthFilterChange = useCallback((value) => {
       setSelectedFilter(value);
-    };
+    },[]);
 
     /**
      * Handle calendar zoom in and zoom out
      * @param {string} direction - The new direction
      */
     // 
-    const handleZoom = (direction) => {
+    const handleZoom = useCallback((direction) => {
       if (direction === 'in' && zoomLevel < 150) {
         setZoomLevel(zoomLevel + 10);
       } else if (direction === 'out' && zoomLevel > 70) {
         setZoomLevel(zoomLevel - 10);
       }
-    };
+    },[zoomLevel]);
+
+    /**
+     * Open the Add, Edit, Delete, Save modal
+     */
+    const handleAddEvent = useCallback(() => {
+      const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+  
+      if (!userPermissions.createEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
+        showNotification("You don't have permission to create events in this calendar");
+        return;
+      }
+      
+      setModalType('add');
+      setIsModalOpen(true);
+    }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification]);
 
     /**
      * Handle changing the calendar view type (day/week/month)
      * @param {string} newView - The new view type
      */
     // 
-    const handleViewChange = (newView) => {
+    const handleViewChange = useCallback((newView) => {
       const newEnd = calculateEndDate(dateRange.start, newView);
-      
       const formattedRange = formatDateRangeForAPI(dateRange.start, newEnd);
       console.log(`View changed to ${newView}, date range: ${formattedRange.start} - ${formattedRange.end}`);
       
@@ -1146,7 +1247,7 @@
         start: dateRange.start,
         end: newEnd
       });
-    };
+    }, [dateRange.start, formatDateRangeForAPI]);
 
     /**
      * Handle viewing an event in the calendar
@@ -1168,10 +1269,76 @@
     };
 
     /**
+     * TBD
+     */
+    const snapToStartOfWeek = useCallback((date) => {
+      const newDate = new Date(date);
+      const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+      
+      // Determine how many days to go back
+      let daysToSubtract;
+      if (userPermissions.startOfWeek === 'Sunday') {
+        daysToSubtract = day; // If Sunday start, just subtract the current day
+      } else {
+        // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
+        daysToSubtract = day === 0 ? 6 : day - 1;
+      }
+      
+      newDate.setDate(newDate.getDate() - daysToSubtract);
+      return newDate;
+    },[userPermissions.startOfWeek]);
+
+    /**
+     * Navigate to today
+     */
+    const handleToday = useCallback(() => {
+      let newStart;
+      
+      if (viewType === 'week') {
+        // For week view, snap to start of the week based on preference
+        newStart = snapToStartOfWeek(new Date());
+      } else {
+        newStart = new Date();
+      }
+      
+      const newEnd = calculateEndDate(newStart, viewType);
+      setDateRange({
+        start: newStart,
+        end: newEnd
+      });
+    },[viewType,snapToStartOfWeek]);
+
+    /**
+     * Navigate to the next time period
+     */
+    const handleNext = useCallback(() => {
+      let newStart = new Date(dateRange.start);
+      
+      switch(viewType) {
+        case 'day':
+          newStart.setDate(newStart.getDate() + 1);
+          break;
+        case 'week':
+          newStart.setDate(newStart.getDate() + 7);
+          break;
+        case 'month':
+          newStart.setMonth(newStart.getMonth() + 1);
+          newStart.setDate(1);
+          break;
+      }
+      
+      let newEnd = calculateEndDate(newStart, viewType);
+
+      setDateRange({
+        start: newStart,
+        end: newEnd
+      });
+    },[viewType,dateRange.start]);
+
+    /**
      * Navigate to the previous time period
      */
-    // Navigation handlers
-    const handlePrevious = () => {
+    const handlePrevious = useCallback(() => {
       let newStart = new Date(dateRange.start);
       
       switch(viewType) {
@@ -1194,78 +1361,14 @@
         start: newStart,
         end: newEnd
       });
-    };
-
-    /**
-     * Navigate to the next time period
-     */
-    const handleNext = () => {
-      let newStart = new Date(dateRange.start);
-      
-      switch(viewType) {
-        case 'day':
-          newStart.setDate(newStart.getDate() + 1);
-          break;
-        case 'week':
-          newStart.setDate(newStart.getDate() + 7);
-          break;
-        case 'month':
-          newStart.setMonth(newStart.getMonth() + 1);
-          newStart.setDate(1);
-          break;
-      }
-      
-      let newEnd = calculateEndDate(newStart, viewType);
-
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    };
-
-    const snapToStartOfWeek = (date) => {
-      const newDate = new Date(date);
-      const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
-      
-      // Determine how many days to go back
-      let daysToSubtract;
-      if (userPermissions.startOfWeek === 'Sunday') {
-        daysToSubtract = day; // If Sunday start, just subtract the current day
-      } else {
-        // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
-        daysToSubtract = day === 0 ? 6 : day - 1;
-      }
-      
-      newDate.setDate(newDate.getDate() - daysToSubtract);
-      return newDate;
-    };
-
-    /**
-     * Navigate to today
-     */
-    const handleToday = () => {
-      let newStart;
-      
-      if (viewType === 'week') {
-        // For week view, snap to start of the week based on preference
-        newStart = snapToStartOfWeek(new Date());
-      } else {
-        newStart = new Date();
-      }
-      
-      const newEnd = calculateEndDate(newStart, viewType);
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    };
+    }, [viewType, dateRange.start]);
 
     /**
      * Handle clicking on a day cell to add a new event
      * @param {Date} day - The day that was clicked
      * @param {string} category - The category row that was clicked
      */
-    const handleDayCellClick = async (day, category = null, location = null) => {
+    const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       if(!userPermissions.createEvents) {
         showNotification("User don't have permission to create events");
         return;
@@ -1314,45 +1417,26 @@
       setCurrentEvent(newEvent);
       setModalType('add');
       setIsModalOpen(true);
-    };
+    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate]);
 
     /**
      * Handle clicking on an event to open the context menu
      * @param {Object} event - The event that was clicked
      * @param {Object} e - The click event
      */
-    const handleEventClick = (event, e) => {
+    const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
-
       console.log('Event clicked:', event);
-      console.log('Extension data in clicked event:', Object.keys(event).filter(key => 
-        key !== 'id' && key !== 'subject' && key !== 'start' && 
-        key !== 'end' && key !== 'location' && key !== 'category'
-      ).reduce((obj, key) => {
-        obj[key] = event[key];
-        return obj;
-      }, {}));
-      
+      // Rest of your handler
       setCurrentEvent(event);
       setContextMenuPosition({ x: e.clientX, y: e.clientY });
       setShowContextMenu(true);
-    };
+    }, []);
 
     /**
-     * Open the Add, Edit, Delete, Save modal
+     * TBD
+     * @returns 
      */
-    const handleAddEvent = () => {
-      const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-  
-      if (!userPermissions.createEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
-        showNotification("You don't have permission to create events in this calendar");
-        return;
-      }
-      
-      setModalType('add');
-      setIsModalOpen(true);
-    };
-
     const handleEditEvent = () => {
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
     
@@ -1517,10 +1601,11 @@
     // Update selected categories when Outlook categories change
     useEffect(() => {
       if (outlookCategories.length > 0) {
-        // Get all unique category names, including Uncategorized
-        const allCategories = ['Uncategorized', 
+        const allCategories = [
+          'Uncategorized', 
           ...outlookCategories.map(cat => cat.name)
-            .filter(name => name !== 'Uncategorized') // Remove duplicates of "Uncategorized"
+            .filter(name => name !== 'Uncategorized'),
+          'Show All Categories'
         ];
         
         // Select all categories by default
@@ -1529,65 +1614,6 @@
         console.log("Updated selected categories based on loaded Outlook categories");
       }
     }, [outlookCategories]);
-
-    // Filter events based on date range and categories/locations
-    const filteredEvents = useMemo(() => {
-    
-      const filtered = allEvents.filter(event => {
-        const eventDate = new Date(event.start.dateTime);
-        
-        // Check date range
-        const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
-        
-        // Check category or location depending on groupBy
-        let inSelectedGroup = true;
-        if (groupBy === 'categories') {
-          // Use the helper function for consistent handling
-          if (isUncategorizedEvent(event)) {
-            inSelectedGroup = selectedCategories.includes('Uncategorized');
-          } else {
-            inSelectedGroup = selectedCategories.includes(event.category);
-          }
-        } else {
-          // Check location if we're grouping by locations
-          const eventLocations = event.location?.displayName 
-            ? event.location.displayName.split('; ').map(loc => loc.trim())
-            : [];
-          
-          // Handle events with no location
-          if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
-            return selectedLocations.includes('Unspecified');
-          }
-          
-          const visibleLocations = selectedLocations.filter(loc => loc !== 'Unspecified');
-          inSelectedGroup = eventLocations.some(loc => visibleLocations.includes(loc));
-        }
-        
-        return inDateRange && inSelectedGroup;
-      });
-      
-      // Sort the filtered events by start time
-      const sorted = [...filtered].sort((a, b) => {
-        // Convert date strings to Date objects for comparison
-        const aStartTime = new Date(a.start.dateTime);
-        const bStartTime = new Date(b.start.dateTime);
-        
-        // Primary sort by start time (ascending)
-        if (aStartTime.getTime() !== bStartTime.getTime()) {
-          return aStartTime - bStartTime;
-        }
-        
-        // Secondary sort by end time (for events that start at the same time)
-        const aEndTime = new Date(a.end.dateTime);
-        const bEndTime = new Date(b.end.dateTime);
-        return aEndTime - bEndTime;
-      });
-      
-      // Set loading state to false after calculation is complete
-      setLoading(false);
-      
-      return sorted;
-    }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy]);
 
     // Initialize date range for month view
     useEffect(() => {
@@ -1618,7 +1644,7 @@
           });
         }
       }
-    }, [viewType, userPermissions.startOfWeek]);
+    }, [viewType, userPermissions.startOfWeek, dateRange.start, snapToStartOfWeek]);
 
     // Initialize filter for month view
     useEffect(() => {
@@ -1711,7 +1737,7 @@
                 Month
               </button>
             </div>
-
+    
             <div className="selector-group" style={{ display: 'flex', gap: '2px' }}>
               <div className="time-zone-selector">
                 <select
@@ -1886,8 +1912,9 @@
                       {groupBy === 'categories' ? (
                         // Show categories
                         outlookCategories.length > 0 
-                          ? ['Uncategorized', ...outlookCategories.map(cat => cat.name)
-                              .filter(name => name !== 'Uncategorized')] // Filter out duplicate "Uncategorized"
+                          ? ['Uncategorized', 
+                            ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized'),
+                            'Other Categories'] // Add Other Categories option
                             .map(cat => (
                               <option key={cat} value={cat}>{cat}</option>
                             ))
@@ -1904,6 +1931,60 @@
                   groupBy === 'categories' ? (
                     <>
                       <h3>Categories</h3>
+                      {/* Selection controls */}
+                      <div className="selection-controls" style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '10px',
+                        gap: '10px'
+                      }}>
+                        <button 
+                          onClick={() => {
+                            const allCategories = ['Uncategorized', 
+                              ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')];
+                            setSelectedCategories(allCategories);
+                            updateUserProfilePreferences({ selectedCategories: allCategories });
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--white)',
+                            color: 'var(--primary-color)',
+                            border: '1px solid var(--primary-color)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            flex: '1',
+                            whiteSpace: 'nowrap',
+                            fontSize: '13px'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          All
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setSelectedCategories([]);
+                            updateUserProfilePreferences({ selectedCategories: [] });
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--white)',
+                            color: 'var(--primary-color)',
+                            border: '1px solid var(--primary-color)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            flex: '1',
+                            whiteSpace: 'nowrap',
+                            fontSize: '13px'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          None
+                        </button>
+                      </div>
                       <MultiSelect 
                         options={outlookCategories.length > 0 
                           ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
@@ -1921,6 +2002,58 @@
                   ) : (
                     <>
                       <h3>Locations</h3>
+                      {/* Selection controls */}
+                      <div className="select-controls" style={{ 
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        marginBottom: '10px',
+                        gap: '10px'
+                      }}>
+                        <button 
+                          onClick={() => {
+                            setSelectedLocations(availableLocations);
+                            updateUserProfilePreferences({ selectedLocations: availableLocations });
+                          }}
+                          style={{ 
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--white)',
+                            color: 'var(--primary-color)',
+                            border: '1px solid var(--primary-color)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            flex: '1',
+                            whiteSpace: 'nowrap',
+                            fontSize: '13px'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          All
+                        </button>
+                        <button 
+                          onClick={() => {
+                            setSelectedLocations([]);
+                            updateUserProfilePreferences({ selectedLocations: [] });
+                          }}
+                          style={{ 
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--white)',
+                            color: 'var(--primary-color)',
+                            border: '1px solid var(--primary-color)',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s',
+                            flex: '1',
+                            whiteSpace: 'nowrap',
+                            fontSize: '13px'
+                          }}
+                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        >
+                          None
+                        </button>
+                      </div>
                       <MultiSelect 
                         options={availableLocations}
                         selected={selectedLocations}
@@ -1945,311 +2078,62 @@
                 }}
               >
                 {viewType === 'month' ? (
-                  // Month View
-                  <div className="month-view-container">
-                      <div className="month-header">
-                        <div className="weekday-header">
-                          {getWeekdayHeaders().map((day, index) => (
-                            <div key={index} className="weekday">{day}</div>
-                          ))}
-                        </div>
-                      </div>
-                    <div className="month-days">
-                      {getMonthWeeks().map((week, weekIndex) => (
-                        <div key={weekIndex} className="week-row">
-                          {week.map((day, dayIndex) => (
-                            <div 
-                              key={dayIndex}
-                              className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''}`}
-                              onClick={() => handleDayCellClick(day.date)}
-                            >
-                              <div className="day-number">{day.date.getDate()}</div>
-                              
-                              {/* Events for this day */}
-                              <div className="day-events">
-                                {/* CHANGE: Added conditional rendering based on selectedFilter */}
-                                {!selectedFilter ? (
-                                  // No filter selected - show summary by category/location
-                                  groupBy === 'categories' ? (
-                                    // Group by categories
-                                    (outlookCategories.length > 0 
-                                      ? ['Uncategorized', ...outlookCategories.map(cat => cat.name)]
-                                      : categories)
-                                      .map(category => {
-                                        const categoryEvents = filteredEvents.filter(event => 
-                                          event.category === category && 
-                                          getMonthDayEventPosition(event, day.date)
-                                        );
-                                        
-                                        return categoryEvents.length > 0 ? (
-                                          <div key={category} className="day-category-group">
-                                            <div className="category-label">
-                                              <div 
-                                                className="category-color"
-                                                style={{ 
-                                                  width: '8px',
-                                                  height: '8px',
-                                                  borderRadius: '50%',
-                                                  marginRight: '4px',
-                                                  backgroundColor: getCategoryColor(category)
-                                                }}
-                                              />
-                                              <span>{category}</span>
-                                            </div>
-                                            <div className="events-count">{categoryEvents.length}</div>
-                                          </div>
-                                        ) : null;
-                                      })
-                                  ) : (
-                                    // Group by locations
-                                    availableLocations
-                                      .map(location => {
-                                        const locationEvents = filteredEvents.filter(event => {
-                                          if (!getMonthDayEventPosition(event, day.date)) return false;
-                                          
-                                          const eventLocations = event.location?.displayName 
-                                            ? event.location.displayName.split('; ').map(loc => loc.trim())
-                                            : [];
-                                          
-                                          if (location === 'Unspecified') {
-                                            if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
-                                              return true;
-                                            }
-                                            
-                                            const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
-                                            return !eventLocations.some(loc => validLocations.includes(loc));
-                                          } else {
-                                            return eventLocations.includes(location);
-                                          }
-                                        });
-                                        
-                                        return locationEvents.length > 0 ? (
-                                          <div key={location} className="day-location-group">
-                                            <div className="location-label">
-                                              <div 
-                                                className="location-color"
-                                                style={{ 
-                                                  width: '8px',
-                                                  height: '8px',
-                                                  borderRadius: '50%',
-                                                  marginRight: '4px',
-                                                  backgroundColor: getLocationColor(location)
-                                                }}
-                                              />
-                                              <span>{location}</span>
-                                            </div>
-                                            <div className="events-count">{locationEvents.length}</div>
-                                          </div>
-                                        ) : null;
-                                      })
-                                  )
-                                ) : (
-                                  // CHANGE: Filter is selected - show actual events
-                                  getFilteredMonthEvents(day.date).map(event => (
-                                    <div 
-                                      key={event.id} 
-                                      className="event-item"
-                                      style={{
-                                        borderLeft: `4px solid ${groupBy === 'categories' 
-                                          ? getCategoryColor(event.category) 
-                                          : getLocationColor(event.location?.displayName || 'Unspecified')}`,
-                                        padding: '2px 4px',
-                                        margin: '1px 0',
-                                        backgroundColor: event.isShared ? 'rgba(0, 0, 0, 0.05)' : 'transparent'
-                                      }}
-                                      onClick={(e) => handleEventClick(event, e)}
-                                    >
-                                      <div className="event-title" style={getEventContentStyle('month')}>
-                                        {formatEventTime(event.start.dateTime, event.subject)} {event.subject}
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <MonthView
+                    getMonthWeeks={getMonthWeeks}
+                    getWeekdayHeaders={getWeekdayHeaders}
+                    selectedFilter={selectedFilter}
+                    handleDayCellClick={handleDayCellClick}
+                    handleEventClick={handleEventClick}
+                    getEventContentStyle={getEventContentStyle}
+                    formatEventTime={formatEventTime}
+                    getCategoryColor={getCategoryColor}
+                    getLocationColor={getLocationColor}
+                    groupBy={groupBy}
+                    filteredEvents={filteredEvents}
+                    outlookCategories={outlookCategories}
+                    availableLocations={availableLocations}
+                    getFilteredMonthEvents={getFilteredMonthEvents}
+                    getMonthDayEventPosition={getMonthDayEventPosition}
+                    categories={categories}
+                  />
+                ) : viewType === 'week' ? (
+                  <WeekView
+                    groupBy={groupBy}
+                    outlookCategories={outlookCategories}
+                    selectedCategories={selectedCategories}
+                    availableLocations={availableLocations}
+                    selectedLocations={selectedLocations}
+                    getDaysInRange={getDaysInRange}
+                    formatDateHeader={formatDateHeader}
+                    getEventPosition={getEventPosition}
+                    filteredEvents={filteredEvents}
+                    getCategoryColor={getCategoryColor}
+                    getLocationColor={getLocationColor}
+                    handleDayCellClick={handleDayCellClick}
+                    handleEventClick={handleEventClick}
+                    renderEventContent={renderEventContent}
+                    viewType={viewType}
+                    categories={categories}
+                  />
                 ) : (
-                  <>
-                    {/* Grid Header (Days) */}
-                    <div className="grid-header">
-                      <div className="grid-cell header-cell category-header">
-                        {groupBy === 'categories' ? 'Categories' : 'Locations'}
-                      </div>
-                      {getDaysInRange().map((day, index) => (
-                        <div key={index} className="grid-cell header-cell">
-                          {formatDateHeader(day)}
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Grid Rows (Categories or Locations) */}
-                    {groupBy === 'categories' ? (
-                      // Categories View
-                      (outlookCategories.length > 0 
-                        ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                        : categories // Fall back to predefined categories if Outlook categories aren't loaded yet
-                      ).filter(category => selectedCategories.includes(category))
-                        .map(category => (
-                          <div key={category} className="grid-row">
-                            <div className="grid-cell category-cell">
-                              {/* Add color indicator if it's an Outlook category */}
-                              {outlookCategories.find(cat => cat.name === category) && (
-                                <div 
-                                  className="category-color" 
-                                  style={{ 
-                                    display: 'inline-block',
-                                    width: '12px',
-                                    height: '12px',
-                                    borderRadius: '50%',
-                                    marginRight: '5px',
-                                    backgroundColor: getCategoryColor(category)
-                                  }}
-                                />
-                              )}
-                              {category}
-                            </div>
-                            
-                            {/* Days */}
-                            {getDaysInRange().map((day, dayIndex) => (
-                              <div 
-                                key={dayIndex} 
-                                className="grid-cell day-cell"
-                                onClick={() => handleDayCellClick(day, category)}
-                              >
-                                {/* Events for this category and day */}
-                                {filteredEvents
-                                  .filter(event => 
-                                    event.category === category && 
-                                    getEventPosition(event, day)
-                                  )
-                                  .map(event => (
-                                    <div 
-                                      key={event.id} 
-                                      className="event-item"
-                                      style={{
-                                        borderLeft: `4px solid ${groupBy === 'locations' 
-                                          ? getLocationColor(event.location?.displayName) 
-                                          : getCategoryColor(event.category)}`,
-                                        padding: viewType === 'month' ? '2px 4px' : '4px 8px',
-                                        margin: viewType === 'month' ? '1px 0' : '2px 0'
-                                      }}
-                                      onClick={(e) => handleEventClick(event, e)}
-                                    >
-                                      {renderEventContent(event, viewType)}
-                                      {event.calendarId && event.calendarId !== 'primary' && (
-                                        <div className="calendar-source" style={{ 
-                                          fontSize: '10px', 
-                                          opacity: 0.8,
-                                          marginTop: '2px'
-                                        }}>
-                                          {event.calendarName}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))
-                                }
-                              </div>
-                            ))}
-                          </div>
-                        ))
-                    ) : (
-                      <>
-                        {/* Regular location rows */}
-                        {availableLocations
-                          .filter(location => 
-                            selectedLocations.includes(location))
-                          .map(location => (
-                            <div key={location} className="grid-row">
-                              {/* Add color indicator for locations */}
-                              <div className="grid-cell location-cell">
-                              <div 
-                                  className="location-color" 
-                                  style={{ 
-                                    display: 'inline-block',
-                                    width: '12px',
-                                    height: '12px',
-                                    borderRadius: '50%',
-                                    marginRight: '5px',
-                                    backgroundColor: getLocationColor(location)
-                                  }}
-                                />
-                                {location}
-                              </div>
-                              
-                              {/* Days */}
-                              {getDaysInRange().map((day, dayIndex) => (
-                                <div 
-                                  key={dayIndex} 
-                                  className="grid-cell day-cell"
-                                  onClick={() => handleDayCellClick(day, null, location)}
-                                >
-                                  {filteredEvents
-                                    .filter(event => {
-                                      // Check if event is for this day
-                                      if (!getEventPosition(event, day)) return false;
-                                      
-                                      // Get event locations
-                                      const eventLocations = event.location?.displayName 
-                                        ? event.location.displayName.split('; ').map(loc => loc.trim())
-                                        : [];
-                                      
-                                      if (location === 'Unspecified') {
-                                        // For Unspecified, show events with:
-                                        // 1. No location/empty location, OR
-                                        // 2. Locations not in availableLocations
-                                        
-                                        // Check for empty locations
-                                        if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
-                                          return true;
-                                        }
-                                        
-                                        // Check if NONE of the locations are in availableLocations
-                                        // (excluding 'Unspecified' itself)
-                                        const validLocations = availableLocations.filter(loc => loc !== 'Unspecified');
-                                        return !eventLocations.some(loc => validLocations.includes(loc));
-                                      } else {
-                                        // For regular locations, check if this specific location is included
-                                        return eventLocations.includes(location);
-                                      }
-                                    })
-                                    .map(event => (
-                                      <div 
-                                        key={event.id} 
-                                        className="event-item"
-                                        style={{
-                                          borderLeft: `4px solid ${groupBy === 'locations' 
-                                            ? getLocationColor(event.location?.displayName) 
-                                            : getCategoryColor(event.category)}`,
-                                          padding: viewType === 'month' ? '2px 4px' : '4px 8px',
-                                          margin: viewType === 'month' ? '1px 0' : '2px 0'
-                                        }}
-                                        onClick={(e) => handleEventClick(event, e)}
-                                      >
-                                        {renderEventContent(event, viewType)}
-                                        {event.calendarId && event.calendarId !== 'primary' && (
-                                          <div className="calendar-source" style={{ 
-                                            fontSize: '10px', 
-                                            opacity: 0.8,
-                                            marginTop: '2px'
-                                          }}>
-                                            {event.calendarName}
-                                          </div>
-                                        )}
-                                      </div>
-                                    ))
-                                  }
-                                </div>
-                              ))}
-                            </div>
-                          ))
-                        }
-                      </>
-                    )}
-                  </>
+                  <DayView
+                    groupBy={groupBy}
+                    outlookCategories={outlookCategories}
+                    selectedCategories={selectedCategories}
+                    availableLocations={availableLocations}
+                    selectedLocations={selectedLocations}
+                    formatDateHeader={formatDateHeader}
+                    getEventPosition={getEventPosition}
+                    filteredEvents={filteredEvents}
+                    getCategoryColor={getCategoryColor}
+                    getLocationColor={getLocationColor}
+                    handleDayCellClick={handleDayCellClick}
+                    handleEventClick={handleEventClick}
+                    renderEventContent={renderEventContent}
+                    viewType={viewType}
+                    categories={categories}
+                    dateRange={dateRange}
+                  />
                 )}
               </div>
             </div>
@@ -2337,6 +2221,8 @@
             outlookCategories={outlookCategories}
             availableLocations={availableLocations}
             onSaveEvent={handleSaveEvent}
+            selectedCalendarId={selectedCalendarId}
+            availableCalendars={availableCalendars}
           />
         )}
       </div>

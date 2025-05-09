@@ -197,6 +197,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
     }
   };
 
+  /*
   return (
     <button
       onClick={handleExport}
@@ -214,6 +215,7 @@ const ExportToPdfButton = ({ events, dateRange }) => {
       Export to PDF
     </button>
   );
+  */
 };
 
 export default ExportToPdfButton;

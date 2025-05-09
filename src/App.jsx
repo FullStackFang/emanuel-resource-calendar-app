@@ -158,7 +158,7 @@ function App() {
                 changingCalendar={changingCalendar}
               />
               <Routes>
-              <Route path="/" element={
+                <Route path="/" element={
                   <Calendar 
                     apiToken={apiToken} 
                     graphToken={graphToken}
@@ -170,7 +170,7 @@ function App() {
                     changingCalendar={changingCalendar}
                     setChangingCalendar={setChangingCalendar}
                   />
-                } />
+                } />  
                 <Route path="/" element={<Calendar apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/settings" element={<Settings graphToken={graphToken} />} />
                 <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />

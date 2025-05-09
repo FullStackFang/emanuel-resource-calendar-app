@@ -116,7 +116,7 @@ const EventSearchExport = ({ searchResults, searchTerm, categories, locations })
       const sortedEvents = [...searchResults].sort((a, b) => {
         if (sortBy === 'date') {
           // Sort by date (default)
-          return new Date(a.start.dateTime) - new Date(b.start.dateTime);
+          return new Date(b.start.dateTime) - new Date(a.start.dateTime);
         } else if (sortBy === 'category') {
           // Sort by category
           const catA = a.categories && a.categories.length > 0 ? a.categories[0].toLowerCase() : 'uncategorized';
