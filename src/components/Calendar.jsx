@@ -1566,10 +1566,27 @@
         return inDateRange && inSelectedGroup;
       });
       
+      // Sort the filtered events by start time
+      const sorted = [...filtered].sort((a, b) => {
+        // Convert date strings to Date objects for comparison
+        const aStartTime = new Date(a.start.dateTime);
+        const bStartTime = new Date(b.start.dateTime);
+        
+        // Primary sort by start time (ascending)
+        if (aStartTime.getTime() !== bStartTime.getTime()) {
+          return aStartTime - bStartTime;
+        }
+        
+        // Secondary sort by end time (for events that start at the same time)
+        const aEndTime = new Date(a.end.dateTime);
+        const bEndTime = new Date(b.end.dateTime);
+        return aEndTime - bEndTime;
+      });
+      
       // Set loading state to false after calculation is complete
       setLoading(false);
       
-      return filtered;
+      return sorted;
     }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy]);
 
     // Initialize date range for month view
@@ -1827,7 +1844,7 @@
             
             <div className="calendar-action-buttons">
               <button className="search-button" onClick={() => setShowSearch(true)}>
-                🔍 Search Events
+                🔍 Search & Export
               </button>
               {userPermissions.createEvents && (
                 <button className="add-event-button" onClick={handleAddEvent}>

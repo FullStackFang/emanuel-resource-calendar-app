@@ -128,8 +128,17 @@ function EventSearch({
         selectedCategories, 
         selectedLocations
       );
-      setSearchResults(results);
+
+      const sortedResults = [...results].sort((a, b) => {
+        const aStartTime = new Date(a.start.dateTime);
+        const bStartTime = new Date(b.start.dateTime);
+        
+        // For descending order: most recent first (b - a)
+        return bStartTime - aStartTime;
+      });
       
+      setSearchResults(sortedResults);
+
       // Clear selected event when search results change
       setSelectedEvent(null);
     } catch (error) {
