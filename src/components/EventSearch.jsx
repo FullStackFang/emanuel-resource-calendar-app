@@ -12,6 +12,7 @@ import MultiSelect from './MultiSelect';
 import EventForm from './EventForm';
 import EventSearchExport from './EventSearchExport';
 import './EventSearch.css';
+import APP_CONFIG from '../config/config';
 
 // Create a client
 const queryClient = new QueryClient();
@@ -616,11 +617,14 @@ function EventSearchInner({
         <div className="search-results-actions">       
           {/* Export button */}
           {searchResults.length > 0 && (
-            <EventSearchExport 
+            <EventSearchExport
               searchResults={searchResults}
               searchTerm={searchTerm}
               categories={selectedCategories}
               locations={selectedLocations}
+              apiToken={graphToken}
+              dateRange={dateRange}
+              apiBaseUrl={APP_CONFIG.API_BASE_URL}
             />
           )}
         </div>

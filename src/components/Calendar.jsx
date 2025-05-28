@@ -13,6 +13,7 @@
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
   import DayEventPanel from './DayEventPanel';
+  import eventDataService from '../services/eventDataService';
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -144,6 +145,100 @@
     const [showContextMenu, setShowContextMenu] = useState(false);
     const [, setNotification] = useState({ show: false, message: '', type: 'info' });
 
+    //---------------------------------------------------------------------------
+    // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
+    //---------------------------------------------------------------------------
+        /**
+     * Consistently format date range for API queries
+     * @param {Date} startDate - Range start date
+     * @param {Date} endDate - Range end date
+     * @returns {Object} Formatted start and end dates
+     */
+        const formatDateRangeForAPI = useCallback((startDate, endDate) => {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          
+          return {
+            start: start.toISOString(),
+            end: end.toISOString()
+          };
+        }, []);
+        
+      /**
+       * TBD
+       */
+      const isUncategorizedEvent = useCallback((event) => {
+        return !event.category || 
+              event.category.trim() === '' || 
+              event.category === 'Uncategorized';
+      }, []);
+  
+      /**
+       * Standardize date for API operations, ensuring consistent time zone handling
+       * @param {Date} date - Local date to standardize
+       * @returns {string} ISO date string in UTC
+       */
+      const standardizeDate = useCallback((date) => {
+        if (!date) return '';
+        return date.toISOString();
+      }, []);
+  
+      
+      /**
+       * TBD
+       */
+      const getMonthDayEventPosition = useCallback((event, day) => {
+        try {
+          // Create date objects from the event's start time
+          const eventDate = new Date(event.start.dateTime);
+          
+          // Make copies of both dates and reset to midnight for comparison
+          const eventDay = new Date(eventDate);
+          eventDay.setHours(0, 0, 0, 0);
+          
+          const compareDay = new Date(day);
+          compareDay.setHours(0, 0, 0, 0);
+          
+          // Compare the dates (ignoring time)
+          return eventDay.getTime() === compareDay.getTime();
+        } catch (err) {
+          console.error('Error comparing event date:', err, event);
+          return false;
+        }
+      }, []);
+  
+      /**
+       * Check if an event occurs on a specific day
+       * @param {Object} event - The event object
+       * @param {Date} day - The day to check
+       * @returns {boolean} True if the event occurs on the day
+       */
+      const getEventPosition = useCallback((event, day) => {
+        try {
+          // Create date objects from the event's start time
+          const utcDateString = event.start.dateTime.endsWith('Z') ? 
+            event.start.dateTime : `${event.start.dateTime}Z`;
+          const eventDate = new Date(utcDateString);
+          
+          // Convert to the same timezone for comparison
+          const eventDay = new Date(eventDate.toLocaleString('en-US', {timeZone: userTimeZone}));
+          eventDay.setHours(0, 0, 0, 0);
+          
+          const compareDay = new Date(day);
+          compareDay.setHours(0, 0, 0, 0);
+          
+          // Compare the dates (ignoring time)
+          return eventDay.getTime() === compareDay.getTime();
+        } catch (err) {
+          console.error('Error comparing event date:', err, event);
+          return false;
+        }
+      }, [userTimeZone]);
+
+      
     //---------------------------------------------------------------------------
     // DATA FUNCTIONS
     //---------------------------------------------------------------------------
@@ -378,10 +473,21 @@
             ...extData
           };
         });
-    
-        console.log("[loadGraphEvents] events:", converted);
+
+        // Enrich with internal data if API token is available
+        let enrichedEvents = converted;
+        if (apiToken) {
+          try {
+            enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
+            console.log(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
+          } catch (error) {
+            console.error('Failed to enrich events, using Graph data only:', error);
+            // Continue with non-enriched events
+          }
+        }
         
-        setAllEvents(converted);
+        console.log("[loadGraphEvents] events:", enrichedEvents);
+        setAllEvents(enrichedEvents);
 
         return true;
       } catch (err) {
@@ -389,7 +495,59 @@
       } finally {
         setLoading(false);
       }
-    }, [graphToken, dateRange, loadSchemaExtensions, selectedCalendarId, availableCalendars]);
+    }, [graphToken, dateRange, selectedCalendarId, availableCalendars, apiToken, formatDateRangeForAPI, schemaExtensions]);
+
+    
+    /**
+     * Sync events to internal database 
+     * @param {Date} startDate - Start date of the range to sync
+     * @param {Date} endDate - End date of the range to sync
+     * @returns {Promise<Object>} Success indicator and result  
+     */
+    const syncEventsToInternal = useCallback(async (startDate, endDate) => {
+      if (!graphToken || !apiToken) {
+        console.error('Missing tokens for sync');
+        return { success: false, error: 'Authentication required' };
+      }
+      
+      try {
+        // Fetch events from Graph for the date range
+        const { start, end } = formatDateRangeForAPI(startDate, endDate);
+        
+        const calendarPath = selectedCalendarId ? 
+          `/me/calendars/${selectedCalendarId}/events` : 
+          '/me/events';
+        
+        let allEvents = [];
+        let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?$top=100&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'`;
+        
+        while (nextLink) {
+          const resp = await fetch(nextLink, {
+            headers: { Authorization: `Bearer ${graphToken}` }
+          });
+          
+          if (!resp.ok) {
+            throw new Error('Failed to fetch events from Graph');
+          }
+          
+          const data = await resp.json();
+          allEvents = allEvents.concat(data.value || []);
+          nextLink = data['@odata.nextLink'] || null;
+        }
+        
+        // Sync to internal database
+        const syncResult = await eventDataService.syncEvents(allEvents, selectedCalendarId);
+        
+        // Reload events to show updated data
+        await loadGraphEvents();
+        
+        return { success: true, result: syncResult };
+      } catch (error) {
+        console.error('Sync failed:', error);
+        return { success: false, error: error.message };
+      }
+    }, [graphToken, apiToken, selectedCalendarId, formatDateRangeForAPI, loadGraphEvents]);
+
 
     /**
      * Load user profile and permissions
@@ -612,98 +770,6 @@
         throw new Error(err.error?.message || `Batch call failed: ${resp.status}`);
       }
     };
-
-    //---------------------------------------------------------------------------
-    // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
-    //---------------------------------------------------------------------------
-    /**
-     * TBD
-     */
-    const isUncategorizedEvent = useCallback((event) => {
-      return !event.category || 
-            event.category.trim() === '' || 
-            event.category === 'Uncategorized';
-    }, []);
-
-    /**
-     * Standardize date for API operations, ensuring consistent time zone handling
-     * @param {Date} date - Local date to standardize
-     * @returns {string} ISO date string in UTC
-     */
-    const standardizeDate = useCallback((date) => {
-      if (!date) return '';
-      return date.toISOString();
-    }, []);
-
-    /**
-     * Consistently format date range for API queries
-     * @param {Date} startDate - Range start date
-     * @param {Date} endDate - Range end date
-     * @returns {Object} Formatted start and end dates
-     */
-    const formatDateRangeForAPI = useCallback((startDate, endDate) => {
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      
-      return {
-        start: start.toISOString(),
-        end: end.toISOString()
-      };
-    }, []);
-
-    /**
-     * TBD
-     */
-    const getMonthDayEventPosition = useCallback((event, day) => {
-      try {
-        // Create date objects from the event's start time
-        const eventDate = new Date(event.start.dateTime);
-        
-        // Make copies of both dates and reset to midnight for comparison
-        const eventDay = new Date(eventDate);
-        eventDay.setHours(0, 0, 0, 0);
-        
-        const compareDay = new Date(day);
-        compareDay.setHours(0, 0, 0, 0);
-        
-        // Compare the dates (ignoring time)
-        return eventDay.getTime() === compareDay.getTime();
-      } catch (err) {
-        console.error('Error comparing event date:', err, event);
-        return false;
-      }
-    }, []);
-
-    /**
-     * Check if an event occurs on a specific day
-     * @param {Object} event - The event object
-     * @param {Date} day - The day to check
-     * @returns {boolean} True if the event occurs on the day
-     */
-    const getEventPosition = useCallback((event, day) => {
-      try {
-        // Create date objects from the event's start time
-        const utcDateString = event.start.dateTime.endsWith('Z') ? 
-          event.start.dateTime : `${event.start.dateTime}Z`;
-        const eventDate = new Date(utcDateString);
-        
-        // Convert to the same timezone for comparison
-        const eventDay = new Date(eventDate.toLocaleString('en-US', {timeZone: userTimeZone}));
-        eventDay.setHours(0, 0, 0, 0);
-        
-        const compareDay = new Date(day);
-        compareDay.setHours(0, 0, 0, 0);
-        
-        // Compare the dates (ignoring time)
-        return eventDay.getTime() === compareDay.getTime();
-      } catch (err) {
-        console.error('Error comparing event date:', err, event);
-        return false;
-      }
-    }, [userTimeZone]);
 
     //---------------------------------------------------------------------------
     // DEPENDENT UTILITY FUNCTIONS - functions that depend on state or other functions
@@ -1608,6 +1674,12 @@
         initializeApp();
       }
     }, [graphToken, apiToken, initializing, initializeApp]);
+
+    useEffect(() => {
+      if (apiToken) {
+        eventDataService.setApiToken(apiToken);
+      }
+    }, [apiToken]);
 
     useEffect(() => {
       // This will run whenever dateRange changes

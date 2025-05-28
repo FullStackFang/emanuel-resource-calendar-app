@@ -231,3 +231,28 @@ input:checked + .toggle-slider:before {
   color: #666;
   font-style: italic
 }
+
+/* Modal content scrolling improvements */
+.modal-content {
+  max-height: 80vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Optional: Ensure the modal body has proper spacing */
+.modal-body {
+  padding-bottom: 20px;
+}
+
+/* Ensure dropdown menus can overflow the form but stay within modal */
+.event-form {
+  position: relative;
+  overflow: visible;
+}
+
+/* If your multiselect has a specific class, ensure it can overflow */
+.multiselect-container {
+  position: relative;
+  z-index: 10;
+}

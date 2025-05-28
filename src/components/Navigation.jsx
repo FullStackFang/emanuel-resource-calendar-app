@@ -100,6 +100,15 @@ export default function Navigation({
                   User Management
                 </NavLink>
               </li>
+              <li>
+              <NavLink 
+                to="/admin/event-sync" 
+                className={({ isActive }) => isActive ? 'active' : ''}
+                onClick={handleDropdownLinkClick}
+              >
+                Event Sync
+              </NavLink>
+            </li>
             </ul>
           )}
         </li>

@@ -8,6 +8,7 @@ import MySettings from './components/MySettings';
 import CalendarSelector from './components/CalendarSelector';
 import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
 import UserAdmin from './components/UserAdmin';
+import EventSyncAdmin from './components/EventSyncAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import './App.css';
@@ -171,11 +172,20 @@ function App() {
                     setChangingCalendar={setChangingCalendar}
                   />
                 } />  
-                <Route path="/" element={<Calendar apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/settings" element={<Settings graphToken={graphToken} />} />
                 <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
                 <Route path="/admin" element={<SchemaExtensionAdmin apiToken={apiToken} />} />
                 <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
+                <Route path="/admin/event-sync" element={
+                  <EventSyncAdmin 
+                    graphToken={graphToken} 
+                    apiToken={apiToken} 
+                    selectedCalendarId={selectedCalendarId}
+                    availableCalendars={availableCalendars}
+                    onCalendarChange={handleCalendarChange}
+                    changingCalendar={changingCalendar}
+                  />
+                } />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </>

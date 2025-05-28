@@ -116,6 +116,41 @@ function EventForm({
   });
   
   const [isAllDay, setIsAllDay] = useState(false);
+  
+  // Add state for MEC Categories
+  const [selectedMecCategories, setSelectedMecCategories] = useState([]);
+  const availableMecCategories = [
+    'Community',
+    'Membership',
+    'Bernard Museum of Judaica',
+    'Club One East',
+    'Community As Family',
+    'Daily Worship Service',
+    'Downtown Class',
+    'Emanu-El Cares',
+    'Emanu-El Downtown',
+    'Families with Young Children',
+    'Holiday',
+    'Interfaith Dialogue',
+    'Israel',
+    'Learning',
+    'Men\'s Club',
+    'Nursery School',
+    'Religious School',
+    'Shabbat Worship Service',
+    'Skirball Academy',
+    'Stettenheim Library',
+    'Streicker Cultural Center',
+    'Streicker Outreach Center',
+    'Teens',
+    'Tikkun Olam',
+    'Women of Emanu-El',
+    'Worship',
+    'Young Families of Emanu-El',
+    'Young Families Uptown',
+    'Young Members',
+    'Young Professionals'
+  ];
     
   // Initialize form with event data - only run when event changes
   useEffect(() => {
@@ -169,6 +204,9 @@ function EventForm({
     
       // Apply the form data update
       setFormData(newFormData);
+      
+      // Reset MEC Categories for now (will be populated from event data later)
+      setSelectedMecCategories([]);
     }
   }, [event, categories, availableLocations, userTimeZone]); 
 
@@ -277,7 +315,7 @@ function EventForm({
   };
 
   return (
-    <form className="event-form" onSubmit={handleSubmit}>
+    <form className="event-form" onSubmit={handleSubmit} style={{ paddingBottom: '100px' }}>
       <div className="form-group">
         <label htmlFor="subject">Subject *</label>
         <input
@@ -403,6 +441,32 @@ function EventForm({
             </option>
           ))}
         </select>
+      </div>
+
+      {/* MEC Categories Multi-Select */}
+      <div className="form-group">
+        <label htmlFor="mecCategories">MEC Categories</label>
+        {readOnly ? (
+          <div className="readonly-display">
+            {selectedMecCategories && selectedMecCategories.length > 0 
+              ? selectedMecCategories.join(', ') 
+              : 'No MEC categories selected'}
+          </div>
+        ) : (
+          <div className="mec-categories-wrapper">
+            <MultiSelect
+              options={availableMecCategories}
+              selected={selectedMecCategories}
+              onChange={setSelectedMecCategories}
+              label="Categories"
+              showTabs={true}
+              allLabel="All Categories"
+              frequentLabel="Most Used"
+              dropdownDirection="up"
+              maxHeight={200}
+            />
+          </div>
+        )}
       </div>
 
       <div className="form-actions">

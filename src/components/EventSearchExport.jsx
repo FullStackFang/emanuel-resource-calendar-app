@@ -2,8 +2,214 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 
-const EventSearchExport = ({ searchResults, searchTerm, categories, locations }) => {
+const EventSearchExport = ({ 
+  searchResults, 
+  searchTerm, 
+  categories = [], 
+  locations = [],
+  apiToken = null,
+  dateRange,
+  apiBaseUrl = 'http://localhost:3001' // Add default API base URL
+}) => {
   const [sortBy, setSortBy] = useState('date'); // Default sort by date
+  const [isExporting, setIsExporting] = useState(false);
+  
+  // Fetch internal events from MongoDB
+  const fetchInternalEvents = async () => {
+    try {
+      // Format dates for API
+      const startDate = dateRange?.start ? new Date(dateRange.start).toISOString() : new Date().toISOString();
+      const endDate = dateRange?.end ? new Date(dateRange.end).toISOString() : new Date().toISOString();
+      
+      // Use the public endpoint - no authentication required
+      const response = await fetch(`${apiBaseUrl}/public/internal-events?includeDeleted=false`);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch internal events');
+      }
+
+      const events = await response.json();
+      
+      // Filter by date range
+      return events.filter(event => {
+        const eventStart = new Date(event.externalData?.start?.dateTime);
+        return eventStart >= new Date(startDate) && eventStart <= new Date(endDate);
+      });
+    } catch (error) {
+      console.error('Error fetching internal events:', error);
+      alert('Failed to fetch internal events. Please try again.');
+      return null;
+    }
+  };
+
+  // Export to JSON
+  const handleExportJSON = async () => {
+    setIsExporting(true);
+    try {
+      const internalEvents = await fetchInternalEvents();
+      if (!internalEvents) return;
+
+      // Create a formatted JSON object
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        dateRange: {
+          start: dateRange?.start,
+          end: dateRange?.end
+        },
+        totalEvents: internalEvents.length,
+        events: internalEvents.map(event => ({
+          // External data
+          id: event.graphEventId,
+          subject: event.externalData?.subject,
+          startDateTime: event.externalData?.start?.dateTime,
+          endDateTime: event.externalData?.end?.dateTime,
+          location: event.externalData?.location?.displayName,
+          categories: event.externalData?.categories,
+          
+          // Internal data
+          mecCategories: event.internalData?.mecCategories || [],
+          setupStartTime: event.internalData?.setupStartTime,
+          doorStartTime: event.internalData?.doorStartTime,
+          teardownEndTime: event.internalData?.teardownEndTime,
+          staffAssignments: event.internalData?.staffAssignments || [],
+          internalNotes: event.internalData?.internalNotes,
+          setupStatus: event.internalData?.setupStatus,
+          estimatedCost: event.internalData?.estimatedCost,
+          actualCost: event.internalData?.actualCost,
+          
+          // Metadata
+          lastSyncedAt: event.lastSyncedAt,
+          updatedAt: event.updatedAt
+        }))
+      };
+
+      // Create and download JSON file
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `internal-events-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting to JSON:', error);
+      alert('Failed to export to JSON. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Export to CSV
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const internalEvents = await fetchInternalEvents();
+      if (!internalEvents) return;
+
+      // Define CSV headers
+      const headers = [
+        'Event ID',
+        'Subject',
+        'Start Date',
+        'Start Time',
+        'End Date',
+        'End Time',
+        'Location',
+        'Categories',
+        'MEC Categories',
+        'Setup Start Time',
+        'Door Start Time',
+        'Teardown End Time',
+        'Staff Assignments',
+        'Internal Notes',
+        'Setup Status',
+        'Estimated Cost',
+        'Actual Cost',
+        'Last Synced',
+        'Last Updated'
+      ];
+
+      // Helper function to format date
+      const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US');
+      };
+
+      // Helper function to format time
+      const formatTime = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+      };
+
+      // Convert events to CSV rows
+      const rows = internalEvents.map(event => {
+        const startDateTime = event.externalData?.start?.dateTime;
+        const endDateTime = event.externalData?.end?.dateTime;
+        
+        return [
+          event.graphEventId || '',
+          event.externalData?.subject || '',
+          formatDate(startDateTime),
+          formatTime(startDateTime),
+          formatDate(endDateTime),
+          formatTime(endDateTime),
+          event.externalData?.location?.displayName || '',
+          (event.externalData?.categories || []).join('; '),
+          (event.internalData?.mecCategories || []).join('; '),
+          event.internalData?.setupStartTime ? formatTime(event.internalData.setupStartTime) : '',
+          event.internalData?.doorStartTime ? formatTime(event.internalData.doorStartTime) : '',
+          event.internalData?.teardownEndTime ? formatTime(event.internalData.teardownEndTime) : '',
+          (event.internalData?.staffAssignments || []).join('; '),
+          (event.internalData?.internalNotes || '').replace(/[\n\r]/g, ' '), // Remove line breaks
+          event.internalData?.setupStatus || '',
+          event.internalData?.estimatedCost || '',
+          event.internalData?.actualCost || '',
+          formatDate(event.lastSyncedAt),
+          formatDate(event.updatedAt)
+        ];
+      });
+
+      // Combine headers and rows
+      const csvContent = [
+        headers,
+        ...rows
+      ].map(row => 
+        row.map(cell => {
+          // Escape quotes and wrap in quotes if contains comma, quote, or newline
+          const cellStr = String(cell);
+          if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+            return `"${cellStr.replace(/"/g, '""')}"`;
+          }
+          return cellStr;
+        }).join(',')
+      ).join('\n');
+
+      // Create and download CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `internal-events-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting to CSV:', error);
+      alert('Failed to export to CSV. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
   
   const handleExport = () => {
     try {
@@ -349,7 +555,12 @@ const EventSearchExport = ({ searchResults, searchTerm, categories, locations })
   };
 
   return (
-    <div className="export-container" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    <div className="export-container" style={{ 
+      display: 'flex', 
+      alignItems: 'center', 
+      gap: '10px',
+      flexWrap: 'wrap'
+    }}>
       <select 
         value={sortBy}
         onChange={(e) => setSortBy(e.target.value)}
@@ -382,6 +593,46 @@ const EventSearchExport = ({ searchResults, searchTerm, categories, locations })
         }}
       >
         <span role="img" aria-label="export">📄</span> Export Results to PDF
+      </button>
+
+      <button
+        onClick={handleExportJSON}
+        disabled={isExporting}
+        style={{
+          padding: '6px 12px',
+          backgroundColor: isExporting ? '#cccccc' : '#28a745',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: isExporting ? 'not-allowed' : 'pointer',
+          fontSize: '0.9rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}
+      >
+        <span role="img" aria-label="json">📋</span> 
+        {isExporting ? 'Exporting...' : 'Export Internal to JSON'}
+      </button>
+
+      <button
+        onClick={handleExportCSV}
+        disabled={isExporting}
+        style={{
+          padding: '6px 12px',
+          backgroundColor: isExporting ? '#cccccc' : '#17a2b8',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: isExporting ? 'not-allowed' : 'pointer',
+          fontSize: '0.9rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px'
+        }}
+      >
+        <span role="img" aria-label="csv">📊</span> 
+        {isExporting ? 'Exporting...' : 'Export Internal to CSV'}
       </button>
     </div>
   );

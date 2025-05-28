@@ -47,6 +47,8 @@ const client = new MongoClient(connectionString, {
 });
 let db;
 let usersCollection;
+let internalEventsCollection;
+
 
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
@@ -56,6 +58,7 @@ async function connectToDatabase() {
     
     db = client.db('emanuelnyc');
     usersCollection = db.collection('templeEvents__Users');
+    internalEventsCollection = db.collection('templeEvents__InternalEvents');
     
     console.log('Database and collection initialized');
   } catch (error) {
@@ -148,7 +151,431 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// Routes
+// ============================================
+// ROUTES
+// ============================================
+
+// ============================================
+// INTERNAL EVENT ROUTES
+// ============================================
+// Sync events from Microsoft Graph to internal database (Admin only)
+// Sync events from Microsoft Graph to internal database (Admin only)
+app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    if (!user?.preferences?.isAdmin && !user?.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { events, calendarId } = req.body;
+    
+    if (!events || !Array.isArray(events)) {
+      return res.status(400).json({ error: 'Events array is required' });
+    }
+    
+    console.log(`Syncing ${events.length} events for calendar ${calendarId}`);
+    
+    const syncResults = {
+      created: 0,
+      updated: 0,
+      skipped: 0, // Add skipped counter
+      errors: []
+    };
+    
+    // Define how recent is "recently synced" (e.g., 5 minutes)
+    const SYNC_THRESHOLD_MINUTES = 5;
+    const syncThreshold = new Date(Date.now() - SYNC_THRESHOLD_MINUTES * 60 * 1000);
+    
+    for (const graphEvent of events) {
+      try {
+        // Check if internal event already exists
+        const existingEvent = await internalEventsCollection.findOne({
+          graphEventId: graphEvent.id
+        });
+        
+        const now = new Date();
+        
+        if (existingEvent) {
+          // Check if event was recently synced
+          if (existingEvent.lastSyncedAt > syncThreshold) {
+            console.log(`Skipping event ${graphEvent.id} - synced ${existingEvent.lastSyncedAt}`);
+            syncResults.skipped++;
+            continue;
+          }
+          
+          // Check if the event has actually changed
+          const graphModifiedTime = new Date(graphEvent.lastModifiedDateTime || 0);
+          const lastSyncTime = new Date(existingEvent.lastSyncedAt);
+          
+          if (graphModifiedTime <= lastSyncTime) {
+            console.log(`Skipping event ${graphEvent.id} - no changes since last sync`);
+            syncResults.skipped++;
+            continue;
+          }
+          
+          // Update only external data, preserve internal fields
+          const updateData = {
+            calendarId: calendarId || graphEvent.calendarId,
+            externalData: {
+              subject: graphEvent.subject,
+              start: graphEvent.start,
+              end: graphEvent.end,
+              location: graphEvent.location || { displayName: '' },
+              categories: graphEvent.category ? [graphEvent.category] : [],
+              lastModifiedDateTime: graphEvent.lastModifiedDateTime || now.toISOString()
+            },
+            lastSyncedAt: now,
+            syncStatus: 'synced',
+            updatedAt: now
+          };
+          
+          // If event was marked as deleted, unmark it since it exists in Graph
+          if (existingEvent.isDeleted) {
+            updateData.isDeleted = false;
+          }
+          
+          await internalEventsCollection.updateOne(
+            { graphEventId: graphEvent.id },
+            { $set: updateData }
+          );
+          
+          syncResults.updated++;
+        } else {
+          // Create new internal event with default internal fields
+          const newInternalEvent = {
+            graphEventId: graphEvent.id,
+            calendarId: calendarId || graphEvent.calendarId,
+            externalData: {
+              subject: graphEvent.subject,
+              start: graphEvent.start,
+              end: graphEvent.end,
+              location: graphEvent.location || { displayName: '' },
+              categories: graphEvent.category ? [graphEvent.category] : [],
+              lastModifiedDateTime: graphEvent.lastModifiedDateTime || now.toISOString()
+            },
+            internalData: {
+              mecCategories: [],
+              setupStartTime: null,
+              doorStartTime: null,
+              teardownEndTime: null,
+              staffAssignments: [],
+              internalNotes: '',
+              setupStatus: 'pending',
+              estimatedCost: null,
+              actualCost: null,
+              customFields: {}
+            },
+            isDeleted: false,
+            lastSyncedAt: now,
+            syncStatus: 'synced',
+            createdAt: now,
+            updatedAt: now
+          };
+          
+          await internalEventsCollection.insertOne(newInternalEvent);
+          syncResults.created++;
+        }
+      } catch (error) {
+        console.error(`Error syncing event ${graphEvent.id}:`, error);
+        syncResults.errors.push({
+          eventId: graphEvent.id,
+          error: error.message
+        });
+      }
+    }
+    
+    // Mark events as deleted if they weren't in the sync
+    const syncedEventIds = events.map(e => e.id);
+    await internalEventsCollection.updateMany(
+      {
+        calendarId: calendarId,
+        graphEventId: { $nin: syncedEventIds },
+        isDeleted: false
+      },
+      {
+        $set: {
+          isDeleted: true,
+          updatedAt: new Date()
+        }
+      }
+    );
+    
+    console.log('Sync completed:', syncResults);
+    res.status(200).json({
+      message: 'Sync completed',
+      results: syncResults
+    });
+  } catch (error) {
+    console.error('Error syncing events:', error);
+    res.status(500).json({ error: 'Failed to sync events' });
+  }
+});
+
+// Get synced events for a calendar
+// Update the GET /api/internal-events endpoint in api-server.js
+app.get('/api/internal-events', verifyToken, async (req, res) => {
+  try {
+    const { calendarId, includeDeleted } = req.query;
+    
+    const query = {};
+    if (calendarId) {
+      query.calendarId = calendarId;
+    }
+    
+    // By default, exclude deleted events unless specifically requested
+    if (includeDeleted !== 'true') {
+      query.isDeleted = { $ne: true };
+    }
+    
+    // Remove the sort to avoid index issues with Cosmos DB
+    const events = await internalEventsCollection
+      .find(query)
+      .limit(100)
+      .toArray();
+    
+    // Sort in memory instead
+    events.sort((a, b) => {
+      const dateA = new Date(a.externalData?.start?.dateTime || 0);
+      const dateB = new Date(b.externalData?.start?.dateTime || 0);
+      return dateA - dateB;
+    });
+    
+    res.status(200).json(events);
+  } catch (error) {
+    console.error('Error fetching internal events:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+// Get internal data for enrichment
+app.post('/api/internal-events/enrich', verifyToken, async (req, res) => {
+  try {
+    const { eventIds } = req.body;
+    
+    if (!eventIds || !Array.isArray(eventIds)) {
+      return res.status(400).json({ error: 'eventIds array is required' });
+    }
+    
+    // Fetch internal events
+    const internalEvents = await internalEventsCollection.find({
+      graphEventId: { $in: eventIds },
+      isDeleted: false
+    }).toArray();
+    
+    // Create a map for easy lookup
+    const enrichmentMap = {};
+    
+    internalEvents.forEach(event => {
+      enrichmentMap[event.graphEventId] = {
+        ...event.internalData,
+        _lastSyncedAt: event.lastSyncedAt,
+        _internalId: event._id
+      };
+    });
+    
+    res.status(200).json(enrichmentMap);
+  } catch (error) {
+    console.error('Error fetching enrichment data:', error);
+    res.status(500).json({ error: 'Failed to fetch enrichment data' });
+  }
+});
+
+// Update internal data fields
+app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) => {
+  try {
+    const { graphEventId } = req.params;
+    const updates = req.body;
+    
+    console.log(`Updating internal data for event ${graphEventId}:`, updates);
+    
+    // Define which fields can be updated
+    const allowedFields = [
+      'mecCategories',
+      'setupStartTime',
+      'doorStartTime',
+      'teardownEndTime',
+      'staffAssignments',
+      'internalNotes',
+      'setupStatus',
+      'estimatedCost',
+      'actualCost',
+      'customFields'
+    ];
+    
+    // Build update object with only allowed fields
+    const updateData = {
+      updatedAt: new Date()
+    };
+    
+    allowedFields.forEach(field => {
+      if (field in updates) {
+        updateData[`internalData.${field}`] = updates[field];
+      }
+    });
+    
+    const result = await internalEventsCollection.updateOne(
+      { graphEventId: graphEventId },
+      { $set: updateData }
+    );
+    
+    if (result.matchedCount === 0) {
+      // Event doesn't exist in internal DB, create it with minimal data
+      const newEvent = {
+        graphEventId: graphEventId,
+        externalData: {
+          subject: 'Unsynced Event',
+          start: { dateTime: new Date().toISOString() },
+          end: { dateTime: new Date().toISOString() }
+        },
+        internalData: {
+          mecCategories: [],
+          setupStartTime: null,
+          doorStartTime: null,
+          teardownEndTime: null,
+          staffAssignments: [],
+          internalNotes: '',
+          setupStatus: 'pending',
+          estimatedCost: null,
+          actualCost: null,
+          customFields: {},
+          ...updates // Apply the updates
+        },
+        isDeleted: false,
+        lastSyncedAt: new Date(),
+        syncStatus: 'pending', // Mark as pending since it wasn't synced
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      await internalEventsCollection.insertOne(newEvent);
+      return res.status(201).json({ message: 'Created new internal event', event: newEvent });
+    }
+    
+    // Return the updated event
+    const updatedEvent = await internalEventsCollection.findOne({ graphEventId });
+    res.status(200).json(updatedEvent);
+  } catch (error) {
+    console.error('Error updating internal event:', error);
+    res.status(500).json({ error: 'Failed to update internal event' });
+  }
+});
+
+// Get available MEC categories
+app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => {
+  try {
+    // Get distinct MEC categories from all events
+    const categories = await internalEventsCollection.distinct('internalData.mecCategories');
+    
+    // Filter out null/empty values and sort
+    const cleanCategories = categories
+      .filter(cat => cat && cat.trim() !== '')
+      .sort();
+    
+    res.status(200).json(cleanCategories);
+  } catch (error) {
+    console.error('Error fetching MEC categories:', error);
+    res.status(500).json({ error: 'Failed to fetch MEC categories' });
+  }
+});
+
+// Get sync status (for admin panel)
+app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    if (!user?.preferences?.isAdmin && !user?.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Check if collection exists, if not return empty stats
+    try {
+      const totalEvents = await internalEventsCollection.countDocuments({});
+      const deletedEvents = await internalEventsCollection.countDocuments({ isDeleted: true });
+      const lastSync = await internalEventsCollection.findOne(
+        {},
+        { sort: { lastSyncedAt: -1 } }
+      );
+      
+      res.status(200).json({
+        totalEvents,
+        activeEvents: totalEvents - deletedEvents,
+        deletedEvents,
+        lastSyncedAt: lastSync?.lastSyncedAt || null
+      });
+    } catch (collectionError) {
+      // Collection might not exist yet
+      console.log('Internal events collection might not exist yet:', collectionError.message);
+      res.status(200).json({
+        totalEvents: 0,
+        activeEvents: 0,
+        deletedEvents: 0,
+        lastSyncedAt: null
+      });
+    }
+  } catch (error) {
+    console.error('Error getting sync status:', error);
+    res.status(500).json({ error: 'Failed to get sync status' });
+  }
+});
+
+// ============================================
+// PUBLIC ENDPOINTS (No Authentication Required)
+// ============================================
+app.get('/api/public/internal-events', async (req, res) => {
+  try {
+    const { calendarId, includeDeleted } = req.query;
+    
+    const query = {};
+    if (calendarId) {
+      query.calendarId = calendarId;
+    }
+    
+    // By default, exclude deleted events unless specifically requested
+    if (includeDeleted !== 'true') {
+      query.isDeleted = { $ne: true };
+    }
+    
+    // Fetch events without sorting to avoid index issues
+    const events = await internalEventsCollection
+      .find(query)
+      .limit(1000) // Increased limit for exports
+      .toArray();
+    
+    // Sort in memory instead
+    events.sort((a, b) => {
+      const dateA = new Date(a.externalData?.start?.dateTime || 0);
+      const dateB = new Date(b.externalData?.start?.dateTime || 0);
+      return dateA - dateB;
+    });
+    
+    // Log the export for monitoring purposes
+    console.log(`Public export requested: ${events.length} events exported`);
+    
+    res.status(200).json(events);
+  } catch (error) {
+    console.error('Error fetching internal events for public export:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+// Public endpoint to get available MEC categories (for dropdowns)
+app.get('/api/public/mec-categories', async (req, res) => {
+  try {
+    // Get distinct MEC categories from all events
+    const categories = await internalEventsCollection.distinct('internalData.mecCategories');
+    
+    // Filter out null/empty values and sort
+    const cleanCategories = categories
+      .filter(cat => cat && cat.trim() !== '')
+      .sort();
+    
+    res.status(200).json(cleanCategories);
+  } catch (error) {
+    console.error('Error fetching MEC categories:', error);
+    res.status(500).json({ error: 'Failed to fetch MEC categories' });
+  }
+});
 
 // Simple test route that doesn't require authentication
 app.get('/api/health', (req, res) => {
