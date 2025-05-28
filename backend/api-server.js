@@ -22,9 +22,10 @@ app.use(cors({
   origin: [
     'http://localhost:80', 
     'http://localhost', 
+    'http://localhost:3000',
     process.env.FRONTEND_URL || webAppURL
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   credentials: true,
   exposedHeaders: ['Authorization']
 }));
@@ -252,6 +253,79 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating current user:', error);
     res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// Update user preferences
+app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
+  try {
+    const updates = req.body;
+    console.log('Updating user preferences, received data:', updates);
+    console.log('User from token:', req.user);
+    
+    if (!req.user || !req.user.userId || !req.user.email) {
+      console.error('Invalid user data from token:', req.user);
+      return res.status(401).json({ 
+        error: 'Invalid user data',
+        message: 'The authentication token did not contain valid user information'
+      });
+    }
+    
+    // First try to find user by userId (MSAL ID)
+    let user = await usersCollection.findOne({ userId: req.user.userId });
+    console.log('User found by userId:', user ? 'yes' : 'no');
+    
+    // If not found, try to find by email
+    if (!user) {
+      user = await usersCollection.findOne({ email: req.user.email });
+      console.log('User found by email:', user ? 'yes' : 'no');
+    }
+    
+    if (!user) {
+      console.log('No preferences found, returning default preferences');
+      // Return default preferences instead of 404
+      const defaultPreferences = {
+        startOfWeek: 'Sunday',
+        createEvents: true,
+        editEvents: true,
+        deleteEvents: false,
+        defaultView: 'week',
+        defaultGroupBy: 'categories',
+        preferredZoomLevel: 100,
+        ...updates // Merge any provided preferences
+      };
+      
+      return res.status(200).json({
+        message: 'Using default preferences',
+        preferences: defaultPreferences
+      });
+    }
+    
+    // Update the timestamp
+    const updateData = {
+      updatedAt: new Date(),
+      preferences: {
+        ...user.preferences,
+        ...updates
+      }
+    };
+    
+    console.log('Updating user preferences:', user._id.toString());
+    const result = await usersCollection.updateOne(
+      { _id: user._id },
+      { $set: updateData }
+    );
+    
+    // Return the updated user
+    const updatedUser = await usersCollection.findOne({ _id: user._id });
+    console.log('User preferences updated successfully');
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    console.error('Error updating user preferences:', error);
+    res.status(500).json({ 
+      error: 'Failed to update preferences',
+      message: error.message
+    });
   }
 });
 

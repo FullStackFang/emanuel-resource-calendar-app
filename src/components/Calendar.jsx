@@ -11,6 +11,8 @@
   import DayView from './DayView';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
+  import './DayEventPanel.css';
+  import DayEventPanel from './DayEventPanel';
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -115,6 +117,9 @@
       end: calculateEndDate(new Date(), 'week')
     });
     
+    // Separate filters for month view
+    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
+    const [selectedLocationFilter, setSelectedLocationFilter] = useState('');
 
     // Profile states
     const [userTimeZone, setUserTimeZone] = useState('America/New_York');
@@ -903,7 +908,7 @@
     /**
      * TBD
      */
-    const getWeekdayHeaders = useMemo(() => {
+    const getWeekdayHeaders = useCallback(() => {
       const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       if (userPermissions.startOfWeek === 'Sunday') {
         weekdays.unshift(weekdays.pop());
@@ -914,7 +919,21 @@
     /**
      * TBD
      */
-    const getMonthWeeks = useMemo(() => {
+    const getEventsForDay = useCallback((day) => {
+      return allEvents.filter(event => {
+        const eventDate = new Date(event.start.dateTime);
+        return (
+          eventDate.getFullYear() === day.getFullYear() &&
+          eventDate.getMonth() === day.getMonth() &&
+          eventDate.getDate() === day.getDate()
+        );
+      });
+    }, [allEvents]);
+
+    /**
+     * TBD
+     */
+    const getMonthWeeks = useCallback(() => {
       const days = [];
       const year = dateRange.start.getFullYear();
       const month = dateRange.start.getMonth();
@@ -988,9 +1007,39 @@
     const filteredEvents = useMemo(() => {
       const filtered = allEvents.filter(event => {
         const eventDate = new Date(event.start.dateTime);
-        const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
         let inSelectedGroup = true;
-
+    
+        // Special handling for month view with dual filters
+        if (viewType === 'month') {
+          let categoryMatch = true;
+          let locationMatch = true;
+    
+          // Check category filter
+          if (selectedCategoryFilter) {
+            if (selectedCategoryFilter === 'Other Categories') {
+              categoryMatch = !isKnownCategory(event.category) && !isUncategorizedEvent(event);
+            } else {
+              categoryMatch = event.category === selectedCategoryFilter;
+            }
+          }
+    
+          // Check location filter
+          if (selectedLocationFilter) {
+            const eventLocations = event.location?.displayName 
+              ? event.location.displayName.split('; ').map(loc => loc.trim())
+              : [];
+            
+            if (selectedLocationFilter === 'Unspecified') {
+              locationMatch = eventLocations.length === 0 || eventLocations.every(loc => loc === '');
+            } else {
+              locationMatch = eventLocations.includes(selectedLocationFilter);
+            }
+          }
+    
+          return categoryMatch && locationMatch;
+        }
+    
+        // Regular filtering for day/week views
         if (groupBy === 'categories') {
           if (isUncategorizedEvent(event)) {
             inSelectedGroup = selectedCategories.includes('Uncategorized');
@@ -1013,31 +1062,27 @@
           inSelectedGroup = eventLocations.some(loc => visibleLocations.includes(loc));
         }
         
-        return inDateRange && inSelectedGroup;
+        return inSelectedGroup;
       });
       
       // Sort the filtered events by start time
       const sorted = [...filtered].sort((a, b) => {
-        // Convert date strings to Date objects for comparison
         const aStartTime = new Date(a.start.dateTime);
         const bStartTime = new Date(b.start.dateTime);
         
-        // Primary sort by start time (ascending)
         if (aStartTime.getTime() !== bStartTime.getTime()) {
           return aStartTime - bStartTime;
         }
         
-        // Secondary sort by end time (for events that start at the same time)
         const aEndTime = new Date(a.end.dateTime);
         const bEndTime = new Date(b.end.dateTime);
         return aEndTime - bEndTime;
       });
       
-      // Set loading state to false after calculation is complete
       setLoading(false);
       
       return sorted;
-    }, [allEvents, dateRange, selectedCategories, selectedLocations, groupBy, isKnownCategory, isUncategorizedEvent]);
+    }, [allEvents, selectedCategories, selectedLocations, groupBy, isKnownCategory, isUncategorizedEvent, viewType, selectedCategoryFilter, selectedLocationFilter]);
 
     /**
      * TBD
@@ -1051,8 +1096,8 @@
         if (!getMonthDayEventPosition(event, day)) return false;
         
         // Then apply all the same filters used in filteredEvents
-        const eventDate = new Date(event.start.dateTime);
-        const inDateRange = eventDate >= dateRange.start && eventDate <= dateRange.end;
+        // Remove unused eventDate variable
+        // const eventDate = new Date(event.start.dateTime);
         
         // Filter by category or location based on groupBy
         if (groupBy === 'categories') {
@@ -1195,6 +1240,20 @@
         setIsModalOpen(true);
       }
     };
+
+    /**
+     * Handle the month filter change
+     */
+    const handleCategoryFilterChange = useCallback((value) => {
+      setSelectedCategoryFilter(value);
+    }, []);
+
+    /**
+     * Handle location filter change in month view
+     */
+    const handleLocationFilterChange = useCallback((value) => {
+      setSelectedLocationFilter(value);
+    }, []);
 
     /**
      * Add this new handler for the month filter dropdown
@@ -1363,11 +1422,6 @@
       });
     }, [viewType, dateRange.start]);
 
-    /**
-     * Handle clicking on a day cell to add a new event
-     * @param {Date} day - The day that was clicked
-     * @param {string} category - The category row that was clicked
-     */
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       if(!userPermissions.createEvents) {
         showNotification("User don't have permission to create events");
@@ -1417,7 +1471,7 @@
       setCurrentEvent(newEvent);
       setModalType('add');
       setIsModalOpen(true);
-    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate]);
+    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, viewType]);
 
     /**
      * Handle clicking on an event to open the context menu
@@ -1437,19 +1491,6 @@
      * TBD
      * @returns 
      */
-    const handleEditEvent = () => {
-      const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-    
-      if (!userPermissions.editEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
-        showNotification("You don't have permission to edit events in this calendar");
-        return;
-      }
-      
-      setShowContextMenu(false);
-      setModalType('edit');
-      setIsModalOpen(true);
-    };
-
     const handleDeleteEvent = () => {
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
     
@@ -1697,7 +1738,7 @@
     };
     
     //---------------------------------------------------------------------------
-    // RENDER
+    // RENDERING
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
@@ -1813,29 +1854,31 @@
               </div>
             </div>
     
-            {/* View mode selectors */}
-            <div className="view-mode-selector">
-              <button 
-                className={groupBy === 'categories' ? 'active' : ''} 
-                onClick={() => {
-                    setGroupBy('categories');
-                    updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+            {/* View mode selectors - Hide in month view */}
+            {viewType !== 'month' && (
+              <div className="view-mode-selector">
+                <button 
+                  className={groupBy === 'categories' ? 'active' : ''} 
+                  onClick={() => {
+                      setGroupBy('categories');
+                      updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+                    }
                   }
-                }
-              >
-                Group by Category
-              </button>
-              <button 
-                className={groupBy === 'locations' ? 'active' : ''} 
-                onClick={() => {
-                    setGroupBy('locations');
-                    updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                >
+                  Group by Category
+                </button>
+                <button 
+                  className={groupBy === 'locations' ? 'active' : ''} 
+                  onClick={() => {
+                      setGroupBy('locations');
+                      updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                    }
                   }
-                }
-              >
-                Group by Location
-              </button>
-            </div>
+                >
+                  Group by Location
+                </button>
+              </div>
+            )}
             
             <div className="navigation">
               <button onClick={handlePrevious}>Previous</button>
@@ -1898,37 +1941,104 @@
           </div>
         ) : (
           <>
-            <div className="calendar-layout">
-              <div className="calendar-sidebar">
+            <div className="calendar-main-content">
+              {loading}
+              
+              {/* Calendar grid section */}
+              <div className="calendar-grid-container">
                 {viewType === 'month' ? (
-                  <>
-                    <h3>{groupBy === 'categories' ? 'Filter by Category' : 'Filter by Location'}</h3>
-                    <select 
-                      value={selectedFilter}
-                      onChange={(e) => handleMonthFilterChange(e.target.value)}
-                      className="month-filter-select"
+                  <div className="calendar-content-wrapper">
+                    <div 
+                      className="calendar-grid month-view"
+                      style={{ 
+                        transform: `scale(${zoomLevel / 100})`, 
+                        transformOrigin: 'top left',
+                        width: '100%',
+                        flex: 1
+                      }}
                     >
-                      <option value="">-- Select {groupBy === 'categories' ? 'Category' : 'Location'} --</option>
-                      {groupBy === 'categories' ? (
-                        // Show categories
-                        outlookCategories.length > 0 
-                          ? ['Uncategorized', 
-                            ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized'),
-                            'Other Categories'] // Add Other Categories option
-                            .map(cat => (
-                              <option key={cat} value={cat}>{cat}</option>
-                            ))
-                          : null
-                      ) : (
-                        // Show locations
-                        availableLocations.map(loc => (
-                          <option key={loc} value={loc}>{loc}</option>
-                        ))
-                      )}
-                    </select>
-                  </>
+                      <MonthView
+                        getMonthWeeks={getMonthWeeks}
+                        getWeekdayHeaders={getWeekdayHeaders}
+                        selectedFilter={selectedFilter}
+                        handleDayCellClick={handleDayCellClick}
+                        handleEventClick={handleEventClick}
+                        getEventContentStyle={getEventContentStyle}
+                        formatEventTime={formatEventTime}
+                        getCategoryColor={getCategoryColor}
+                        getLocationColor={getLocationColor}
+                        groupBy={groupBy}
+                        filteredEvents={filteredEvents}
+                        outlookCategories={outlookCategories}
+                        availableLocations={availableLocations}
+                        getFilteredMonthEvents={getFilteredMonthEvents}
+                        getMonthDayEventPosition={getMonthDayEventPosition}
+                        allEvents={allEvents}
+                        userTimeZone={userTimeZone}
+                        handleMonthFilterChange={handleMonthFilterChange}
+                        selectedCategoryFilter={selectedCategoryFilter}
+                        selectedLocationFilter={selectedLocationFilter}
+                        handleCategoryFilterChange={handleCategoryFilterChange}
+                        handleLocationFilterChange={handleLocationFilterChange}
+                      />
+                    </div>
+                  </div>
                 ) : (
-                  groupBy === 'categories' ? (
+                  <div 
+                    className={`calendar-grid ${viewType}-view`}
+                    style={{ 
+                      transform: `scale(${zoomLevel / 100})`, 
+                      transformOrigin: 'top left',
+                      width: '100%'
+                    }}
+                  >
+                    {viewType === 'week' ? (
+                      <WeekView
+                        groupBy={groupBy}
+                        outlookCategories={outlookCategories}
+                        selectedCategories={selectedCategories}
+                        availableLocations={availableLocations}
+                        selectedLocations={selectedLocations}
+                        getDaysInRange={getDaysInRange}
+                        formatDateHeader={formatDateHeader}
+                        getEventPosition={getEventPosition}
+                        filteredEvents={filteredEvents}
+                        getCategoryColor={getCategoryColor}
+                        getLocationColor={getLocationColor}
+                        handleDayCellClick={handleDayCellClick}
+                        handleEventClick={handleEventClick}
+                        renderEventContent={renderEventContent}
+                        viewType={viewType}
+                        categories={categories}
+                      />
+                    ) : (
+                      <DayView
+                        groupBy={groupBy}
+                        outlookCategories={outlookCategories}
+                        selectedCategories={selectedCategories}
+                        availableLocations={availableLocations}
+                        selectedLocations={selectedLocations}
+                        formatDateHeader={formatDateHeader}
+                        getEventPosition={getEventPosition}
+                        filteredEvents={filteredEvents}
+                        getCategoryColor={getCategoryColor}
+                        getLocationColor={getLocationColor}
+                        handleDayCellClick={handleDayCellClick}
+                        handleEventClick={handleEventClick}
+                        renderEventContent={renderEventContent}
+                        viewType={viewType}
+                        categories={categories}
+                        dateRange={dateRange}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+    
+              {/* Right sidebar for filters */}
+              {viewType !== 'month' && (
+                <div className="calendar-right-sidebar">
+                  {groupBy === 'categories' ? (
                     <>
                       <h3>Categories</h3>
                       {/* Selection controls */}
@@ -2064,78 +2174,9 @@
                         label="Filter by locations"
                       />
                     </>
-                  )
-                )}
-              </div>
-    
-              {loading}
-              <div 
-                className={`calendar-grid ${viewType}-view`}
-                style={{ 
-                  transform: `scale(${zoomLevel / 100})`, 
-                  transformOrigin: 'top left',
-                  width: '100%'
-                }}
-              >
-                {viewType === 'month' ? (
-                  <MonthView
-                    getMonthWeeks={getMonthWeeks}
-                    getWeekdayHeaders={getWeekdayHeaders}
-                    selectedFilter={selectedFilter}
-                    handleDayCellClick={handleDayCellClick}
-                    handleEventClick={handleEventClick}
-                    getEventContentStyle={getEventContentStyle}
-                    formatEventTime={formatEventTime}
-                    getCategoryColor={getCategoryColor}
-                    getLocationColor={getLocationColor}
-                    groupBy={groupBy}
-                    filteredEvents={filteredEvents}
-                    outlookCategories={outlookCategories}
-                    availableLocations={availableLocations}
-                    getFilteredMonthEvents={getFilteredMonthEvents}
-                    getMonthDayEventPosition={getMonthDayEventPosition}
-                    categories={categories}
-                  />
-                ) : viewType === 'week' ? (
-                  <WeekView
-                    groupBy={groupBy}
-                    outlookCategories={outlookCategories}
-                    selectedCategories={selectedCategories}
-                    availableLocations={availableLocations}
-                    selectedLocations={selectedLocations}
-                    getDaysInRange={getDaysInRange}
-                    formatDateHeader={formatDateHeader}
-                    getEventPosition={getEventPosition}
-                    filteredEvents={filteredEvents}
-                    getCategoryColor={getCategoryColor}
-                    getLocationColor={getLocationColor}
-                    handleDayCellClick={handleDayCellClick}
-                    handleEventClick={handleEventClick}
-                    renderEventContent={renderEventContent}
-                    viewType={viewType}
-                    categories={categories}
-                  />
-                ) : (
-                  <DayView
-                    groupBy={groupBy}
-                    outlookCategories={outlookCategories}
-                    selectedCategories={selectedCategories}
-                    availableLocations={availableLocations}
-                    selectedLocations={selectedLocations}
-                    formatDateHeader={formatDateHeader}
-                    getEventPosition={getEventPosition}
-                    filteredEvents={filteredEvents}
-                    getCategoryColor={getCategoryColor}
-                    getLocationColor={getLocationColor}
-                    handleDayCellClick={handleDayCellClick}
-                    handleEventClick={handleEventClick}
-                    renderEventContent={renderEventContent}
-                    viewType={viewType}
-                    categories={categories}
-                    dateRange={dateRange}
-                  />
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
     
             {/* Context Menu */}
