@@ -38,6 +38,7 @@
     'Microsoft Teams Meeting'
   ];
 
+  
   const getFilteredLocationsForMultiSelect = () => {
     return availableLocations.filter(location => location !== 'Unspecified');
   };
@@ -776,6 +777,34 @@
     //---------------------------------------------------------------------------
     /**
      * TBD
+     */ 
+    const getDynamicCategories = useCallback(() => {
+      // Get unique categories from all events
+      const categoriesSet = new Set();
+      
+      allEvents.forEach(event => {
+        if (event.category && event.category.trim() !== '') {
+          categoriesSet.add(event.category);
+        } else {
+          categoriesSet.add('Uncategorized');
+        }
+      });
+      
+      // Convert to array and sort
+      const categoriesArray = Array.from(categoriesSet).sort();
+      
+      // Add special options
+      const finalCategories = [
+        'Uncategorized',
+        ...categoriesArray.filter(cat => cat !== 'Uncategorized'),
+        'Show All Categories'
+      ];
+      
+      return finalCategories;
+    }, [allEvents]);
+    
+    /**
+     * TBD
      */
     const isKnownCategory = useCallback((categoryName) => {
       if (isUncategorizedEvent({ category: categoryName })) {
@@ -1067,6 +1096,8 @@
       return days;
     }, [dateRange.start, dateRange.end]);
 
+    const dynamicCategories = useMemo(() => getDynamicCategories(), [getDynamicCategories]);
+
     /**
      * TBD
      */
@@ -1082,8 +1113,12 @@
     
           // Check category filter
           if (selectedCategoryFilter) {
-            if (selectedCategoryFilter === 'Other Categories') {
-              categoryMatch = !isKnownCategory(event.category) && !isUncategorizedEvent(event);
+            if (selectedCategoryFilter === 'Show All Categories') {
+              // Show categories that are not in the known dynamic categories (excluding special options)
+              const knownCategories = dynamicCategories.filter(cat => 
+                cat !== 'Uncategorized' && cat !== 'Show All Categories'
+              );
+              categoryMatch = !knownCategories.includes(event.category) && !isUncategorizedEvent(event);
             } else {
               categoryMatch = event.category === selectedCategoryFilter;
             }
@@ -1109,7 +1144,7 @@
         if (groupBy === 'categories') {
           if (isUncategorizedEvent(event)) {
             inSelectedGroup = selectedCategories.includes('Uncategorized');
-          } else if (isKnownCategory(event.category)) {
+          } else if (dynamicCategories.includes(event.category)) {
             inSelectedGroup = selectedCategories.includes(event.category);
           } else {
             const showAllCategoriesSelected = selectedCategories.includes('Show All Categories');
@@ -1148,8 +1183,8 @@
       setLoading(false);
       
       return sorted;
-    }, [allEvents, selectedCategories, selectedLocations, groupBy, isKnownCategory, isUncategorizedEvent, viewType, selectedCategoryFilter, selectedLocationFilter]);
-
+    }, [allEvents, selectedCategories, selectedLocations, groupBy, dynamicCategories, isUncategorizedEvent, viewType, selectedCategoryFilter, selectedLocationFilter]);
+    
     /**
      * TBD
      */
@@ -1713,20 +1748,12 @@
 
     // Update selected categories when Outlook categories change
     useEffect(() => {
-      if (outlookCategories.length > 0) {
-        const allCategories = [
-          'Uncategorized', 
-          ...outlookCategories.map(cat => cat.name)
-            .filter(name => name !== 'Uncategorized'),
-          'Show All Categories'
-        ];
-        
+      if (dynamicCategories.length > 0) {
         // Select all categories by default
-        setSelectedCategories(allCategories);
-        
-        console.log("Updated selected categories based on loaded Outlook categories");
+        setSelectedCategories(dynamicCategories);
+        console.log("Updated selected categories based on dynamic categories from events");
       }
-    }, [outlookCategories]);
+    }, [dynamicCategories]);
 
     // Initialize date range for month view
     useEffect(() => {
@@ -1762,12 +1789,12 @@
     // Initialize filter for month view
     useEffect(() => {
       // Set default filter based on the groupBy setting
-      if (groupBy === 'categories' && outlookCategories.length > 0) {
+      if (groupBy === 'categories' && dynamicCategories.length > 0) {
         setSelectedFilter('Uncategorized');
       } else if (groupBy === 'locations') {
         setSelectedFilter('Unspecified');
       }
-    }, [groupBy, outlookCategories]);
+    }, [groupBy, dynamicCategories]);
 
     // Close context menu when clicking outside
     useEffect(() => {      
@@ -2052,6 +2079,7 @@
                         selectedLocationFilter={selectedLocationFilter}
                         handleCategoryFilterChange={handleCategoryFilterChange}
                         handleLocationFilterChange={handleLocationFilterChange}
+                        dynamicCategories={dynamicCategories}
                       />
                     </div>
                   </div>
@@ -2081,7 +2109,7 @@
                         handleEventClick={handleEventClick}
                         renderEventContent={renderEventContent}
                         viewType={viewType}
-                        categories={categories}
+                        dynamicCategories={dynamicCategories}
                       />
                     ) : (
                       <DayView
@@ -2099,7 +2127,7 @@
                         handleEventClick={handleEventClick}
                         renderEventContent={renderEventContent}
                         viewType={viewType}
-                        categories={categories}
+                        dynamicCategories={dynamicCategories}
                         dateRange={dateRange}
                       />
                     )}
@@ -2122,10 +2150,8 @@
                       }}>
                         <button 
                           onClick={() => {
-                            const allCategories = ['Uncategorized', 
-                              ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')];
-                            setSelectedCategories(allCategories);
-                            updateUserProfilePreferences({ selectedCategories: allCategories });
+                            setSelectedCategories(dynamicCategories); // Use dynamic categories instead of static
+                            updateUserProfilePreferences({ selectedCategories: dynamicCategories });
                           }}
                           style={{
                             padding: '6px 12px',
@@ -2168,10 +2194,7 @@
                         </button>
                       </div>
                       <MultiSelect 
-                        options={outlookCategories.length > 0 
-                          ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-                          : categories
-                        }
+                        options={dynamicCategories.filter(cat => cat !== 'Show All Categories')} // Remove special option for filter
                         selected={selectedCategories}
                         onChange={val => {
                             setSelectedCategories(val);
@@ -2289,9 +2312,7 @@
         >
           <EventForm 
             event={currentEvent}
-            categories={outlookCategories.length > 0 
-              ? ['Uncategorized', ...outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized')]
-              : categories}
+            categories={dynamicCategories.filter(cat => cat !== 'Show All Categories')} // Remove the special "Show All" option for form
             availableLocations={getFilteredLocationsForMultiSelect()}
             schemaExtensions={schemaExtensions}
             onSave={handleSaveEvent}

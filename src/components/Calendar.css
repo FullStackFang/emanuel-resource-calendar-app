@@ -1,33 +1,63 @@
-/* Calendar.css - Specific styles for the Calendar component */
+/* ============================================================================
+   CALENDAR.CSS - Complete Calendar Component Styles
+   ============================================================================ */
 
-/* ===============================
-   CSS VARIABLES & THEMING
-   =============================== */
+/* ============================================================================
+   1. CSS VARIABLES & DESIGN TOKENS
+   ============================================================================ */
    :root {
+    /* Primary Colors */
     --primary-color: #0078d4;
     --secondary-color: #005a9e;
     --primary-light: #e3f2fd;
+    
+    /* UI Colors */
+    --white: #ffffff;
+    --light-gray: #f5f5f5;
     --hover-light: #f5f5f5;
+    --background-light: #fafafa;
+    --dark-gray: #605e5c;
+    
+    /* Text Colors */
     --text-primary: #333333;
     --text-secondary: #666666;
-    --dark-gray: #605e5c;
-    --light-gray: #f5f5f5;
+    
+    /* Border Colors */
     --border-color: #e0e0e0;
     --border-light: #f0f0f0;
-    --background-light: #fafafa;
-    --white: #ffffff;
+    
+    /* Status Colors */
     --error-color: #d83b01;
+    --success-color: #4CAF50;
+    --warning-color: #FF9800;
+    
+    /* Layout */
+    --sidebar-width: 250px;
+    --category-column-width: 150px;
+    --header-height: 200px;
+    
+    /* Transitions */
+    --transition-fast: 0.1s ease;
+    --transition-normal: 0.2s ease;
+    --transition-slow: 0.3s ease;
+    
+    /* Shadows */
+    --shadow-light: 0 1px 3px rgba(0,0,0,0.1);
+    --shadow-medium: 0 2px 6px rgba(0, 0, 0, 0.2);
+    --shadow-strong: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
   
-  /* ===============================
-     CALENDAR CONTAINER & LAYOUT
-     =============================== */
+  /* ============================================================================
+     2. MAIN CALENDAR CONTAINER & LAYOUT
+     ============================================================================ */
+  
+  /* Main Calendar Container */
   .calendar-container {
     display: flex;
     flex-direction: column;
     background-color: var(--white);
     border-radius: 4px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--shadow-medium);
     padding: 10px;
     height: 100%;
     overflow: auto;
@@ -37,30 +67,34 @@
     box-sizing: border-box;
   }
   
+  /* Calendar Header Section */
   .calendar-header {
     margin-bottom: 30px;
+    flex-shrink: 0;
   }
   
-  /* Main content container */
+  /* Main Content Layout */
   .calendar-main-content {
     display: flex;
-    height: calc(100vh - 200px); /* Adjust based on header height */
+    height: calc(100vh - var(--header-height));
     gap: 20px;
     flex: 1;
     overflow: hidden;
   }
   
-  /* Calendar grid container (left side) */
+  /* Calendar Grid Container (Primary Content Area) */
   .calendar-grid-container {
-    flex: 1;
-    overflow: auto;
     display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
   }
   
-  /* Right sidebar for filters (day/week view) */
+  /* Right Sidebar for Filters (Day/Week Views) */
   .calendar-right-sidebar {
-    width: 250px;
-    min-width: 250px;
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
     padding: 20px;
     background-color: var(--light-gray);
     border-radius: 4px;
@@ -75,22 +109,17 @@
     font-weight: 600;
   }
   
-  /* Content wrapper for month view with panel */
-  .calendar-content-wrapper {
-    display: flex;
-    flex: 1;
-    height: 100%;
-    overflow: hidden;
-  }
+  /* ============================================================================
+     3. CALENDAR CONTROLS (HEADER BUTTONS & SELECTORS)
+     ============================================================================ */
   
-  /* ===============================
-     CALENDAR CONTROLS
-     =============================== */
+  /* Main Controls Container */
   .calendar-controls {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     margin-bottom: 15px;
+    gap: 10px;
   }
   
   /* View Selector (Day/Week/Month) */
@@ -106,12 +135,19 @@
     border: 1px solid #d2d0ce;
     border-radius: 4px;
     cursor: pointer;
+    transition: var(--transition-normal);
+    font-family: inherit;
+    font-size: inherit;
   }
   
   .view-selector button.active {
     background-color: var(--primary-color);
     color: var(--white);
     border-color: var(--primary-color);
+  }
+  
+  .view-selector button:hover:not(.active) {
+    background-color: var(--hover-light);
   }
   
   /* View Mode Selector (Categories/Locations) */
@@ -126,6 +162,9 @@
     border: 1px solid #ccc;
     cursor: pointer;
     margin-right: 5px;
+    transition: var(--transition-normal);
+    font-family: inherit;
+    font-size: inherit;
   }
   
   .view-mode-selector button.active {
@@ -143,6 +182,10 @@
     margin-right: 0;
   }
   
+  .view-mode-selector button:hover:not(.active) {
+    background-color: var(--hover-light);
+  }
+  
   /* Navigation Buttons */
   .navigation {
     display: flex;
@@ -156,7 +199,9 @@
     border: 1px solid var(--primary-color);
     border-radius: 4px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: var(--transition-normal);
+    font-family: inherit;
+    font-size: inherit;
   }
   
   .navigation button:hover {
@@ -168,6 +213,7 @@
     font-weight: 600;
     font-size: 16px;
     margin: 0 10px;
+    color: var(--text-primary);
   }
   
   /* Zoom Controls */
@@ -188,6 +234,12 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    transition: var(--transition-normal);
+    font-family: inherit;
+  }
+  
+  .zoom-controls button:hover {
+    background-color: #e0e0e0;
   }
   
   .zoom-controls span {
@@ -195,6 +247,7 @@
     font-size: 14px;
     min-width: 45px;
     text-align: center;
+    color: var(--text-primary);
   }
   
   /* Selectors Group */
@@ -220,7 +273,7 @@
     border: 1px solid var(--primary-color);
     border-radius: 4px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: var(--transition-normal);
     font-family: inherit;
     font-size: inherit;
     height: 32px;
@@ -262,7 +315,7 @@
     border: 1px solid var(--primary-color);
     border-radius: 4px;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: var(--transition-normal);
     font-size: inherit;
     font-family: inherit;
     white-space: nowrap;
@@ -275,23 +328,117 @@
     background-color: var(--secondary-color);
   }
   
-  /* ===============================
-     CALENDAR GRID (ALL VIEWS)
-     =============================== */
+  /* ============================================================================
+     4. CALENDAR GRID LAYOUT (DAY & WEEK VIEWS)
+     ============================================================================ */
+  
+  /* Base Calendar Grid */
   .calendar-grid {
     width: 100%;
+    overflow: auto;
+    flex: 1;
+    background-color: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+  }
+  
+  /* Month View Layout (Different Structure) */
+  .calendar-grid.month-view {
+    display: flex;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+  
+  /* ============================================================================
+     5. DAY & WEEK VIEW GRID STRUCTURE WITH STICKY HEADERS
+     ============================================================================ */
+  
+  /* Grid Header (Sticky Horizontal Headers) */
+  .grid-header {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--primary-color);
+    color: var(--white);
+    box-shadow: var(--shadow-light);
+  }
+  
+  .grid-header .header-cell {
+    padding: 12px 8px;
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    flex: 1;
+    min-width: 0;
+  }
+  
+  .grid-header .header-cell:last-child {
+    border-right: none;
+  }
+  
+  /* Category/Location Header */
+  .grid-header .category-header {
+    background-color: var(--secondary-color);
+    font-weight: 700;
+    min-width: var(--category-column-width);
+    flex: 0 0 var(--category-column-width);
+  }
+  
+  /* Grid Rows */
+  .grid-row {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .grid-row:last-child {
+    border-bottom: none;
+  }
+  
+  /* Category/Location Cells */
+  .grid-cell.category-cell,
+  .grid-cell.location-cell {
+    background-color: var(--light-gray);
+    border-right: 1px solid var(--border-color);
+    padding: 8px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    min-height: 60px;
+    color: var(--text-primary);
+    min-width: var(--category-column-width);
+    flex: 0 0 var(--category-column-width);
+  }
+  
+  /* Day Cells (Content Area) */
+  .grid-cell.day-cell {
+    border-right: 1px solid var(--border-color);
+    padding: 4px;
+    min-height: 60px;
+    background-color: var(--white);
+    cursor: pointer;
+    transition: var(--transition-normal);
+    overflow-y: auto;
     overflow-x: hidden;
     flex: 1;
+    min-width: 0;
   }
   
-  .calendar-grid.month-view {
-    height: 100%;
-    display: flex;
+  .grid-cell.day-cell:last-child {
+    border-right: none;
   }
   
-  /* ===============================
-     MONTH VIEW STYLES
-     =============================== */
+  .grid-cell.day-cell:hover {
+    background-color: #f8f9fa;
+  }
+  
+  /* ============================================================================
+     6. MONTH VIEW SPECIFIC STYLES
+     ============================================================================ */
+  
+  /* Month View Wrapper */
   .month-view-wrapper {
     display: flex;
     height: 100%;
@@ -299,6 +446,7 @@
     gap: 0;
   }
   
+  /* Month View Container */
   .month-view-container {
     flex: 1;
     display: flex;
@@ -307,105 +455,38 @@
     overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    border-right: none; /* Remove right border since panel has left border */
+    border-right: none;
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
   }
   
-  /* Month View Right Panel Container */
-  .month-right-panel {
-    width: 350px;
-    height: 100%;
+  /* Month View Content Wrapper */
+  .calendar-content-wrapper {
     display: flex;
-    flex-direction: column;
-    background-color: var(--white);
-    border-left: 1px solid var(--border-color);
-    flex-shrink: 0;
-  }
-  
-  .month-filter-container {
-    padding: 20px;
-    background-color: var(--background-light);
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-    max-height: 250px;
-    overflow-y: auto;
-    display: flex;  /* Add this */
-    gap: 15px;      /* Add this */
-  }
-  
-  /* Filter sections within month filter container */
-  .month-filter-container .filter-section {
-    margin-bottom: 0;  /* Change from 20px to 0 */
-    flex: 1;           /* Add this */
-  }
-  
-  .month-filter-container .filter-section:last-child {
-    margin-bottom: 0;
-  }
-  
-  .month-filter-container .filter-section h3 {
-    margin: 0 0 8px 0;
-    color: var(--primary-color);
-    font-size: 14px;
-    font-weight: 600;
-  }
-  
-  /* Month filter select dropdown */
-  .month-filter-container .month-filter-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background-color: white;
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 35px;
-    margin-bottom: 0;
-  }
-  
-  .month-filter-container .month-filter-select:hover {
-    border-color: var(--primary-color);
-    background-color: var(--hover-light);
-  }
-  
-  .month-filter-container .month-filter-select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
-    background-color: white;
-  }
-  
-  /* Update DayEventPanel to work within the month-right-panel */
-  .month-right-panel .day-event-panel {
     flex: 1;
-    width: 100%;
-    height: auto;
-    background-color: var(--white);
-    display: flex;
-    flex-direction: column;
+    height: 100%;
     overflow: hidden;
-    border: none; /* Remove any borders since parent has them */
   }
   
+  /* Month Header */
   .month-header {
     margin-bottom: 0;
+    background-color: var(--primary-color);
+    color: var(--white);
+    padding: 15px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    border-radius: 4px 4px 0 0;
   }
   
+  /* Weekday Headers */
   .weekday-header {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     background-color: var(--primary-color);
     color: white;
-    border-radius: 4px 4px 0 0;
+    border-radius: 0;
   }
   
   .weekday {
@@ -413,16 +494,19 @@
     font-weight: 600;
     padding: 8px;
     border-right: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 14px;
   }
   
   .weekday:last-child {
     border-right: none;
   }
   
+  /* Month Days Grid */
   .month-days {
     display: flex;
     flex-direction: column;
     flex: 1;
+    overflow: auto;
   }
   
   .week-row {
@@ -437,6 +521,7 @@
     border-bottom: none;
   }
   
+  /* Day Cells in Month View */
   .day-cell {
     position: relative;
     padding: 6px;
@@ -446,7 +531,7 @@
     display: flex;
     flex-direction: column;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: var(--transition-normal);
     min-height: 100px;
     vertical-align: top;
   }
@@ -473,12 +558,14 @@
     background-color: #f0f7ff;
   }
   
+  /* Day Numbers */
   .day-cell .day-number {
     font-weight: 600;
     text-align: right;
     padding: 2px 4px;
     margin-bottom: 6px;
     border-bottom: 1px solid #f0f0f0;
+    color: var(--text-primary);
   }
   
   .day-cell.outside-month .day-number {
@@ -490,6 +577,7 @@
     font-weight: bold;
   }
   
+  /* Day Events Container */
   .day-events {
     flex: 1;
     display: flex;
@@ -497,7 +585,8 @@
     justify-content: center;
     padding: 5px;
   }
-
+  
+  /* Event Count Circle */
   .event-count-circle {
     background-color: var(--primary-color);
     color: white;
@@ -506,8 +595,11 @@
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    transition: all 0.2s ease;
+    transition: var(--transition-normal);
     cursor: pointer;
+    min-width: 24px;
+    height: 24px;
+    font-size: 12px;
   }
   
   .event-count-circle:hover {
@@ -515,67 +607,100 @@
     transform: scale(1.1);
   }
   
-  /* Optional: Different colors based on event count */
-  .event-count-circle {
-    background-color: #4CAF50; /* Green for 1-3 events */
-  }
+  /* ============================================================================
+     7. MONTH VIEW RIGHT PANEL & FILTERS
+     ============================================================================ */
   
-  .day-cell:has(.event-count-circle:contains("4")),
-  .day-cell:has(.event-count-circle:contains("5")),
-  .day-cell:has(.event-count-circle:contains("6")) .event-count-circle {
-    background-color: #FF9800; /* Orange for 4-6 events */
-  }
-  
-  /* ===============================
-     DAY & WEEK VIEW STYLES
-     =============================== */
-  .grid-header {
+  /* Month View Right Panel Container */
+  .month-right-panel {
+    width: 350px;
+    height: 100%;
     display: flex;
-    background-color: var(--primary-color);
-    color: var(--white);
-    position: sticky;
-    top: 0;
+    flex-direction: column;
+    background-color: var(--white);
+    border-left: 1px solid var(--border-color);
+    flex-shrink: 0;
   }
   
-  .grid-row {
+  /* Month Filter Container */
+  .month-filter-container {
+    padding: 20px;
+    background-color: var(--background-light);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    max-height: 250px;
+    overflow-y: auto;
     display: flex;
+    gap: 15px;
   }
   
-  .grid-cell {
+  /* Filter Sections */
+  .month-filter-container .filter-section {
+    margin-bottom: 0;
     flex: 1;
-    min-width: 0;
-    white-space: nowrap;
+  }
+  
+  .month-filter-container .filter-section:last-child {
+    margin-bottom: 0;
+  }
+  
+  .month-filter-container .filter-section h3 {
+    margin: 0 0 8px 0;
+    color: var(--primary-color);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  
+  /* Month Filter Select Dropdown */
+  .month-filter-container .month-filter-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: white;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: var(--transition-normal);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 35px;
+    margin-bottom: 0;
+  }
+  
+  .month-filter-container .month-filter-select:hover {
+    border-color: var(--primary-color);
+    background-color: var(--hover-light);
+  }
+  
+  .month-filter-container .month-filter-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+    background-color: white;
+  }
+  
+  /* Day Event Panel Integration */
+  .month-right-panel .day-event-panel {
+    flex: 1;
+    width: 100%;
+    height: auto;
+    background-color: var(--white);
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
-    text-overflow: ellipsis;
+    border: none;
   }
   
-  .header-cell {
-    font-weight: 600;
-    text-align: center;
-  }
+  /* ============================================================================
+     8. EVENT STYLING & INTERACTIONS
+     ============================================================================ */
   
-  .category-header {
-    min-width: 120px;
-    background-color: var(--secondary-color);
-  }
-  
-  .category-cell {
-    min-width: 120px;
-    background-color: #f5f5f5;
-    font-weight: 600;
-    position: sticky;
-    left: 0;
-  }
-  
-  .location-cell {
-    font-weight: bold;
-    padding: 5px;
-    background-color: #f5f5f5;
-  }
-  
-  /* ===============================
-     EVENT STYLING
-     =============================== */
+  /* Base Event Item */
   .event-item {
     position: relative;
     background-color: rgba(0, 120, 212, 0.05);
@@ -585,26 +710,32 @@
     border-radius: 3px;
     font-size: 13px;
     cursor: pointer;
-    transition: background-color 0.1s;
+    transition: var(--transition-fast);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     z-index: 2;
+    box-shadow: var(--shadow-light);
   }
   
   .event-item:hover {
     background-color: rgba(0, 120, 212, 0.1);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   }
   
+  /* Event Content Elements */
   .event-time {
     font-size: 12px;
     color: var(--dark-gray);
     margin-bottom: 2px;
+    font-weight: 500;
   }
   
   .event-title {
     font-weight: 600;
     margin-bottom: 2px;
+    color: var(--text-primary);
   }
   
   .event-location {
@@ -621,6 +752,31 @@
     white-space: nowrap;
   }
   
+  /* Calendar Source Indicator */
+  .calendar-source {
+    font-size: 10px;
+    opacity: 0.8;
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  
+  /* ============================================================================
+     9. CATEGORY & LOCATION INDICATORS
+     ============================================================================ */
+  
+  /* Category/Location Color Indicators */
+  .category-color,
+  .location-color {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 5px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  
   /* Category/Location Groups in Month View */
   .day-category-group,
   .day-location-group {
@@ -632,8 +788,15 @@
     border-radius: 3px;
     background-color: #f7f7f7;
     border: 1px solid #eee;
+    transition: var(--transition-fast);
   }
   
+  .day-category-group:hover,
+  .day-location-group:hover {
+    background-color: #f0f0f0;
+  }
+  
+  /* Category/Location Labels */
   .category-label,
   .location-label {
     display: flex;
@@ -643,17 +806,10 @@
     text-overflow: ellipsis;
     max-width: 80%;
     font-size: 11px;
+    color: var(--text-primary);
   }
   
-  .category-color,
-  .location-color {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 4px;
-    flex-shrink: 0;
-  }
-  
+  /* Events Count Badge */
   .events-count {
     background-color: #e6f7ff;
     color: #1890ff;
@@ -661,24 +817,37 @@
     padding: 1px 5px;
     font-size: 10px;
     font-weight: bold;
+    min-width: 16px;
+    text-align: center;
   }
   
-  /* ===============================
-     CONTEXT MENU
-     =============================== */
+  /* ============================================================================
+     10. CONTEXT MENU & INTERACTIONS
+     ============================================================================ */
+  
+  /* Context Menu */
   .context-menu {
     position: fixed;
     background-color: white;
     border: 1px solid #e1dfdd;
     border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-strong);
     z-index: 100;
     min-width: 150px;
+    overflow: hidden;
   }
   
   .context-menu-item {
     padding: 8px 16px;
     cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+    transition: var(--transition-fast);
+    border-bottom: 1px solid #f5f5f5;
+  }
+  
+  .context-menu-item:last-child {
+    border-bottom: none;
   }
   
   .context-menu-item:hover {
@@ -693,9 +862,11 @@
     background-color: #fde7e9;
   }
   
-  /* ===============================
-     LOADING STATE
-     =============================== */
+  /* ============================================================================
+     11. LOADING STATES & NOTIFICATIONS
+     ============================================================================ */
+  
+  /* Loading Overlay */
   .loading-overlay {
     position: absolute;
     top: 0;
@@ -707,7 +878,7 @@
     justify-content: center;
     align-items: center;
     z-index: 1000;
-    transition: opacity 0.3s ease-in-out;
+    transition: opacity var(--transition-slow);
   }
   
   .loading-content {
@@ -715,7 +886,7 @@
     padding: 20px;
     border-radius: 8px;
     background-color: white;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-strong);
   }
   
   .loading-spinner {
@@ -734,17 +905,16 @@
     100% { transform: rotate(360deg); }
   }
   
-  /* ===============================
-     NOTIFICATION SYSTEM
-     =============================== */
+  /* Notification System */
   .notification {
     position: fixed;
     top: 20px;
     right: 20px;
     padding: 12px 16px;
     border-radius: 4px;
-    animation: fadeIn 0.3s, fadeOut 0.3s 2.7s;
+    animation: fadeIn var(--transition-slow), fadeOut var(--transition-slow) 2.7s;
     z-index: 1000;
+    box-shadow: var(--shadow-medium);
   }
   
   .notification.error {
@@ -769,9 +939,60 @@
     to { opacity: 0; transform: translateY(-10px); }
   }
   
-  /* ===============================
-     MISC COMPONENTS
-     =============================== */
+  /* ============================================================================
+     12. SCROLLBAR STYLING
+     ============================================================================ */
+  
+  /* Custom Scrollbars */
+  .calendar-grid,
+  .calendar-grid-container,
+  .month-days,
+  .calendar-right-sidebar,
+  .month-filter-container {
+    scrollbar-width: thin;
+    scrollbar-color: #6c757d #f1f3f4;
+  }
+  
+  .calendar-grid::-webkit-scrollbar,
+  .calendar-grid-container::-webkit-scrollbar,
+  .month-days::-webkit-scrollbar,
+  .calendar-right-sidebar::-webkit-scrollbar,
+  .month-filter-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  .calendar-grid::-webkit-scrollbar-track,
+  .calendar-grid-container::-webkit-scrollbar-track,
+  .month-days::-webkit-scrollbar-track,
+  .calendar-right-sidebar::-webkit-scrollbar-track,
+  .month-filter-container::-webkit-scrollbar-track {
+    background: #f1f3f4;
+    border-radius: 4px;
+  }
+  
+  .calendar-grid::-webkit-scrollbar-thumb,
+  .calendar-grid-container::-webkit-scrollbar-thumb,
+  .month-days::-webkit-scrollbar-thumb,
+  .calendar-right-sidebar::-webkit-scrollbar-thumb,
+  .month-filter-container::-webkit-scrollbar-thumb {
+    background: #6c757d;
+    border-radius: 4px;
+  }
+  
+  .calendar-grid::-webkit-scrollbar-thumb:hover,
+  .calendar-grid-container::-webkit-scrollbar-thumb:hover,
+  .month-days::-webkit-scrollbar-thumb:hover,
+  .calendar-right-sidebar::-webkit-scrollbar-thumb:hover,
+  .month-filter-container::-webkit-scrollbar-thumb:hover {
+    background: #495057;
+  }
+  
+  /* ============================================================================
+     13. UTILITY CLASSES & MISC COMPONENTS
+     ============================================================================ */
+  
+  /* Permission Indicator */
   .permission-indicator {
     display: inline-block;
     margin-left: 10px;
@@ -783,13 +1004,53 @@
     color: #6c757d;
   }
   
-  /* ===============================
-     RESPONSIVE STYLES
-     =============================== */
+  /* Selection Controls (All/None buttons) */
+  .selection-controls,
+  .select-controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 10px;
+  }
+  
+  .selection-controls button,
+  .select-controls button {
+    padding: 6px 12px;
+    background-color: var(--white);
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: var(--transition-normal);
+    flex: 1;
+    white-space: nowrap;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  
+  .selection-controls button:hover,
+  .select-controls button:hover {
+    background-color: #f0f0f0;
+  }
+  
+  /* No Events Message */
+  .no-events-message {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    margin: 20px;
+    padding: 20px;
+    text-align: center;
+    color: #666;
+  }
+  
+  /* ============================================================================
+     14. RESPONSIVE DESIGN
+     ============================================================================ */
+  
+  /* Large Screens (1200px+) */
   @media (max-width: 1200px) {
-    .calendar-right-sidebar {
-      width: 220px;
-      min-width: 220px;
+    :root {
+      --sidebar-width: 220px;
     }
     
     .month-right-panel {
@@ -797,6 +1058,7 @@
     }
   }
   
+  /* Medium Screens (992px - 1199px) */
   @media (max-width: 992px) {
     .calendar-controls {
       flex-direction: column;
@@ -842,6 +1104,7 @@
     }
   }
   
+  /* Small Screens (768px - 991px) */
   @media (max-width: 968px) {
     .month-right-panel {
       width: 250px;
@@ -849,14 +1112,22 @@
     
     .month-filter-container {
       padding: 16px;
+      flex-direction: column;
+      gap: 12px;
     }
     
     .month-filter-container .filter-section {
-      margin-bottom: 16px;
+      margin-bottom: 0;
     }
   }
   
+  /* Extra Small Screens (up to 767px) */
   @media (max-width: 768px) {
+    :root {
+      --category-column-width: 120px;
+      --header-height: 150px;
+    }
+    
     .calendar-main-content {
       gap: 10px;
     }
@@ -867,6 +1138,21 @@
     
     .calendar-right-sidebar {
       padding: 15px;
+    }
+    
+    .calendar-grid.week-view {
+      grid-template-columns: var(--category-column-width) repeat(7, minmax(80px, 1fr));
+    }
+    
+    .grid-header .header-cell,
+    .grid-cell.category-cell,
+    .grid-cell.location-cell {
+      padding: 6px 4px;
+      font-size: 12px;
+    }
+    
+    .grid-cell.day-cell {
+      min-height: 50px;
     }
     
     .month-view-wrapper {
