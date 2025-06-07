@@ -1,4 +1,3 @@
-// Updated WeekView.jsx - Dynamic categories only
 import React, { memo, useMemo } from 'react';
 
 const WeekView = memo(({
@@ -18,8 +17,38 @@ const WeekView = memo(({
   handleEventClick,
   renderEventContent,
   viewType,
-  dynamicCategories // Use this instead of static categories
+  dynamicCategories,
+  // Add these new props from Calendar.jsx
+  isEventVirtual,
+  isUnspecifiedLocation,
+  hasPhysicalLocation,
+  isVirtualLocation,
+  dynamicLocations
 }) => {
+  
+  // Helper function to get the display location for an event
+  const getEventDisplayLocation = (event) => {
+    if (isUnspecifiedLocation(event)) {
+      return 'Unspecified';
+    } else if (isEventVirtual(event)) {
+      return 'Virtual';
+    } else {
+      // Return the first physical location
+      const locationText = event.location?.displayName?.trim() || '';
+      const eventLocations = locationText
+        .split(/[;,]/)
+        .map(loc => loc.trim())
+        .filter(loc => loc.length > 0);
+      
+      // Find first non-virtual location
+      for (const location of eventLocations) {
+        if (!isVirtualLocation(location)) {
+          return location;
+        }
+      }
+      return 'Unspecified';
+    }
+  };
   
   // Get categories/locations that actually have events to display
   const activeGroups = useMemo(() => {
@@ -41,16 +70,10 @@ const WeekView = memo(({
       const locationsWithEvents = new Set();
       
       filteredEvents.forEach(event => {
-        const eventLocations = event.location?.displayName 
-          ? event.location.displayName.split('; ').map(loc => loc.trim())
-          : ['Unspecified'];
-        
-        eventLocations.forEach(location => {
-          const targetLocation = location || 'Unspecified';
-          if (selectedLocations.includes(targetLocation)) {
-            locationsWithEvents.add(targetLocation);
-          }
-        });
+        const displayLocation = getEventDisplayLocation(event);
+        if (selectedLocations.includes(displayLocation)) {
+          locationsWithEvents.add(displayLocation);
+        }
       });
       
       // Return sorted array of locations that have events
@@ -115,16 +138,9 @@ const WeekView = memo(({
                       const category = event.category || 'Uncategorized';
                       return category === group;
                     } else {
-                      // For locations
-                      const eventLocations = event.location?.displayName 
-                        ? event.location.displayName.split('; ').map(loc => loc.trim())
-                        : [];
-                      
-                      if (group === 'Unspecified') {
-                        return eventLocations.length === 0 || eventLocations.every(loc => loc === '');
-                      } else {
-                        return eventLocations.includes(group);
-                      }
+                      // FIXED: Use proper location detection
+                      const displayLocation = getEventDisplayLocation(event);
+                      return displayLocation === group;
                     }
                   })
                   .map(event => (
@@ -134,7 +150,7 @@ const WeekView = memo(({
                       style={{
                         borderLeft: `4px solid ${groupBy === 'categories' 
                           ? getCategoryColor(event.category || 'Uncategorized') 
-                          : getLocationColor(event.location?.displayName || 'Unspecified')}`,
+                          : getLocationColor(getEventDisplayLocation(event))}`,
                         padding: viewType === 'month' ? '2px 4px' : '4px 8px',
                         margin: viewType === 'month' ? '1px 0' : '2px 0'
                       }}

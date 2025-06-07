@@ -1042,7 +1042,159 @@
     text-align: center;
     color: #666;
   }
-  
+
+  /* ============================================================================
+    14. REACT DATEPICKER
+    ============================================================================ */
+    .date-picker-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+    
+    .date-picker-input {
+      padding: 6px 12px; /* Match navigation button padding */
+      border: 1px solid var(--primary-color); /* Match navigation button border */
+      border-radius: 4px;
+      background: var(--white); /* Match navigation button background */
+      color: var(--primary-color); /* Match navigation button text color */
+      font-size: 14px; /* Match navigation button font size */
+      font-family: inherit;
+      cursor: pointer;
+      transition: var(--transition-normal); /* Match navigation button transition */
+      min-width: 120px;
+      text-align: center;
+    }
+    
+    .date-picker-input:hover {
+      background-color: var(--light-gray); /* Match navigation button hover */
+    }
+    
+    .date-picker-input:focus {
+      outline: none;
+      background-color: var(--light-gray);
+    }
+    
+    /* Custom styling for the date picker calendar */
+    .react-datepicker {
+      font-family: inherit;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      background: white;
+      width: auto; 
+    }
+    
+    .react-datepicker__header {
+      background: #f8f9fa;
+      border-bottom: 1px solid #ddd;
+      border-radius: 8px 8px 0 0;
+      padding: 16px 8px 12px 8px;
+      min-height: 60px;
+    }
+    
+    .react-datepicker__header__dropdown {
+      margin-top: 8px !important;
+      margin-bottom: 4px !important;
+      display: flex !important; /* Force horizontal layout */
+      justify-content: center !important; /* Center the dropdowns */
+      align-items: center !important;
+      gap: 8px !important; /* Add space between dropdowns */
+      flex-wrap: nowrap !important; /* Prevent wrapping */
+    }
+
+    .react-datepicker__month-dropdown-container,
+    .react-datepicker__year-dropdown-container {
+      display: inline-block !important;
+      margin: 0 !important;
+    }
+    
+    /* Style the month and year dropdowns to match navigation buttons */
+    .react-datepicker__header__dropdown--select,
+    .react-datepicker__month-select,
+    .react-datepicker__year-select {
+      margin: 0 2px;
+      padding: 6px 12px !important; /* Match navigation button padding */
+      border: 1px solid var(--primary-color) !important; /* Match navigation button border */
+      border-radius: 4px !important;
+      background: var(--white) !important; /* Match navigation button background */
+      color: var(--primary-color) !important; /* Match navigation button text color */
+      font-size: 14px !important; /* Match navigation button font size */
+      font-family: inherit !important;
+      cursor: pointer !important;
+      transition: var(--transition-normal) !important;
+      min-width: 60px;
+      
+      /* Add dropdown arrow using same style as other selectors */
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      appearance: none !important;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 8px center !important;
+      padding-right: 28px !important;
+    }
+    
+    .react-datepicker__header__dropdown--select:hover,
+    .react-datepicker__month-select:hover,
+    .react-datepicker__year-select:hover {
+      background-color: var(--light-gray) !important; /* Match navigation button hover */
+    }
+    
+    .react-datepicker__header__dropdown--select:focus,
+    .react-datepicker__month-select:focus,
+    .react-datepicker__year-select:focus {
+      outline: none !important;
+      background-color: var(--light-gray) !important;
+      box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.25) !important;
+    }
+    
+    /* Current month text (when dropdowns are present) */
+    .react-datepicker__current-month--hasYearDropdown,
+    .react-datepicker__current-month--hasMonthDropdown {
+      margin-bottom: 8px !important;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .react-datepicker__current-month {
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .react-datepicker__day--selected {
+      background-color: #007bff;
+      border-radius: 4px;
+    }
+    
+    .react-datepicker__day--selected:hover {
+      background-color: #0056b3;
+    }
+    
+    .react-datepicker__day:hover {
+      background-color: #e9ecef;
+      border-radius: 4px;
+    }
+    
+    .react-datepicker__day--today {
+      font-weight: bold;
+      color: #007bff;
+    }
+    
+    .react-datepicker__navigation {
+      top: 20px;
+      width: 20px;
+      height: 20px;
+    }
+    
+    .react-datepicker__navigation--previous {
+      border-right-color: #007bff;
+    }
+    
+    .react-datepicker__navigation--next {
+      border-left-color: #007bff;
+    }
+
   /* ============================================================================
      14. RESPONSIVE DESIGN
      ============================================================================ */

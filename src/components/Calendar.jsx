@@ -14,6 +14,8 @@
   import './DayEventPanel.css';
   import DayEventPanel from './DayEventPanel';
   import eventDataService from '../services/eventDataService';
+  import DatePicker from 'react-datepicker';
+  import "react-datepicker/dist/react-datepicker.css";
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -37,11 +39,6 @@
     'Virtual',
     'Microsoft Teams Meeting'
   ];
-
-  
-  const getFilteredLocationsForMultiSelect = () => {
-    return availableLocations.filter(location => location !== 'Unspecified');
-  };
 
   /**
    * Calculate the end date based on the view type (day, week, month)
@@ -72,6 +69,58 @@
     
     return endDate;
   }
+
+  const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
+    const handleDateChange = (date) => {
+      if (date) {
+        onDateChange(date);
+      }
+    };
+  
+    const formatDisplayDate = () => {
+      const options = { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      };
+      return currentDate.toLocaleDateString('en-US', options);
+    };
+  
+    return (
+      <div className="date-picker-wrapper">
+        <DatePicker
+          selected={currentDate}
+          onChange={handleDateChange}
+          dateFormat="MMM d, yyyy"
+          customInput={
+            <button 
+              className="date-picker-input"
+              type="button"
+              title="Click to select a specific date"
+            >
+              📅 {formatDisplayDate()}
+            </button>
+          }
+          showPopperArrow={false}
+          popperPlacement="bottom-start"
+          popperModifiers={[
+            {
+              name: "offset",
+              options: {
+                offset: [0, 8],
+              },
+            },
+          ]}
+          // Show month/year dropdowns for easier navigation
+          showMonthDropdown
+          showYearDropdown
+          dropdownMode="select"
+          yearDropdownItemNumber={10}
+          scrollableYearDropdown
+        />
+      </div>
+    );
+  };
 
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
@@ -113,7 +162,7 @@
     const [zoomLevel, setZoomLevel] = useState(100);
     const [selectedFilter, setSelectedFilter] = useState(''); 
     const [selectedCategories, setSelectedCategories] = useState([]);
-    const [selectedLocations, setSelectedLocations] = useState(availableLocations);
+    const [selectedLocations, setSelectedLocations] = useState([]);
     const [dateRange, setDateRange] = useState({
       start: new Date(),
       end: calculateEndDate(new Date(), 'week')
@@ -155,19 +204,141 @@
      * @param {Date} endDate - Range end date
      * @returns {Object} Formatted start and end dates
      */
-        const formatDateRangeForAPI = useCallback((startDate, endDate) => {
-          const start = new Date(startDate);
-          start.setHours(0, 0, 0, 0);
-          
-          const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
-          
-          return {
-            start: start.toISOString(),
-            end: end.toISOString()
-          };
-        }, []);
+      const formatDateRangeForAPI = useCallback((startDate, endDate) => {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
         
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        
+        return {
+          start: start.toISOString(),
+          end: end.toISOString()
+        };
+      }, []);
+        
+      /**
+       * TBD
+       */
+      const isUnspecifiedLocation = useCallback((event) => {
+        const locationText = event.location?.displayName?.trim() || '';
+        return !locationText;
+      }, []);
+
+      /** 
+       * Helper function to detect if a location is a virtual meeting
+       * @param {string} location - The location string to check
+       * @returns {boolean} True if the location appears to be virtual
+       */
+      const isVirtualLocation = useCallback((location) => {
+        if (!location || typeof location !== 'string') return false;
+        
+        const lowerLocation = location.toLowerCase().trim();
+        
+        // Check for common virtual meeting patterns
+        const virtualPatterns = [
+          // Zoom patterns
+          /zoom\.us/i,
+          /zoom\.com/i,
+          /zoommtg:/i,
+          /zoom meeting/i,
+          
+          // Teams patterns
+          /teams\.microsoft\.com/i,
+          /teams\.live\.com/i,
+          /microsoft teams/i,
+          
+          // Google Meet patterns
+          /meet\.google\.com/i,
+          /hangouts\.google\.com/i,
+          /google meet/i,
+          
+          // WebEx patterns
+          /webex\.com/i,
+          /cisco\.webex\.com/i,
+          
+          // GoToMeeting patterns
+          /gotomeeting\.com/i,
+          /gotomeet\.me/i,
+          
+          // Generic virtual meeting indicators
+          /^https?:\/\//i, // Any URL starting with http/https
+          /meeting.*id/i,
+          /join.*meeting/i,
+          /conference.*call/i,
+          /dial.*in/i,
+          /phone.*conference/i,
+        ];
+        
+        // Check for explicit virtual keywords
+        const virtualKeywords = [
+          'virtual',
+          'online',
+          'remote',
+          'video call',
+          'video conference',
+          'web conference',
+          'microsoft teams meeting',
+          'zoom meeting',
+          'google meet',
+          'webex meeting',
+          'skype meeting',
+          'conference call',
+          'dial-in',
+          'phone conference',
+          'teleconference',
+          'video chat',
+          'online meeting',
+          'web meeting',
+        ];
+        
+        // Check patterns first
+        if (virtualPatterns.some(pattern => pattern.test(lowerLocation))) {
+          return true;
+        }
+        
+        // Check keywords
+        if (virtualKeywords.some(keyword => lowerLocation.includes(keyword))) {
+          return true;
+        }
+        
+        return false;
+      }, []);
+      
+      /**
+       * TBD
+       */
+      const isEventVirtual = useCallback((event) => {
+        const locationText = event.location?.displayName?.trim() || '';
+        if (!locationText) return false;
+        
+        // Check all locations in the event (handle multiple locations separated by semicolons or commas)
+        const eventLocations = locationText
+          .split(/[;,]/)
+          .map(loc => loc.trim())
+          .filter(loc => loc.length > 0);
+        
+        // Return true if ANY location is virtual
+        return eventLocations.some(location => isVirtualLocation(location));
+      }, [isVirtualLocation]);
+
+      /**
+       * TBD
+       */
+      const hasPhysicalLocation = useCallback((event, targetLocation) => {
+        const locationText = event.location?.displayName?.trim() || '';
+        if (!locationText) return false;
+        
+        const eventLocations = locationText
+          .split(/[;,]/)
+          .map(loc => loc.trim())
+          .filter(loc => loc.length > 0);
+        
+        return eventLocations.some(location => 
+          !isVirtualLocation(location) && location === targetLocation
+        );
+      }, [isVirtualLocation]);
+
       /**
        * TBD
        */
@@ -775,6 +946,61 @@
     //---------------------------------------------------------------------------
     // DEPENDENT UTILITY FUNCTIONS - functions that depend on state or other functions
     //---------------------------------------------------------------------------
+    /** 
+     * Get dynamic locations from events, grouping virtual meetings
+     */
+    const getDynamicLocations = useCallback(() => {
+      const locationsSet = new Set();
+      
+      allEvents.forEach(event => {
+        const locationText = event.location?.displayName?.trim() || '';
+        
+        if (!locationText) {
+          // Empty or null location
+          locationsSet.add('Unspecified');
+          return;
+        }
+        
+        // Split multiple locations by semicolon or comma
+        const eventLocations = locationText
+          .split(/[;,]/)
+          .map(loc => loc.trim())
+          .filter(loc => loc.length > 0);
+        
+        if (eventLocations.length === 0) {
+          locationsSet.add('Unspecified');
+          return;
+        }
+        
+        // Check if ANY location is virtual - if so, add Virtual
+        const hasVirtualLocation = eventLocations.some(location => isVirtualLocation(location));
+        if (hasVirtualLocation) {
+          locationsSet.add('Virtual');
+        }
+        
+        // Add physical locations
+        eventLocations.forEach(location => {
+          if (!isVirtualLocation(location)) {
+            // Add physical location as-is
+            locationsSet.add(location);
+          }
+        });
+      });
+      
+      // Convert to sorted array
+      const locationsArray = Array.from(locationsSet).sort((a, b) => {
+        // Sort with Virtual first, then Unspecified last
+        if (a === 'Virtual' && b !== 'Virtual') return -1;
+        if (b === 'Virtual' && a !== 'Virtual') return 1;
+        if (a === 'Unspecified' && b !== 'Unspecified') return 1;
+        if (b === 'Unspecified' && a !== 'Unspecified') return -1;
+        return a.localeCompare(b);
+      });
+      
+      // Return just the actual locations found in events
+      return locationsArray;
+    }, [allEvents, isVirtualLocation]);
+
     /**
      * TBD
      */ 
@@ -816,6 +1042,26 @@
     /**
      * TBD
      */
+    const getDynamicLocationColor = useCallback((locationName) => {
+      // Simple hash function to generate color
+      const hash = locationName.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0);
+      
+      // Pre-defined colors for locations
+      const colors = [
+        '#4285F4', '#EA4335', '#FBBC05', '#34A853', '#8E24AA',
+        '#FB8C00', '#00ACC1', '#039BE5', '#795548', '#607D8B',
+        '#E91E63', '#9C27B0', '#673AB7', '#3F51B5', '#2196F3'
+      ];
+      
+      return colors[Math.abs(hash) % colors.length];
+    }, []);
+
+    /**
+     * TBD
+     */
     const getDynamicCategoryColor = useCallback((categoryName) => {
       // Simple hash function to generate color
       const hash = categoryName.split('').reduce((a, b) => {
@@ -831,7 +1077,7 @@
       ];
       
       return colors[Math.abs(hash) % colors.length];
-    }, []);
+    }, []); 
 
     /**
      * Get the color associated with a category from Outlook
@@ -888,8 +1134,9 @@
         'Unspecified': '#9E9E9E' // Gray
       };
       
-      return locationColorMap[locationName] || '#9E9E9E';
-    }, []);
+      return locationColorMap[locationName] || getDynamicLocationColor(locationName);
+      // return locationColorMap[locationName] || '#9E9E9E';
+    }, [getDynamicLocationColor]);
 
     /**
      * TBD
@@ -1096,17 +1343,29 @@
       return days;
     }, [dateRange.start, dateRange.end]);
 
+    const dynamicLocations = useMemo(() => getDynamicLocations(), [getDynamicLocations]);
     const dynamicCategories = useMemo(() => getDynamicCategories(), [getDynamicCategories]);
 
     /**
      * TBD
      */
-    const filteredEvents = useMemo(() => {
-      const filtered = allEvents.filter(event => {
-        const eventDate = new Date(event.start.dateTime);
-        let inSelectedGroup = true;
+    const getFilteredLocationsForMultiSelect = useCallback(() => {
+      return dynamicLocations;
+    }, [dynamicLocations]);
     
-        // Special handling for month view with dual filters
+    /**
+     * TBD
+     */
+    const filteredEvents = useMemo(() => {
+      console.log('Filtering events with:', { 
+        groupBy, 
+        selectedCategories, 
+        selectedLocations,
+        allEventsCount: allEvents.length 
+      });
+      
+      const filtered = allEvents.filter(event => {
+        // Month view has separate filter logic - keep existing
         if (viewType === 'month') {
           let categoryMatch = true;
           let locationMatch = true;
@@ -1114,7 +1373,6 @@
           // Check category filter
           if (selectedCategoryFilter) {
             if (selectedCategoryFilter === 'Show All Categories') {
-              // Show categories that are not in the known dynamic categories (excluding special options)
               const knownCategories = dynamicCategories.filter(cat => 
                 cat !== 'Uncategorized' && cat !== 'Show All Categories'
               );
@@ -1126,44 +1384,93 @@
     
           // Check location filter
           if (selectedLocationFilter) {
-            const eventLocations = event.location?.displayName 
-              ? event.location.displayName.split('; ').map(loc => loc.trim())
-              : [];
-            
-            if (selectedLocationFilter === 'Unspecified') {
-              locationMatch = eventLocations.length === 0 || eventLocations.every(loc => loc === '');
+            if (selectedLocationFilter === 'Show All Locations') {
+              const knownLocations = dynamicLocations.filter(loc => 
+                loc !== 'Unspecified' && loc !== 'Show All Locations' && loc !== 'Virtual'
+              );
+              // Show events that don't match any known location and aren't virtual or unspecified
+              locationMatch = !isUnspecifiedLocation(event) && 
+                            !isEventVirtual(event) && 
+                            !knownLocations.some(loc => hasPhysicalLocation(event, loc));
+            } else if (selectedLocationFilter === 'Unspecified') {
+              locationMatch = isUnspecifiedLocation(event);
+            } else if (selectedLocationFilter === 'Virtual') {
+              locationMatch = isEventVirtual(event);
             } else {
-              locationMatch = eventLocations.includes(selectedLocationFilter);
+              locationMatch = hasPhysicalLocation(event, selectedLocationFilter);
             }
           }
     
           return categoryMatch && locationMatch;
         }
     
-        // Regular filtering for day/week views
+        // Day/Week view filtering
         if (groupBy === 'categories') {
+          // Category filtering logic (keep existing)
           if (isUncategorizedEvent(event)) {
-            inSelectedGroup = selectedCategories.includes('Uncategorized');
+            return selectedCategories.includes('Uncategorized');
           } else if (dynamicCategories.includes(event.category)) {
-            inSelectedGroup = selectedCategories.includes(event.category);
+            return selectedCategories.includes(event.category);
           } else {
-            const showAllCategoriesSelected = selectedCategories.includes('Show All Categories');
-            inSelectedGroup = showAllCategoriesSelected;
+            return selectedCategories.includes('Show All Categories');
           }
         } else {
-          const eventLocations = event.location?.displayName 
-            ? event.location.displayName.split('; ').map(loc => loc.trim())
-            : [];
+          // FIXED LOCATION FILTERING LOGIC
+          console.log('Filtering event by location:', {
+            eventSubject: event.subject,
+            eventLocation: event.location?.displayName,
+            selectedLocations,
+            isVirtual: isEventVirtual(event),
+            isUnspecified: isUnspecifiedLocation(event)
+          });
           
-          if (eventLocations.length === 0 || eventLocations.every(loc => loc === '')) {
-            return selectedLocations.includes('Unspecified');
+          // Handle unspecified locations
+          if (isUnspecifiedLocation(event)) {
+            const result = selectedLocations.includes('Unspecified');
+            console.log('Unspecified location result:', result);
+            return result;
           }
           
-          const visibleLocations = selectedLocations.filter(loc => loc !== 'Unspecified');
-          inSelectedGroup = eventLocations.some(loc => visibleLocations.includes(loc));
+          // Handle virtual events - THIS IS THE KEY FIX
+          if (isEventVirtual(event)) {
+            const result = selectedLocations.includes('Virtual');
+            console.log('Virtual location result:', result);
+            return result;
+          }
+          
+          // Handle physical locations
+          const locationText = event.location?.displayName?.trim() || '';
+          const eventLocations = locationText
+            .split(/[;,]/)
+            .map(loc => loc.trim())
+            .filter(loc => loc.length > 0 && !isVirtualLocation(loc)); // Filter out virtual locations
+          
+          console.log('Physical locations for event:', eventLocations);
+          
+          // If no physical locations remain (all were virtual), this should have been caught above
+          if (eventLocations.length === 0) {
+            // This means all locations were virtual, which should have been handled above
+            console.log('No physical locations found, but event not marked as virtual - check logic');
+            return false;
+          }
+          
+          // Check if any physical location matches selected locations
+          const hasMatchingLocation = eventLocations.some(location => {
+            const inKnownLocations = dynamicLocations
+              .filter(loc => loc !== 'Unspecified' && loc !== 'Show All Locations' && loc !== 'Virtual')
+              .includes(location);
+            
+            if (inKnownLocations) {
+              return selectedLocations.includes(location);
+            } else {
+              // Unknown location - show if "Show All Locations" is selected
+              return selectedLocations.includes('Show All Locations');
+            }
+          });
+          
+          console.log('Has matching physical location:', hasMatchingLocation);
+          return hasMatchingLocation;
         }
-        
-        return inSelectedGroup;
       });
       
       // Sort the filtered events by start time
@@ -1180,11 +1487,101 @@
         return aEndTime - bEndTime;
       });
       
+      console.log('Filtered events result:', sorted.length);
       setLoading(false);
       
       return sorted;
-    }, [allEvents, selectedCategories, selectedLocations, groupBy, dynamicCategories, isUncategorizedEvent, viewType, selectedCategoryFilter, selectedLocationFilter]);
+    }, [
+      allEvents, 
+      selectedCategories, 
+      selectedLocations, 
+      groupBy, 
+      dynamicCategories,
+      dynamicLocations,
+      isUncategorizedEvent,
+      isUnspecifiedLocation,
+      isEventVirtual,
+      isVirtualLocation,
+      hasPhysicalLocation,
+      viewType, 
+      selectedCategoryFilter, 
+      selectedLocationFilter
+    ]);
+
+    /**
+     * TBD
+     */
+    const getLocationGroups = useCallback(() => {
+      if (groupBy !== 'locations') return {};
+      
+      const groups = {};
+      
+      // Initialize groups for all selected locations
+      selectedLocations.forEach(location => {
+        groups[location] = [];
+      });
+      
+      console.log('=== LOCATION GROUPING DEBUG ===');
+      console.log('selectedLocations:', selectedLocations);
+      console.log('filteredEvents count:', filteredEvents.length);
+      console.log('groupBy:', groupBy);
+      
+      // Group filtered events by their actual location
+      filteredEvents.forEach((event, index) => {
+        console.log(`\n--- Processing Event ${index + 1}: "${event.subject}" ---`);
+        console.log('Event location displayName:', event.location?.displayName);
+        console.log('isUnspecified:', isUnspecifiedLocation(event));
+        console.log('isVirtual:', isEventVirtual(event));
+        
+        if (isUnspecifiedLocation(event)) {
+          if (groups['Unspecified']) {
+            groups['Unspecified'].push(event);
+            console.log('✅ Added to Unspecified group');
+          } else {
+            console.log('❌ Unspecified group not found in selectedLocations');
+          }
+        } else if (isEventVirtual(event)) {
+          if (groups['Virtual']) {
+            groups['Virtual'].push(event);
+            console.log('✅ Added to Virtual group');
+          } else {
+            console.log('❌ Virtual group not found in selectedLocations');
+            console.log('Available groups:', Object.keys(groups));
+          }
+        } else {
+          // Handle physical locations
+          const locationText = event.location?.displayName?.trim() || '';
+          const eventLocations = locationText
+            .split(/[;,]/)
+            .map(loc => loc.trim())
+            .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
+          
+          console.log('Physical locations found:', eventLocations);
+          
+          eventLocations.forEach(location => {
+            if (groups[location]) {
+              groups[location].push(event);
+              console.log(`✅ Added to ${location} group`);
+            } else {
+              console.log(`❌ Group "${location}" not found in selectedLocations`);
+            }
+          });
+        }
+      });
+      
+      console.log('\n=== FINAL GROUPS ===');
+      Object.entries(groups).forEach(([groupName, events]) => {
+        console.log(`${groupName}: ${events.length} events`);
+        events.forEach(event => {
+          console.log(`  - ${event.subject}`);
+        });
+      });
+      console.log('=== END GROUPING DEBUG ===\n');
+      
+      return groups;
+    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation, isEventVirtual, isVirtualLocation]);
     
+
     /**
      * TBD
      */
@@ -1317,9 +1714,50 @@
       }
     }, [graphToken]);
 
+    /**
+     * TBD
+     */
+    const snapToStartOfWeek = useCallback((date) => {
+      const newDate = new Date(date);
+      const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
+      
+      // Determine how many days to go back
+      let daysToSubtract;
+      if (userPermissions.startOfWeek === 'Sunday') {
+        daysToSubtract = day; // If Sunday start, just subtract the current day
+      } else {
+        // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
+        daysToSubtract = day === 0 ? 6 : day - 1;
+      }
+      
+      newDate.setDate(newDate.getDate() - daysToSubtract);
+      return newDate;
+    },[userPermissions.startOfWeek]);
+    
     //---------------------------------------------------------------------------
     // EVENT HANDLERS
     //---------------------------------------------------------------------------
+    const handleDatePickerChange = useCallback((selectedDate) => {
+      let newStart;
+      
+      if (viewType === 'week') {
+        // For week view, snap to start of the week containing the selected date
+        newStart = snapToStartOfWeek(selectedDate);
+      } else if (viewType === 'month') {
+        // For month view, go to first day of the selected month
+        newStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+      } else {
+        // For day view, use the exact selected date
+        newStart = new Date(selectedDate);
+      }
+      
+      const newEnd = calculateEndDate(newStart, viewType);
+      setDateRange({
+        start: newStart,
+        end: newEnd
+      });
+    }, [viewType, snapToStartOfWeek]);
+
     const handleEventSelect = (event, viewOnly = false) => {
       // Close the search panel
       setShowSearch(false);
@@ -1427,26 +1865,6 @@
         end: calculateEndDate(eventDate, 'day')
       });
     };
-
-    /**
-     * TBD
-     */
-    const snapToStartOfWeek = useCallback((date) => {
-      const newDate = new Date(date);
-      const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
-      
-      // Determine how many days to go back
-      let daysToSubtract;
-      if (userPermissions.startOfWeek === 'Sunday') {
-        daysToSubtract = day; // If Sunday start, just subtract the current day
-      } else {
-        // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
-        daysToSubtract = day === 0 ? 6 : day - 1;
-      }
-      
-      newDate.setDate(newDate.getDate() - daysToSubtract);
-      return newDate;
-    },[userPermissions.startOfWeek]);
 
     /**
      * Navigate to today
@@ -1746,6 +2164,15 @@
       }
     }, [userPermissions.preferredTimeZone, userTimeZone]);
 
+    // Update selected locations when dynamic locations change
+    useEffect(() => {
+      if (dynamicLocations.length > 0) {
+        // Select all locations by default
+        setSelectedLocations(dynamicLocations);
+        console.log("Updated selected locations based on dynamic locations from events");
+      }
+    }, [dynamicLocations]);
+
     // Update selected categories when Outlook categories change
     useEffect(() => {
       if (dynamicCategories.length > 0) {
@@ -1807,11 +2234,38 @@
       };
     }, []);
 
+    // Debugging 
     useEffect(() => {
-      if (currentEvent) {
-        console.log('Current event updated:', currentEvent);
+      if (allEvents.length > 0) {
+        console.log('All events locations:', allEvents.map(event => ({
+          subject: event.subject,
+          location: event.location?.displayName,
+          isVirtual: isEventVirtual(event),
+          isUnspecified: isUnspecifiedLocation(event)
+        })));
+        
+        console.log('Dynamic locations:', dynamicLocations);
       }
-    }, [currentEvent]);
+    }, [allEvents, isEventVirtual, isUnspecifiedLocation, dynamicLocations]);
+
+    useEffect(() => {
+      const handleKeyPress = (e) => {
+        // Press 'G' to focus the date picker (like Google Calendar)
+        if (e.key === 'g' || e.key === 'G') {
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            // Focus the date picker
+            const datePicker = document.querySelector('.date-picker-input');
+            if (datePicker) {
+              datePicker.click();
+            }
+          }
+        }
+      };
+    
+      document.addEventListener('keydown', handleKeyPress);
+      return () => document.removeEventListener('keydown', handleKeyPress);
+    }, []);
 
     //---------------------------------------------------------------------------
     // LOADING SCREEN
@@ -1836,6 +2290,13 @@
       );
     };
     
+    const locationGroups = useMemo(() => {
+      if (groupBy === 'locations') {
+        return getLocationGroups();
+      }
+      return {};
+    }, [groupBy, getLocationGroups]);
+
     //---------------------------------------------------------------------------
     // RENDERING
     //---------------------------------------------------------------------------
@@ -1982,6 +2443,14 @@
             <div className="navigation">
               <button onClick={handlePrevious}>Previous</button>
               <button onClick={handleToday}>Today</button>
+              
+              {/* NEW: Add the date picker between Today and Next */}
+              <DatePickerButton 
+                currentDate={dateRange.start}
+                onDateChange={handleDatePickerChange}
+                viewType={viewType}
+              />
+              
               <button onClick={handleNext}>Next</button>
             </div>
             
@@ -2070,6 +2539,7 @@
                         filteredEvents={filteredEvents}
                         outlookCategories={outlookCategories}
                         availableLocations={availableLocations}
+                        dynamicLocations={dynamicLocations}
                         getFilteredMonthEvents={getFilteredMonthEvents}
                         getMonthDayEventPosition={getMonthDayEventPosition}
                         allEvents={allEvents}
@@ -2098,11 +2568,13 @@
                         outlookCategories={outlookCategories}
                         selectedCategories={selectedCategories}
                         availableLocations={availableLocations}
+                        dynamicLocations={dynamicLocations}
                         selectedLocations={selectedLocations}
                         getDaysInRange={getDaysInRange}
                         formatDateHeader={formatDateHeader}
                         getEventPosition={getEventPosition}
                         filteredEvents={filteredEvents}
+                        locationGroups={locationGroups}
                         getCategoryColor={getCategoryColor}
                         getLocationColor={getLocationColor}
                         handleDayCellClick={handleDayCellClick}
@@ -2110,6 +2582,10 @@
                         renderEventContent={renderEventContent}
                         viewType={viewType}
                         dynamicCategories={dynamicCategories}
+                        isEventVirtual={isEventVirtual}
+                        isUnspecifiedLocation={isUnspecifiedLocation}
+                        hasPhysicalLocation={hasPhysicalLocation}
+                        isVirtualLocation={isVirtualLocation}
                       />
                     ) : (
                       <DayView
@@ -2117,10 +2593,12 @@
                         outlookCategories={outlookCategories}
                         selectedCategories={selectedCategories}
                         availableLocations={availableLocations}
+                        dynamicLocations={dynamicLocations}
                         selectedLocations={selectedLocations}
                         formatDateHeader={formatDateHeader}
                         getEventPosition={getEventPosition}
                         filteredEvents={filteredEvents}
+                        locationGroups={locationGroups}
                         getCategoryColor={getCategoryColor}
                         getLocationColor={getLocationColor}
                         handleDayCellClick={handleDayCellClick}
@@ -2129,6 +2607,10 @@
                         viewType={viewType}
                         dynamicCategories={dynamicCategories}
                         dateRange={dateRange}
+                        isEventVirtual={isEventVirtual}
+                        isUnspecifiedLocation={isUnspecifiedLocation}
+                        hasPhysicalLocation={hasPhysicalLocation}
+                        isVirtualLocation={isVirtualLocation}
                       />
                     )}
                   </div>
@@ -2216,8 +2698,8 @@
                       }}>
                         <button 
                           onClick={() => {
-                            setSelectedLocations(availableLocations);
-                            updateUserProfilePreferences({ selectedLocations: availableLocations });
+                            setSelectedLocations(dynamicLocations); // CHANGED: Use dynamicLocations instead of availableLocations
+                            updateUserProfilePreferences({ selectedLocations: dynamicLocations });
                           }}
                           style={{ 
                             padding: '6px 12px',
@@ -2260,7 +2742,7 @@
                         </button>
                       </div>
                       <MultiSelect 
-                        options={availableLocations}
+                        options={dynamicLocations.filter(loc => loc !== 'Show All Locations')} // CHANGED: Use dynamicLocations instead of availableLocations
                         selected={selectedLocations}
                         onChange={val => {
                           setSelectedLocations(val);
@@ -2314,6 +2796,7 @@
             event={currentEvent}
             categories={dynamicCategories.filter(cat => cat !== 'Show All Categories')} // Remove the special "Show All" option for form
             availableLocations={getFilteredLocationsForMultiSelect()}
+            dynamicLocations={dynamicLocations}
             schemaExtensions={schemaExtensions}
             onSave={handleSaveEvent}
             onCancel={() => setIsModalOpen(false)}
@@ -2354,6 +2837,7 @@
             onClose={() => setShowSearch(false)}
             outlookCategories={outlookCategories}
             availableLocations={availableLocations}
+            dynamicLocations={dynamicLocations}
             onSaveEvent={handleSaveEvent}
             selectedCalendarId={selectedCalendarId}
             availableCalendars={availableCalendars}

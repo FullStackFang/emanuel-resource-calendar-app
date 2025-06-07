@@ -1,4 +1,4 @@
-// Updated DayView.jsx - Dynamic categories only
+// Fixed DayView.jsx with proper virtual location detection
 import React, { memo, useMemo } from 'react';
 
 const DayView = memo(({
@@ -17,11 +17,40 @@ const DayView = memo(({
   handleEventClick,
   renderEventContent,
   viewType,
-  dynamicCategories, // Use this instead of static categories
-  dateRange // Pass the current date
+  dynamicCategories,
+  dateRange,
+  // Add these new props from Calendar.jsx
+  isEventVirtual,
+  isUnspecifiedLocation,
+  hasPhysicalLocation,
+  dynamicLocations
 }) => {
   // For day view, we only need the current day
   const currentDay = dateRange.start;
+  
+  // Helper function to get the display location for an event
+  const getEventDisplayLocation = (event) => {
+    if (isUnspecifiedLocation(event)) {
+      return 'Unspecified';
+    } else if (isEventVirtual(event)) {
+      return 'Virtual';
+    } else {
+      // Return the first physical location
+      const locationText = event.location?.displayName?.trim() || '';
+      const eventLocations = locationText
+        .split(/[;,]/)
+        .map(loc => loc.trim())
+        .filter(loc => loc.length > 0);
+      
+      // Find first non-virtual location
+      for (const location of eventLocations) {
+        if (!isVirtualLocation(location)) {
+          return location;
+        }
+      }
+      return 'Unspecified';
+    }
+  };
   
   // Get categories/locations that actually have events on this specific day
   const activeGroupsForDay = useMemo(() => {
@@ -47,16 +76,10 @@ const DayView = memo(({
       const locationsWithEvents = new Set();
       
       dayEvents.forEach(event => {
-        const eventLocations = event.location?.displayName 
-          ? event.location.displayName.split('; ').map(loc => loc.trim())
-          : ['Unspecified'];
-        
-        eventLocations.forEach(location => {
-          const targetLocation = location || 'Unspecified';
-          if (selectedLocations.includes(targetLocation)) {
-            locationsWithEvents.add(targetLocation);
-          }
-        });
+        const displayLocation = getEventDisplayLocation(event);
+        if (selectedLocations.includes(displayLocation)) {
+          locationsWithEvents.add(displayLocation);
+        }
       });
       
       // Return sorted array of locations that have events
@@ -117,16 +140,9 @@ const DayView = memo(({
                     const category = event.category || 'Uncategorized';
                     return category === group;
                   } else {
-                    // For locations
-                    const eventLocations = event.location?.displayName 
-                      ? event.location.displayName.split('; ').map(loc => loc.trim())
-                      : [];
-                    
-                    if (group === 'Unspecified') {
-                      return eventLocations.length === 0 || eventLocations.every(loc => loc === '');
-                    } else {
-                      return eventLocations.includes(group);
-                    }
+                    // FIXED: Use proper location detection
+                    const displayLocation = getEventDisplayLocation(event);
+                    return displayLocation === group;
                   }
                 })
                 .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime)) // Sort by time
@@ -137,7 +153,7 @@ const DayView = memo(({
                     style={{
                       borderLeft: `4px solid ${groupBy === 'categories' 
                         ? getCategoryColor(event.category || 'Uncategorized') 
-                        : getLocationColor(event.location?.displayName || 'Unspecified')}`,
+                        : getLocationColor(getEventDisplayLocation(event))}`,
                       padding: '4px 8px',
                       margin: '2px 0'
                     }}
