@@ -9,10 +9,116 @@ const EventSearchExport = ({
   locations = [],
   apiToken = null,
   dateRange,
-  apiBaseUrl = 'http://localhost:3001' // Add default API base URL
+  apiBaseUrl = 'http://localhost:3001',
+  graphToken, // Add this prop to access the Microsoft Graph token
+  selectedCalendarId // Add this prop to know which calendar to search
 }) => {
   const [sortBy, setSortBy] = useState('date'); // Default sort by date
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Function to fetch ALL events matching the search criteria (not paginated)
+  const fetchAllMatchingEvents = async () => {
+    try {
+      let allEvents = [];
+      let nextLink = null;
+      let baseUrl;
+      
+      if (selectedCalendarId) {
+        baseUrl = `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events`;
+      } else {
+        baseUrl = 'https://graph.microsoft.com/v1.0/me/events';
+      }
+
+      // Build the initial URL with search filters
+      let url = `${baseUrl}?$top=250&$orderby=start/dateTime desc&$count=true`;
+      let filters = [];
+      
+      // Add simple subject search if provided
+      if (searchTerm) {
+        filters.push(`contains(subject,'${searchTerm.replace(/'/g, "''")}')`);
+      }
+      
+      // Add date filters if provided
+      if (dateRange.start) {
+        const startDate = new Date(dateRange.start).toISOString();
+        filters.push(`start/dateTime ge '${startDate}'`);
+      }
+      
+      if (dateRange.end) {
+        const endDate = new Date(dateRange.end).toISOString();
+        filters.push(`end/dateTime le '${endDate}'`);
+      }
+      
+      // Add filters to the URL
+      if (filters.length > 0) {
+        url += `&$filter=${encodeURIComponent(filters.join(' and '))}`;
+      }
+
+      // Keep fetching until we have all events
+      do {
+        const headers = {
+          Authorization: `Bearer ${graphToken}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'outlook.timezone="Etc/UTC"'
+        };
+        
+        if (!nextLink) {
+          headers['ConsistencyLevel'] = 'eventual';
+        }
+        
+        const response = await fetch(nextLink || url, { headers });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
+        }
+        
+        const data = await response.json();
+        let results = data.value || [];
+        
+        // Apply client-side filtering for categories and locations
+        if (categories && categories.length > 0) {
+          results = results.filter(event => {
+            // Handle "Uncategorized" special case
+            if (categories.includes('Uncategorized')) {
+              if (!event.categories || event.categories.length === 0) {
+                return true;
+              }
+            }
+            
+            // Check if any of the event's categories match our filter
+            return event.categories && 
+                   event.categories.some(cat => categories.includes(cat));
+          });
+        }
+        
+        // Filter by locations client-side
+        if (locations && locations.length > 0) {
+          results = results.filter(event => {
+            const eventLocation = event.location?.displayName || '';
+            
+            // Check if any of our location filters match
+            return locations.some(loc => eventLocation.includes(loc));
+          });
+        }
+        
+        allEvents = [...allEvents, ...results];
+        nextLink = data['@odata.nextLink'] || null;
+        
+      } while (nextLink);
+      
+      // Sort results by start date (latest first)
+      return allEvents.sort((a, b) => {
+        const aStartTime = new Date(a.start.dateTime);
+        const bStartTime = new Date(b.start.dateTime);
+        return bStartTime - aStartTime;
+      });
+      
+    } catch (error) {
+      console.error('Error fetching all matching events:', error);
+      throw error;
+    }
+  };
   
   // Fetch internal events from MongoDB
   const fetchInternalEvents = async () => {
@@ -46,40 +152,39 @@ const EventSearchExport = ({
   const handleExportJSON = async () => {
     setIsExporting(true);
     try {
-      const internalEvents = await fetchInternalEvents();
-      if (!internalEvents) return;
+      // Fetch ALL matching events from Microsoft Graph instead of just paginated results
+      const allMatchingEvents = await fetchAllMatchingEvents();
 
       // Create a formatted JSON object
       const exportData = {
         exportDate: new Date().toISOString(),
-        dateRange: {
-          start: dateRange?.start,
-          end: dateRange?.end
+        searchCriteria: {
+          searchTerm: searchTerm || '',
+          categories: categories || [],
+          locations: locations || [],
+          dateRange: {
+            start: dateRange?.start,
+            end: dateRange?.end
+          }
         },
-        totalEvents: internalEvents.length,
-        events: internalEvents.map(event => ({
-          // External data
-          id: event.graphEventId,
-          subject: event.externalData?.subject,
-          startDateTime: event.externalData?.start?.dateTime,
-          endDateTime: event.externalData?.end?.dateTime,
-          location: event.externalData?.location?.displayName,
-          categories: event.externalData?.categories,
-          
-          // Internal data
-          mecCategories: event.internalData?.mecCategories || [],
-          setupStartTime: event.internalData?.setupStartTime,
-          doorStartTime: event.internalData?.doorStartTime,
-          teardownEndTime: event.internalData?.teardownEndTime,
-          staffAssignments: event.internalData?.staffAssignments || [],
-          internalNotes: event.internalData?.internalNotes,
-          setupStatus: event.internalData?.setupStatus,
-          estimatedCost: event.internalData?.estimatedCost,
-          actualCost: event.internalData?.actualCost,
-          
-          // Metadata
-          lastSyncedAt: event.lastSyncedAt,
-          updatedAt: event.updatedAt
+        totalEvents: allMatchingEvents.length,
+        events: allMatchingEvents.map(event => ({
+          id: event.id,
+          subject: event.subject,
+          startDateTime: event.start?.dateTime,
+          endDateTime: event.end?.dateTime,
+          location: event.location?.displayName || '',
+          categories: event.categories || [],
+          body: event.body?.content || '',
+          attendees: event.attendees || [],
+          isAllDay: event.isAllDay || false,
+          importance: event.importance || 'normal',
+          showAs: event.showAs || 'busy',
+          recurrence: event.recurrence || null,
+          organizer: event.organizer || null,
+          webLink: event.webLink || '',
+          createdDateTime: event.createdDateTime,
+          lastModifiedDateTime: event.lastModifiedDateTime
         }))
       };
 
@@ -89,7 +194,7 @@ const EventSearchExport = ({
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `internal-events-${new Date().toISOString().split('T')[0]}.json`;
+      link.download = `calendar-search-results-${new Date().toISOString().split('T')[0]}.json`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -106,8 +211,8 @@ const EventSearchExport = ({
   const handleExportCSV = async () => {
     setIsExporting(true);
     try {
-      const internalEvents = await fetchInternalEvents();
-      if (!internalEvents) return;
+      // Fetch ALL matching events from Microsoft Graph instead of just paginated results
+      const allMatchingEvents = await fetchAllMatchingEvents();
 
       // Define CSV headers
       const headers = [
@@ -119,17 +224,14 @@ const EventSearchExport = ({
         'End Time',
         'Location',
         'Categories',
-        'MEC Categories',
-        'Setup Start Time',
-        'Door Start Time',
-        'Teardown End Time',
-        'Staff Assignments',
-        'Internal Notes',
-        'Setup Status',
-        'Estimated Cost',
-        'Actual Cost',
-        'Last Synced',
-        'Last Updated'
+        'All Day',
+        'Importance',
+        'Show As',
+        'Organizer',
+        'Attendee Count',
+        'Body Preview',
+        'Created Date',
+        'Last Modified'
       ];
 
       // Helper function to format date
@@ -151,30 +253,27 @@ const EventSearchExport = ({
       };
 
       // Convert events to CSV rows
-      const rows = internalEvents.map(event => {
-        const startDateTime = event.externalData?.start?.dateTime;
-        const endDateTime = event.externalData?.end?.dateTime;
+      const rows = allMatchingEvents.map(event => {
+        const startDateTime = event.start?.dateTime;
+        const endDateTime = event.end?.dateTime;
         
         return [
-          event.graphEventId || '',
-          event.externalData?.subject || '',
+          event.id || '',
+          event.subject || '',
           formatDate(startDateTime),
           formatTime(startDateTime),
           formatDate(endDateTime),
           formatTime(endDateTime),
-          event.externalData?.location?.displayName || '',
-          (event.externalData?.categories || []).join('; '),
-          (event.internalData?.mecCategories || []).join('; '),
-          event.internalData?.setupStartTime ? formatTime(event.internalData.setupStartTime) : '',
-          event.internalData?.doorStartTime ? formatTime(event.internalData.doorStartTime) : '',
-          event.internalData?.teardownEndTime ? formatTime(event.internalData.teardownEndTime) : '',
-          (event.internalData?.staffAssignments || []).join('; '),
-          (event.internalData?.internalNotes || '').replace(/[\n\r]/g, ' '), // Remove line breaks
-          event.internalData?.setupStatus || '',
-          event.internalData?.estimatedCost || '',
-          event.internalData?.actualCost || '',
-          formatDate(event.lastSyncedAt),
-          formatDate(event.updatedAt)
+          event.location?.displayName || '',
+          (event.categories || []).join('; '),
+          event.isAllDay ? 'Yes' : 'No',
+          event.importance || 'normal',
+          event.showAs || 'busy',
+          event.organizer?.emailAddress?.name || '',
+          (event.attendees || []).length,
+          (event.body?.content || '').replace(/[\n\r]/g, ' ').substring(0, 100), // Remove line breaks and limit length
+          formatDate(event.createdDateTime),
+          formatDate(event.lastModifiedDateTime)
         ];
       });
 
@@ -198,7 +297,7 @@ const EventSearchExport = ({
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `internal-events-${new Date().toISOString().split('T')[0]}.csv`;
+      link.download = `calendar-search-results-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -612,7 +711,7 @@ const EventSearchExport = ({
         }}
       >
         <span role="img" aria-label="json">📋</span> 
-        {isExporting ? 'Exporting...' : 'Export Internal to JSON'}
+        {isExporting ? 'Exporting...' : 'Export to JSON'}
       </button>
 
       <button
@@ -632,7 +731,7 @@ const EventSearchExport = ({
         }}
       >
         <span role="img" aria-label="csv">📊</span> 
-        {isExporting ? 'Exporting...' : 'Export Internal to CSV'}
+        {isExporting ? 'Exporting...' : 'Export to CSV'}
       </button>
     </div>
   );

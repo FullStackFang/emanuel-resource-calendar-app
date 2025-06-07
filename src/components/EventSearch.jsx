@@ -625,6 +625,8 @@ function EventSearchInner({
               apiToken={graphToken}
               dateRange={dateRange}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
+              graphToken={graphToken}
+              selectedCalendarId={selectedCalendarId}
             />
           )}
         </div>
