@@ -141,6 +141,11 @@
     // Loading state
     const initializationStarted = useRef(false);
 
+    // Demo variables
+    const [isDemoMode, setIsDemoMode] = useState(false);
+    const [demoData, setDemoData] = useState(null);
+    const [isUploadingDemo, setIsUploadingDemo] = useState(false);
+
     const [initializing, setInitializing] = useState(true);
     const [loading, setLoading] = useState(false);
     const [loadingState, setLoadingState] = useState({
@@ -198,7 +203,137 @@
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
     //---------------------------------------------------------------------------
-        /**
+    /**
+     * @param {*} event 
+     * @returns 
+     */
+    const handleDemoDataUpload = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      if (!file.name.endsWith('.json')) {
+        alert('Please select a JSON file');
+        return;
+      }
+      
+      setIsUploadingDemo(true);
+      
+      try {
+        const text = await file.text();
+        const jsonData = JSON.parse(text);
+        
+        // Basic validation - check for required structure
+        if (!jsonData.events || !Array.isArray(jsonData.events)) {
+          throw new Error('Invalid format: JSON must contain an "events" array');
+        }
+        
+        // Validate that events have required fields
+        const requiredFields = ['id', 'subject', 'startDateTime', 'endDateTime'];
+        const invalidEvents = jsonData.events.filter(event => 
+          !requiredFields.every(field => event.hasOwnProperty(field))
+        );
+        
+        if (invalidEvents.length > 0) {
+          throw new Error(`Invalid events found: missing required fields (${requiredFields.join(', ')})`);
+        }
+        
+        setDemoData(jsonData);
+        setIsDemoMode(true);
+        alert(`Successfully loaded ${jsonData.events.length} events for demo mode`);
+        
+      } catch (error) {
+        console.error('Error uploading demo data:', error);
+        alert(`Error loading demo data: ${error.message}`);
+      } finally {
+        setIsUploadingDemo(false);
+        // Clear the file input
+        event.target.value = '';
+      }
+    };
+    
+    /**
+     * TBD
+     * */
+    const handleModeToggle = () => {
+      if (isDemoMode) {
+        // Switching from demo to API mode
+        const confirm = window.confirm('Switch to API mode? This will clear your demo data.');
+        if (confirm) {
+          setIsDemoMode(false);
+          setDemoData(null);
+        }
+      } else {
+        // Switching from API to demo mode - need to upload data first
+        alert('Please upload JSON data to enable demo mode');
+      }
+    };
+    
+    /*
+    * TBD
+    */
+    const renderModeToggle = () => (
+      <div className="mode-toggle-container" style={{
+        padding: '15px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+        marginBottom: '20px',
+        border: '1px solid #dee2e6'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontWeight: '500' }}>Mode:</span>
+            <button
+              onClick={handleModeToggle}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.9rem'
+              }}
+            >
+              {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
+            </button>
+          </div>
+          
+          {!isDemoMode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label htmlFor="demo-upload" style={{
+                padding: '6px 12px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.9rem'
+              }}>
+                📁 Upload Demo Data
+              </label>
+              <input
+                id="demo-upload"
+                type="file"
+                accept=".json"
+                onChange={handleDemoDataUpload}
+                disabled={isUploadingDemo}
+                style={{ display: 'none' }}
+              />
+              {isUploadingDemo && <span>Uploading...</span>}
+            </div>
+          )}
+          
+          {isDemoMode && demoData && (
+            <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
+              📊 {demoData.events.length} events loaded | 
+              📅 {demoData.metadata?.year || 'Unknown year'}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
+    /**
      * Consistently format date range for API queries
      * @param {Date} startDate - Range start date
      * @param {Date} endDate - Range end date
@@ -2496,6 +2631,9 @@
           </div>
         </div>
     
+        {/* Toggle Between ApiMode & DemoMode */}
+        {renderModeToggle()}
+
         {initializing ? (
           <div style={{ 
             display: 'flex', 
