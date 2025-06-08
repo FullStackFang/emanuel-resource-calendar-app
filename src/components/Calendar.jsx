@@ -1684,12 +1684,12 @@
         if (viewType === 'month') {
           let categoryMatch = true;
           let locationMatch = true;
-    
+
           // Check category filter
           if (selectedCategoryFilter) {
             categoryMatch = event.category === selectedCategoryFilter;
           }
-    
+
           // Check location filter
           if (selectedLocationFilter) {
             if (selectedLocationFilter === 'Unspecified') {
@@ -1700,16 +1700,21 @@
               locationMatch = hasPhysicalLocation(event, selectedLocationFilter);
             }
           }
-    
+
           return categoryMatch && locationMatch;
         }
-    
+
         // Day/Week view filtering - APPLY BOTH FILTERS ALWAYS
         let categoryMatch = true;
         let locationMatch = true;
-    
-        // CATEGORY FILTERING - Always apply if categories are selected
-        if (selectedCategories.length > 0) {
+
+        // CATEGORY FILTERING - Always apply, empty array = show nothing
+        if (selectedCategories.length === 0) {
+          // No categories selected = show NO events
+          categoryMatch = false;
+          console.log('No categories selected - filtering out all events');
+        } else {
+          // Categories are selected, check if event matches
           if (isUncategorizedEvent(event)) {
             categoryMatch = selectedCategories.includes('Uncategorized');
           } else if (dynamicCategories.includes(event.category)) {
@@ -1719,9 +1724,14 @@
             categoryMatch = selectedCategories.includes(event.category);
           }
         }
-    
-        // LOCATION FILTERING - Always apply if locations are selected  
-        if (selectedLocations.length > 0) {
+
+        // LOCATION FILTERING - Always apply, empty array = show nothing
+        if (selectedLocations.length === 0) {
+          // No locations selected = show NO events
+          locationMatch = false;
+          console.log('No locations selected - filtering out all events');
+        } else {
+          // Locations are selected, check if event matches
           console.log('Filtering event by location:', {
             eventSubject: event.subject,
             eventLocation: event.location?.displayName,
@@ -1763,7 +1773,7 @@
             console.log('Has matching physical location:', locationMatch);
           }
         }
-    
+
         // Event must pass BOTH category AND location filters
         const result = categoryMatch && locationMatch;
         
