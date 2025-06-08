@@ -356,10 +356,10 @@
           const newEnd = calculateEndDate(newStart, viewType);
           setDateRange({ start: newStart, end: newEnd });
           
-          alert(`Successfully loaded ${transformedEvents.length} events. Calendar navigated to show events starting from ${earliestEvent.toLocaleDateString()}`);
+          // alert(`Successfully loaded ${transformedEvents.length} events. Calendar navigated to show events starting from ${earliestEvent.toLocaleDateString()}`);
         } else {
           setAllEvents(events);
-          alert(`Successfully loaded ${transformedEvents.length} events for demo mode`);
+          // alert(`Successfully loaded ${transformedEvents.length} events for demo mode`);
         }
         
       } catch (error) {
@@ -1338,8 +1338,7 @@
       // Add special options
       const finalCategories = [
         'Uncategorized',
-        ...categoriesArray.filter(cat => cat !== 'Uncategorized'),
-        'Show All Categories'
+        ...categoriesArray.filter(cat => cat !== 'Uncategorized')
       ];
       
       return finalCategories;
@@ -1688,27 +1687,12 @@
     
           // Check category filter
           if (selectedCategoryFilter) {
-            if (selectedCategoryFilter === 'Show All Categories') {
-              const knownCategories = dynamicCategories.filter(cat => 
-                cat !== 'Uncategorized' && cat !== 'Show All Categories'
-              );
-              categoryMatch = !knownCategories.includes(event.category) && !isUncategorizedEvent(event);
-            } else {
-              categoryMatch = event.category === selectedCategoryFilter;
-            }
+            categoryMatch = event.category === selectedCategoryFilter;
           }
     
           // Check location filter
           if (selectedLocationFilter) {
-            if (selectedLocationFilter === 'Show All Locations') {
-              const knownLocations = dynamicLocations.filter(loc => 
-                loc !== 'Unspecified' && loc !== 'Show All Locations' && loc !== 'Virtual'
-              );
-              // Show events that don't match any known location and aren't virtual or unspecified
-              locationMatch = !isUnspecifiedLocation(event) && 
-                            !isEventVirtual(event) && 
-                            !knownLocations.some(loc => hasPhysicalLocation(event, loc));
-            } else if (selectedLocationFilter === 'Unspecified') {
+            if (selectedLocationFilter === 'Unspecified') {
               locationMatch = isUnspecifiedLocation(event);
             } else if (selectedLocationFilter === 'Virtual') {
               locationMatch = isEventVirtual(event);
@@ -1720,18 +1704,24 @@
           return categoryMatch && locationMatch;
         }
     
-        // Day/Week view filtering
-        if (groupBy === 'categories') {
-          // Category filtering logic (keep existing)
+        // Day/Week view filtering - APPLY BOTH FILTERS ALWAYS
+        let categoryMatch = true;
+        let locationMatch = true;
+    
+        // CATEGORY FILTERING - Always apply if categories are selected
+        if (selectedCategories.length > 0) {
           if (isUncategorizedEvent(event)) {
-            return selectedCategories.includes('Uncategorized');
+            categoryMatch = selectedCategories.includes('Uncategorized');
           } else if (dynamicCategories.includes(event.category)) {
-            return selectedCategories.includes(event.category);
+            categoryMatch = selectedCategories.includes(event.category);
           } else {
-            return selectedCategories.includes('Show All Categories');
+            // For unknown categories, only show if explicitly selected
+            categoryMatch = selectedCategories.includes(event.category);
           }
-        } else {
-          // FIXED LOCATION FILTERING LOGIC
+        }
+    
+        // LOCATION FILTERING - Always apply if locations are selected  
+        if (selectedLocations.length > 0) {
           console.log('Filtering event by location:', {
             eventSubject: event.subject,
             eventLocation: event.location?.displayName,
@@ -1742,51 +1732,46 @@
           
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
-            const result = selectedLocations.includes('Unspecified');
-            console.log('Unspecified location result:', result);
-            return result;
+            locationMatch = selectedLocations.includes('Unspecified');
+            console.log('Unspecified location result:', locationMatch);
           }
-          
-          // Handle virtual events - THIS IS THE KEY FIX
-          if (isEventVirtual(event)) {
-            const result = selectedLocations.includes('Virtual');
-            console.log('Virtual location result:', result);
-            return result;
+          // Handle virtual events
+          else if (isEventVirtual(event)) {
+            locationMatch = selectedLocations.includes('Virtual');
+            console.log('Virtual location result:', locationMatch);
           }
-          
           // Handle physical locations
-          const locationText = event.location?.displayName?.trim() || '';
-          const eventLocations = locationText
-            .split(/[;,]/)
-            .map(loc => loc.trim())
-            .filter(loc => loc.length > 0 && !isVirtualLocation(loc)); // Filter out virtual locations
-          
-          console.log('Physical locations for event:', eventLocations);
-          
-          // If no physical locations remain (all were virtual), this should have been caught above
-          if (eventLocations.length === 0) {
-            // This means all locations were virtual, which should have been handled above
-            console.log('No physical locations found, but event not marked as virtual - check logic');
-            return false;
-          }
-          
-          // Check if any physical location matches selected locations
-          const hasMatchingLocation = eventLocations.some(location => {
-            const inKnownLocations = dynamicLocations
-              .filter(loc => loc !== 'Unspecified' && loc !== 'Show All Locations' && loc !== 'Virtual')
-              .includes(location);
+          else {
+            const locationText = event.location?.displayName?.trim() || '';
+            const eventLocations = locationText
+              .split(/[;,]/)
+              .map(loc => loc.trim())
+              .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
             
-            if (inKnownLocations) {
-              return selectedLocations.includes(location);
+            console.log('Physical locations for event:', eventLocations);
+            
+            if (eventLocations.length === 0) {
+              console.log('No physical locations found, but event not marked as virtual - check logic');
+              locationMatch = false;
             } else {
-              // Unknown location - show if "Show All Locations" is selected
-              return selectedLocations.includes('Show All Locations');
+              // Check if any physical location matches selected locations
+              locationMatch = eventLocations.some(location => {
+                return selectedLocations.includes(location);
+              });
             }
-          });
-          
-          console.log('Has matching physical location:', hasMatchingLocation);
-          return hasMatchingLocation;
+            
+            console.log('Has matching physical location:', locationMatch);
+          }
         }
+    
+        // Event must pass BOTH category AND location filters
+        const result = categoryMatch && locationMatch;
+        
+        if (!result) {
+          console.log(`Filtered out "${event.subject}": categoryMatch=${categoryMatch}, locationMatch=${locationMatch}`);
+        }
+        
+        return result;
       });
       
       // Sort the filtered events by start time
@@ -1804,16 +1789,13 @@
       });
       
       console.log('Filtered events result:', sorted.length);
-      setLoading(false);
       
       return sorted;
     }, [
       allEvents, 
       selectedCategories, 
       selectedLocations, 
-      groupBy, 
       dynamicCategories,
-      dynamicLocations,
       isUncategorizedEvent,
       isUnspecifiedLocation,
       isEventVirtual,
@@ -1821,7 +1803,8 @@
       hasPhysicalLocation,
       viewType, 
       selectedCategoryFilter, 
-      selectedLocationFilter
+      selectedLocationFilter,
+      groupBy
     ]);
 
     /**
@@ -1843,27 +1826,15 @@
       console.log('groupBy:', groupBy);
       
       // Group filtered events by their actual location
-      filteredEvents.forEach((event, index) => {
-        console.log(`\n--- Processing Event ${index + 1}: "${event.subject}" ---`);
-        console.log('Event location displayName:', event.location?.displayName);
-        console.log('isUnspecified:', isUnspecifiedLocation(event));
-        console.log('isVirtual:', isEventVirtual(event));
-        
+      filteredEvents.forEach((event) => {
         if (isUnspecifiedLocation(event)) {
           if (groups['Unspecified']) {
             groups['Unspecified'].push(event);
-            console.log('✅ Added to Unspecified group');
-          } else {
-            console.log('❌ Unspecified group not found in selectedLocations');
-          }
+          } 
         } else if (isEventVirtual(event)) {
           if (groups['Virtual']) {
             groups['Virtual'].push(event);
-            console.log('✅ Added to Virtual group');
-          } else {
-            console.log('❌ Virtual group not found in selectedLocations');
-            console.log('Available groups:', Object.keys(groups));
-          }
+          } 
         } else {
           // Handle physical locations
           const locationText = event.location?.displayName?.trim() || '';
@@ -1871,29 +1842,15 @@
             .split(/[;,]/)
             .map(loc => loc.trim())
             .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
-          
-          console.log('Physical locations found:', eventLocations);
-          
+                    
           eventLocations.forEach(location => {
             if (groups[location]) {
               groups[location].push(event);
-              console.log(`✅ Added to ${location} group`);
-            } else {
-              console.log(`❌ Group "${location}" not found in selectedLocations`);
-            }
+            } 
           });
         }
       });
-      
-      console.log('\n=== FINAL GROUPS ===');
-      Object.entries(groups).forEach(([groupName, events]) => {
-        console.log(`${groupName}: ${events.length} events`);
-        events.forEach(event => {
-          console.log(`  - ${event.subject}`);
-        });
-      });
-      console.log('=== END GROUPING DEBUG ===\n');
-      
+           
       return groups;
     }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation, isEventVirtual, isVirtualLocation]);
     
@@ -1915,9 +1872,7 @@
         
         // Filter by category or location based on groupBy
         if (groupBy === 'categories') {
-          if (selectedFilter === 'Show All Categories') {
-            return !isKnownCategory(event.category) && !isUncategorizedEvent(event);
-          } else if (isUncategorizedEvent(event)) {
+          if (isUncategorizedEvent(event)) {
             return selectedFilter === 'Uncategorized';
           }
           return event.category === selectedFilter;
@@ -2911,21 +2866,23 @@
               <div className="view-mode-selector">
                 <button 
                   className={groupBy === 'categories' ? 'active' : ''} 
-                  onClick={() => {
-                      setGroupBy('categories');
-                      updateUserProfilePreferences({ defaultGroupBy: 'categories' });
-                    }
-                  }
+                  onClick={async () => {
+                    setLoading(true);
+                    setGroupBy('categories');
+                    await updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+                    setLoading(false);
+                  }}
                 >
                   Group by Category
                 </button>
                 <button 
                   className={groupBy === 'locations' ? 'active' : ''} 
-                  onClick={() => {
-                      setGroupBy('locations');
-                      updateUserProfilePreferences({ defaultGroupBy: 'locations' });
-                    }
-                  }
+                  onClick={async () => {  // <-- ADD 'async' here
+                    setLoading(true);
+                    setGroupBy('locations');
+                    await updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                    setLoading(false);
+                  }}
                 >
                   Group by Location
                 </button>
@@ -3115,138 +3072,161 @@
               {/* Right sidebar for filters */}
               {viewType !== 'month' && (
                 <div className="calendar-right-sidebar">
-                  {groupBy === 'categories' ? (
-                    <>
-                      <h3>Categories</h3>
-                      {/* Selection controls */}
-                      <div className="selection-controls" style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginBottom: '10px',
-                        gap: '10px'
-                      }}>
-                        <button 
-                          onClick={() => {
-                            setSelectedCategories(dynamicCategories); // Use dynamic categories instead of static
-                            updateUserProfilePreferences({ selectedCategories: dynamicCategories });
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--white)',
-                            color: 'var(--primary-color)',
-                            border: '1px solid var(--primary-color)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'background-color 0.2s',
-                            flex: '1',
-                            whiteSpace: 'nowrap',
-                            fontSize: '13px'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          All
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setSelectedCategories([]);
-                            updateUserProfilePreferences({ selectedCategories: [] });
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--white)',
-                            color: 'var(--primary-color)',
-                            border: '1px solid var(--primary-color)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'background-color 0.2s',
-                            flex: '1',
-                            whiteSpace: 'nowrap',
-                            fontSize: '13px'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          None
-                        </button>
-                      </div>
-                      <MultiSelect 
-                        options={dynamicCategories.filter(cat => cat !== 'Show All Categories')} // Remove special option for filter
-                        selected={selectedCategories}
-                        onChange={val => {
-                            setSelectedCategories(val);
-                            updateUserProfilePreferences({ selectedCategories: val });
-                          }
-                        }
-                        label="Filter by categories"
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <h3>Locations</h3>
-                      {/* Selection controls */}
-                      <div className="select-controls" style={{ 
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        marginBottom: '10px',
-                        gap: '10px'
-                      }}>
-                        <button 
-                          onClick={() => {
-                            setSelectedLocations(dynamicLocations); // CHANGED: Use dynamicLocations instead of availableLocations
-                            updateUserProfilePreferences({ selectedLocations: dynamicLocations });
-                          }}
-                          style={{ 
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--white)',
-                            color: 'var(--primary-color)',
-                            border: '1px solid var(--primary-color)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'background-color 0.2s',
-                            flex: '1',
-                            whiteSpace: 'nowrap',
-                            fontSize: '13px'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          All
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setSelectedLocations([]);
-                            updateUserProfilePreferences({ selectedLocations: [] });
-                          }}
-                          style={{ 
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--white)',
-                            color: 'var(--primary-color)',
-                            border: '1px solid var(--primary-color)',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            transition: 'background-color 0.2s',
-                            flex: '1',
-                            whiteSpace: 'nowrap',
-                            fontSize: '13px'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          None
-                        </button>
-                      </div>
-                      <MultiSelect 
-                        options={dynamicLocations.filter(loc => loc !== 'Show All Locations')} // CHANGED: Use dynamicLocations instead of availableLocations
-                        selected={selectedLocations}
-                        onChange={val => {
-                          setSelectedLocations(val);
-                          updateUserProfilePreferences({ selectedLocations: val });
+                  {/* CATEGORIES FILTER SECTION */}
+                  <div className="filter-section">
+                    <h3>Categories</h3>
+                    {/* Selection controls */}
+                    <div className="selection-controls" style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginBottom: '10px',
+                      gap: '10px'
+                    }}>
+                      <button 
+                        onClick={() => {
+                          setSelectedCategories(dynamicCategories);
+                          updateUserProfilePreferences({ selectedCategories: dynamicCategories });
                         }}
-                        label="Filter by locations"
-                      />
-                    </>
-                  )}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: 'var(--white)',
+                          color: 'var(--primary-color)',
+                          border: '1px solid var(--primary-color)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.2s',
+                          flex: '1',
+                          whiteSpace: 'nowrap',
+                          fontSize: '13px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        All
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setSelectedCategories([]);
+                          updateUserProfilePreferences({ selectedCategories: [] });
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: 'var(--white)',
+                          color: 'var(--primary-color)',
+                          border: '1px solid var(--primary-color)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.2s',
+                          flex: '1',
+                          whiteSpace: 'nowrap',
+                          fontSize: '13px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        None
+                      </button>
+                    </div>
+                    <MultiSelect 
+                      options={dynamicCategories}
+                      selected={selectedCategories}
+                      onChange={val => {
+                          setSelectedCategories(val);
+                          updateUserProfilePreferences({ selectedCategories: val });
+                        }
+                      }
+                      label="Filter by categories"
+                      dropdownDirection='up'
+                      maxHeight={200}
+                      usePortal={true}
+                    />
+                  </div>
+
+                  {/* LOCATIONS FILTER SECTION */}
+                  <div className="filter-section" style={{ marginTop: '30px' }}>
+                    <h3>Locations</h3>
+                    {/* Selection controls */}
+                    <div className="selection-controls" style={{ 
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginBottom: '10px',
+                      gap: '10px'
+                    }}>
+                      <button 
+                        onClick={() => {
+                          setSelectedLocations(dynamicLocations);
+                          updateUserProfilePreferences({ selectedLocations: dynamicLocations });
+                        }}
+                        style={{ 
+                          padding: '6px 12px',
+                          backgroundColor: 'var(--white)',
+                          color: 'var(--primary-color)',
+                          border: '1px solid var(--primary-color)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.2s',
+                          flex: '1',
+                          whiteSpace: 'nowrap',
+                          fontSize: '13px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        All
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setSelectedLocations([]);
+                          updateUserProfilePreferences({ selectedLocations: [] });
+                        }}
+                        style={{ 
+                          padding: '6px 12px',
+                          backgroundColor: 'var(--white)',
+                          color: 'var(--primary-color)',
+                          border: '1px solid var(--primary-color)',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.2s',
+                          flex: '1',
+                          whiteSpace: 'nowrap',
+                          fontSize: '13px'
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      >
+                        None
+                      </button>
+                    </div>
+                    <MultiSelect 
+                      options={dynamicLocations}
+                      selected={selectedLocations}
+                      onChange={val => {
+                        setSelectedLocations(val);
+                        updateUserProfilePreferences({ selectedLocations: val });
+                      }}
+                      label="Filter by locations"
+                      dropdownDirection="up"
+                      maxHeight={200}
+                      usePortal={true}
+                    />
+                  </div>
+
+                  {/* GROUPING INFO SECTION */}
+                  <div className="grouping-info" style={{ 
+                    marginTop: '30px', 
+                    padding: '15px', 
+                    backgroundColor: '#f8f9fa', 
+                    borderRadius: '8px',
+                    border: '1px solid #dee2e6'
+                  }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: '600' }}>
+                      Current Grouping
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#6c757d' }}>
+                      Events are visually grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>.
+                      Use the buttons above to change grouping.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -3289,7 +3269,7 @@
         >
           <EventForm 
             event={currentEvent}
-            categories={dynamicCategories.filter(cat => cat !== 'Show All Categories')} // Remove the special "Show All" option for form
+            categories={dynamicCategories} 
             availableLocations={getFilteredLocationsForMultiSelect()}
             dynamicLocations={dynamicLocations}
             schemaExtensions={schemaExtensions}

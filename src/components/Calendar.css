@@ -808,6 +808,29 @@
     font-size: 11px;
     color: var(--text-primary);
   }
+
+  .category-text,
+  .location-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    
+    /* Dynamic font sizing based on content length */
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .category-text.multiline,
+  .location-text.multiline {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: break-word;
+  }
   
   /* Events Count Badge */
   .events-count {
@@ -1299,10 +1322,57 @@
     .grid-header .header-cell,
     .grid-cell.category-cell,
     .grid-cell.location-cell {
-      padding: 6px 4px;
-      font-size: 12px;
+      background-color: var(--light-gray);
+      border-right: 1px solid var(--border-color);
+      padding: 8px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      min-height: 60px;
+      color: var(--text-primary);
+      min-width: var(--category-column-width);
+      flex: 0 0 var(--category-column-width);
+      
+      /* Enable text wrapping and overflow handling */
+      word-wrap: break-word;
+      word-break: break-word;
+      overflow: hidden;
+      
+      /* Improved text scaling */
+      font-size: clamp(10px, 2.5vw, 14px); /* Responsive font size */
+      line-height: 1.2;
+    }
+
+    .grid-cell.category-cell > *,
+    .grid-cell.location-cell > * {
+      flex: 1;
+      min-width: 0; /* Allow flex items to shrink below content size */
+      display: flex;
+      align-items: center;
+      gap: 5px;
     }
     
+    .grid-cell.category-cell[data-text-length="short"],
+    .grid-cell.location-cell[data-text-length="short"] {
+      font-size: 14px;
+    }
+
+    .grid-cell.category-cell[data-text-length="medium"],
+    .grid-cell.location-cell[data-text-length="medium"] {
+      font-size: 12px;
+    }
+
+    .grid-cell.category-cell[data-text-length="long"],
+    .grid-cell.location-cell[data-text-length="long"] {
+      font-size: 11px;
+    }
+
+    .grid-cell.category-cell[data-text-length="very-long"],
+    .grid-cell.location-cell[data-text-length="very-long"] {
+      font-size: 10px;
+      line-height: 1.1;
+    }
+
     .grid-cell.day-cell {
       min-height: 50px;
     }
