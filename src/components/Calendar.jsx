@@ -16,6 +16,7 @@
   import eventDataService from '../services/eventDataService';
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
+  import calendarDataService from '../services/calendarDataService';
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -103,20 +104,31 @@
           }
           showPopperArrow={false}
           popperPlacement="bottom-start"
-          popperModifiers={[
-            {
-              name: "offset",
-              options: {
-                offset: [0, 8],
-              },
-            },
-          ]}
+          // Remove or simplify the popperModifiers configuration
+          popperModifiers={undefined}
+          // Alternative: Remove popperModifiers entirely
+          // popperModifiers={undefined}
+          
           // Show month/year dropdowns for easier navigation
           showMonthDropdown
           showYearDropdown
           dropdownMode="select"
           yearDropdownItemNumber={10}
           scrollableYearDropdown
+          
+          // Add these props for better stability
+          shouldCloseOnSelect={true}
+          disabledKeyboardNavigation={false}
+          
+          // Optional: Add portal rendering to avoid z-index issues
+          withPortal={false}
+          
+          // Optional: Add custom popper container
+          popperContainer={({ children }) => (
+            <div className="react-datepicker-popper-container">
+              {children}
+            </div>
+          )}
         />
       </div>
     );
@@ -220,33 +232,141 @@
       
       try {
         const text = await file.text();
-        const jsonData = JSON.parse(text);
+        const rawJsonData = JSON.parse(text);
         
-        // Basic validation - check for required structure
-        if (!jsonData.events || !Array.isArray(jsonData.events)) {
+        console.log('Raw uploaded JSON:', rawJsonData);
+        
+        // Validate the structure - your JSON has a different structure
+        if (!rawJsonData.events || !Array.isArray(rawJsonData.events)) {
           throw new Error('Invalid format: JSON must contain an "events" array');
         }
         
-        // Validate that events have required fields
-        const requiredFields = ['id', 'subject', 'startDateTime', 'endDateTime'];
-        const invalidEvents = jsonData.events.filter(event => 
-          !requiredFields.every(field => event.hasOwnProperty(field))
-        );
-        
-        if (invalidEvents.length > 0) {
-          throw new Error(`Invalid events found: missing required fields (${requiredFields.join(', ')})`);
+        if (rawJsonData.events.length === 0) {
+          throw new Error('No events found in the uploaded file');
         }
         
-        setDemoData(jsonData);
+        // Transform events to match your data format
+        const transformedEvents = rawJsonData.events.map((event, index) => {
+          try {
+            // Your JSON uses "startDateTime" and "endDateTime" directly (no nested structure)
+            const startDateTime = event.startDateTime;
+            const endDateTime = event.endDateTime;
+            
+            if (!startDateTime) {
+              throw new Error(`Event ${index + 1}: Missing startDateTime`);
+            }
+            
+            if (!endDateTime) {
+              throw new Error(`Event ${index + 1}: Missing endDateTime`);
+            }
+            
+            // Parse dates - your format is like "2025-05-30T15:00:00.0000000"
+            let startDate, endDate;
+            
+            try {
+              // Handle the .0000000 format by parsing directly
+              startDate = new Date(startDateTime);
+              endDate = new Date(endDateTime);
+            } catch (dateError) {
+              throw new Error(`Invalid date format in event ${index + 1}`);
+            }
+            
+            if (isNaN(startDate.getTime())) {
+              throw new Error(`Event ${index + 1}: Invalid start date format: ${startDateTime}`);
+            }
+            
+            if (isNaN(endDate.getTime())) {
+              throw new Error(`Event ${index + 1}: Invalid end date format: ${endDateTime}`);
+            }
+            
+            if (endDate <= startDate) {
+              throw new Error(`Event ${index + 1}: End date must be after start date`);
+            }
+            
+            // Your location field is a simple string, not an object
+            const location = event.location || '';
+            
+            // Your categories field is an array
+            const categories = event.categories || [];
+            const category = categories.length > 0 ? categories[0] : 'Uncategorized';
+            
+            return {
+              ...event, // Keep all original fields
+              id: event.id || `demo_event_${Date.now()}_${index}`,
+              subject: event.subject || `Event ${index + 1}`,
+              // Store as ISO strings for consistency
+              startDateTime: startDate.toISOString(),
+              endDateTime: endDate.toISOString(),
+              location: location,
+              categories: categories,
+              category: category
+            };
+          } catch (error) {
+            throw new Error(`Event ${index + 1} validation failed: ${error.message}`);
+          }
+        });
+        
+        const processedData = {
+          ...rawJsonData,
+          events: transformedEvents,
+          totalEvents: transformedEvents.length,
+          uploadDate: new Date().toISOString()
+        };
+        
+        console.log('Processed demo data:', processedData);
+        
+        // Set demo data
+        setDemoData(processedData);
+        
+        // Configure service for demo mode
+        calendarDataService.setDemoMode(processedData);
         setIsDemoMode(true);
-        alert(`Successfully loaded ${jsonData.events.length} events for demo mode`);
+        
+        console.log('Demo mode activated, loading events...');
+        
+        // Test loading events for current date range
+        const events = await calendarDataService.getEvents(dateRange);
+        console.log('Loaded demo events for current range:', events);
+        
+        if (events.length === 0) {
+          console.warn('No events in current date range. Navigating to events...');
+          
+          // Find the date range of your events and navigate there
+          const eventDates = transformedEvents.map(e => new Date(e.startDateTime));
+          const earliestEvent = new Date(Math.min(...eventDates));
+          const latestEvent = new Date(Math.max(...eventDates));
+          
+          console.log('Event date range:', {
+            earliest: earliestEvent.toLocaleDateString(),
+            latest: latestEvent.toLocaleDateString(),
+            currentViewStart: dateRange.start.toLocaleDateString(),
+            currentViewEnd: dateRange.end.toLocaleDateString()
+          });
+          
+          // Navigate to the earliest event
+          let newStart;
+          if (viewType === 'week') {
+            newStart = snapToStartOfWeek(earliestEvent);
+          } else if (viewType === 'month') {
+            newStart = new Date(earliestEvent.getFullYear(), earliestEvent.getMonth(), 1);
+          } else {
+            newStart = new Date(earliestEvent);
+          }
+          
+          const newEnd = calculateEndDate(newStart, viewType);
+          setDateRange({ start: newStart, end: newEnd });
+          
+          alert(`Successfully loaded ${transformedEvents.length} events. Calendar navigated to show events starting from ${earliestEvent.toLocaleDateString()}`);
+        } else {
+          setAllEvents(events);
+          alert(`Successfully loaded ${transformedEvents.length} events for demo mode`);
+        }
         
       } catch (error) {
         console.error('Error uploading demo data:', error);
         alert(`Error loading demo data: ${error.message}`);
       } finally {
         setIsUploadingDemo(false);
-        // Clear the file input
         event.target.value = '';
       }
     };
@@ -254,13 +374,17 @@
     /**
      * TBD
      * */
-    const handleModeToggle = () => {
+    const handleModeToggle = async () => {
       if (isDemoMode) {
         // Switching from demo to API mode
-        const confirm = window.confirm('Switch to API mode? This will clear your demo data.');
-        if (confirm) {
+        const confirmSwitch = window.confirm('Switch to API mode? This will clear your demo data.');
+        if (confirmSwitch) {
+          calendarDataService.setApiMode();
           setIsDemoMode(false);
           setDemoData(null);
+          
+          // Reload events from API
+          await loadEvents();
         }
       } else {
         // Switching from API to demo mode - need to upload data first
@@ -271,67 +395,74 @@
     /*
     * TBD
     */
-    const renderModeToggle = () => (
-      <div className="mode-toggle-container" style={{
-        padding: '15px',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '8px',
-        marginBottom: '20px',
-        border: '1px solid #dee2e6'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: '500' }}>Mode:</span>
-            <button
-              onClick={handleModeToggle}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '0.9rem'
-              }}
-            >
-              {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
-            </button>
-          </div>
-          
-          {!isDemoMode && (
+    const renderModeToggle = () => {
+      const demoStats = calendarDataService.getDemoDataStats();
+      
+      return (
+        <div className="mode-toggle-container" style={{
+          padding: '15px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          border: '1px solid #dee2e6'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <label htmlFor="demo-upload" style={{
-                padding: '6px 12px',
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '0.9rem'
-              }}>
-                📁 Upload Demo Data
-              </label>
-              <input
-                id="demo-upload"
-                type="file"
-                accept=".json"
-                onChange={handleDemoDataUpload}
-                disabled={isUploadingDemo}
-                style={{ display: 'none' }}
-              />
-              {isUploadingDemo && <span>Uploading...</span>}
+              <span style={{ fontWeight: '500' }}>Mode:</span>
+              <button
+                onClick={handleModeToggle}
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
+              </button>
             </div>
-          )}
-          
-          {isDemoMode && demoData && (
-            <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
-              📊 {demoData.events.length} events loaded | 
-              📅 {demoData.metadata?.year || 'Unknown year'}
-            </div>
-          )}
+            
+            {!isDemoMode && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label htmlFor="demo-upload" style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}>
+                  📁 Upload Demo Data
+                </label>
+                <input
+                  id="demo-upload"
+                  type="file"
+                  accept=".json"
+                  onChange={handleDemoDataUpload}
+                  disabled={isUploadingDemo}
+                  style={{ display: 'none' }}
+                />
+                {isUploadingDemo && <span>Uploading...</span>}
+              </div>
+            )}
+            
+            {isDemoMode && demoStats && (
+              <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
+                📊 {demoStats.totalEvents} events loaded
+                {demoStats.year && ` | 📅 ${demoStats.year}`}
+                {demoStats.dateRange?.start && demoStats.dateRange?.end && (
+                  ` | 📅 ${new Date(demoStats.dateRange.start).toLocaleDateString()} - ${new Date(demoStats.dateRange.end).toLocaleDateString()}`
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    );
+      );
+    };
 
     /**
      * Consistently format date range for API queries
@@ -694,6 +825,46 @@
     }, [graphToken, setAvailableCalendars]);
 
     /**
+     * TBD
+     */
+    const loadDemoEvents = useCallback(async () => {
+      if (!isDemoMode || !demoData) {
+        console.log("Not in demo mode or no demo data available");
+        return false;
+      }
+      
+      setLoading(true);
+      try {
+        // Initialize the service with current settings
+        calendarDataService.initialize(
+          graphToken, 
+          apiToken, 
+          selectedCalendarId, 
+          schemaExtensions
+        );
+        
+        // Get events through the service (demo mode)
+        const events = await calendarDataService.getEvents(dateRange);
+        
+        console.log(`[loadDemoEvents] Loaded ${events.length} demo events for date range:`, {
+          start: dateRange.start.toISOString(),
+          end: dateRange.end.toISOString()
+        });
+        
+        setAllEvents(events);
+        return true;
+        
+      } catch (error) {
+        console.error('loadDemoEvents failed:', error);
+        showNotification('Failed to load demo events: ' + error.message);
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    }, [isDemoMode, demoData, graphToken, apiToken, selectedCalendarId, schemaExtensions, dateRange, formatDateRangeForAPI]);
+
+    
+    /**
      * Load events from Microsoft Graph API
      *
     */
@@ -804,7 +975,17 @@
       }
     }, [graphToken, dateRange, selectedCalendarId, availableCalendars, apiToken, formatDateRangeForAPI, schemaExtensions]);
 
-    
+    /**
+     * TBD
+     */
+    const loadEvents = useCallback(async () => {
+      if (isDemoMode) {
+        return await loadDemoEvents();
+      } else {
+        return await loadGraphEvents();
+      }
+    }, [isDemoMode, loadDemoEvents, loadGraphEvents]);
+
     /**
      * Sync events to internal database 
      * @param {Date} startDate - Start date of the range to sync
@@ -2159,22 +2340,43 @@
     };
 
     /**
-     * Called by EventForm or EventSearch when the user hits "Save"
-     * @param {Object} data - The payload from EventForm.handleSubmit
-     * @returns {boolean} Success indicator
+     * TBD
      */
-    const handleSaveEvent = async (data) => {
-      // Add permission check
-      const isNew = !data.id || data.id.includes('event_');
-      if (isNew && !userPermissions.createEvents) {
-        alert("You don't have permission to create events");
-        return false;
+    const handleSaveDemoEvent = async (data) => {
+      const isNew = !data.id || data.id.includes('demo_event_') || data.id.includes('event_');
+      
+      try {
+        // Initialize the service
+        calendarDataService.initialize(
+          graphToken, 
+          apiToken, 
+          selectedCalendarId, 
+          schemaExtensions
+        );
+        
+        // Save through the service (demo mode)
+        if (isNew) {
+          await calendarDataService.createEvent(data);
+        } else {
+          await calendarDataService.updateEvent(data);
+        }
+        
+        // Reload demo events to show changes
+        await loadDemoEvents();
+        
+        console.log(`[handleSaveDemoEvent] ${isNew ? 'Created' : 'Updated'} demo event:`, data.subject);
+        return true;
+        
+      } catch (error) {
+        console.error('Demo save failed:', error);
+        throw error;
       }
-      if (!isNew && !userPermissions.editEvents) {
-        alert("You don't have permission to edit events");
-        return false;
-      }
-    
+    };
+
+    /**
+     * TBD
+     */
+    const handleSaveApiEvent = async (data) => {
       try {
         // Core payload
         const core = {
@@ -2199,57 +2401,201 @@
         // Batch update - pass the selected calendar ID
         await patchEventBatch(data.id, core, ext, selectedCalendarId);
         
-        // Refresh
+        // Refresh API events
         await loadGraphEvents();
         
-        // Only close modal if it's open (not when called from search)
+        console.log(`[handleSaveApiEvent] ${data.id ? 'Updated' : 'Created'} API event:`, data.subject);
+        return true;
+        
+      } catch (error) {
+        console.error('API save failed:', error);
+        throw error;
+      }
+    };
+
+    /**
+     * Called by EventForm or EventSearch when the user hits "Save"
+     * @param {Object} data - The payload from EventForm.handleSubmit
+     * @returns {boolean} Success indicator
+     */
+    const handleSaveEvent = async (data) => {
+      const isNew = !data.id || data.id.includes('demo_event_') || data.id.includes('event_');
+      
+      // Permission checks
+      if (isNew && !userPermissions.createEvents) {
+        alert("You don't have permission to create events");
+        return false;
+      }
+      if (!isNew && !userPermissions.editEvents) {
+        alert("You don't have permission to edit events");
+        return false;
+      }
+    
+      try {
+        // Dispatch to the appropriate handler based on mode
+        if (isDemoMode) {
+          await handleSaveDemoEvent(data);
+        } else {
+          await handleSaveApiEvent(data);
+        }
+        
+        // Close modal if it's open (common to both modes)
         if (isModalOpen) {
           setIsModalOpen(false);
         }
         
-        return true; // Success indicator
-      } catch (e) {
-        console.error(e);
-        alert('Save failed: ' + e.message);
+        showNotification('Event saved successfully!', 'success');
+        return true;
+        
+      } catch (error) {
+        console.error('Save failed:', error);
+        alert('Save failed: ' + error.message);
         return false;
       }
     };
     
     /**
+     * TBD
+     */
+    const handleDeleteDemoEvent = async (eventId) => {
+      try {
+        // Initialize the service
+        calendarDataService.initialize(
+          graphToken, 
+          apiToken, 
+          selectedCalendarId, 
+          schemaExtensions
+        );
+        
+        // Delete through the service (demo mode)
+        await calendarDataService.deleteEvent(eventId);
+        
+        // Update local state immediately
+        setAllEvents(allEvents.filter(event => event.id !== eventId));
+        
+        // Reload demo events to ensure consistency
+        await loadDemoEvents();
+        
+        console.log(`[handleDeleteDemoEvent] Deleted demo event:`, eventId);
+        return true;
+        
+      } catch (error) {
+        console.error('Demo delete failed:', error);
+        throw error;
+      }
+    };
+
+    /**
+     * TBD
+     */
+    const handleDeleteApiEvent = async (eventId) => {
+      try {
+        // Determine the API URL based on whether a calendar is selected
+        const apiUrl = selectedCalendarId
+          ? `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events/${eventId}`
+          : `https://graph.microsoft.com/v1.0/me/events/${eventId}`;
+            
+        const response = await fetch(apiUrl, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${graphToken}`
+          }
+        });
+    
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('Failed to delete event from Graph:', error);
+          throw new Error(`API delete failed: ${response.status}`);
+        } else {
+          console.log('Event deleted from Microsoft Calendar');
+        }
+        
+        // Update local state immediately
+        setAllEvents(allEvents.filter(event => event.id !== eventId));
+        
+        // Reload API events to ensure consistency
+        await loadGraphEvents();
+        
+        console.log(`[handleDeleteApiEvent] Deleted API event:`, eventId);
+        return true;
+        
+      } catch (error) {
+        console.error('API delete failed:', error);
+        throw error;
+      }
+    };
+
+    /**
      * Delete an event
      */
     const handleDeleteConfirm = async () => {
-      if (graphToken && currentEvent?.id) {
-        try {
-          // Determine the API URL based on whether a calendar is selected
-          const apiUrl = selectedCalendarId
-            ? `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events/${currentEvent.id}`
-            : `https://graph.microsoft.com/v1.0/me/events/${currentEvent.id}`;
-            
-          const response = await fetch(apiUrl, {
-            method: 'DELETE',
-            headers: {
-              Authorization: `Bearer ${graphToken}`
-            }
-          });
-    
-          if (!response.ok) {
-            const error = await response.json();
-            console.error('Failed to delete event from Graph:', error);
-          } else {
-            console.log('Event deleted from Microsoft Calendar');
-          }
-        } catch (err) {
-          console.error('Error deleting from Graph:', err);
-        }
+      if (!currentEvent?.id) {
+        alert('No event selected for deletion');
+        return;
       }
-    
-      setAllEvents(allEvents.filter(event => event.id !== currentEvent?.id));
-      setIsModalOpen(false);
-      setCurrentEvent(null);
       
-      // Add this line to reload all events after deleting
-      loadGraphEvents();
+      try {
+        // Dispatch to the appropriate handler based on mode
+        if (isDemoMode) {
+          await handleDeleteDemoEvent(currentEvent.id);
+        } else {
+          await handleDeleteApiEvent(currentEvent.id);
+        }
+        
+        // Close modal and clear current event (common to both modes)
+        setIsModalOpen(false);
+        setCurrentEvent(null);
+        
+        showNotification('Event deleted successfully!', 'success');
+        
+      } catch (error) {
+        console.error('Delete failed:', error);
+        alert('Delete failed: ' + error.message);
+      }
+    };
+
+    //---------------------------------------------------------------------------
+    // DEBUGGING FUNCTIONS
+    //---------------------------------------------------------------------------
+    const debugDemoData = () => {
+      if (demoData?.events) {
+        console.log('=== DEMO DATA DEBUG ===');
+        console.log('Total events:', demoData.events.length);
+        console.log('Date range of demo data:', demoData.searchCriteria?.dateRange);
+        console.log('Current calendar view:', {
+          start: dateRange.start.toISOString(),
+          end: dateRange.end.toISOString()
+        });
+        
+        // Show first few events
+        const sampleEvents = demoData.events.slice(0, 5);
+        console.log('Sample events:');
+        sampleEvents.forEach((event, i) => {
+          console.log(`${i + 1}. ${event.subject}`);
+          console.log(`   Start: ${event.startDateTime}`);
+          console.log(`   End: ${event.endDateTime}`);
+          console.log(`   Location: ${event.location}`);
+          console.log(`   Categories: ${JSON.stringify(event.categories)}`);
+        });
+        
+        // Check if any events fall in current date range
+        const eventsInRange = demoData.events.filter(event => {
+          const eventDate = new Date(event.startDateTime);
+          return eventDate >= dateRange.start && eventDate <= dateRange.end;
+        });
+        console.log(`Events in current range (${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}):`, eventsInRange.length);
+        
+        if (eventsInRange.length === 0) {
+          const eventDates = demoData.events.map(e => new Date(e.startDateTime));
+          const earliestEvent = new Date(Math.min(...eventDates));
+          const latestEvent = new Date(Math.max(...eventDates));
+          console.log('Event date range in data:');
+          console.log(`  Earliest: ${earliestEvent.toLocaleDateString()}`);
+          console.log(`  Latest: ${latestEvent.toLocaleDateString()}`);
+          console.log('SUGGESTION: Navigate calendar to these dates to see events');
+        }
+        console.log('======================');
+      }
     };
 
     //---------------------------------------------------------------------------
@@ -2278,18 +2624,20 @@
         });
         
         // Call the existing loadGraphEvents function
-        loadGraphEvents();
+        loadEvents();
       }
-    }, [dateRange, graphToken, initializing, loadGraphEvents]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dateRange, graphToken, initializing]);
 
     useEffect(() => {
       if (selectedCalendarId && !initializing && graphToken && !changingCalendar) {
         console.log(`Loading events for calendar: ${selectedCalendarId}`);
-        loadGraphEvents().finally(() => {
+        loadEvents().finally(() => {
           if (changingCalendar) setChangingCalendar(false);
         });
       }
-    }, [selectedCalendarId, initializing, graphToken, changingCalendar, loadGraphEvents]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedCalendarId, initializing, graphToken, changingCalendar]);
 
     // Set user time zone from user permissions
     useEffect(() => {
@@ -2401,6 +2749,15 @@
       document.addEventListener('keydown', handleKeyPress);
       return () => document.removeEventListener('keydown', handleKeyPress);
     }, []);
+
+    /*
+    // Debugging
+    useEffect(() => {
+      if (isDemoMode && demoData) {
+        debugDemoData();
+      }
+    }, [isDemoMode, demoData, dateRange, debugDemoData]);
+    */
 
     //---------------------------------------------------------------------------
     // LOADING SCREEN
