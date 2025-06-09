@@ -1680,6 +1680,7 @@
      */
     const filteredEvents = useMemo(() => {
       console.log('Filtering events with:', { 
+        viewType,
         groupBy, 
         selectedCategories, 
         selectedLocations,
@@ -1687,31 +1688,7 @@
       });
       
       const filtered = allEvents.filter(event => {
-        // Month view has separate filter logic - keep existing
-        if (viewType === 'month') {
-          let categoryMatch = true;
-          let locationMatch = true;
-
-          // Check category filter
-          if (selectedCategoryFilter) {
-            categoryMatch = event.category === selectedCategoryFilter;
-          }
-
-          // Check location filter
-          if (selectedLocationFilter) {
-            if (selectedLocationFilter === 'Unspecified') {
-              locationMatch = isUnspecifiedLocation(event);
-            } else if (selectedLocationFilter === 'Virtual') {
-              locationMatch = isEventVirtual(event);
-            } else {
-              locationMatch = hasPhysicalLocation(event, selectedLocationFilter);
-            }
-          }
-
-          return categoryMatch && locationMatch;
-        }
-
-        // Day/Week view filtering - APPLY BOTH FILTERS ALWAYS
+        // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
         let categoryMatch = true;
         let locationMatch = true;
 
@@ -1813,15 +1790,12 @@
       selectedCategories, 
       selectedLocations, 
       dynamicCategories,
+      groupBy,
       isUncategorizedEvent,
       isUnspecifiedLocation,
       isEventVirtual,
       isVirtualLocation,
-      hasPhysicalLocation,
-      viewType, 
-      selectedCategoryFilter, 
-      selectedLocationFilter,
-      groupBy
+      viewType
     ]);
 
     /**
