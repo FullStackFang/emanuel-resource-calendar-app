@@ -681,6 +681,13 @@
     // DATA FUNCTIONS
     //---------------------------------------------------------------------------
     const updateUserProfilePreferences = async (updates) => {
+      // No User Updates if in Demo Mode
+      if (isDemoMode) {
+        console.log("Demo mode active - user preferences not saved:", updates);
+        return false;
+      }
+      
+      // No User Updates if no API Token
       if (!apiToken) {
         console.log("No API token available for updating preferences");
         return false;

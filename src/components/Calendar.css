@@ -434,50 +434,12 @@
     background-color: #f8f9fa;
   }
   
-  /* ============================================================================
-     6. MONTH VIEW SPECIFIC STYLES
-     ============================================================================ */
-  
-  /* Month View Wrapper */
-  .month-view-wrapper {
-    display: flex;
-    height: 100%;
-    width: 100%;
-    gap: 0;
-  }
-  
-  /* Month View Container */
-  .month-view-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    border-right: none;
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-  }
-  
   /* Month View Content Wrapper */
   .calendar-content-wrapper {
     display: flex;
     flex: 1;
     height: 100%;
     overflow: hidden;
-  }
-  
-  /* Month Header */
-  .month-header {
-    margin-bottom: 0;
-    background-color: var(--primary-color);
-    color: var(--white);
-    padding: 15px;
-    text-align: center;
-    font-size: 18px;
-    font-weight: 600;
-    border-radius: 4px 4px 0 0;
   }
   
   /* Weekday Headers */
@@ -606,96 +568,7 @@
     background-color: var(--secondary-color);
     transform: scale(1.1);
   }
-  
-  /* ============================================================================
-     7. MONTH VIEW RIGHT PANEL & FILTERS
-     ============================================================================ */
-  
-  /* Month View Right Panel Container */
-  .month-right-panel {
-    width: 350px;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background-color: var(--white);
-    border-left: 1px solid var(--border-color);
-    flex-shrink: 0;
-  }
-  
-  /* Month Filter Container */
-  .month-filter-container {
-    padding: 20px;
-    background-color: var(--background-light);
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-    max-height: 250px;
-    overflow-y: auto;
-    display: flex;
-    gap: 15px;
-  }
-  
-  /* Filter Sections */
-  .month-filter-container .filter-section {
-    margin-bottom: 0;
-    flex: 1;
-  }
-  
-  .month-filter-container .filter-section:last-child {
-    margin-bottom: 0;
-  }
-  
-  .month-filter-container .filter-section h3 {
-    margin: 0 0 8px 0;
-    color: var(--primary-color);
-    font-size: 14px;
-    font-weight: 600;
-  }
-  
-  /* Month Filter Select Dropdown */
-  .month-filter-container .month-filter-select {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background-color: white;
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: var(--transition-normal);
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 35px;
-    margin-bottom: 0;
-  }
-  
-  .month-filter-container .month-filter-select:hover {
-    border-color: var(--primary-color);
-    background-color: var(--hover-light);
-  }
-  
-  .month-filter-container .month-filter-select:focus {
-    outline: none;
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
-    background-color: white;
-  }
-  
-  /* Day Event Panel Integration */
-  .month-right-panel .day-event-panel {
-    flex: 1;
-    width: 100%;
-    height: auto;
-    background-color: var(--white);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    border: none;
-  }
-  
+    
   /* ============================================================================
      8. EVENT STYLING & INTERACTIONS
      ============================================================================ */
@@ -970,8 +843,7 @@
   .calendar-grid,
   .calendar-grid-container,
   .month-days,
-  .calendar-right-sidebar,
-  .month-filter-container {
+  .calendar-right-sidebar {
     scrollbar-width: thin;
     scrollbar-color: #6c757d #f1f3f4;
   }
@@ -979,8 +851,7 @@
   .calendar-grid::-webkit-scrollbar,
   .calendar-grid-container::-webkit-scrollbar,
   .month-days::-webkit-scrollbar,
-  .calendar-right-sidebar::-webkit-scrollbar,
-  .month-filter-container::-webkit-scrollbar {
+  .calendar-right-sidebar::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
@@ -988,8 +859,7 @@
   .calendar-grid::-webkit-scrollbar-track,
   .calendar-grid-container::-webkit-scrollbar-track,
   .month-days::-webkit-scrollbar-track,
-  .calendar-right-sidebar::-webkit-scrollbar-track,
-  .month-filter-container::-webkit-scrollbar-track {
+  .calendar-right-sidebar::-webkit-scrollbar-track {
     background: #f1f3f4;
     border-radius: 4px;
   }
@@ -997,8 +867,7 @@
   .calendar-grid::-webkit-scrollbar-thumb,
   .calendar-grid-container::-webkit-scrollbar-thumb,
   .month-days::-webkit-scrollbar-thumb,
-  .calendar-right-sidebar::-webkit-scrollbar-thumb,
-  .month-filter-container::-webkit-scrollbar-thumb {
+  .calendar-right-sidebar::-webkit-scrollbar-thumb {
     background: #6c757d;
     border-radius: 4px;
   }
@@ -1006,8 +875,7 @@
   .calendar-grid::-webkit-scrollbar-thumb:hover,
   .calendar-grid-container::-webkit-scrollbar-thumb:hover,
   .month-days::-webkit-scrollbar-thumb:hover,
-  .calendar-right-sidebar::-webkit-scrollbar-thumb:hover,
-  .month-filter-container::-webkit-scrollbar-thumb:hover {
+  .calendar-right-sidebar::-webkit-scrollbar-thumb:hover {
     background: #495057;
   }
   
@@ -1227,10 +1095,6 @@
     :root {
       --sidebar-width: 220px;
     }
-    
-    .month-right-panel {
-      width: 300px;
-    }
   }
   
   /* Medium Screens (992px - 1199px) */
@@ -1260,39 +1124,6 @@
       order: 2;
       width: 100%;
       margin-top: 20px;
-    }
-    
-    .month-view-wrapper {
-      flex-direction: column;
-    }
-    
-    .month-view-container {
-      border-right: 1px solid var(--border-color);
-      border-radius: 4px;
-    }
-    
-    .month-right-panel {
-      width: 100%;
-      height: 400px;
-      border-left: none;
-      border-top: 1px solid var(--border-color);
-    }
-  }
-  
-  /* Small Screens (768px - 991px) */
-  @media (max-width: 968px) {
-    .month-right-panel {
-      width: 250px;
-    }
-    
-    .month-filter-container {
-      padding: 16px;
-      flex-direction: column;
-      gap: 12px;
-    }
-    
-    .month-filter-container .filter-section {
-      margin-bottom: 0;
     }
   }
   
@@ -1418,14 +1249,5 @@
     .week-start-selector select {
       width: 100%;
     }
-    
-    .month-filter-container {
-      padding: 12px 16px;
-      max-height: none;
-    }
-    
-    .month-filter-container h3,
-    .month-filter-container .filter-section h3 {
-      font-size: 13px;
-    }
+
   }

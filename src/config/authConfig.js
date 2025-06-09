@@ -1,8 +1,7 @@
 // src/config/authConfig.js
 // Azure CLI Deployment Workflow
 // 1. npm run build
-// 2. zip -r dist.zip dist 
-// OR Compress-Archive -Path dist\* -DestinationPath dist.zip -Force (PowerShell command)
+// 2. zip -r dist.zip dist OR Compress-Archive -Path dist\* -DestinationPath dist.zip -Force (PowerShell command)
 // Optional: az webapp deployment source delete --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler
 // 3. az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --src-path dist.zip
 export const APP_ID = 'c2187009-796d-4fea-b58c-f83f7a89589e';

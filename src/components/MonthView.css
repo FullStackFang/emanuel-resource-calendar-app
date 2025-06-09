@@ -1,0 +1,369 @@
+/* ============================================================================
+   MONTHVIEW.CSS - MonthView Component Specific Styles
+   Import this file in MonthView.jsx: import './MonthView.css';
+   ============================================================================ */
+
+/* ============================================================================
+   MONTH VIEW LAYOUT & STRUCTURE
+   ============================================================================ */
+
+/* Month View Wrapper - Main container */
+.month-view-wrapper {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  gap: 0;
+}
+
+/* Month View Container - Calendar grid side */
+.month-view-wrapper .month-view-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  border-right: none;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  
+  /* Improved balance: limit calendar width */
+  max-width: 65%; /* Prevents calendar from dominating */
+  min-width: 400px; /* Ensures usability */
+}
+
+/* Month View Content Wrapper */
+.calendar-content-wrapper {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Month Header */
+.month-header {
+  margin-bottom: 0;
+  background-color: var(--primary-color);
+  color: var(--white);
+  padding: 15px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  border-radius: 4px 4px 0 0;
+}
+
+/* Weekday Headers */
+.weekday-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background-color: var(--primary-color);
+  color: white;
+  border-radius: 0;
+}
+
+.weekday {
+  text-align: center;
+  font-weight: 600;
+  padding: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 14px;
+}
+
+.weekday:last-child {
+  border-right: none;
+}
+
+/* Month Days Grid */
+.month-days {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: auto;
+}
+
+.week-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  flex: 1;
+  min-height: 120px;
+  border-bottom: 1px solid #eee;
+}
+
+.week-row:last-child {
+  border-bottom: none;
+}
+
+/* Day Cells in Month View */
+.day-cell {
+  position: relative;
+  padding: 6px;
+  border-right: 1px solid #eee;
+  background-color: white;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: var(--transition-normal);
+  min-height: 100px;
+  vertical-align: top;
+}
+
+.day-cell:last-child {
+  border-right: none;
+}
+
+.day-cell:hover:not(.selected) {
+  background-color: var(--hover-light);
+}
+
+.day-cell.selected {
+  background-color: var(--primary-light) !important;
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+.day-cell.outside-month {
+  background-color: #f9f9f9;
+}
+
+.day-cell.current-day {
+  background-color: #f0f7ff;
+}
+
+/* Day Numbers */
+.day-cell .day-number {
+  font-weight: 600;
+  text-align: right;
+  padding: 2px 4px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #f0f0f0;
+  color: var(--text-primary);
+}
+
+.day-cell.outside-month .day-number {
+  color: #ccc;
+}
+
+.day-cell.current-day .day-number {
+  color: var(--primary-color);
+  font-weight: bold;
+}
+
+/* Day Events Container */
+.day-events {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+}
+
+/* Event Count Circle */
+.event-count-circle {
+  background-color: var(--primary-color);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  transition: var(--transition-normal);
+  cursor: pointer;
+  min-width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+
+.event-count-circle:hover {
+  background-color: var(--secondary-color);
+  transform: scale(1.1);
+}
+
+/* ============================================================================
+   MONTH VIEW RIGHT PANEL & FILTERS
+   ============================================================================ */
+
+/* Month Right Panel Container - Enhanced width */
+.month-view-wrapper .month-right-panel {
+  width: 450px; /* Increased from 350px */
+  min-width: 450px; /* Ensure it doesn't shrink */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--white);
+  border-left: 1px solid var(--border-color);
+  flex-shrink: 0;
+  
+  /* Ensure proper container behavior */
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* Month Filter Container - Improved layout */
+.month-view-wrapper .month-filter-container {
+  padding: 20px;
+  background-color: var(--background-light);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  max-height: 200px; /* Reduced to give more space to events */
+  overflow-y: auto;
+  display: flex;
+  gap: 20px; /* Increased gap for better spacing */
+  
+  /* Ensure full width coverage */
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+/* Filter Sections */
+.month-view-wrapper .month-filter-container .filter-section {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 180px; /* Ensure adequate width */
+}
+
+.month-view-wrapper .month-filter-container .filter-section:last-child {
+  margin-bottom: 0;
+}
+
+.month-view-wrapper .month-filter-container .filter-section h3 {
+  margin: 0 0 8px 0;
+  color: var(--primary-color);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Month Filter Select Dropdown */
+.month-view-wrapper .month-filter-container .month-filter-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: white;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition-normal);
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 35px;
+  margin-bottom: 0;
+}
+
+.month-view-wrapper .month-filter-container .month-filter-select:hover {
+  border-color: var(--primary-color);
+  background-color: var(--hover-light);
+}
+
+.month-view-wrapper .month-filter-container .month-filter-select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+  background-color: white;
+}
+
+/* Day Event Panel Integration - Enhanced spacing */
+.month-view-wrapper .month-right-panel .day-event-panel {
+  flex: 1;
+  width: 100%;
+  height: auto;
+  background-color: var(--white);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: none;
+  padding: 0 5px; /* Better content spacing */
+}
+
+/* ============================================================================
+   MONTH VIEW RESPONSIVE DESIGN
+   ============================================================================ */
+
+/* Large Screens (1200px+) */
+@media (max-width: 1200px) {
+  .month-view-wrapper .month-right-panel {
+    width: 400px;
+    min-width: 400px;
+  }
+  
+  .month-view-wrapper .month-view-container {
+    max-width: 60%;
+    min-width: 350px;
+  }
+}
+
+/* Medium Screens (992px - 1199px) - Stack vertically */
+@media (max-width: 992px) {
+  .month-view-wrapper {
+    flex-direction: column;
+  }
+  
+  .month-view-wrapper .month-view-container {
+    max-width: none;
+    min-width: none;
+    border-right: 1px solid var(--border-color);
+    border-radius: 4px;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  
+  .month-view-wrapper .month-right-panel {
+    width: 100%;
+    min-width: none;
+    height: 400px;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 4px 4px;
+  }
+  
+  .month-view-wrapper .month-filter-container {
+    padding: 16px;
+    max-height: 150px;
+    gap: 15px;
+  }
+}
+
+/* Small Screens (768px - 991px) */
+@media (max-width: 968px) {
+  .month-view-wrapper .month-filter-container {
+    flex-direction: column;
+    gap: 12px;
+    max-height: 180px;
+  }
+  
+  .month-view-wrapper .month-filter-container .filter-section {
+    min-width: none;
+  }
+}
+
+/* Extra Small Screens (up to 767px) */
+@media (max-width: 768px) {
+  .month-view-wrapper .month-right-panel {
+    height: 350px;
+  }
+  
+  .month-view-wrapper .month-filter-container {
+    padding: 12px 16px;
+    max-height: none;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .week-row {
+    min-height: 100px;
+  }
+  
+  .day-cell {
+    padding: 4px;
+  }
+  
+  .day-number {
+    font-size: 12px;
+  }
+}

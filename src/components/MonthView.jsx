@@ -1,5 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
 import DayEventPanel from './DayEventPanel';
+import './MonthView.css';
 
 const MonthView = memo(({ 
   // Props this component needs
