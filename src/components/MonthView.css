@@ -13,24 +13,25 @@
   height: 100%;
   width: 100%;
   gap: 0;
+  justify-content: center; /* Center content if there's extra space */
+  max-width: 100%;
+  overflow: hidden;
 }
 
-/* Month View Container - Calendar grid side */
-.month-view-wrapper .month-view-container {
+/* Month View Container - Use CSS Grid for precise control */
+.month-view-container {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr; /* Header takes needed space, days take remaining */
   height: 100%;
+  max-height: 100%;
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 4px;
   border-right: none;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
-  
-  /* Improved balance: limit calendar width */
-  max-width: 65%; /* Prevents calendar from dominating */
-  min-width: 400px; /* Ensures usability */
+  min-width: 400px;
 }
 
 /* Month View Content Wrapper */
@@ -74,30 +75,44 @@
   border-right: none;
 }
 
-/* Month Days Grid */
+/* Month Days Grid - Use CSS Grid with explicit row heights */
 .month-days {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: auto;
+  display: grid;
+  grid-template-rows: 1fr 1fr 1fr 1fr 1fr 1fr; /* 6 equal rows */
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* Week rows - Equal height distribution */
+/* Week rows - Fixed grid layout */
+.week-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid #eee;
+  height: 100%; /* Fill the grid row */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .week-row {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  flex: 1;
-  min-height: 120px;
   border-bottom: 1px solid #eee;
+  flex: 1; /* Each week takes equal space */
+  min-height: 0; /* Allow shrinking */
+  max-height: none; /* No height restrictions */
 }
 
 .week-row:last-child {
   border-bottom: none;
 }
 
-/* Day Cells in Month View */
+/* Day Cells - Constrain size more aggressively */
 .day-cell {
   position: relative;
-  padding: 6px;
+  padding: 2px; /* Further reduced padding */
   border-right: 1px solid #eee;
   background-color: white;
   overflow: hidden;
@@ -105,8 +120,9 @@
   flex-direction: column;
   cursor: pointer;
   transition: var(--transition-normal);
-  min-height: 100px;
-  vertical-align: top;
+  height: 100%; /* Fill grid cell */
+  min-height: 0;
+  font-size: 12px; /* Smaller base font size */
 }
 
 .day-cell:last-child {
@@ -131,14 +147,17 @@
   background-color: #f0f7ff;
 }
 
-/* Day Numbers */
+/* Day Numbers - Much smaller */
 .day-cell .day-number {
   font-weight: 600;
   text-align: right;
-  padding: 2px 4px;
-  margin-bottom: 6px;
+  padding: 1px 2px; /* Minimal padding */
+  margin-bottom: 2px; /* Minimal margin */
   border-bottom: 1px solid #f0f0f0;
   color: var(--text-primary);
+  font-size: 11px; /* Smaller font */
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 .day-cell.outside-month .day-number {
@@ -150,16 +169,18 @@
   font-weight: bold;
 }
 
-/* Day Events Container */
+/* Day Events Container - Minimal space */
 .day-events {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px;
+  padding: 1px; /* Minimal padding */
+  min-height: 16px; /* Smaller minimum for event circles */
+  overflow: hidden;
 }
 
-/* Event Count Circle */
+/* Event Count Circle - Smaller to fit better */
 .event-count-circle {
   background-color: var(--primary-color);
   color: white;
@@ -170,9 +191,11 @@
   font-weight: 600;
   transition: var(--transition-normal);
   cursor: pointer;
-  min-width: 24px;
-  height: 24px;
-  font-size: 12px;
+  min-width: 18px; /* Smaller circles */
+  height: 18px;
+  font-size: 10px; /* Smaller font */
+  max-width: 24px; /* Cap the maximum size */
+  max-height: 24px;
 }
 
 .event-count-circle:hover {
@@ -181,68 +204,64 @@
 }
 
 /* ============================================================================
-   MONTH VIEW RIGHT PANEL & FILTERS
+   MONTH VIEW RIGHT PANEL - ENHANCED LAYOUT
    ============================================================================ */
 
-/* Month Right Panel Container - Enhanced width */
-.month-view-wrapper .month-right-panel {
-  width: 450px; /* Increased from 350px */
-  min-width: 450px; /* Ensure it doesn't shrink */
+/* Month Right Panel Container - Fixed width but flexible within wrapper */
+.month-right-panel {
+  width: 500px; /* Keep fixed width for consistent layout */
+  min-width: 500px;
+  max-width: 500px; /* Prevent growing beyond intended size */
   height: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--white);
   border-left: 1px solid var(--border-color);
   flex-shrink: 0;
-  
-  /* Ensure proper container behavior */
   box-sizing: border-box;
   overflow: hidden;
 }
 
-/* Month Filter Container - Improved layout */
-.month-view-wrapper .month-filter-container {
-  padding: 20px;
+/* Month Filter Container - Full width, horizontal layout */
+.month-filter-container {
+  padding: 15px; /* Reduced padding for more space */
   background-color: var(--background-light);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  max-height: 200px; /* Reduced to give more space to events */
-  overflow-y: auto;
   display: flex;
-  gap: 20px; /* Increased gap for better spacing */
-  
-  /* Ensure full width coverage */
+  gap: 15px; /* Space between filters */
   width: 100%;
   box-sizing: border-box;
+  
+  /* Ensure filters use full width */
+  justify-content: stretch;
+}
+
+/* Filter Sections - Equal width, no wasted space */
+.month-filter-container .filter-section {
+  flex: 1; /* Each filter takes equal space */
   margin: 0;
+  min-width: 0; /* Allow shrinking if needed */
+  display: flex;
+  flex-direction: column;
 }
 
-/* Filter Sections */
-.month-view-wrapper .month-filter-container .filter-section {
-  margin-bottom: 0;
-  flex: 1;
-  min-width: 180px; /* Ensure adequate width */
-}
-
-.month-view-wrapper .month-filter-container .filter-section:last-child {
-  margin-bottom: 0;
-}
-
-.month-view-wrapper .month-filter-container .filter-section h3 {
+.month-filter-container .filter-section h3 {
   margin: 0 0 8px 0;
   color: var(--primary-color);
   font-size: 14px;
   font-weight: 600;
+  text-align: center; /* Center the labels */
 }
 
-/* Month Filter Select Dropdown */
-.month-view-wrapper .month-filter-container .month-filter-select {
+/* Month Filter Select Dropdown - Full width of section */
+.month-filter-container .month-filter-select {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border-color);
   border-radius: 4px;
   background-color: white;
-  font-size: 14px;
+  font-size: 13px; /* Slightly smaller to fit better */
   font-family: inherit;
   cursor: pointer;
   transition: var(--transition-normal);
@@ -251,25 +270,25 @@
   -moz-appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 12px center;
-  padding-right: 35px;
-  margin-bottom: 0;
+  background-position: right 8px center;
+  padding-right: 28px;
+  box-sizing: border-box;
 }
 
-.month-view-wrapper .month-filter-container .month-filter-select:hover {
+.month-filter-container .month-filter-select:hover {
   border-color: var(--primary-color);
   background-color: var(--hover-light);
 }
 
-.month-view-wrapper .month-filter-container .month-filter-select:focus {
+.month-filter-container .month-filter-select:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
   background-color: white;
 }
 
-/* Day Event Panel Integration - Enhanced spacing */
-.month-view-wrapper .month-right-panel .day-event-panel {
+/* Day Event Panel - Takes remaining space */
+.month-right-panel .day-event-panel {
   flex: 1;
   width: 100%;
   height: auto;
@@ -278,22 +297,42 @@
   flex-direction: column;
   overflow: hidden;
   border: none;
-  padding: 0 5px; /* Better content spacing */
+  padding: 0 5px;
+}
+
+.toggle-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.toggle-btn {
+  padding: 4px 12px;
+  border: 1px solid #ccc;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.toggle-btn:hover {
+  background: #f5f5f5;
 }
 
 /* ============================================================================
-   MONTH VIEW RESPONSIVE DESIGN
+   RESPONSIVE DESIGN
    ============================================================================ */
 
 /* Large Screens (1200px+) */
 @media (max-width: 1200px) {
-  .month-view-wrapper .month-right-panel {
-    width: 400px;
-    min-width: 400px;
+  .month-right-panel {
+    width: 450px;
+    min-width: 450px;
   }
   
-  .month-view-wrapper .month-view-container {
-    max-width: 60%;
+  .month-view-container {
+    max-width: 55%;
     min-width: 350px;
   }
 }
@@ -304,7 +343,7 @@
     flex-direction: column;
   }
   
-  .month-view-wrapper .month-view-container {
+  .month-view-container {
     max-width: none;
     min-width: none;
     border-right: 1px solid var(--border-color);
@@ -313,7 +352,7 @@
     border-bottom-left-radius: 0;
   }
   
-  .month-view-wrapper .month-right-panel {
+  .month-right-panel {
     width: 100%;
     min-width: none;
     height: 400px;
@@ -322,37 +361,33 @@
     border-radius: 0 0 4px 4px;
   }
   
-  .month-view-wrapper .month-filter-container {
-    padding: 16px;
-    max-height: 150px;
-    gap: 15px;
+  .month-filter-container {
+    padding: 12px;
+    gap: 12px;
   }
 }
 
 /* Small Screens (768px - 991px) */
 @media (max-width: 968px) {
-  .month-view-wrapper .month-filter-container {
+  .month-filter-container {
     flex-direction: column;
-    gap: 12px;
-    max-height: 180px;
+    gap: 10px;
   }
   
-  .month-view-wrapper .month-filter-container .filter-section {
-    min-width: none;
+  .month-filter-container .filter-section {
+    flex: none;
   }
 }
 
 /* Extra Small Screens (up to 767px) */
 @media (max-width: 768px) {
-  .month-view-wrapper .month-right-panel {
+  .month-right-panel {
     height: 350px;
   }
   
-  .month-view-wrapper .month-filter-container {
-    padding: 12px 16px;
-    max-height: none;
-    flex-direction: column;
-    gap: 10px;
+  .month-filter-container {
+    padding: 10px;
+    gap: 8px;
   }
   
   .week-row {

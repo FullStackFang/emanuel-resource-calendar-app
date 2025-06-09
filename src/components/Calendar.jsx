@@ -3014,11 +3014,19 @@
                         allEvents={allEvents}
                         userTimeZone={userTimeZone}
                         handleMonthFilterChange={handleMonthFilterChange}
-                        selectedCategoryFilter={selectedCategoryFilter}
-                        selectedLocationFilter={selectedLocationFilter}
-                        handleCategoryFilterChange={handleCategoryFilterChange}
-                        handleLocationFilterChange={handleLocationFilterChange}
+                        
+                        // ADD THESE MISSING PROPS FOR UNIFIED FILTER STATE:
+                        selectedCategories={selectedCategories}
+                        selectedLocations={selectedLocations}
+                        setSelectedCategories={setSelectedCategories}
+                        setSelectedLocations={setSelectedLocations}
+                        updateUserProfilePreferences={updateUserProfilePreferences}
+                        
                         dynamicCategories={dynamicCategories}
+                        isEventVirtual={isEventVirtual}
+                        isUnspecifiedLocation={isUnspecifiedLocation}
+                        hasPhysicalLocation={hasPhysicalLocation}
+                        isVirtualLocation={isVirtualLocation}
                       />
                     </div>
                   </div>

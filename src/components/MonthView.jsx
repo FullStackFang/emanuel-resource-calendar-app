@@ -1,5 +1,6 @@
 import React, { memo, useState, useCallback } from 'react';
 import DayEventPanel from './DayEventPanel';
+import MultiSelect from './MultiSelect';
 import './MonthView.css';
 
 const MonthView = memo(({ 
@@ -21,16 +22,121 @@ const MonthView = memo(({
   allEvents,
   userTimeZone,
   handleMonthFilterChange,
-  selectedCategoryFilter,
-  selectedLocationFilter,
-  handleCategoryFilterChange,
-  handleLocationFilterChange
+  // UNIFIED: Use same filter state as Day/Week views
+  selectedCategories,           // Instead of selectedCategoryFilter
+  selectedLocations,            // Instead of selectedLocationFilter
+  setSelectedCategories,        // Instead of handleCategoryFilterChange
+  setSelectedLocations,         // Instead of handleLocationFilterChange
+  dynamicCategories,
+  dynamicLocations,
+  // Helper functions from Calendar.jsx
+  isEventVirtual,
+  isUnspecifiedLocation,
+  hasPhysicalLocation,
+  isVirtualLocation,
+  updateUserProfilePreferences  // For saving preferences
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
   }, []);
+
+  // Step 5: Get categories/locations that exist in current MONTH (not just specific days)
+  const getAvailableCategoriesInRange = useCallback(() => {
+    const categoriesInRange = new Set();
+    
+    // Get the current month and year from dateRange
+    const currentYear = getMonthWeeks()[0][0].date.getFullYear();
+    const currentMonth = getMonthWeeks()[0][0].date.getMonth();
+    
+    allEvents.forEach(event => {
+      // Parse event date
+      const eventDate = new Date(event.start.dateTime);
+      const eventYear = eventDate.getFullYear();
+      const eventMonth = eventDate.getMonth();
+      
+      // Check if event is in the current month (regardless of which days are visible)
+      if (eventYear === currentYear && eventMonth === currentMonth) {
+        const category = event.category || 'Uncategorized';
+        categoriesInRange.add(category);
+      }
+    });
+    
+    return Array.from(categoriesInRange).sort();
+  }, [allEvents, getMonthWeeks]);
+
+  const getAvailableLocationsInRange = useCallback(() => {
+    const locationsInRange = new Set();
+    
+    // Get the current month and year from dateRange
+    const currentYear = getMonthWeeks()[0][0].date.getFullYear();
+    const currentMonth = getMonthWeeks()[0][0].date.getMonth();
+    
+    allEvents.forEach(event => {
+      // Parse event date
+      const eventDate = new Date(event.start.dateTime);
+      const eventYear = eventDate.getFullYear();
+      const eventMonth = eventDate.getMonth();
+      
+      // Check if event is in the current month (regardless of which days are visible)
+      if (eventYear === currentYear && eventMonth === currentMonth) {
+        // Use the helper functions from Calendar.jsx instead of manual string checking
+        if (isUnspecifiedLocation(event)) {
+          locationsInRange.add('Unspecified');
+        } else if (isEventVirtual(event)) {
+          locationsInRange.add('Virtual');
+        } else {
+          // Handle physical locations - get the first physical location
+          const locationText = event.location?.displayName?.trim() || '';
+          const eventLocations = locationText
+            .split(/[;,]/)
+            .map(loc => loc.trim())
+            .filter(loc => loc.length > 0);
+          
+          // Find first non-virtual location
+          for (const location of eventLocations) {
+            if (!isVirtualLocation(location)) {
+              locationsInRange.add(location);
+              break; // Only add the first physical location
+            }
+          }
+        }
+      }
+    });
+    
+    return Array.from(locationsInRange).sort((a, b) => {
+      // Sort with Virtual first, then Unspecified last
+      if (a === 'Virtual' && b !== 'Virtual') return -1;
+      if (b === 'Virtual' && a !== 'Virtual') return 1;
+      if (a === 'Unspecified' && b !== 'Unspecified') return 1;
+      if (b === 'Unspecified' && a !== 'Unspecified') return -1;
+      return a.localeCompare(b);
+    });
+  }, [allEvents, getMonthWeeks, isEventVirtual, isUnspecifiedLocation, isVirtualLocation]);
+
+  // Step 6: Use unified filter state - same as Day/Week views
+  const handleCategoryToggleAll = useCallback(() => {
+    const availableCategories = getAvailableCategoriesInRange();
+    setSelectedCategories(availableCategories);
+    updateUserProfilePreferences({ selectedCategories: availableCategories });
+  }, [setSelectedCategories, getAvailableCategoriesInRange, updateUserProfilePreferences]);
+
+  const handleCategoryToggleNone = useCallback(() => {
+    setSelectedCategories([]);
+    updateUserProfilePreferences({ selectedCategories: [] });
+  }, [setSelectedCategories, updateUserProfilePreferences]);
+
+  const handleLocationToggleAll = useCallback(() => {
+    const availableLocations = getAvailableLocationsInRange();
+    setSelectedLocations(availableLocations);
+    updateUserProfilePreferences({ selectedLocations: availableLocations });
+  }, [setSelectedLocations, getAvailableLocationsInRange, updateUserProfilePreferences]);
+
+  const handleLocationToggleNone = useCallback(() => {
+    setSelectedLocations([]);
+    updateUserProfilePreferences({ selectedLocations: [] });
+  }, [setSelectedLocations, updateUserProfilePreferences]);
 
   const getEventsForSelectedDay = useCallback(() => {
     if (!selectedDay) return [];
@@ -47,40 +153,64 @@ const MonthView = memo(({
         return false;
       }
       
+      // UNIFIED: Use same filter logic as Day/Week views
       // Check category filter
-      if (selectedCategoryFilter) {
-        if (selectedCategoryFilter === 'Other Categories') {
+      if (selectedCategories.length === 0) {
+        return false; // No categories selected = show no events
+      }
+      
+      let categoryMatch = false;
+      const eventCategory = event.category || 'Uncategorized';
+      
+      for (const filterCategory of selectedCategories) {
+        if (filterCategory === 'Other Categories') {
           if (!event.category || event.category.trim() === '' || event.category === 'Uncategorized') {
-            return false;
+            continue;
           }
           if (outlookCategories.some(cat => cat.name === event.category)) {
-            return false;
+            continue;
           }
-        } else if (event.category !== selectedCategoryFilter) {
-          return false;
+          categoryMatch = true;
+          break;
+        } else if (eventCategory === filterCategory) {
+          categoryMatch = true;
+          break;
         }
+      }
+      
+      if (!categoryMatch) {
+        return false;
       }
       
       // Check location filter
-      if (selectedLocationFilter) {
-        const eventLocations = event.location?.displayName 
-          ? event.location.displayName.split('; ').map(loc => loc.trim())
-          : [];
-        
-        if (selectedLocationFilter === 'Unspecified') {
-          if (eventLocations.length > 0 && eventLocations.some(loc => loc !== '')) {
-            return false;
+      if (selectedLocations.length === 0) {
+        return false; // No locations selected = show no events
+      }
+      
+      let locationMatch = false;
+      
+      for (const filterLocation of selectedLocations) {
+        if (filterLocation === 'Unspecified') {
+          if (isUnspecifiedLocation(event)) {
+            locationMatch = true;
+            break;
+          }
+        } else if (filterLocation === 'Virtual') {
+          if (isEventVirtual(event)) {
+            locationMatch = true;
+            break;
           }
         } else {
-          if (!eventLocations.includes(selectedLocationFilter)) {
-            return false;
+          if (hasPhysicalLocation(event, filterLocation)) {
+            locationMatch = true;
+            break;
           }
         }
       }
       
-      return true;
+      return locationMatch;
     });
-  }, [selectedDay, allEvents, selectedCategoryFilter, selectedLocationFilter, outlookCategories]);
+  }, [selectedDay, allEvents, outlookCategories, hasPhysicalLocation, isEventVirtual, isUnspecifiedLocation, selectedCategories, selectedLocations]);
 
   return (
     <div className="month-view-wrapper">
@@ -112,43 +242,66 @@ const MonthView = memo(({
                     {/* Events for this day */}
                     <div className="day-events">
                       {(() => {
-                        // Count events for this day based on both filters
+                        // UNIFIED: Use same filter logic as Day/Week views
                         const dayEvents = allEvents.filter(event => {
                           // First check if event is on this day
                           if (!getMonthDayEventPosition(event, day.date)) return false;
                           
                           // Check category filter
-                          if (selectedCategoryFilter) {
-                            if (selectedCategoryFilter === 'Other Categories') {
+                          if (selectedCategories.length === 0) {
+                            return false; // No categories selected = show no events
+                          }
+                          
+                          let categoryMatch = false;
+                          const eventCategory = event.category || 'Uncategorized';
+                          
+                          for (const filterCategory of selectedCategories) {
+                            if (filterCategory === 'Other Categories') {
                               if (!event.category || event.category.trim() === '' || event.category === 'Uncategorized') {
-                                return false;
+                                continue;
                               }
                               if (outlookCategories.some(cat => cat.name === event.category)) {
-                                return false;
+                                continue;
                               }
-                            } else if (event.category !== selectedCategoryFilter) {
-                              return false;
+                              categoryMatch = true;
+                              break;
+                            } else if (eventCategory === filterCategory) {
+                              categoryMatch = true;
+                              break;
                             }
+                          }
+                          
+                          if (!categoryMatch) {
+                            return false;
                           }
                           
                           // Check location filter
-                          if (selectedLocationFilter) {
-                            const eventLocations = event.location?.displayName 
-                              ? event.location.displayName.split('; ').map(loc => loc.trim())
-                              : [];
-                            
-                            if (selectedLocationFilter === 'Unspecified') {
-                              if (eventLocations.length > 0 && eventLocations.some(loc => loc !== '')) {
-                                return false;
+                          if (selectedLocations.length === 0) {
+                            return false; // No locations selected = show no events
+                          }
+                          
+                          let locationMatch = false;
+                          
+                          for (const filterLocation of selectedLocations) {
+                            if (filterLocation === 'Unspecified') {
+                              if (isUnspecifiedLocation(event)) {
+                                locationMatch = true;
+                                break;
+                              }
+                            } else if (filterLocation === 'Virtual') {
+                              if (isEventVirtual(event)) {
+                                locationMatch = true;
+                                break;
                               }
                             } else {
-                              if (!eventLocations.includes(selectedLocationFilter)) {
-                                return false;
+                              if (hasPhysicalLocation(event, filterLocation)) {
+                                locationMatch = true;
+                                break;
                               }
                             }
                           }
                           
-                          return true;
+                          return locationMatch;
                         });
 
                         // Show event count circle if there are any events
@@ -185,38 +338,128 @@ const MonthView = memo(({
         <div className="month-filter-container">
           <div className="filter-section">
             <h3>Filter by Category</h3>
+            
+            {/* NEW: Toggle buttons for Category */}
+            <div className="toggle-buttons">
+              <button 
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--primary-color)',
+                  border: '1px solid var(--primary-color)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease 0s',
+                  flex: '1 1 0%',
+                  whiteSpace: 'nowrap',
+                  fontSize: '13px'
+                }}
+                onClick={handleCategoryToggleAll}
+              >
+                All
+              </button>
+              <button 
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--primary-color)',
+                  border: '1px solid var(--primary-color)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease 0s',
+                  flex: '1 1 0%',
+                  whiteSpace: 'nowrap',
+                  fontSize: '13px'
+                }}
+                onClick={handleCategoryToggleNone}
+              >
+                None
+              </button>
+            </div>
+            
             <select 
-              value={selectedCategoryFilter || ''}
-              onChange={(e) => handleCategoryFilterChange(e.target.value)}
+              value=""
+              onChange={() => {}}
               className="month-filter-select"
-            >
-              <option value="">All Categories</option>
-              {outlookCategories.length > 0 ? (
-                <>
-                  <option value="Uncategorized">Uncategorized</option>
-                  {outlookCategories.map(cat => cat.name).filter(name => name !== 'Uncategorized').map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                  <option value="Other Categories">Other Categories</option>
-                </>
-              ) : (
-                <option value="Uncategorized">Uncategorized</option>
-              )}
-            </select>
+              style={{ display: 'none' }} // Hide the old dropdown - kept for backward compatibility
+            ></select>
+            
+            {/* NEW: MultiSelect for categories */}
+            <MultiSelect 
+              options={getAvailableCategoriesInRange()}
+              selected={selectedCategories}
+              onChange={(val) => {
+                setSelectedCategories(val);
+                updateUserProfilePreferences({ selectedCategories: val });
+              }}
+              label="Filter by categories"
+              dropdownDirection="up"
+              maxHeight={200}
+              usePortal={true}
+            />
           </div>
           
           <div className="filter-section">
             <h3>Filter by Location</h3>
+            
+            {/* NEW: Toggle buttons for Location */}
+            <div className="toggle-buttons">
+              <button 
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--primary-color)',
+                  border: '1px solid var(--primary-color)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease 0s',
+                  flex: '1 1 0%',
+                  whiteSpace: 'nowrap',
+                  fontSize: '13px'
+                }}
+                onClick={handleLocationToggleAll}
+              >
+                All
+              </button>
+              <button 
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--primary-color)',
+                  border: '1px solid var(--primary-color)',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s ease 0s',
+                  flex: '1 1 0%',
+                  whiteSpace: 'nowrap',
+                  fontSize: '13px'
+                }}
+                onClick={handleLocationToggleNone}
+              >
+                None
+              </button>
+            </div>
+            
             <select 
-              value={selectedLocationFilter || ''}
-              onChange={(e) => handleLocationFilterChange(e.target.value)}
+              value=""
+              onChange={() => {}}
               className="month-filter-select"
-            >
-              <option value="">All Locations</option>
-              {availableLocations.map(loc => (
-                <option key={loc} value={loc}>{loc}</option>
-              ))}
-            </select>
+              style={{ display: 'none' }} // Hide the old dropdown - kept for backward compatibility
+            ></select>
+            
+            {/* NEW: MultiSelect for locations */}
+            <MultiSelect 
+              options={getAvailableLocationsInRange()}
+              selected={selectedLocations}
+              onChange={(val) => {
+                setSelectedLocations(val);
+                updateUserProfilePreferences({ selectedLocations: val });
+              }}
+              label="Filter by locations"
+              dropdownDirection="up"
+              maxHeight={200}
+              usePortal={true}
+            />
           </div>
         </div>
         
