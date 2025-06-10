@@ -4,6 +4,7 @@
   import Modal from './Modal';
   import EventForm from './EventForm';
   import MultiSelect from './MultiSelect';
+  import SimpleMultiSelect from './SimpleMultiSelect';
   import ExportToPdfButton from './CalendarExport';
   import EventSearch from './EventSearch';
   import MonthView from './MonthView';
@@ -17,6 +18,15 @@
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
+  import { useTimezone } from '../context/TimezoneContext';
+  import { 
+    TimezoneSelector, 
+    formatEventTime, 
+    formatDateHeader,
+    formatDateRangeForAPI,
+    calculateEndDate,
+    snapToStartOfWeek 
+  } from '../utils/timezoneUtils';
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -40,36 +50,6 @@
     'Virtual',
     'Microsoft Teams Meeting'
   ];
-
-  /**
-   * Calculate the end date based on the view type (day, week, month)
-   * @param {Date} startDate - The starting date
-   * @param {string} viewType - 'day', 'week', or 'month'
-   * @returns {Date} The calculated end date
-   */
-  function calculateEndDate(startDate, viewType) {
-    const endDate = new Date(startDate);
-    
-    switch(viewType) {
-      case 'day':
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'week':
-        endDate.setDate(startDate.getDate() + 6);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      case 'month':
-        endDate.setMonth(endDate.getMonth() + 1);
-        endDate.setDate(0);
-        endDate.setHours(23, 59, 59, 999);
-        break;
-      default:
-        endDate.setDate(startDate.getDate() + 6);
-        endDate.setHours(23, 59, 59, 999);
-    }
-    
-    return endDate;
-  }
 
   const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
     const handleDateChange = (date) => {
@@ -180,17 +160,39 @@
     const [selectedFilter, setSelectedFilter] = useState(''); 
     const [selectedCategories, setSelectedCategories] = useState([]);
     const [selectedLocations, setSelectedLocations] = useState([]);
-    const [dateRange, setDateRange] = useState({
-      start: new Date(),
-      end: calculateEndDate(new Date(), 'week')
-    });
-    
+
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const dateRange = useMemo(() => {
+      let start = new Date(currentDate);
+      let end;
+      
+      if (viewType === 'week') {
+        start = snapToStartOfWeek(currentDate);
+        end = calculateEndDate(start, 'week');
+      } else if (viewType === 'month') {
+        start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        end = calculateEndDate(start, 'month');
+      } else {
+        // day view
+        end = calculateEndDate(start, 'day');
+      }
+      
+      return { start, end };
+    }, [currentDate, viewType]);
+
     // Separate filters for month view
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('');
-    const [selectedLocationFilter, setSelectedLocationFilter] = useState('');
+    const [, setSelectedCategoryFilter] = useState('');
+    const [, setSelectedLocationFilter] = useState('');
 
     // Profile states
-    const [userTimeZone, setUserTimeZone] = useState('America/New_York');
+    const { userTimezone, setUserTimezone } = useTimezone();
+    const hasUserManuallyChangedTimezone = useRef(false);
+
+    console.log('Calendar timezone context:', { userTimezone, setUserTimezone });
+    useEffect(() => {
+      console.log('Calendar timezone changed to:', userTimezone);
+    }, [userTimezone]);
+
     const [, setUserProfile] = useState(null);
     const [userPermissions, setUserPermissions] = useState({
       startOfWeek: 'Monday',
@@ -464,25 +466,7 @@
       );
     };
 
-    /**
-     * Consistently format date range for API queries
-     * @param {Date} startDate - Range start date
-     * @param {Date} endDate - Range end date
-     * @returns {Object} Formatted start and end dates
-     */
-      const formatDateRangeForAPI = useCallback((startDate, endDate) => {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        
-        return {
-          start: start.toISOString(),
-          end: end.toISOString()
-        };
-      }, []);
-        
+            
       /**
        * TBD
        */
@@ -630,23 +614,34 @@
        */
       const getMonthDayEventPosition = useCallback((event, day) => {
         try {
-          // Create date objects from the event's start time
-          const eventDate = new Date(event.start.dateTime);
+          // Ensure proper UTC format
+          const utcDateString = event.start.dateTime.endsWith('Z') ? 
+            event.start.dateTime : `${event.start.dateTime}Z`;
+          const eventDateUTC = new Date(utcDateString);
           
-          // Make copies of both dates and reset to midnight for comparison
-          const eventDay = new Date(eventDate);
+          if (isNaN(eventDateUTC.getTime())) {
+            console.error('Invalid event date:', event.start.dateTime, event);
+            return false;
+          }
+          
+          // Convert to user timezone for comparison
+          const eventInUserTZ = new Date(eventDateUTC.toLocaleString('en-US', {
+            timeZone: userTimezone
+          }));
+          
+          // Reset to midnight for date comparison
+          const eventDay = new Date(eventInUserTZ);
           eventDay.setHours(0, 0, 0, 0);
           
           const compareDay = new Date(day);
           compareDay.setHours(0, 0, 0, 0);
           
-          // Compare the dates (ignoring time)
           return eventDay.getTime() === compareDay.getTime();
         } catch (err) {
-          console.error('Error comparing event date:', err, event);
+          console.error('Error comparing event date in month view:', err, event);
           return false;
         }
-      }, []);
+      }, [userTimezone]);
   
       /**
        * Check if an event occurs on a specific day
@@ -656,25 +651,35 @@
        */
       const getEventPosition = useCallback((event, day) => {
         try {
-          // Create date objects from the event's start time
+          // Ensure proper UTC format
           const utcDateString = event.start.dateTime.endsWith('Z') ? 
             event.start.dateTime : `${event.start.dateTime}Z`;
-          const eventDate = new Date(utcDateString);
+          const eventDateUTC = new Date(utcDateString);
           
-          // Convert to the same timezone for comparison
-          const eventDay = new Date(eventDate.toLocaleString('en-US', {timeZone: userTimeZone}));
+          if (isNaN(eventDateUTC.getTime())) {
+            console.error('Invalid event date:', event.start.dateTime, event);
+            return false;
+          }
+          
+          // Convert event time to user timezone for date comparison
+          const eventInUserTZ = new Date(eventDateUTC.toLocaleString('en-US', {
+            timeZone: userTimezone
+          }));
+          
+          // Reset time to midnight for date-only comparison
+          const eventDay = new Date(eventInUserTZ);
           eventDay.setHours(0, 0, 0, 0);
           
           const compareDay = new Date(day);
           compareDay.setHours(0, 0, 0, 0);
           
-          // Compare the dates (ignoring time)
+          // Compare dates in user timezone
           return eventDay.getTime() === compareDay.getTime();
         } catch (err) {
           console.error('Error comparing event date:', err, event);
           return false;
         }
-      }, [userTimeZone]);
+      }, [userTimezone]);
 
       
     //---------------------------------------------------------------------------
@@ -868,7 +873,7 @@
       } finally {
         setLoading(false);
       }
-    }, [isDemoMode, demoData, graphToken, apiToken, selectedCalendarId, schemaExtensions, dateRange, formatDateRangeForAPI]);
+    }, [isDemoMode, demoData, graphToken, apiToken, selectedCalendarId, schemaExtensions, dateRange]);
 
     
     /**
@@ -980,7 +985,7 @@
       } finally {
         setLoading(false);
       }
-    }, [graphToken, dateRange, selectedCalendarId, availableCalendars, apiToken, formatDateRangeForAPI, schemaExtensions]);
+    }, [graphToken, dateRange, selectedCalendarId, availableCalendars, apiToken, schemaExtensions]);
 
     /**
      * TBD
@@ -1041,7 +1046,7 @@
         console.error('Sync failed:', error);
         return { success: false, error: error.message };
       }
-    }, [graphToken, apiToken, selectedCalendarId, formatDateRangeForAPI, loadGraphEvents]);
+    }, [graphToken, apiToken, selectedCalendarId, loadGraphEvents]);
 
 
     /**
@@ -1482,68 +1487,28 @@
     }, []);
 
     /**
-     * Format time for event display
-     * @param {string} dateString - ISO date string
-     * @returns {string} Formatted time string
-     */
-    const formatEventTime = useCallback((dateString, eventSubject = 'Unknown') => {
-      if (!dateString) return '';
-      
-      try {
-        // Time formatting logic...
-        const utcDateString = dateString.endsWith('Z') ? dateString : `${dateString}Z`;
-        const date = new Date(utcDateString);
-        
-        return date.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-          timeZone: userTimeZone,
-        });
-      } catch (err) {
-        console.error(`Error formatting event time for "${eventSubject}":`, err);
-        return '';
-      }
-    }, [userTimeZone]);
-
-    /**
-    * Format date for display in the calendar header
-    * @param {Date} date - The date to format
-    * @returns {string} Formatted date string
-    */
-    const formatDateHeader = useCallback((date) => {
-      return date.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        month: 'numeric', 
-        day: 'numeric',
-        timeZone: userTimeZone
-      });
-    }, [userTimeZone]);
-
-    /**
      * TBD
      */
     const renderEventContent = useCallback((event, viewType) => {
       const styles = getEventContentStyle(viewType);
+           
       return (
         <>
           <div className="event-time" style={styles}>
-            {formatEventTime(event.start.dateTime, event.subject)}
-            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, event.subject)}`}
+            {formatEventTime(event.start.dateTime, userTimezone, event.subject)}
+            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, userTimezone, event.subject)}`}
           </div>
           
           <div className="event-title" style={styles}>
             {event.subject}
           </div>
           
-          {/* Only show location in day and week views */}
           {viewType !== 'month' && event.location?.displayName && (
             <div className="event-location" style={styles}>
               {event.location.displayName}
             </div>
           )}
           
-          {/* Only show extension properties in day view */}
           {viewType === 'day' && 
             Object.entries(event).filter(([key, value]) => 
               key !== 'id' && 
@@ -1553,6 +1518,10 @@
               key !== 'location' && 
               key !== 'category' &&
               key !== 'extensions' &&
+              key !== 'calendarId' && 
+              key !== 'organizer' && 
+              key !== 'body' &&
+              key !== 'isAllDay' &&
               value !== undefined &&
               value !== null &&
               value !== ''
@@ -1564,7 +1533,7 @@
           }
         </>
       );
-    }, [getEventContentStyle, formatEventTime]);
+    }, [getEventContentStyle, userTimezone]);
 
     //---------------------------------------------------------------------------
     // MEMOIZED VALUES - derived state
@@ -1679,14 +1648,6 @@
      * TBD
      */
     const filteredEvents = useMemo(() => {
-      console.log('Filtering events with:', { 
-        viewType,
-        groupBy, 
-        selectedCategories, 
-        selectedLocations,
-        allEventsCount: allEvents.length 
-      });
-      
       const filtered = allEvents.filter(event => {
         // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
         let categoryMatch = true;
@@ -1715,15 +1676,6 @@
           locationMatch = false;
           console.log('No locations selected - filtering out all events');
         } else {
-          // Locations are selected, check if event matches
-          console.log('Filtering event by location:', {
-            eventSubject: event.subject,
-            eventLocation: event.location?.displayName,
-            selectedLocations,
-            isVirtual: isEventVirtual(event),
-            isUnspecified: isUnspecifiedLocation(event)
-          });
-          
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
             locationMatch = selectedLocations.includes('Unspecified');
@@ -1741,9 +1693,7 @@
               .split(/[;,]/)
               .map(loc => loc.trim())
               .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
-            
-            console.log('Physical locations for event:', eventLocations);
-            
+                        
             if (eventLocations.length === 0) {
               console.log('No physical locations found, but event not marked as virtual - check logic');
               locationMatch = false;
@@ -1754,7 +1704,6 @@
               });
             }
             
-            console.log('Has matching physical location:', locationMatch);
           }
         }
 
@@ -1790,12 +1739,10 @@
       selectedCategories, 
       selectedLocations, 
       dynamicCategories,
-      groupBy,
       isUncategorizedEvent,
       isUnspecifiedLocation,
       isEventVirtual,
-      isVirtualLocation,
-      viewType
+      isVirtualLocation
     ]);
 
     /**
@@ -1975,50 +1922,13 @@
         return null;
       }
     }, [graphToken]);
-
-    /**
-     * TBD
-     */
-    const snapToStartOfWeek = useCallback((date) => {
-      const newDate = new Date(date);
-      const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
-      
-      // Determine how many days to go back
-      let daysToSubtract;
-      if (userPermissions.startOfWeek === 'Sunday') {
-        daysToSubtract = day; // If Sunday start, just subtract the current day
-      } else {
-        // For Monday start, subtract (day - 1), unless it's Sunday (0) then subtract 6
-        daysToSubtract = day === 0 ? 6 : day - 1;
-      }
-      
-      newDate.setDate(newDate.getDate() - daysToSubtract);
-      return newDate;
-    },[userPermissions.startOfWeek]);
     
     //---------------------------------------------------------------------------
     // EVENT HANDLERS
     //---------------------------------------------------------------------------
     const handleDatePickerChange = useCallback((selectedDate) => {
-      let newStart;
-      
-      if (viewType === 'week') {
-        // For week view, snap to start of the week containing the selected date
-        newStart = snapToStartOfWeek(selectedDate);
-      } else if (viewType === 'month') {
-        // For month view, go to first day of the selected month
-        newStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-      } else {
-        // For day view, use the exact selected date
-        newStart = new Date(selectedDate);
-      }
-      
-      const newEnd = calculateEndDate(newStart, viewType);
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    }, [viewType, snapToStartOfWeek]);
+      setCurrentDate(new Date(selectedDate));
+    }, []);
 
     const handleEventSelect = (event, viewOnly = false) => {
       // Close the search panel
@@ -2096,18 +2006,11 @@
      * Handle changing the calendar view type (day/week/month)
      * @param {string} newView - The new view type
      */
-    // 
     const handleViewChange = useCallback((newView) => {
-      const newEnd = calculateEndDate(dateRange.start, newView);
-      const formattedRange = formatDateRangeForAPI(dateRange.start, newEnd);
-      console.log(`View changed to ${newView}, date range: ${formattedRange.start} - ${formattedRange.end}`);
-      
+      console.log(`View changed to ${newView}`);
       setViewType(newView);
-      setDateRange({
-        start: dateRange.start,
-        end: newEnd
-      });
-    }, [dateRange.start, formatDateRangeForAPI]);
+      // currentDate stays the same, dateRange will recalculate via useMemo
+    }, []);
 
     /**
      * Handle viewing an event in the calendar
@@ -2132,76 +2035,50 @@
      * Navigate to today
      */
     const handleToday = useCallback(() => {
-      let newStart;
-      
-      if (viewType === 'week') {
-        // For week view, snap to start of the week based on preference
-        newStart = snapToStartOfWeek(new Date());
-      } else {
-        newStart = new Date();
-      }
-      
-      const newEnd = calculateEndDate(newStart, viewType);
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    },[viewType,snapToStartOfWeek]);
+      setCurrentDate(new Date());
+    }, []);
 
     /**
      * Navigate to the next time period
      */
     const handleNext = useCallback(() => {
-      let newStart = new Date(dateRange.start);
+      let newDate = new Date(currentDate);
       
       switch(viewType) {
         case 'day':
-          newStart.setDate(newStart.getDate() + 1);
+          newDate.setDate(newDate.getDate() + 1);
           break;
         case 'week':
-          newStart.setDate(newStart.getDate() + 7);
+          newDate.setDate(newDate.getDate() + 7);
           break;
         case 'month':
-          newStart.setMonth(newStart.getMonth() + 1);
-          newStart.setDate(1);
+          newDate.setMonth(newDate.getMonth() + 1);
           break;
       }
       
-      let newEnd = calculateEndDate(newStart, viewType);
-
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    },[viewType,dateRange.start]);
+      setCurrentDate(newDate);
+    }, [viewType, currentDate]);
 
     /**
      * Navigate to the previous time period
      */
     const handlePrevious = useCallback(() => {
-      let newStart = new Date(dateRange.start);
+      let newDate = new Date(currentDate);
       
       switch(viewType) {
         case 'day':
-          newStart.setDate(newStart.getDate() - 1);
+          newDate.setDate(newDate.getDate() - 1);
           break;
         case 'week':
-          newStart.setDate(newStart.getDate() - 7);
+          newDate.setDate(newDate.getDate() - 7);
           break;
         case 'month':
-          newStart.setMonth(newStart.getMonth() - 1);
-          newStart.setDate(1);
+          newDate.setMonth(newDate.getMonth() - 1);
           break;
       }
       
-      let newEnd = calculateEndDate(newStart, viewType);
-      
-      // Keep using Date objects in state, not strings
-      setDateRange({
-        start: newStart,
-        end: newEnd
-      });
-    }, [viewType, dateRange.start]);
+      setCurrentDate(newDate);
+    }, [viewType, currentDate]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       if(!userPermissions.createEvents) {
@@ -2561,19 +2438,21 @@
       }
     }, [apiToken]);
 
+    const dateRangeString = useMemo(() => 
+      `${dateRange.start.toISOString()}-${dateRange.end.toISOString()}`, 
+      [dateRange.start, dateRange.end]
+    );
+
     useEffect(() => {
-      // This will run whenever dateRange changes
       if (graphToken && !initializing) {
         console.log("Date range changed, loading events for:", {
           start: dateRange.start.toISOString(),
           end: dateRange.end.toISOString()
         });
         
-        // Call the existing loadGraphEvents function
         loadEvents();
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dateRange, graphToken, initializing]);
+    }, [dateRangeString, graphToken, dateRange.end, dateRange.start, initializing, loadEvents]);
 
     useEffect(() => {
       if (selectedCalendarId && !initializing && graphToken && !changingCalendar) {
@@ -2587,11 +2466,15 @@
 
     // Set user time zone from user permissions
     useEffect(() => {
-      if (userPermissions.preferredTimeZone && userPermissions.preferredTimeZone !== userTimeZone) {
-        console.log("Setting userTimeZone from userPermissions:", userPermissions.preferredTimeZone);
-        setUserTimeZone(userPermissions.preferredTimeZone);
-      }
-    }, [userPermissions.preferredTimeZone, userTimeZone]);
+    // Only set timezone from user permissions if we haven't set one yet
+    // and if the user permissions actually have a timezone preference
+    if (userPermissions.preferredTimeZone && 
+        userPermissions.preferredTimeZone !== userTimezone &&
+        !hasUserManuallyChangedTimezone.current) {
+      console.log("Setting initial timezone from userPermissions:", userPermissions.preferredTimeZone);
+      setUserTimezone(userPermissions.preferredTimeZone);
+    }
+  }, [userPermissions.preferredTimeZone]); 
 
     // Update selected locations when dynamic locations change
     useEffect(() => {
@@ -2611,36 +2494,7 @@
       }
     }, [dynamicCategories]);
 
-    // Initialize date range for month view
-    useEffect(() => {
-      if (viewType === 'month') {
-        // Reset date to first day of month
-        const firstDayOfMonth = new Date(dateRange.start);
-        firstDayOfMonth.setDate(1);
-        
-        const endOfMonth = calculateEndDate(firstDayOfMonth, 'month');
-        
-        setDateRange({
-          start: firstDayOfMonth,
-          end: endOfMonth
-        });
-      }
-    }, [viewType]);
-
-    useEffect(() => {
-      if (viewType === 'week') {
-        const weekStart = snapToStartOfWeek(dateRange.start);
-        const weekEnd = calculateEndDate(weekStart, 'week');
-        
-        // Only update if it's different to avoid infinite loop
-        if (weekStart.getDate() !== dateRange.start.getDate()) {
-          setDateRange({
-            start: weekStart,
-            end: weekEnd
-          });
-        }
-      }
-    }, [viewType, userPermissions.startOfWeek, dateRange.start, snapToStartOfWeek]);
+    
 
     // Initialize filter for month view
     useEffect(() => {
@@ -2778,29 +2632,22 @@
             </div>
     
             <div className="selector-group" style={{ display: 'flex', gap: '2px' }}>
+
+
               <div className="time-zone-selector">
-                <select
-                  key={`timezone-select-${userTimeZone}`}
-                  value={userTimeZone}
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    setUserTimeZone(newValue);
-                    setUserPermissions(prev => ({
-                      ...prev,
-                      preferredTimeZone: newValue
-                    }));
-                    updateUserProfilePreferences({ preferredTimeZone: newValue });
+                <TimezoneSelector
+                  value={userTimezone}
+                  onChange={(newTz) => {
+                    console.log('Timezone dropdown changed to:', newTz);
+                    hasUserManuallyChangedTimezone.current = true; 
+                    setUserTimezone(newTz);
                   }}
-                >
-                  <option value="America/New_York">Eastern Time</option>
-                  <option value="America/Chicago">Central Time</option>
-                  <option value="America/Denver">Mountain Time</option>
-                  <option value="America/Los_Angeles">Pacific Time</option>
-                  <option value="UTC">UTC</option>
-                </select>
+                  showLabel={false}
+                  className="timezone-select"
+                />
               </div>
               
-              {/* Week Start Selector - NEW */}
+              {/* Week Start Selector */}
               <div className="week-start-selector">
                 <select
                   value={userPermissions.startOfWeek}
@@ -2884,9 +2731,8 @@
               <button onClick={handlePrevious}>Previous</button>
               <button onClick={handleToday}>Today</button>
               
-              {/* NEW: Add the date picker between Today and Next */}
               <DatePickerButton 
-                currentDate={dateRange.start}
+                currentDate={currentDate}
                 onDateChange={handleDatePickerChange}
                 viewType={viewType}
               />
@@ -2896,9 +2742,9 @@
             
             <div className="current-range">
               {viewType === 'day' 
-                ? dateRange.start.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                ? currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
                 : viewType === 'month'
-                  ? dateRange.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
+                  ? currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
                   : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
               }
             </div>
@@ -2986,16 +2832,12 @@
                         getFilteredMonthEvents={getFilteredMonthEvents}
                         getMonthDayEventPosition={getMonthDayEventPosition}
                         allEvents={allEvents}
-                        userTimeZone={userTimeZone}
                         handleMonthFilterChange={handleMonthFilterChange}
-                        
-                        // ADD THESE MISSING PROPS FOR UNIFIED FILTER STATE:
                         selectedCategories={selectedCategories}
                         selectedLocations={selectedLocations}
                         setSelectedCategories={setSelectedCategories}
                         setSelectedLocations={setSelectedLocations}
                         updateUserProfilePreferences={updateUserProfilePreferences}
-                        
                         dynamicCategories={dynamicCategories}
                         isEventVirtual={isEventVirtual}
                         isUnspecifiedLocation={isUnspecifiedLocation}
@@ -3037,6 +2879,10 @@
                         isUnspecifiedLocation={isUnspecifiedLocation}
                         hasPhysicalLocation={hasPhysicalLocation}
                         isVirtualLocation={isVirtualLocation}
+                        // ADD THESE NEW PROPS:
+                        setSelectedCategories={setSelectedCategories}
+                        setSelectedLocations={setSelectedLocations}
+                        updateUserProfilePreferences={updateUserProfilePreferences}
                       />
                     ) : (
                       <DayView
@@ -3062,157 +2908,86 @@
                         isUnspecifiedLocation={isUnspecifiedLocation}
                         hasPhysicalLocation={hasPhysicalLocation}
                         isVirtualLocation={isVirtualLocation}
+                        // ADD THESE NEW PROPS:
+                        setSelectedCategories={setSelectedCategories}
+                        setSelectedLocations={setSelectedLocations}
+                        updateUserProfilePreferences={updateUserProfilePreferences}
                       />
                     )}
                   </div>
                 )}
               </div>
-    
+
               {/* Right sidebar for filters */}
               {viewType !== 'month' && (
                 <div className="calendar-right-sidebar">
-                  {/* CATEGORIES FILTER SECTION */}
-                  <div className="filter-section">
-                    <h3>Categories</h3>
-                    {/* Selection controls */}
-                    <div className="selection-controls" style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: '10px',
-                      gap: '10px'
-                    }}>
-                      <button 
-                        onClick={() => {
-                          setSelectedCategories(dynamicCategories);
-                          updateUserProfilePreferences({ selectedCategories: dynamicCategories });
-                        }}
-                        style={{
-                          padding: '6px 12px',
-                          backgroundColor: 'var(--white)',
-                          color: 'var(--primary-color)',
-                          border: '1px solid var(--primary-color)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.2s',
-                          flex: '1',
-                          whiteSpace: 'nowrap',
-                          fontSize: '13px'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        All
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setSelectedCategories([]);
-                          updateUserProfilePreferences({ selectedCategories: [] });
-                        }}
-                        style={{
-                          padding: '6px 12px',
-                          backgroundColor: 'var(--white)',
-                          color: 'var(--primary-color)',
-                          border: '1px solid var(--primary-color)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.2s',
-                          flex: '1',
-                          whiteSpace: 'nowrap',
-                          fontSize: '13px'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        None
-                      </button>
-                    </div>
-                    <MultiSelect 
-                      options={dynamicCategories}
-                      selected={selectedCategories}
-                      onChange={val => {
+                  {/* FILTERS CONTAINER - Side by side layout */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '15px',
+                    marginBottom: '20px',
+                    width: '100%',
+                    boxSizing: 'border-box'
+                  }}>
+                    {/* CATEGORIES FILTER SECTION */}
+                    <div className="filter-section" style={{ flex: 1, margin: 0 }}>
+                      <h3 style={{ 
+                        margin: '0 0 8px 0',
+                        color: 'var(--primary-color)',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        textAlign: 'center'
+                      }}>Categories</h3>
+                      <SimpleMultiSelect 
+                        options={dynamicCategories}
+                        selected={selectedCategories}
+                        onChange={val => {
                           setSelectedCategories(val);
                           updateUserProfilePreferences({ selectedCategories: val });
-                        }
-                      }
-                      label="Filter by categories"
-                      dropdownDirection='up'
-                      maxHeight={200}
-                      usePortal={true}
-                    />
+                        }}
+                        label="categories"
+                        maxHeight={200}
+                      />
+                    </div>
+
+                    {/* LOCATIONS FILTER SECTION */}
+                    <div className="filter-section" style={{ flex: 1, margin: 0 }}>
+                      <h3 style={{ 
+                        margin: '0 0 8px 0',
+                        color: 'var(--primary-color)',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        textAlign: 'center'
+                      }}>Locations</h3>
+                      <SimpleMultiSelect 
+                        options={dynamicLocations}
+                        selected={selectedLocations}
+                        onChange={val => {
+                          setSelectedLocations(val);
+                          updateUserProfilePreferences({ selectedLocations: val });
+                        }}
+                        label="locations"
+                        maxHeight={200}
+                      />
+                    </div>
                   </div>
 
-                  {/* LOCATIONS FILTER SECTION */}
-                  <div className="filter-section" style={{ marginTop: '30px' }}>
-                    <h3>Locations</h3>
-                    {/* Selection controls */}
-                    <div className="selection-controls" style={{ 
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: '10px',
-                      gap: '10px'
-                    }}>
-                      <button 
-                        onClick={() => {
-                          setSelectedLocations(dynamicLocations);
-                          updateUserProfilePreferences({ selectedLocations: dynamicLocations });
-                        }}
-                        style={{ 
-                          padding: '6px 12px',
-                          backgroundColor: 'var(--white)',
-                          color: 'var(--primary-color)',
-                          border: '1px solid var(--primary-color)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.2s',
-                          flex: '1',
-                          whiteSpace: 'nowrap',
-                          fontSize: '13px'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        All
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setSelectedLocations([]);
-                          updateUserProfilePreferences({ selectedLocations: [] });
-                        }}
-                        style={{ 
-                          padding: '6px 12px',
-                          backgroundColor: 'var(--white)',
-                          color: 'var(--primary-color)',
-                          border: '1px solid var(--primary-color)',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.2s',
-                          flex: '1',
-                          whiteSpace: 'nowrap',
-                          fontSize: '13px'
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0f0f0'}
-                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                      >
-                        None
-                      </button>
-                    </div>
-                    <MultiSelect 
-                      options={dynamicLocations}
-                      selected={selectedLocations}
-                      onChange={val => {
-                        setSelectedLocations(val);
-                        updateUserProfilePreferences({ selectedLocations: val });
-                      }}
-                      label="Filter by locations"
-                      dropdownDirection="up"
-                      maxHeight={200}
-                      usePortal={true}
-                    />
+                  {/* FILTER STATUS SECTION */}
+                  <div style={{
+                    background: '#e3f2fd',
+                    border: '1px solid #2196f3',
+                    borderRadius: '4px',
+                    padding: '12px',
+                    marginBottom: '20px',
+                    fontSize: '13px'
+                  }}>
+                    <div><strong>Active Filters:</strong></div>
+                    <div>Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
+                    <div><strong>Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</strong></div>
                   </div>
 
                   {/* GROUPING INFO SECTION */}
                   <div className="grouping-info" style={{ 
-                    marginTop: '30px', 
                     padding: '15px', 
                     backgroundColor: '#f8f9fa', 
                     borderRadius: '8px',
@@ -3275,7 +3050,7 @@
             onSave={handleSaveEvent}
             onCancel={() => setIsModalOpen(false)}
             readOnly={modalType === 'view'}
-            userTimeZone={userTimeZone}
+            userTimeZone={userTimezone}
           />
         </Modal>
     

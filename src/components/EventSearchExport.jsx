@@ -11,7 +11,8 @@ const EventSearchExport = ({
   dateRange,
   apiBaseUrl = 'http://localhost:3001',
   graphToken, // Add this prop to access the Microsoft Graph token
-  selectedCalendarId // Add this prop to know which calendar to search
+  selectedCalendarId, // Add this prop to know which calendar to search
+  timezone = 'UTC' // Display timezone passed from parent
 }) => {
   const [sortBy, setSortBy] = useState('date'); // Default sort by date
   const [isExporting, setIsExporting] = useState(false);
@@ -59,7 +60,7 @@ const EventSearchExport = ({
         const headers = {
           Authorization: `Bearer ${graphToken}`,
           'Content-Type': 'application/json',
-          'Prefer': 'outlook.timezone="Etc/UTC"'
+          'Prefer': 'outlook.timezone="UTC"' // Always fetch in UTC for consistency
         };
         
         if (!nextLink) {
@@ -148,16 +149,49 @@ const EventSearchExport = ({
     }
   };
 
-  // Export to JSON
+  // Helper function to format date in UTC for export consistency
+  const formatDateForExport = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toISOString(); // Always export in UTC
+  };
+
+  // Helper function to format date for display in export
+  const formatDateForDisplay = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      timeZone: timezone, // Use display timezone
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  // Helper function to format time for display in export
+  const formatTimeForDisplay = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      timeZone: timezone, // Use display timezone
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  // Export to JSON - always in UTC for consistency
   const handleExportJSON = async () => {
     setIsExporting(true);
     try {
       // Fetch ALL matching events from Microsoft Graph instead of just paginated results
       const allMatchingEvents = await fetchAllMatchingEvents();
 
-      // Create a formatted JSON object
+      // Create a formatted JSON object with UTC timestamps
       const exportData = {
-        exportDate: new Date().toISOString(),
+        exportDate: new Date().toISOString(), // UTC timestamp
+        exportTimezone: 'UTC', // Always export in UTC
+        displayTimezone: timezone, // Record what timezone was used for display
         searchCriteria: {
           searchTerm: searchTerm || '',
           categories: categories || [],
@@ -171,8 +205,8 @@ const EventSearchExport = ({
         events: allMatchingEvents.map(event => ({
           id: event.id,
           subject: event.subject,
-          startDateTime: event.start?.dateTime,
-          endDateTime: event.end?.dateTime,
+          startDateTime: formatDateForExport(event.start?.dateTime), // UTC format
+          endDateTime: formatDateForExport(event.end?.dateTime), // UTC format
           location: event.location?.displayName || '',
           categories: event.categories || [],
           body: event.body?.content || '',
@@ -183,8 +217,8 @@ const EventSearchExport = ({
           recurrence: event.recurrence || null,
           organizer: event.organizer || null,
           webLink: event.webLink || '',
-          createdDateTime: event.createdDateTime,
-          lastModifiedDateTime: event.lastModifiedDateTime
+          createdDateTime: formatDateForExport(event.createdDateTime),
+          lastModifiedDateTime: formatDateForExport(event.lastModifiedDateTime)
         }))
       };
 
@@ -207,7 +241,7 @@ const EventSearchExport = ({
     }
   };
 
-  // Export to CSV
+  // Export to CSV - display times in selected timezone, store metadata in UTC
   const handleExportCSV = async () => {
     setIsExporting(true);
     try {
@@ -222,6 +256,8 @@ const EventSearchExport = ({
         'Start Time',
         'End Date',
         'End Time',
+        'Start DateTime (UTC)', // Add UTC columns for reference
+        'End DateTime (UTC)',
         'Location',
         'Categories',
         'All Day',
@@ -234,24 +270,6 @@ const EventSearchExport = ({
         'Last Modified'
       ];
 
-      // Helper function to format date
-      const formatDate = (dateString) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US');
-      };
-
-      // Helper function to format time
-      const formatTime = (dateString) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        });
-      };
-
       // Convert events to CSV rows
       const rows = allMatchingEvents.map(event => {
         const startDateTime = event.start?.dateTime;
@@ -260,10 +278,12 @@ const EventSearchExport = ({
         return [
           event.id || '',
           event.subject || '',
-          formatDate(startDateTime),
-          formatTime(startDateTime),
-          formatDate(endDateTime),
-          formatTime(endDateTime),
+          formatDateForDisplay(startDateTime), // Display timezone
+          formatTimeForDisplay(startDateTime), // Display timezone
+          formatDateForDisplay(endDateTime), // Display timezone
+          formatTimeForDisplay(endDateTime), // Display timezone
+          formatDateForExport(startDateTime), // UTC for reference
+          formatDateForExport(endDateTime), // UTC for reference
           event.location?.displayName || '',
           (event.categories || []).join('; '),
           event.isAllDay ? 'Yes' : 'No',
@@ -272,13 +292,16 @@ const EventSearchExport = ({
           event.organizer?.emailAddress?.name || '',
           (event.attendees || []).length,
           (event.body?.content || '').replace(/[\n\r]/g, ' ').substring(0, 100), // Remove line breaks and limit length
-          formatDate(event.createdDateTime),
-          formatDate(event.lastModifiedDateTime)
+          formatDateForDisplay(event.createdDateTime),
+          formatDateForDisplay(event.lastModifiedDateTime)
         ];
       });
 
+      // Create header comment with timezone info
+      const headerComment = `# Calendar Export - Display Timezone: ${timezone}, Data stored in UTC\n# Export Date: ${new Date().toISOString()}\n`;
+
       // Combine headers and rows
-      const csvContent = [
+      const csvContent = headerComment + [
         headers,
         ...rows
       ].map(row => 
@@ -322,19 +345,24 @@ const EventSearchExport = ({
         author: 'Microsoft Outlook'
       });
       
-      // Format date for display
-      const formatDate = (date) => {
+      // Format date for display using selected timezone
+      const formatDate = (dateString) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
         return date.toLocaleDateString('en-US', {
+          timeZone: timezone,
           month: 'numeric', 
           day: 'numeric', 
           year: 'numeric'
         });
       };
       
-      // Format time for display
+      // Format time for display using selected timezone
       const formatTime = (dateString) => {
+        if (!dateString) return '';
         const date = new Date(dateString);
         return date.toLocaleTimeString('en-US', {
+          timeZone: timezone,
           hour: 'numeric',
           minute: '2-digit',
           hour12: true
@@ -347,13 +375,14 @@ const EventSearchExport = ({
       doc.setFontSize(14);
       doc.text('Calendar Search Results', doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
       
-      // Add search info
+      // Add search info with timezone information
       doc.setFontSize(10);
       const currentDate = new Date();
-      doc.text(`Search performed: ${formatDate(currentDate)}`, 20, 35);
+      doc.text(`Search performed: ${formatDate(currentDate.toISOString())}`, 20, 35);
+      doc.text(`Times displayed in: ${timezone}`, 20, 42);
       
       // Add search criteria - ONLY ON FIRST PAGE
-      let searchCriteriaY = 45;
+      let searchCriteriaY = 52;
       doc.setFont('helvetica', 'bold');
       doc.text("Search Criteria:", 20, searchCriteriaY);
       doc.setFont('helvetica', 'normal');
@@ -454,8 +483,11 @@ const EventSearchExport = ({
       for (let i = 0; i < sortedEvents.length; i++) {
         const event = sortedEvents[i];
         const startDate = new Date(event.start.dateTime);
-        const dateStr = formatDate(startDate);
-        const dayOfWeek = startDate.toLocaleDateString('en-US', { weekday: 'short' });
+        const dateStr = formatDate(event.start.dateTime);
+        const dayOfWeek = startDate.toLocaleDateString('en-US', { 
+          timeZone: timezone,
+          weekday: 'short' 
+        });
         
         // Check if we're starting a new group (for category or location sort)
         if (sortBy === 'category') {
@@ -484,9 +516,10 @@ const EventSearchExport = ({
             doc.setFontSize(14);
             doc.text('Calendar Search Results', doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
             
-            // Add date info
+            // Add date info with timezone
             doc.setFontSize(10);
-            doc.text(`Search performed: ${formatDate(currentDate)}`, 20, 35);
+            doc.text(`Search performed: ${formatDate(currentDate.toISOString())}`, 20, 35);
+            doc.text(`Times displayed in: ${timezone}`, 20, 42);
             
             // Add column headers to the new page
             y = addColumnHeaders(45);
@@ -528,9 +561,10 @@ const EventSearchExport = ({
           doc.setFontSize(14);
           doc.text('Calendar Search Results', doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
           
-          // Add date info
+          // Add date info with timezone
           doc.setFontSize(10);
-          doc.text(`Search performed: ${formatDate(currentDate)}`, 20, 35);
+          doc.text(`Search performed: ${formatDate(currentDate.toISOString())}`, 20, 35);
+          doc.text(`Times displayed in: ${timezone}`, 20, 42);
           
           // Add column headers to the new page
           y = addColumnHeaders(45);
@@ -567,7 +601,7 @@ const EventSearchExport = ({
         // Starting position for this row
         let maxHeight = 0;
         
-        // Draw date and day
+        // Draw date and day (using selected timezone)
         doc.text(dateStr, colPositions[0], y);
         doc.text(dayOfWeek, colPositions[1], y);
         
@@ -607,7 +641,7 @@ const EventSearchExport = ({
         doc.setFontSize(10); // Reset to default font size
         maxHeight = Math.max(maxHeight, wrappedCategory.length * (categoryFontSize / 2));
         
-        // Draw time fields
+        // Draw time fields (using selected timezone)
         doc.text(formatTime(event.start.dateTime), colPositions[4], y);
         doc.text(formatTime(event.end.dateTime), colPositions[5], y);
         
@@ -733,6 +767,15 @@ const EventSearchExport = ({
         <span role="img" aria-label="csv">📊</span> 
         {isExporting ? 'Exporting...' : 'Export to CSV'}
       </button>
+      
+      {/* Timezone info for user reference */}
+      <div style={{
+        fontSize: '0.8rem',
+        color: '#666',
+        fontStyle: 'italic'
+      }}>
+        Display: {timezone} | Export: UTC
+      </div>
     </div>
   );
 };

@@ -1,4 +1,6 @@
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
+import { useTimezone } from '../context/TimezoneContext';
+import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import './DayEventPanel.css';
 
 const DayEventPanel = memo(({ 
@@ -8,9 +10,39 @@ const DayEventPanel = memo(({
   formatEventTime,
   getCategoryColor,
   getLocationColor,
-  groupBy,
-  userTimeZone
+  groupBy
 }) => {
+  // USE TIMEZONE CONTEXT INSTEAD OF PROP
+  const { userTimezone } = useTimezone();
+  
+  // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
+  
+  // Create timezone-aware event time formatter
+  const formatEventTimeWithContext = useCallback((dateTimeString, eventSubject) => {
+    try {
+      // Use the timezone context for consistent formatting
+      return formatDateTimeWithTimezone(dateTimeString, userTimezone);
+    } catch (error) {
+      console.error('Error formatting event time in DayEventPanel:', error);
+      // Fallback to original formatter if available
+      if (formatEventTime && typeof formatEventTime === 'function') {
+        return formatEventTime(dateTimeString, eventSubject);
+      }
+      return 'Time unavailable';
+    }
+  }, [userTimezone, formatEventTime]);
+
+  const formatDate = useCallback((date) => {
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: userTimezone // Use context timezone
+    });
+  }, [userTimezone]);
+
+  // EARLY RETURN AFTER ALL HOOKS
   if (!selectedDay) {
     return (
       <div className="day-event-panel">
@@ -22,16 +54,6 @@ const DayEventPanel = memo(({
   }
 
   const dayEvents = events || [];
-  
-  const formatDate = (date) => {
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone: userTimeZone
-    });
-  };
 
   return (
     <div className="day-event-panel">
@@ -53,7 +75,7 @@ const DayEventPanel = memo(({
               .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
               .map(event => (
                 <div 
-                  key={event.id}
+                  key={`${event.id}-${userTimezone}`} // Include timezone in key to force re-render
                   className="panel-event-item"
                   onClick={(e) => onEventClick(event, e)}
                   style={{
@@ -65,9 +87,9 @@ const DayEventPanel = memo(({
                   }}
                 >
                   <div className="event-time">
-                    {formatEventTime(event.start.dateTime, event.subject)}
+                    {formatEventTimeWithContext(event.start.dateTime, event.subject)}
                     {' - '}
-                    {formatEventTime(event.end.dateTime, event.subject)}
+                    {formatEventTimeWithContext(event.end.dateTime, event.subject)}
                   </div>
                   
                   <div className="event-subject">{event.subject}</div>

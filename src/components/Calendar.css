@@ -76,30 +76,34 @@
   /* Main Content Layout */
   .calendar-main-content {
     display: flex;
-    height: calc(100vh - var(--header-height));
-    gap: 20px;
     flex: 1;
+    height: 100%;
+    gap: 0;
     overflow: hidden;
   }
   
   /* Calendar Grid Container (Primary Content Area) */
   .calendar-grid-container {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
+    flex: 1; /* Takes remaining space after sidebar */
+    min-width: 0; /* Allow shrinking */
     height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   
   /* Right Sidebar for Filters (Day/Week Views) */
   .calendar-right-sidebar {
-    width: var(--sidebar-width);
-    min-width: var(--sidebar-width);
+    width: 600px; /* INCREASED from default (was probably ~300-400px) */
+    min-width: 600px;
+    max-width: 600px;
+    height: 100%;
+    background-color: var(--white);
+    border-left: 1px solid var(--border-color);
     padding: 20px;
-    background-color: var(--light-gray);
-    border-radius: 4px;
-    flex-shrink: 0;
+    box-sizing: border-box;
     overflow-y: auto;
+    flex-shrink: 0; /* Don't allow shrinking */
   }
   
   .calendar-right-sidebar h3 {
@@ -1251,3 +1255,34 @@
     }
 
   }
+
+  @media (max-width: 1400px) {
+  .calendar-right-sidebar {
+    width: 550px;
+    min-width: 550px;
+    max-width: 550px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .calendar-right-sidebar {
+    width: 500px;
+    min-width: 500px;
+    max-width: 500px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .calendar-main-content {
+    flex-direction: column;
+  }
+  
+  .calendar-right-sidebar {
+    width: 100%;
+    min-width: none;
+    max-width: none;
+    height: 300px;
+    border-left: none;
+    border-top: 1px solid var(--border-color);
+  }
+}

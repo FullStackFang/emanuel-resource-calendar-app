@@ -1,6 +1,5 @@
 // src/components/EventSearch.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-// Import from @tanstack/react-query with the QueryClientProvider
 import { 
   QueryClient, 
   QueryClientProvider,
@@ -13,12 +12,18 @@ import EventForm from './EventForm';
 import EventSearchExport from './EventSearchExport';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
+import { useTimezone } from '../context/TimezoneContext';
+import { 
+  AVAILABLE_TIMEZONES,
+  getOutlookTimezone,
+  formatDateTimeWithTimezone 
+} from '../utils/timezoneUtils';
 
 // Create a client
 const queryClient = new QueryClient();
 
-// Search function implementation
-async function searchEvents(token, searchTerm = '', dateRange = {}, categories = [], locations = [], pageUrl = null, calendarId = null) {
+// Search function implementation with timezone support
+async function searchEvents(token, searchTerm = '', dateRange = {}, categories = [], locations = [], pageUrl = null, calendarId = null, timezone = 'UTC') {
   try {
     let baseUrl;
     if (calendarId) {
@@ -35,7 +40,7 @@ async function searchEvents(token, searchTerm = '', dateRange = {}, categories =
       filters.push(`contains(subject,'${searchTerm.replace(/'/g, "''")}')`);
     }
     
-    // Add date filters if provided
+    // Add date filters if provided - always store/query in UTC
     if (dateRange.start) {
       const startDate = new Date(dateRange.start).toISOString();
       filters.push(`start/dateTime ge '${startDate}'`);
@@ -52,17 +57,20 @@ async function searchEvents(token, searchTerm = '', dateRange = {}, categories =
     }
     
     console.log("Search URL:", url);
+    console.log("Display timezone:", timezone);
     
-    // Add headers to request count information if this is the first page
+    // Always request data in UTC for consistency
     const headers = {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'Prefer': 'outlook.timezone="Etc/UTC"'
+      'Prefer': 'outlook.timezone="UTC"' // Always request in UTC
     };
     
     if (!pageUrl) {
       headers['ConsistencyLevel'] = 'eventual';
     }
+    
+    console.log("Request headers:", headers);
     
     // Make the API request
     const response = await fetch(url, { headers });
@@ -109,7 +117,8 @@ async function searchEvents(token, searchTerm = '', dateRange = {}, categories =
     return {
       results,
       nextLink: data['@odata.nextLink'] || null,
-      totalCount
+      totalCount,
+      timezone: timezone // Include timezone in response for reference
     };
   } catch (error) {
     console.error('Error searching events:', error);
@@ -127,12 +136,16 @@ function EventSearchInner({
   onSaveEvent,
   onViewInCalendar,
   selectedCalendarId,
-  availableCalendars 
+  availableCalendars
+  // REMOVED: userTimeZone, setUserTimeZone, updateUserProfilePreferences
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedLocations, setSelectedLocations] = useState([]);
+  
+  // USE TIMEZONE CONTEXT INSTEAD OF PROPS
+  const { userTimezone, setUserTimezone } = useTimezone();
   
   // Pagination state
   const [nextLink, setNextLink] = useState(null);
@@ -143,7 +156,6 @@ function EventSearchInner({
   const loadingTimeoutRef = useRef(null);
   const loadingThrottleRef = useRef(false);
 
-
   // Selected event state
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchError, setSearchError] = useState(null);
@@ -151,10 +163,10 @@ function EventSearchInner({
   // Flag to control when to run the search query
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
   
-  // Create a query key based on search parameters
+  // Create a query key based on search parameters (using shared timezone)
   const searchQueryKey = useMemo(() => 
-    ['events', searchTerm, dateRange, selectedCategories, selectedLocations],
-    [searchTerm, dateRange, selectedCategories, selectedLocations]
+    ['events', searchTerm, dateRange, selectedCategories, selectedLocations, userTimezone],
+    [searchTerm, dateRange, selectedCategories, selectedLocations, userTimezone]
   );
   
   // Get the query client
@@ -174,7 +186,7 @@ function EventSearchInner({
       try {
         let result;
 
-        console.log(`Searching in calendar: ${selectedCalendarId || 'default'}`);
+        console.log(`Searching in calendar: ${selectedCalendarId || 'default'} with timezone: ${userTimezone}`);
 
         result = await searchEvents(
           graphToken, 
@@ -183,7 +195,8 @@ function EventSearchInner({
           selectedCategories, 
           selectedLocations,
           null, // No pageUrl for first page
-          selectedCalendarId // Always pass the calendar ID
+          selectedCalendarId,
+          userTimezone // Use shared timezone
         );
 
         // Set the total count if available
@@ -243,12 +256,10 @@ function EventSearchInner({
   // Setup mutation for updating events
   const updateEventMutation = useMutation({
     mutationFn: (updatedEvent) => {
-      // Ensure the calendarId is passed to the onSaveEvent function
       console.log("Saving event to calendar:", updatedEvent.calendarId || selectedCalendarId);
       return onSaveEvent(updatedEvent);
     },
     onSuccess: () => {
-      // Rest of the function remains the same
       queryClient.invalidateQueries({ queryKey: searchQueryKey });
       setSearchError({ type: 'success', message: 'Event updated successfully!' });
       setTimeout(() => setSearchError(null), 3000);
@@ -262,18 +273,16 @@ function EventSearchInner({
   // Calculate total results
   const searchResults = searchData || [];
 
-  // Load more results function
+  // Load more results function (updated to use shared timezone)
   const loadMoreResults = useCallback(async () => {
     if (!nextLink || isLoadingMore || loadingThrottleRef.current) return;
     
-    // Short throttle to prevent rapid multiple calls
     loadingThrottleRef.current = true;
     setTimeout(() => { loadingThrottleRef.current = false; }, 300);
     
     setIsLoadingMore(true);
     
     try {
-      // Update loading status with count information
       if (totalAvailableEvents) {
         setLoadingStatus(`Loading more... (${searchResults.length} of ${totalAvailableEvents})`);
       } else {
@@ -287,28 +296,23 @@ function EventSearchInner({
         selectedCategories, 
         selectedLocations, 
         nextLink,
-        selectedCalendarId
+        selectedCalendarId,
+        userTimezone // Use shared timezone
       );
       
-      // Update next link
       setNextLink(result.nextLink);
       
       // Append new results to existing ones
       queryClient.setQueryData(searchQueryKey, oldData => {
         const oldDataArray = oldData || [];
-        // Combine old and new results
         const combinedResults = [...oldDataArray, ...result.results];
         
-        // Sort all results by start date (latest first)
         const sortedResults = combinedResults.sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          
-          // For descending order: most recent first (b - a)
           return bStartTime - aStartTime;
         });
         
-        // Update loading status with count information
         if (totalAvailableEvents) {
           const percentLoaded = Math.round((sortedResults.length / totalAvailableEvents) * 100);
           setLoadingStatus(`Loaded ${sortedResults.length} of ${totalAvailableEvents} events (${percentLoaded}%)`);
@@ -319,9 +323,7 @@ function EventSearchInner({
         return sortedResults;
       });
       
-      // If we have a next link and auto-load is on, schedule next batch
       if (!result.nextLink) {
-        // We've loaded all available events
         setLoadingStatus('All events loaded');
         setTimeout(() => setLoadingStatus(''), 2000);
       }
@@ -350,23 +352,21 @@ function EventSearchInner({
     selectedCalendarId,
     selectedCategories, 
     selectedLocations, 
+    userTimezone, // Use shared timezone
     searchQueryKey,
     queryClient
   ]);
 
   const scheduleNextBatch = useCallback(() => {
-    // Clear any existing timeout
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
     }
     
-    // Calculate a dynamic timeout based on result size
-    const baseDelay = 300; // minimum delay
+    const baseDelay = 300;
     const currentResultsSize = (searchData || []).length;
     let dynamicDelay = baseDelay;
     
     if (currentResultsSize > 200) {
-      // Add additional delay for larger result sets
       dynamicDelay += Math.min(currentResultsSize / 10, 700);
     }
     
@@ -389,26 +389,18 @@ function EventSearchInner({
     setShouldRunSearch(true);
     refetch();
   };
-  
-  /*
-  // Debounced search function
-  const debouncedSearch = useCallback(
-    debounce(() => {
-      handleSearch();
-    }, 500),
-    [searchTerm, dateRange, selectedCategories, selectedLocations]
-  );
-  
-  // Auto-search when criteria change and there's at least one criterion
-  useEffect(() => {
-    if (searchTerm || dateRange.start || dateRange.end || 
-        selectedCategories.length || selectedLocations.length) {
-      debouncedSearch();
+
+  // Handle timezone change - now uses context
+  const handleTimezoneChange = (newTimezone) => {
+    setUserTimezone(newTimezone);
+    // Context automatically handles API persistence
+    
+    // If there are existing search results, trigger a new search with the new timezone
+    if (searchResults.length > 0) {
+      setShouldRunSearch(true);
+      setTimeout(() => refetch(), 100);
     }
-    // Cancel debounced function on cleanup
-    return () => debouncedSearch.cancel();
-  }, [searchTerm, dateRange, selectedCategories, selectedLocations, debouncedSearch]);
-  */
+  };
 
   useEffect(() => {
     if (autoLoadMore && nextLink && !isLoadingMore && !isLoading && !isFetching) {
@@ -424,7 +416,6 @@ function EventSearchInner({
 
   useEffect(() => {
     return () => {
-      // Cleanup function that runs on unmount
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
@@ -446,7 +437,6 @@ function EventSearchInner({
   
   // Handle saving the event
   const handleSaveEvent = (updatedEvent) => {
-    // Ensure the event has the correct calendar ID 
     const eventToUpdate = {
       ...updatedEvent,
       calendarId: selectedCalendarId || updatedEvent.calendarId
@@ -464,7 +454,7 @@ function EventSearchInner({
     setSelectedLocations(selected);
   };
   
-  // Memoized result item renderer for standard list
+  // Updated result item renderer with timezone formatting
   const ResultItem = useCallback((event, index) => {
     return (
       <li 
@@ -474,14 +464,21 @@ function EventSearchInner({
       >
         <div className="result-title">{event.subject}</div>
         <div className="result-date">
-          {new Date(event.start.dateTime).toLocaleDateString()} 
-          {' '}{new Date(event.start.dateTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+          {formatDateTimeWithTimezone(event.start.dateTime, userTimezone)}
+        </div>
+        
+        {/* Duration info */}
+        <div className="result-duration">
+          Duration: {formatDateTimeWithTimezone(event.start.dateTime, userTimezone)} - {formatDateTimeWithTimezone(event.end.dateTime, userTimezone)}
         </div>
         
         {/* Location tag(s) */}
         {event.location?.displayName && (
           <div className="result-tags">
-            <span className="location-tag">
+            <span 
+              className="location-tag"
+              title={event.location.displayName} // Shows full URL on hover
+            >
               <i className="location-icon">📍</i>
               {event.location.displayName}
             </span>
@@ -508,7 +505,7 @@ function EventSearchInner({
         )}
       </li>
     );
-  }, [selectedEvent]);
+  }, [selectedEvent, userTimezone]);
   
   return (
     <div className="event-search-container">
@@ -517,12 +514,18 @@ function EventSearchInner({
         <button className="close-button" onClick={onClose}>×</button>
       </div>
 
-      {/* Add calendar indicator - shows which calendar is being searched */}
-      {selectedCalendarId && availableCalendars && (
-        <div className="current-calendar-indicator">
-          Searching in: {availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || 'Selected Calendar'}
+      {/* Add calendar and timezone indicators */}
+      <div className="search-context-indicators">
+        {selectedCalendarId && availableCalendars && (
+          <div className="current-calendar-indicator">
+            Searching in: {availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || 'Selected Calendar'}
+          </div>
+        )}
+        
+        <div className="timezone-indicator">
+          Results shown in: {AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label || userTimezone}
         </div>
-      )}
+      </div>
       
       {/* Full-width search form */}
       <div className="search-form-full">
@@ -546,6 +549,24 @@ function EventSearchInner({
         {/* Advanced options - always visible */}
         <div className="advanced-options">
           <div className="advanced-options-row">
+            {/* Timezone selector using shared state */}
+            <div className="timezone-selector">
+              <div className="form-group">
+                <label>Timezone:</label>
+                <select
+                  value={userTimezone}
+                  onChange={(e) => handleTimezoneChange(e.target.value)}
+                  className="timezone-select"
+                >
+                  {AVAILABLE_TIMEZONES.map(tz => (
+                    <option key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
             <div className="date-filters">
               <div className="form-group">
                 <label>From:</label>
@@ -615,7 +636,7 @@ function EventSearchInner({
         </div>
         
         <div className="search-results-actions">       
-          {/* Export button */}
+          {/* Export button - pass shared timezone to export component */}
           {searchResults.length > 0 && (
             <EventSearchExport
               searchResults={searchResults}
@@ -627,19 +648,19 @@ function EventSearchInner({
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               graphToken={graphToken}
               selectedCalendarId={selectedCalendarId}
+              timezone={userTimezone} // Pass shared timezone to export
             />
           )}
         </div>
       </div>
 
-      {/* Loading progress bar - add this right after the search-results-header div */}
+      {/* Loading progress bar */}
       {totalAvailableEvents > 0 && (
         <div className="loading-progress-container">
           <div 
             className="loading-progress-bar"
             style={{
               width: `${Math.min((searchResults.length / totalAvailableEvents) * 100, 100)}%`,
-              // Only animate when actually loading
               animation: (isLoading || isLoadingMore || isFetching) 
                 ? 'progress-bar-animation 1.5s infinite ease-in-out' 
                 : 'none'
@@ -647,6 +668,7 @@ function EventSearchInner({
           ></div>
         </div>
       )}
+      
       {/* Two-column layout for results and edit form */}
       <div className="search-content-columns">
         {/* Left column - Search results */}
@@ -715,7 +737,7 @@ function EventSearchInner({
                 </div>
               </div>
               
-              {/* Directly use EventForm component */}
+              {/* Pass shared timezone to EventForm for consistent date/time display */}
               <EventForm 
                 event={selectedEvent}
                 categories={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
@@ -724,6 +746,7 @@ function EventSearchInner({
                 onCancel={() => setSelectedEvent(null)}
                 readOnly={false}
                 isLoading={updateEventMutation.isPending}
+                userTimeZone={userTimezone} // Pass shared timezone to form
               />
             </div>
           ) : (
@@ -731,6 +754,7 @@ function EventSearchInner({
               <div className="no-event-message">
                 <p>Select an event from the search results to edit it.</p>
                 <p>You can search by text, date range, categories, or locations.</p>
+                <p>Times are displayed in: <strong>{AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label}</strong></p>
               </div>
             </div>
           )}

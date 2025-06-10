@@ -11,6 +11,8 @@ import UserAdmin from './components/UserAdmin';
 import EventSyncAdmin from './components/EventSyncAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation';
+import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
+import APP_CONFIG from './config/config';
 import './App.css';
 
 function App() {
@@ -151,7 +153,12 @@ function App() {
         </header>
         <main>
           {apiToken && graphToken ? (
-            <>
+            // Wrap authenticated routes with TimezoneProvider
+            <TimezoneProvider 
+              apiToken={apiToken}
+              apiBaseUrl={APP_CONFIG.API_BASE_URL}
+              initialTimezone="UTC"
+            >
               <Navigation 
                 selectedCalendarId={selectedCalendarId}
                 availableCalendars={availableCalendars}
@@ -163,7 +170,6 @@ function App() {
                   <Calendar 
                     apiToken={apiToken} 
                     graphToken={graphToken}
-                    // Add these props
                     selectedCalendarId={selectedCalendarId}
                     setSelectedCalendarId={setSelectedCalendarId}
                     availableCalendars={availableCalendars}
@@ -188,7 +194,7 @@ function App() {
                 } />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </>
+            </TimezoneProvider>
           ) : signedOut ? (
             <div className="signed-out-landing">
               <h2>See you next time!</h2>

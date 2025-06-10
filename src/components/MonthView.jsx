@@ -1,6 +1,8 @@
 import React, { memo, useState, useCallback, useEffect } from 'react';
 import DayEventPanel from './DayEventPanel';
 import SimpleMultiSelect from './SimpleMultiSelect';
+import { useTimezone } from '../context/TimezoneContext';
+import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import './MonthView.css';
 
 const MonthView = memo(({ 
@@ -19,7 +21,7 @@ const MonthView = memo(({
   getFilteredMonthEvents,
   getMonthDayEventPosition,
   allEvents,
-  userTimeZone,
+  // REMOVED: userTimeZone prop - now using context
   handleMonthFilterChange,
   // UNIFIED: Use same filter state as Day/Week views
   selectedCategories,           
@@ -37,6 +39,9 @@ const MonthView = memo(({
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   
+  // USE TIMEZONE CONTEXT INSTEAD OF PROP
+  const { userTimezone } = useTimezone();
+  
   // DEBUG: Add console logs to see what data we're getting
   useEffect(() => {
     console.log('=== MONTHVIEW DEBUG ===');
@@ -46,14 +51,15 @@ const MonthView = memo(({
     console.log('dynamicLocations:', dynamicLocations);
     console.log('selectedCategories:', selectedCategories);
     console.log('selectedLocations:', selectedLocations);
+    console.log('userTimezone from context:', userTimezone);
     console.log('========================');
-  }, [allEvents, filteredEvents, dynamicCategories, dynamicLocations, selectedCategories, selectedLocations]);
+  }, [allEvents, filteredEvents, dynamicCategories, dynamicLocations, selectedCategories, selectedLocations, userTimezone]);
   
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
   }, []);
 
-  // Use the dynamic categories/locations passed as props from Calendar
+  // Memoize category calculation to prevent unnecessary re-renders
   const getAvailableCategoriesInRange = useCallback(() => {
     console.log('Getting available categories...');
     
@@ -79,6 +85,7 @@ const MonthView = memo(({
     return result;
   }, [dynamicCategories, allEvents]);
 
+  // Memoize location calculation to prevent unnecessary re-renders
   const getAvailableLocationsInRange = useCallback(() => {
     console.log('Getting available locations...');
     
@@ -114,11 +121,11 @@ const MonthView = memo(({
     return result;
   }, [dynamicLocations, allEvents]);
 
-  // Use filteredEvents for selected day instead of re-filtering
+  // Force re-calculation of events when timezone changes
   const getEventsForSelectedDay = useCallback(() => {
     if (!selectedDay) return [];
     
-    return filteredEvents.filter(event => {
+    const eventsForDay = filteredEvents.filter(event => {
       const eventDate = new Date(event.start.dateTime);
       
       return (
@@ -127,11 +134,61 @@ const MonthView = memo(({
         eventDate.getDate() === selectedDay.getDate()
       );
     });
-  }, [selectedDay, filteredEvents]);
 
-  // Get the actual options for the dropdowns
-  const availableCategories = getAvailableCategoriesInRange();
-  const availableLocations = getAvailableLocationsInRange();
+    // Add timezone to each event for proper formatting
+    return eventsForDay.map(event => ({
+      ...event,
+      _timezone: userTimezone // Add timezone info for formatting
+    }));
+  }, [selectedDay, filteredEvents, userTimezone]);
+
+  // Memoize the available options to prevent unnecessary re-renders
+  const availableCategories = useCallback(() => getAvailableCategoriesInRange(), [getAvailableCategoriesInRange]);
+  const availableLocations = useCallback(() => getAvailableLocationsInRange(), [getAvailableLocationsInRange]);
+
+  // Memoize category change handler
+  const handleCategoryChange = useCallback((val) => {
+    console.log('Category selection changed to:', val);
+    if (setSelectedCategories && typeof setSelectedCategories === 'function') {
+      setSelectedCategories(val);
+      if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
+        updateUserProfilePreferences({ selectedCategories: val });
+      }
+    } else {
+      console.error('setSelectedCategories is not a function:', typeof setSelectedCategories);
+    }
+  }, [setSelectedCategories, updateUserProfilePreferences]);
+
+  // Memoize location change handler
+  const handleLocationChange = useCallback((val) => {
+    console.log('Location selection changed to:', val);
+    if (setSelectedLocations && typeof setSelectedLocations === 'function') {
+      setSelectedLocations(val);
+      if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
+        updateUserProfilePreferences({ selectedLocations: val });
+      }
+    } else {
+      console.error('setSelectedLocations is not a function:', typeof setSelectedLocations);
+    }
+  }, [setSelectedLocations, updateUserProfilePreferences]);
+
+  // Create a custom formatEventTime function that uses the timezone context
+  const formatEventTimeWithTimezone = useCallback((event) => {
+    if (formatEventTime && typeof formatEventTime === 'function') {
+      // Use the original formatEventTime if it exists and handles timezone properly
+      return formatEventTime(event, userTimezone); // Pass timezone explicitly
+    }
+    
+    // Fallback: format using timezone context
+    try {
+      const startTime = formatDateTimeWithTimezone(event.start.dateTime, userTimezone);
+      const endTime = formatDateTimeWithTimezone(event.end.dateTime, userTimezone);
+      return `${startTime} - ${endTime}`;
+    } catch (error) {
+      console.error('Error formatting event time:', error);
+      return 'Time unavailable';
+    }
+  }, [formatEventTime, userTimezone]);
 
   return (
     <div className="month-view-wrapper">
@@ -193,7 +250,6 @@ const MonthView = memo(({
                         }
 
                         // Don't show anything if no events pass the filter
-                        // This removes the flattened gray dot issue
                         return null;
                       })()}
                     </div>
@@ -211,19 +267,9 @@ const MonthView = memo(({
             <h3>Filter by Category</h3>
             
             <SimpleMultiSelect
-              options={availableCategories}
+              options={availableCategories()}
               selected={selectedCategories || []}
-              onChange={(val) => {
-                console.log('Category selection changed to:', val);
-                if (setSelectedCategories && typeof setSelectedCategories === 'function') {
-                  setSelectedCategories(val);
-                  if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
-                    updateUserProfilePreferences({ selectedCategories: val });
-                  }
-                } else {
-                  console.error('setSelectedCategories is not a function:', typeof setSelectedCategories);
-                }
-              }}
+              onChange={handleCategoryChange}
               label="categories"
               maxHeight={200}
             />
@@ -233,25 +279,27 @@ const MonthView = memo(({
             <h3>Filter by Location</h3>
             
             <SimpleMultiSelect
-              options={availableLocations}
+              options={availableLocations()}
               selected={selectedLocations || []}
-              onChange={(val) => {
-                console.log('Location selection changed to:', val);
-                if (setSelectedLocations && typeof setSelectedLocations === 'function') {
-                  setSelectedLocations(val);
-                  if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
-                    updateUserProfilePreferences({ selectedLocations: val });
-                  }
-                } else {
-                  console.error('setSelectedLocations is not a function:', typeof setSelectedLocations);
-                }
-              }}
+              onChange={handleLocationChange}
               label="locations"
               maxHeight={200}
             />
           </div>
         </div>
-        
+      
+        <DayEventPanel
+          selectedDay={selectedDay}
+          events={getEventsForSelectedDay()}
+          onEventClick={handleEventClick}
+          formatEventTime={formatEventTimeWithTimezone} // Use timezone-aware formatter
+          getCategoryColor={getCategoryColor}
+          getLocationColor={getLocationColor}
+          groupBy={groupBy}
+          key={`${selectedDay?.toISOString()}-${userTimezone}`} // Force re-render on timezone change
+          // REMOVED: userTimeZone prop - DayEventPanel now uses context directly
+        />
+
         {/* Filter Status Display - Moved below the filter dropdowns */}
         <div style={{
           background: '#e3f2fd',
@@ -264,21 +312,10 @@ const MonthView = memo(({
           boxSizing: 'border-box'
         }}>
           <div><strong>Active Filters:</strong></div>
-          <div>Categories ({selectedCategories?.length || 0}): {(selectedCategories || []).join(', ') || 'None'}</div>
-          <div>Locations ({selectedLocations?.length || 0}): {(selectedLocations || []).join(', ') || 'None'}</div>
+          <div>Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
           <div><strong>Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</strong></div>
+          <div><strong>Timezone: {userTimezone}</strong></div>
         </div>
-        
-        <DayEventPanel
-          selectedDay={selectedDay}
-          events={getEventsForSelectedDay()}
-          onEventClick={handleEventClick}
-          formatEventTime={formatEventTime}
-          getCategoryColor={getCategoryColor}
-          getLocationColor={getLocationColor}
-          groupBy={groupBy}
-          userTimeZone={userTimeZone}
-        />
       </div>
     </div>
   );
