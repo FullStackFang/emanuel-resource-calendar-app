@@ -2595,193 +2595,195 @@
     return (
       <div className="calendar-container">
         {(initializing || loading) && <LoadingOverlay/>}
+        
+        {/* REORGANIZED HEADER */}
         <div className="calendar-header">
           <div className="calendar-controls">
             
-            <div className="view-selector">
-              <button 
-                className={viewType === 'day' ? 'active' : ''} 
-                onClick={() => {
-                    handleViewChange('day');
-                    updateUserProfilePreferences({ defaultView: 'day' });
+            {/* TOP ROW - Main Navigation and View Controls */}
+            <div className="header-top-row">
+              {/* Navigation Controls */}
+              <div className="navigation-group">
+                <div className="navigation">
+                  <button onClick={handlePrevious}>Previous</button>
+                  <button onClick={handleToday}>Today</button>
+                  
+                  <DatePickerButton 
+                    currentDate={currentDate}
+                    onDateChange={handleDatePickerChange}
+                    viewType={viewType}
+                  />
+                  
+                  <button onClick={handleNext}>Next</button>
+                </div>
+                
+                <div className="current-range">
+                  {viewType === 'day' 
+                    ? currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                    : viewType === 'month'
+                      ? currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
+                      : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                   }
-                }
-              >
-                Day
-              </button>
-              <button 
-                className={viewType === 'week' ? 'active' : ''} 
-                onClick={() => {
-                    handleViewChange('week');
-                    updateUserProfilePreferences({ defaultView: 'week' });
-                  }
-                }
-              >
-                Week
-              </button>
-              <button 
-                className={viewType === 'month' ? 'active' : ''} 
-                onClick={() => {
-                    handleViewChange('month');
-                    updateUserProfilePreferences({ defaultView: 'month' });
-                  }
-                }
-              >
-                Month
-              </button>
-            </div>
-    
-            <div className="selector-group" style={{ display: 'flex', gap: '2px' }}>
+                </div>
+              </div>
 
+              {/* View Selector */}
+              <div className="view-selector">
+                <button 
+                  className={viewType === 'day' ? 'active' : ''} 
+                  onClick={() => {
+                      handleViewChange('day');
+                      updateUserProfilePreferences({ defaultView: 'day' });
+                    }
+                  }
+                >
+                  Day
+                </button>
+                <button 
+                  className={viewType === 'week' ? 'active' : ''} 
+                  onClick={() => {
+                      handleViewChange('week');
+                      updateUserProfilePreferences({ defaultView: 'week' });
+                    }
+                  }
+                >
+                  Week
+                </button>
+                <button 
+                  className={viewType === 'month' ? 'active' : ''} 
+                  onClick={() => {
+                      handleViewChange('month');
+                      updateUserProfilePreferences({ defaultView: 'month' });
+                    }
+                  }
+                >
+                  Month
+                </button>
+              </div>
 
-              <div className="time-zone-selector">
-                <TimezoneSelector
-                  value={userTimezone}
-                  onChange={(newTz) => {
-                    console.log('Timezone dropdown changed to:', newTz);
-                    hasUserManuallyChangedTimezone.current = true; 
-                    setUserTimezone(newTz);
-                  }}
-                  showLabel={false}
-                  className="timezone-select"
+              {/* Action Buttons */}
+              <div className="calendar-action-buttons">
+                <button className="search-button" onClick={() => setShowSearch(true)}>
+                  🔍 Search & Export
+                </button>
+                {userPermissions.createEvents && (
+                  <button className="add-event-button" onClick={handleAddEvent}>
+                    + Add Event
+                  </button>
+                )}
+                <ExportToPdfButton 
+                  events={filteredEvents} 
+                  dateRange={dateRange} 
                 />
               </div>
-              
-              {/* Week Start Selector */}
-              <div className="week-start-selector">
-                <select
-                  value={userPermissions.startOfWeek}
-                  onChange={(e) => {
-                    const newValue = e.target.value;
-                    
-                    // Update user preferences
-                    setUserPermissions(prev => ({
-                      ...prev,
-                      startOfWeek: newValue
-                    }));
-                    updateUserProfilePreferences({ startOfWeek: newValue });
-                    
-                    // Only adjust date range if in week view
-                    if (viewType === 'week') {
-                      // Get the current start date
-                      const currentStartDate = new Date(dateRange.start);
-                      let newStart;
+            </div>
+
+            {/* BOTTOM ROW - Settings and Group Controls */}
+            <div className="header-bottom-row">
+              {/* Settings Group */}
+              <div className="settings-group">
+                <div className="time-zone-selector">
+                  <TimezoneSelector
+                    value={userTimezone}
+                    onChange={(newTz) => {
+                      console.log('Timezone dropdown changed to:', newTz);
+                      hasUserManuallyChangedTimezone.current = true; 
+                      setUserTimezone(newTz);
+                    }}
+                    showLabel={false}
+                    className="timezone-select"
+                  />
+                </div>
+                
+                <div className="week-start-selector">
+                  <select
+                    value={userPermissions.startOfWeek}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
                       
-                      // If switching from Sunday to Monday, add 1 day to the current start
-                      if (newValue === 'Monday' && userPermissions.startOfWeek === 'Sunday') {
-                        newStart = new Date(currentStartDate);
-                        newStart.setDate(currentStartDate.getDate() + 1);
-                      } 
-                      // If switching from Monday to Sunday, subtract 1 day from current start
-                      else if (newValue === 'Sunday' && userPermissions.startOfWeek === 'Monday') {
-                        newStart = new Date(currentStartDate);
-                        newStart.setDate(currentStartDate.getDate() - 1);
+                      setUserPermissions(prev => ({
+                        ...prev,
+                        startOfWeek: newValue
+                      }));
+                      updateUserProfilePreferences({ startOfWeek: newValue });
+                      
+                      if (viewType === 'week') {
+                        const currentStartDate = new Date(dateRange.start);
+                        let newStart;
+                        
+                        if (newValue === 'Monday' && userPermissions.startOfWeek === 'Sunday') {
+                          newStart = new Date(currentStartDate);
+                          newStart.setDate(currentStartDate.getDate() + 1);
+                        } 
+                        else if (newValue === 'Sunday' && userPermissions.startOfWeek === 'Monday') {
+                          newStart = new Date(currentStartDate);
+                          newStart.setDate(currentStartDate.getDate() - 1);
+                        }
+                        else {
+                          newStart = currentStartDate;
+                        }
+                        
+                        const newEnd = calculateEndDate(newStart, 'week');
+                        
+                        setDateRange({
+                          start: newStart,
+                          end: newEnd
+                        });
                       }
-                      // Otherwise use current start
-                      else {
-                        newStart = currentStartDate;
-                      }
-                      
-                      // Calculate the new end date based on the new start
-                      const newEnd = calculateEndDate(newStart, 'week');
-                      
-                      // Update date range
-                      setDateRange({
-                        start: newStart,
-                        end: newEnd
-                      });
+                    }}
+                  >
+                    <option value="Sunday">Sunday start of Week</option>
+                    <option value="Monday">Monday start of Week</option>
+                  </select>
+                </div>
+
+                <div className="zoom-controls">
+                  <button onClick={() => {
+                      handleZoom('out');
+                      const newZoom = zoomLevel - 10;
+                      updateUserProfilePreferences({ preferredZoomLevel: newZoom });
                     }
-                  }}
-                >
-                  <option value="Sunday">Sunday start of Week</option>
-                  <option value="Monday">Monday start of Week</option>
-                </select>
+                  } title="Zoom Out">−</button>
+                  <span>{zoomLevel}%</span>
+                  <button onClick={() => {
+                      handleZoom('in');
+                      updateUserProfilePreferences({ preferredZoomLevel: zoomLevel + 10 });
+                    }
+                  } title="Zoom In">+</button>
+                </div>
               </div>
-            </div>
-    
-            {/* View mode selectors - Hide in month view */}
-            {viewType !== 'month' && (
-              <div className="view-mode-selector">
-                <button 
-                  className={groupBy === 'categories' ? 'active' : ''} 
-                  onClick={async () => {
-                    setLoading(true);
-                    setGroupBy('categories');
-                    await updateUserProfilePreferences({ defaultGroupBy: 'categories' });
-                    setLoading(false);
-                  }}
-                >
-                  Group by Category
-                </button>
-                <button 
-                  className={groupBy === 'locations' ? 'active' : ''} 
-                  onClick={async () => {  // <-- ADD 'async' here
-                    setLoading(true);
-                    setGroupBy('locations');
-                    await updateUserProfilePreferences({ defaultGroupBy: 'locations' });
-                    setLoading(false);
-                  }}
-                >
-                  Group by Location
-                </button>
-              </div>
-            )}
-            
-            <div className="navigation">
-              <button onClick={handlePrevious}>Previous</button>
-              <button onClick={handleToday}>Today</button>
-              
-              <DatePickerButton 
-                currentDate={currentDate}
-                onDateChange={handleDatePickerChange}
-                viewType={viewType}
-              />
-              
-              <button onClick={handleNext}>Next</button>
-            </div>
-            
-            <div className="current-range">
-              {viewType === 'day' 
-                ? currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-                : viewType === 'month'
-                  ? currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
-                  : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-              }
-            </div>
-    
-            {/* Add zoom controls here */}
-            <div className="zoom-controls">
-              <button onClick={() => {
-                  handleZoom('out');
-                  const newZoom = zoomLevel - 10;
-                  updateUserProfilePreferences({ preferredZoomLevel: newZoom });
-                }
-              } title="Zoom Out">−</button>
-              <span>{zoomLevel}%</span>
-              <button onClick={() => {
-                  handleZoom('in');
-                  updateUserProfilePreferences({ preferredZoomLevel: zoomLevel + 10 });
-                }
-              } title="Zoom In">+</button>
-            </div>
-            
-            <div className="calendar-action-buttons">
-              <button className="search-button" onClick={() => setShowSearch(true)}>
-                🔍 Search & Export
-              </button>
-              {userPermissions.createEvents && (
-                <button className="add-event-button" onClick={handleAddEvent}>
-                  + Add Event
-                </button>
+
+              {/* View mode selectors - Hide in month view */}
+              {viewType !== 'month' && (
+                <div className="view-mode-selector">
+                  <button 
+                    className={groupBy === 'categories' ? 'active' : ''} 
+                    onClick={async () => {
+                      setLoading(true);
+                      setGroupBy('categories');
+                      await updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+                      setLoading(false);
+                    }}
+                  >
+                    Group by Category
+                  </button>
+                  <button 
+                    className={groupBy === 'locations' ? 'active' : ''} 
+                    onClick={async () => {
+                      setLoading(true);
+                      setGroupBy('locations');
+                      await updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                      setLoading(false);
+                    }}
+                  >
+                    Group by Location
+                  </button>
+                </div>
               )}
-              <ExportToPdfButton 
-                events={filteredEvents} 
-                dateRange={dateRange} 
-              />
             </div>
           </div>
         </div>
-    
+
         {/* Toggle Between ApiMode & DemoMode */}
         {renderModeToggle()}
 
@@ -2798,146 +2800,136 @@
           </div>
         ) : (
           <>
-            <div className="calendar-main-content">
-              {loading}
-              
-              {/* Calendar grid section */}
-              <div className="calendar-grid-container">
-                {viewType === 'month' ? (
-                  <div className="calendar-content-wrapper">
+            {/* NEW MAIN LAYOUT CONTAINER */}
+            <div className="calendar-layout-container">
+              {/* Calendar Main Content */}
+              <div className="calendar-main-content">
+                {loading}
+                
+                {/* Calendar grid section */}
+                <div className="calendar-grid-container">
+                  {viewType === 'month' ? (
+                    <div className="calendar-content-wrapper">
+                      <div 
+                        className="calendar-grid month-view"
+                        style={{ 
+                          transform: `scale(${zoomLevel / 100})`, 
+                          transformOrigin: 'top left',
+                          width: '100%',
+                          flex: 1
+                        }}
+                      >
+                        <MonthView
+                          getMonthWeeks={getMonthWeeks}
+                          getWeekdayHeaders={getWeekdayHeaders}
+                          selectedFilter={selectedFilter}
+                          handleDayCellClick={handleDayCellClick}
+                          handleEventClick={handleEventClick}
+                          getEventContentStyle={getEventContentStyle}
+                          formatEventTime={formatEventTime}
+                          getCategoryColor={getCategoryColor}
+                          getLocationColor={getLocationColor}
+                          groupBy={groupBy}
+                          filteredEvents={filteredEvents}
+                          outlookCategories={outlookCategories}
+                          availableLocations={availableLocations}
+                          dynamicLocations={dynamicLocations}
+                          getFilteredMonthEvents={getFilteredMonthEvents}
+                          getMonthDayEventPosition={getMonthDayEventPosition}
+                          allEvents={allEvents}
+                          handleMonthFilterChange={handleMonthFilterChange}
+                          selectedCategories={selectedCategories}
+                          selectedLocations={selectedLocations}
+                          setSelectedCategories={setSelectedCategories}
+                          setSelectedLocations={setSelectedLocations}
+                          updateUserProfilePreferences={updateUserProfilePreferences}
+                          dynamicCategories={dynamicCategories}
+                          isEventVirtual={isEventVirtual}
+                          isUnspecifiedLocation={isUnspecifiedLocation}
+                          hasPhysicalLocation={hasPhysicalLocation}
+                          isVirtualLocation={isVirtualLocation}
+                        />
+                      </div>
+                    </div>
+                  ) : (
                     <div 
-                      className="calendar-grid month-view"
+                      className={`calendar-grid ${viewType}-view`}
                       style={{ 
                         transform: `scale(${zoomLevel / 100})`, 
                         transformOrigin: 'top left',
-                        width: '100%',
-                        flex: 1
+                        width: '100%'
                       }}
                     >
-                      <MonthView
-                        getMonthWeeks={getMonthWeeks}
-                        getWeekdayHeaders={getWeekdayHeaders}
-                        selectedFilter={selectedFilter}
-                        handleDayCellClick={handleDayCellClick}
-                        handleEventClick={handleEventClick}
-                        getEventContentStyle={getEventContentStyle}
-                        formatEventTime={formatEventTime}
-                        getCategoryColor={getCategoryColor}
-                        getLocationColor={getLocationColor}
-                        groupBy={groupBy}
-                        filteredEvents={filteredEvents}
-                        outlookCategories={outlookCategories}
-                        availableLocations={availableLocations}
-                        dynamicLocations={dynamicLocations}
-                        getFilteredMonthEvents={getFilteredMonthEvents}
-                        getMonthDayEventPosition={getMonthDayEventPosition}
-                        allEvents={allEvents}
-                        handleMonthFilterChange={handleMonthFilterChange}
-                        selectedCategories={selectedCategories}
-                        selectedLocations={selectedLocations}
-                        setSelectedCategories={setSelectedCategories}
-                        setSelectedLocations={setSelectedLocations}
-                        updateUserProfilePreferences={updateUserProfilePreferences}
-                        dynamicCategories={dynamicCategories}
-                        isEventVirtual={isEventVirtual}
-                        isUnspecifiedLocation={isUnspecifiedLocation}
-                        hasPhysicalLocation={hasPhysicalLocation}
-                        isVirtualLocation={isVirtualLocation}
-                      />
+                      {viewType === 'week' ? (
+                        <WeekView
+                          groupBy={groupBy}
+                          outlookCategories={outlookCategories}
+                          selectedCategories={selectedCategories}
+                          availableLocations={availableLocations}
+                          dynamicLocations={dynamicLocations}
+                          selectedLocations={selectedLocations}
+                          getDaysInRange={getDaysInRange}
+                          formatDateHeader={formatDateHeader}
+                          getEventPosition={getEventPosition}
+                          filteredEvents={filteredEvents}
+                          locationGroups={locationGroups}
+                          getCategoryColor={getCategoryColor}
+                          getLocationColor={getLocationColor}
+                          handleDayCellClick={handleDayCellClick}
+                          handleEventClick={handleEventClick}
+                          renderEventContent={renderEventContent}
+                          viewType={viewType}
+                          dynamicCategories={dynamicCategories}
+                          isEventVirtual={isEventVirtual}
+                          isUnspecifiedLocation={isUnspecifiedLocation}
+                          hasPhysicalLocation={hasPhysicalLocation}
+                          isVirtualLocation={isVirtualLocation}
+                          setSelectedCategories={setSelectedCategories}
+                          setSelectedLocations={setSelectedLocations}
+                          updateUserProfilePreferences={updateUserProfilePreferences}
+                        />
+                      ) : (
+                        <DayView
+                          groupBy={groupBy}
+                          outlookCategories={outlookCategories}
+                          selectedCategories={selectedCategories}
+                          availableLocations={availableLocations}
+                          dynamicLocations={dynamicLocations}
+                          selectedLocations={selectedLocations}
+                          formatDateHeader={formatDateHeader}
+                          getEventPosition={getEventPosition}
+                          filteredEvents={filteredEvents}
+                          locationGroups={locationGroups}
+                          getCategoryColor={getCategoryColor}
+                          getLocationColor={getLocationColor}
+                          handleDayCellClick={handleDayCellClick}
+                          handleEventClick={handleEventClick}
+                          renderEventContent={renderEventContent}
+                          viewType={viewType}
+                          dynamicCategories={dynamicCategories}
+                          dateRange={dateRange}
+                          isEventVirtual={isEventVirtual}
+                          isUnspecifiedLocation={isUnspecifiedLocation}
+                          hasPhysicalLocation={hasPhysicalLocation}
+                          isVirtualLocation={isVirtualLocation}
+                          setSelectedCategories={setSelectedCategories}
+                          setSelectedLocations={setSelectedLocations}
+                          updateUserProfilePreferences={updateUserProfilePreferences}
+                        />
+                      )}
                     </div>
-                  </div>
-                ) : (
-                  <div 
-                    className={`calendar-grid ${viewType}-view`}
-                    style={{ 
-                      transform: `scale(${zoomLevel / 100})`, 
-                      transformOrigin: 'top left',
-                      width: '100%'
-                    }}
-                  >
-                    {viewType === 'week' ? (
-                      <WeekView
-                        groupBy={groupBy}
-                        outlookCategories={outlookCategories}
-                        selectedCategories={selectedCategories}
-                        availableLocations={availableLocations}
-                        dynamicLocations={dynamicLocations}
-                        selectedLocations={selectedLocations}
-                        getDaysInRange={getDaysInRange}
-                        formatDateHeader={formatDateHeader}
-                        getEventPosition={getEventPosition}
-                        filteredEvents={filteredEvents}
-                        locationGroups={locationGroups}
-                        getCategoryColor={getCategoryColor}
-                        getLocationColor={getLocationColor}
-                        handleDayCellClick={handleDayCellClick}
-                        handleEventClick={handleEventClick}
-                        renderEventContent={renderEventContent}
-                        viewType={viewType}
-                        dynamicCategories={dynamicCategories}
-                        isEventVirtual={isEventVirtual}
-                        isUnspecifiedLocation={isUnspecifiedLocation}
-                        hasPhysicalLocation={hasPhysicalLocation}
-                        isVirtualLocation={isVirtualLocation}
-                        // ADD THESE NEW PROPS:
-                        setSelectedCategories={setSelectedCategories}
-                        setSelectedLocations={setSelectedLocations}
-                        updateUserProfilePreferences={updateUserProfilePreferences}
-                      />
-                    ) : (
-                      <DayView
-                        groupBy={groupBy}
-                        outlookCategories={outlookCategories}
-                        selectedCategories={selectedCategories}
-                        availableLocations={availableLocations}
-                        dynamicLocations={dynamicLocations}
-                        selectedLocations={selectedLocations}
-                        formatDateHeader={formatDateHeader}
-                        getEventPosition={getEventPosition}
-                        filteredEvents={filteredEvents}
-                        locationGroups={locationGroups}
-                        getCategoryColor={getCategoryColor}
-                        getLocationColor={getLocationColor}
-                        handleDayCellClick={handleDayCellClick}
-                        handleEventClick={handleEventClick}
-                        renderEventContent={renderEventContent}
-                        viewType={viewType}
-                        dynamicCategories={dynamicCategories}
-                        dateRange={dateRange}
-                        isEventVirtual={isEventVirtual}
-                        isUnspecifiedLocation={isUnspecifiedLocation}
-                        hasPhysicalLocation={hasPhysicalLocation}
-                        isVirtualLocation={isVirtualLocation}
-                        // ADD THESE NEW PROPS:
-                        setSelectedCategories={setSelectedCategories}
-                        setSelectedLocations={setSelectedLocations}
-                        updateUserProfilePreferences={updateUserProfilePreferences}
-                      />
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
-              {/* Right sidebar for filters */}
+              {/* MOVED SIDEBAR - Now sibling to main content */}
               {viewType !== 'month' && (
                 <div className="calendar-right-sidebar">
-                  {/* FILTERS CONTAINER - Side by side layout */}
-                  <div style={{
-                    display: 'flex',
-                    gap: '15px',
-                    marginBottom: '20px',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  }}>
+                  {/* FILTERS CONTAINER */}
+                  <div className="filters-container">
                     {/* CATEGORIES FILTER SECTION */}
-                    <div className="filter-section" style={{ flex: 1, margin: 0 }}>
-                      <h3 style={{ 
-                        margin: '0 0 8px 0',
-                        color: 'var(--primary-color)',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        textAlign: 'center'
-                      }}>Categories</h3>
+                    <div className="filter-section">
+                      <h3 className="filter-title">Categories</h3>
                       <SimpleMultiSelect 
                         options={dynamicCategories}
                         selected={selectedCategories}
@@ -2951,14 +2943,8 @@
                     </div>
 
                     {/* LOCATIONS FILTER SECTION */}
-                    <div className="filter-section" style={{ flex: 1, margin: 0 }}>
-                      <h3 style={{ 
-                        margin: '0 0 8px 0',
-                        color: 'var(--primary-color)',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        textAlign: 'center'
-                      }}>Locations</h3>
+                    <div className="filter-section">
+                      <h3 className="filter-title">Locations</h3>
                       <SimpleMultiSelect 
                         options={dynamicLocations}
                         selected={selectedLocations}
@@ -2973,30 +2959,16 @@
                   </div>
 
                   {/* FILTER STATUS SECTION */}
-                  <div style={{
-                    background: '#e3f2fd',
-                    border: '1px solid #2196f3',
-                    borderRadius: '4px',
-                    padding: '12px',
-                    marginBottom: '20px',
-                    fontSize: '13px'
-                  }}>
-                    <div><strong>Active Filters:</strong></div>
-                    <div>Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
-                    <div><strong>Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</strong></div>
+                  <div className="filter-status">
+                    <div className="status-title">Active Filters:</div>
+                    <div className="status-info">Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
+                    <div className="status-events">Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</div>
                   </div>
 
                   {/* GROUPING INFO SECTION */}
-                  <div className="grouping-info" style={{ 
-                    padding: '15px', 
-                    backgroundColor: '#f8f9fa', 
-                    borderRadius: '8px',
-                    border: '1px solid #dee2e6'
-                  }}>
-                    <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: '600' }}>
-                      Current Grouping
-                    </h4>
-                    <p style={{ margin: 0, fontSize: '13px', color: '#6c757d' }}>
+                  <div className="grouping-info">
+                    <h4 className="grouping-title">Current Grouping</h4>
+                    <p className="grouping-description">
                       Events are visually grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>.
                       Use the buttons above to change grouping.
                     </p>
@@ -3004,7 +2976,7 @@
                 </div>
               )}
             </div>
-    
+
             {/* Context Menu */}
             {showContextMenu && currentEvent && (
               <div 
@@ -3031,7 +3003,7 @@
             )}
           </>
         )}
-    
+
         {/* Modal for Add/Edit Event */}
         <Modal 
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
@@ -3053,7 +3025,7 @@
             userTimeZone={userTimezone}
           />
         </Modal>
-    
+
         {/* Modal for Delete Confirmation */}
         <Modal
           isOpen={isModalOpen && modalType === 'delete'}
@@ -3078,6 +3050,7 @@
             </div>
           </div>
         </Modal>
+        
         {showSearch && (
           <EventSearch 
             graphToken={graphToken}
