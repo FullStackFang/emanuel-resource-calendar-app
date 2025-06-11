@@ -2129,7 +2129,7 @@
       setCurrentEvent(newEvent);
       setModalType('add');
       setIsModalOpen(true);
-    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, viewType]);
+    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate]);
 
     /**
      * Handle clicking on an event to open the context menu
