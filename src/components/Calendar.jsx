@@ -4,7 +4,6 @@
   import Modal from './Modal';
   import EventForm from './EventForm';
   import MultiSelect from './MultiSelect';
-  import SimpleMultiSelect from './SimpleMultiSelect';
   import ExportToPdfButton from './CalendarExport';
   import EventSearch from './EventSearch';
   import MonthView from './MonthView';
@@ -3186,7 +3185,7 @@
                     {/* CATEGORIES FILTER SECTION */}
                     <div className="filter-section">
                       <h3 className="filter-title">Categories</h3>
-                      <SimpleMultiSelect 
+                      <MultiSelect 
                         options={dynamicCategories}
                         selected={selectedCategories}
                         onChange={val => {
@@ -3201,7 +3200,7 @@
                     {/* LOCATIONS FILTER SECTION */}
                     <div className="filter-section">
                       <h3 className="filter-title">Locations</h3>
-                      <SimpleMultiSelect 
+                      <MultiSelect 
                         options={dynamicLocations}
                         selected={selectedLocations}
                         onChange={val => {
@@ -3269,6 +3268,7 @@
             modalType === 'add' ? 'Add Event' : 
             modalType === 'edit' ? 'Edit Event' : 'View Event'
           }
+          hideTitle={true}
         >
           <EventForm 
             event={currentEvent}

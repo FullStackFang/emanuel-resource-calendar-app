@@ -1,6 +1,6 @@
 import React, { memo, useState, useCallback, useEffect } from 'react';
 import DayEventPanel from './DayEventPanel';
-import SimpleMultiSelect from './SimpleMultiSelect';
+import MultiSelect from './MultiSelect';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import './MonthView.css';
@@ -314,7 +314,7 @@ const MonthView = memo(({
           <div className="filter-section">
             <h3>Filter by Category</h3>
             
-            <SimpleMultiSelect
+            <MultiSelect
               options={availableCategories()}
               selected={selectedCategories || []}
               onChange={handleCategoryChange}
@@ -326,7 +326,7 @@ const MonthView = memo(({
           <div className="filter-section">
             <h3>Filter by Location</h3>
             
-            <SimpleMultiSelect
+            <MultiSelect
               options={availableLocations()}
               selected={selectedLocations || []}
               onChange={handleLocationChange}

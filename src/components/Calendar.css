@@ -397,6 +397,23 @@
   text-align: center;
 }
 
+/* Filter Container and Section Styling */
+.filters-container {
+  padding: 16px;
+  background: var(--white);
+}
+
+.filter-section {
+  margin-bottom: 20px;
+}
+
+.filter-title {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
 /* NEW: Filter Status - Now below filters like MonthView */
 .filter-status {
   background: #e3f2fd;

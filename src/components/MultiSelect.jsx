@@ -271,7 +271,6 @@ function MultiSelect({
 
   return (
     <div className="multi-select-container" ref={dropdownRef} style={{ position: 'relative' }}>
-      <label>{label}</label>
       <div 
         ref={triggerRef}
         className={`multi-select-header ${isOpen ? 'active' : ''}`}
@@ -280,7 +279,7 @@ function MultiSelect({
       >
         <div className="selected-text">
           {localSelected.length === 0 
-            ? 'Select options' 
+            ? label || 'Select options' 
             : localSelected.length === 1 
               ? localSelected[0] 
               : `${localSelected.length} selected`}

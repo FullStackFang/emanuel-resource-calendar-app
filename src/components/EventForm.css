@@ -1,135 +1,227 @@
-/* EventForm.css - Styles specific to the EventForm component */
+/* EventForm.css - Google Calendar style form */
 
 /* Base form styles */
-.event-form {
-  padding: 0;
-}
-
-.event-form .form-group {
-  margin-bottom: 10px;
-}
-
-.event-form label {
-  display: block;
-  margin-bottom: 3px;
-  font-weight: 600;
-  font-size: 12px;
-  color: #374151;
-}
-
-.event-form input,
-.event-form select,
-.event-form .multi-select-header {
-  width: 100%;
-  padding: 5px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 12px;
-  background-color: white;
-  height: 32px;
-}
-
-.event-form input:focus,
-.event-form select:focus,
-.event-form .multi-select-header:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
-}
-
-/* Date and time layout */
-.datetime-section {
+.event-form-google {
+  padding: 16px 20px;
+  max-width: 100%;
+  background: white;
   display: flex;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.datetime-fields {
+/* Google-style form groups */
+.google-form-group {
+  margin-bottom: 0;
+}
+
+.google-title-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #dadce0;
+  padding: 8px 0 6px;
+  font-size: 20px;
+  font-weight: 400;
+  color: #3c4043;
+  background: transparent;
+  outline: none;
+}
+
+.google-title-input:focus {
+  border-bottom: 2px solid #1a73e8;
+}
+
+.google-title-input::placeholder {
+  color: #9aa0a6;
+}
+
+/* Event type tabs */
+.event-type-tabs {
+  display: flex;
+  gap: 12px;
+  margin: 8px 0 12px 0;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.event-type-tab {
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.event-type-tab.active {
+  background: #1a73e8;
+  color: white;
+}
+
+/* Inline timezone info */
+.timezone-link-inline {
+  color: #5f6368;
+  font-size: 12px;
+  font-weight: 500;
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Inline registration preview */
+.registration-preview-inline {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.preview-content-inline {
+  color: #1a73e8;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e8f0fe;
+  padding: 6px 12px;
+  border-radius: 16px;
+  white-space: nowrap;
+}
+
+/* Form rows */
+.form-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.form-row:last-child {
+  padding-bottom: 4px;
+}
+
+/* Minimal setup/teardown row */
+.setup-teardown-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.form-icon {
+  font-size: 18px;
+  line-height: 1;
+  margin-top: 4px;
+  flex-shrink: 0;
+  color: #5f6368;
+}
+
+.form-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-content-split {
+  flex-direction: row;
+  gap: 16px;
+}
+
+.split-left {
   flex: 1;
 }
 
-.date-time-container {
+.split-right {
+  flex: 1;
+}
+
+.form-label {
+  color: #5f6368;
+  font-size: 13px;
+  font-weight: 400;
+  margin-bottom: 2px;
+}
+
+/* Date and time inputs */
+.google-datetime-row {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.datetime-icon {
+  font-size: 18px;
+  color: #5f6368;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.datetime-inputs {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  align-items: center;
+  flex: 1;
 }
 
-.date-input {
-  width: 160px;
+.google-date-input,
+.google-time-input {
+  padding: 6px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #f8f9fa;
+  color: #3c4043;
+  outline: none;
+  height: 32px;
 }
 
-.time-input {
-  width: 100px;
+.google-date-input:focus,
+.google-time-input:focus {
+  background: white;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
 }
 
-.time-disabled {
-  opacity: 0.5;
-  background-color: #f5f5f5;
+.google-date-input {
+  min-width: 120px;
 }
 
-/* All day toggle */
-.allday-column {
+.google-time-input {
+  min-width: 70px;
+}
+
+.time-separator {
+  color: #5f6368;
+  font-size: 16px;
+}
+
+/* Checkbox styling */
+.google-checkbox-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  width: 90px;
-  margin-left: 12px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  margin-left: 30px;
 }
 
-.all-day-toggle {
+.google-checkbox-label {
   display: flex;
   align-items: center;
-  margin-top: -65px;
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
+  gap: 6px;
+  font-size: 13px;
+  color: #3c4043;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: 0.3s;
-  border-radius: 20px;
 }
 
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: 0.3s;
-  border-radius: 50%;
-}
-
-input:checked + .toggle-slider {
-  background-color: #2196F3;
-}
-
-input:checked + .toggle-slider:before {
-  transform: translateX(20px);
-}
-
-.toggle-label {
-  margin-left: 8px;
-  font-weight: normal;
-  white-space: nowrap;
+.timezone-link {
+  color: #1a73e8;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 /* MultiSelect component styling */
@@ -137,9 +229,8 @@ input:checked + .toggle-slider:before {
   margin-bottom: 10px;
 }
 
-/* Registration toggle section */
-.registration-toggle-section {
-  margin-top: 12px;
+/* Registration section styling */
+.registration-section {
   margin-bottom: 10px;
 }
 
@@ -200,36 +291,42 @@ input:checked + .toggle-slider:before {
   margin-right: 8px;
 }
 
-/* Action buttons */
-.event-form .form-actions {
+/* Action buttons - Google style */
+.form-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 12px;
 }
 
-.event-form .cancel-button {
-  padding: 8px 16px;
-  background-color: white;
-  color: var(--dark-gray);
-  border: 1px solid #ccc;
+.cancel-button {
+  padding: 6px 12px;
+  background: transparent;
+  color: #5f6368;
+  border: none;
   border-radius: 4px;
   cursor: pointer;
+  font-size: 13px;
 }
 
-.event-form .save-button {
-  padding: 8px 16px;
-  background-color: var(--primary-color);
+.save-button {
+  padding: 8px 20px;
+  background: #1a73e8;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-.event-form .save-button:hover {
-  background-color: var(--secondary-color);
+.save-button:hover {
+  background: #1557b0;
+}
+
+.cancel-button:hover {
+  background: #f1f3f4;
 }
 
 /* Read-only view styling */
@@ -260,22 +357,133 @@ input:checked + .toggle-slider:before {
   z-index: 10;
 }
 
-/* Two-column layout for compact form */
-.form-row {
+/* Setup/teardown controls */
+.setup-controls {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
 }
 
-.form-row .form-group {
-  flex: 1;
-  margin-bottom: 8px;
+/* Setup/teardown toggle button */
+.setup-toggle-btn {
+  padding: 4px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  background: #f8f9fa;
+  color: #5f6368;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
-/* Compact timezone indicator */
-.timezone-indicator {
-  margin-bottom: 6px;
-  margin-top: -4px;
+.setup-toggle-btn:hover {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+.setup-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-number-input {
+  width: 50px;
+  padding: 4px 6px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #f8f9fa;
+  color: #3c4043;
+  text-align: center;
+  outline: none;
+  height: 28px;
+}
+
+.time-number-input:focus {
+  background: white;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.time-unit {
+  color: #5f6368;
+  font-size: 13px;
+}
+
+/* Google-style inputs */
+.google-input-small,
+.google-select {
+  padding: 6px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #f8f9fa;
+  color: #3c4043;
+  outline: none;
+  width: 100%;
+  height: 32px;
+}
+
+.google-input-small:focus,
+.google-select:focus {
+  background: white;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.google-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #f8f9fa;
+  color: #3c4043;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  min-height: 60px;
+}
+
+.google-textarea:focus {
+  background: white;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.google-textarea::placeholder {
+  color: #9aa0a6;
+}
+
+/* Location wrapper */
+.location-wrapper {
+  width: 100%;
+}
+
+.readonly-text {
+  color: #9aa0a6;
+  font-size: 13px;
+  padding: 6px 0;
+}
+
+/* Registration preview */
+.registration-preview {
+  background: #e8f0fe;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 4px;
+}
+
+.preview-content {
+  color: #1a73e8;
+  font-size: 12px;
+}
+
+.preview-breakdown {
+  color: #5f6368;
   font-size: 11px;
-  color: #6b7280;
-  font-style: italic;
+  margin-top: 2px;
 }

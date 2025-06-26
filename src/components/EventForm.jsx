@@ -1,6 +1,7 @@
 // src/components/EventForm.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
+import SingleSelect from './SingleSelect';
 import './EventForm.css';
 
 // ===== ADD THESE FUNCTIONS AT THE TOP OF EventForm.jsx (outside the component) =====
@@ -112,7 +113,7 @@ function EventForm({
     endDate: '',
     endTime: '',
     locations: [], 
-    category: categories[0] || ''
+    category: ''
   });
   
   const [isAllDay, setIsAllDay] = useState(false);
@@ -179,7 +180,7 @@ function EventForm({
         id: event.id || '',
         subject: event.subject || '',
         locations: parseLocationsFromEvent(event.location, availableLocations),
-        category: event.category || categories[0] || ''
+        category: event.category || ''
       };
       
       if (event.start?.dateTime) {
@@ -242,7 +243,7 @@ function EventForm({
         endDate: today.toISOString().split('T')[0],
         endTime: defaultEndTime,
         locations: [],
-        category: categories[0] || ''
+        category: ''
       });
       
       setIsAllDay(false);
@@ -351,7 +352,7 @@ function EventForm({
           ? formData.locations.join('; ') 
           : '' 
       },
-      categories: [formData.category],
+      categories: formData.category ? [formData.category] : [],
       isAllDay,
       setupMinutes: createRegistrationEvent ? setupMinutes : 0,
       teardownMinutes: createRegistrationEvent ? teardownMinutes : 0,
@@ -365,396 +366,227 @@ function EventForm({
   };
 
   return (
-    <form className="event-form" onSubmit={handleSubmit}>
-      <div className="form-group">
-        <label htmlFor="subject">Subject *</label>
+    <form className="event-form-google" onSubmit={handleSubmit}>
+      {/* Event Title */}
+      <div className="google-form-group">
         <input
           type="text"
           id="subject"
           name="subject"
           value={formData.subject}
           onChange={handleChange}
+          placeholder="Add title and time"
           required
           disabled={readOnly}
+          className="google-title-input"
         />
       </div>
-      {/* Add this new time zone indicator with the friendly label */}
-      <div className="timezone-indicator">
-        Displayed In: {getTimeZoneLabel(userTimeZone)}
-      </div>
 
-      <div className="datetime-section">
-        <div className="datetime-fields">
-          <div className="form-group">
-            <label htmlFor="startDate">Start Date *</label>
-            <div className="date-time-container">
-              <input
-                type="date"
-                id="startDate"
-                name="startDate"
-                value={formData.startDate}
-                onChange={handleChange}
-                required
-                disabled={readOnly}
-                className="date-input"
-              />
-              {!isAllDay && (
-                <input
-                  type="time"
-                  id="startTime"
-                  name="startTime"
-                  value={formData.startTime}
-                  onChange={handleChange}
-                  required
-                  disabled={readOnly}
-                  className="time-input"
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="endDate">End Date *</label>
-            <div className="date-time-container">
-              <input
-                type="date"
-                id="endDate"
-                name="endDate"
-                value={formData.endDate}
-                onChange={handleChange}
-                required
-                disabled={readOnly}
-                className="date-input"
-              />
-              {!isAllDay && (
-                <input
-                  type="time"
-                  id="endTime"
-                  name="endTime"
-                  value={formData.endTime}
-                  onChange={handleChange}
-                  required
-                  disabled={readOnly}
-                  className="time-input"
-                />
-              )}
-            </div>
-          </div>
+      {/* Event Types - simplified for Temple Events */}
+      <div className="event-type-tabs">
+        <div className="event-type-tab active">Event</div>
+        
+        {/* Timezone info - inline with tabs */}
+        <div className="timezone-link-inline">
+          {getTimeZoneLabel(userTimeZone)}
         </div>
         
-        <div className="allday-column">
-          <div className="all-day-toggle">
-            <label className="toggle-switch">
-              <input
-                type="checkbox"
-                checked={isAllDay}
-                onChange={handleAllDayToggle}
-                disabled={readOnly}
-              />
-              <span className="toggle-slider"></span>
-            </label>
-            <span className="toggle-label">All day</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="form-row">
-        <div className="form-group">
-          <label htmlFor="category">Category</label>
-          <select
-            id="category"
-            name="category"
-            value={formData.category}
-            onChange={handleChange}
-            disabled={readOnly}
-          >
-            {categories.map(category => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="location">Locations</label>
-          {readOnly ? (
-            <div className="readonly-display">
-              {formData.locations && formData.locations.length > 0 
-                ? formData.locations.join(', ') 
-                : 'No locations selected'}
-            </div>
-          ) : (
-            <MultiSelect
-              options={availableLocations}
-              selected={formData.locations || []}
-              onChange={handleLocationChange}
-              label="Select location(s)"
-            />
-          )}
-        </div>
-      </div>
-
-      {/* MEC Categories Multi-Select */}
-      <div className="form-group">
-        <label htmlFor="mecCategories">MEC Categories</label>
-        {readOnly ? (
-          <div className="readonly-display">
-            {selectedMecCategories && selectedMecCategories.length > 0 
-              ? selectedMecCategories.join(', ') 
-              : 'No MEC categories selected'}
-          </div>
-        ) : (
-          <div className="mec-categories-wrapper">
-            <MultiSelect
-              options={availableMecCategories}
-              selected={selectedMecCategories}
-              onChange={setSelectedMecCategories}
-              label="Categories"
-              showTabs={true}
-              allLabel="All Categories"
-              frequentLabel="Most Used"
-              dropdownDirection="up"
-              maxHeight={200}
-            />
+        {/* Registration Preview - inline with tabs */}
+        {!readOnly && (setupMinutes > 0 || teardownMinutes > 0) && formData.startDate && formData.startTime && formData.endDate && formData.endTime && (
+          <div className="registration-preview-inline">
+            {(() => {
+              const eventStart = new Date(`${formData.startDate}T${formData.startTime}`);
+              const eventEnd = new Date(`${formData.endDate}T${formData.endTime}`);
+              const setupStart = new Date(eventStart);
+              setupStart.setMinutes(setupStart.getMinutes() - setupMinutes);
+              const teardownEnd = new Date(eventEnd);
+              teardownEnd.setMinutes(teardownEnd.getMinutes() + teardownMinutes);
+              
+              const formatTime = (date) => {
+                return date.toLocaleTimeString('en-US', { 
+                  hour: 'numeric', 
+                  minute: '2-digit',
+                  hour12: true 
+                });
+              };
+              
+              return (
+                <div className="preview-content-inline">
+                  <strong>Reserved: {formatTime(setupStart)} - {formatTime(teardownEnd)}</strong>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
 
-      {/* Registration Event Toggle */}
-      {!readOnly && (
-        <div className="form-group registration-toggle-section">
-          <div style={{
-            padding: '8px 10px',
-            background: '#f8f9fa',
-            borderRadius: '4px',
-            border: '1px solid #e5e7eb',
-            marginBottom: '8px'
-          }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              margin: 0,
-              fontWeight: 600,
-              fontSize: '13px'
-            }}>
+      {/* Date and Time Row */}
+      <div className="google-datetime-row">
+        <div className="datetime-icon">🕒</div>
+        <div className="datetime-inputs">
+          <input
+            type="date"
+            name="startDate"
+            value={formData.startDate}
+            onChange={handleChange}
+            required
+            disabled={readOnly}
+            className="google-date-input"
+          />
+          {!isAllDay && (
+            <>
               <input
-                type="checkbox"
-                checked={createRegistrationEvent || false}
-                onChange={(e) => setCreateRegistrationEvent(e.target.checked)}
-                style={{ 
-                  margin: 0,
-                  accentColor: '#3b82f6'
-                }}
+                type="time"
+                name="startTime"
+                value={formData.startTime}
+                onChange={handleChange}
+                required
+                disabled={readOnly}
+                className="google-time-input"
               />
-              <span style={{ fontSize: '14px' }}>🔧</span>
-              Create setup/teardown registration event
-            </label>
-            <div style={{
-              fontSize: '11px',
-              color: '#6b7280',
-              marginTop: '2px',
-              marginLeft: '30px'
-            }}>
-              For security and maintenance staff preparation
-            </div>
+              <span className="time-separator">–</span>
+              <input
+                type="time"
+                name="endTime"
+                value={formData.endTime}
+                onChange={handleChange}
+                required
+                disabled={readOnly}
+                className="google-time-input"
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* All Day Toggle */}
+      <div className="google-checkbox-row">
+        <label className="google-checkbox-label">
+          <input
+            type="checkbox"
+            checked={isAllDay}
+            onChange={handleAllDayToggle}
+            disabled={readOnly}
+          />
+          All day
+        </label>
+      </div>
+
+      {/* Setup/Teardown Time Row */}
+      {!readOnly && (
+        <div className="setup-teardown-row">
+          <div className="form-icon">⏱️</div>
+          <div className="setup-control">
+            <input
+              type="number"
+              value={setupMinutes || 0}
+              onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+              min="0"
+              max="240"
+              className="time-number-input"
+            />
+            <span className="time-unit">min before</span>
           </div>
+          <div className="setup-control">
+            <input
+              type="number"
+              value={teardownMinutes || 0}
+              onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+              min="0"
+              max="240"
+              className="time-number-input"
+            />
+            <span className="time-unit">min after</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (setupMinutes === 0 && teardownMinutes === 0) {
+                setSetupMinutes(30);
+                setTeardownMinutes(15);
+              } else {
+                setSetupMinutes(0);
+                setTeardownMinutes(0);
+              }
+            }}
+            className="setup-toggle-btn"
+          >
+            {setupMinutes === 0 && teardownMinutes === 0 ? 'Enable' : 'Disable'}
+          </button>
+        </div>
+      )}
 
-          {/* Registration Details Section */}
-          {createRegistrationEvent && (
-            <div className="registration-details-section" style={{
-              border: '1px solid #d1d5db',
-              borderRadius: '4px',
-              padding: '10px',
-              background: '#ffffff',
-              marginBottom: '8px'
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                marginBottom: '8px',
-                borderBottom: '1px solid #f3f4f6',
-                paddingBottom: '6px'
-              }}>
-                <span style={{ fontSize: '14px' }}>🔧</span>
-                <h4 style={{ margin: 0, color: '#374151', fontSize: '13px', fontWeight: 600 }}>
-                  Registration Event Details
-                </h4>
-              </div>
-
-              {/* Setup/Teardown Times */}
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="setupMinutes">Setup Time (minutes before)</label>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      id="setupMinutes"
-                      value={setupMinutes || 0}
-                      onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-                      min="0"
-                      max="240"
-                      style={{ width: '60px', height: '28px' }}
-                    />
-                    <div style={{ display: 'flex', gap: '3px' }}>
-                      {[15, 30, 45, 60].map(preset => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setSetupMinutes(preset)}
-                          style={{
-                            padding: '3px 6px',
-                            fontSize: '10px',
-                            border: '1px solid #ccc',
-                            borderRadius: '3px',
-                            background: setupMinutes === preset ? '#3b82f6' : 'white',
-                            color: setupMinutes === preset ? 'white' : '#666',
-                            cursor: 'pointer',
-                            height: '24px'
-                          }}
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="teardownMinutes">Teardown Time (minutes after)</label>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      id="teardownMinutes"
-                      value={teardownMinutes || 0}
-                      onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-                      min="0"
-                      max="240"
-                      style={{ width: '60px', height: '28px' }}
-                    />
-                    <div style={{ display: 'flex', gap: '3px' }}>
-                      {[15, 30, 45, 60].map(preset => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setTeardownMinutes(preset)}
-                          style={{
-                            padding: '3px 6px',
-                            fontSize: '10px',
-                            border: '1px solid #ccc',
-                            borderRadius: '3px',
-                            background: teardownMinutes === preset ? '#3b82f6' : 'white',
-                            color: teardownMinutes === preset ? 'white' : '#666',
-                            cursor: 'pointer',
-                            height: '24px'
-                          }}
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Registration Fields */}
-              <div className="form-group">
-                <label htmlFor="registrationNotes">Registration Notes (optional)</label>
-                <textarea
-                  id="registrationNotes"
-                  value={registrationNotes || ''}
-                  onChange={(e) => setRegistrationNotes(e.target.value)}
-                  placeholder="Additional instructions for security/maintenance staff..."
-                  style={{
-                    width: '100%',
-                    minHeight: '40px',
-                    padding: '5px 8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    resize: 'vertical',
-                    fontFamily: 'inherit'
-                  }}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="assignedTo">Assigned To (optional)</label>
-                <input
-                  type="text"
-                  id="assignedTo"
-                  value={assignedTo || ''}
-                  onChange={(e) => setAssignedTo(e.target.value)}
-                  placeholder="Security Team, Maintenance, etc."
-                  style={{
-                    width: '100%',
-                    padding: '5px 8px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    height: '32px'
-                  }}
-                />
-              </div>
-
-              {/* Registration Preview */}
-              {(setupMinutes > 0 || teardownMinutes > 0) && formData.startDate && formData.startTime && formData.endDate && formData.endTime && (
-                <div style={{
-                  background: '#f0f7ff',
-                  border: '1px solid #bfdbfe',
-                  borderRadius: '4px',
-                  padding: '8px',
-                  marginTop: '8px',
-                  fontSize: '11px',
-                  color: '#1e40af'
-                }}>
-                  <strong>Registration Event Preview:</strong><br />
-                  {(() => {
-                    // Calculate the actual start and end times
-                    const eventStart = new Date(`${formData.startDate}T${formData.startTime}`);
-                    const eventEnd = new Date(`${formData.endDate}T${formData.endTime}`);
-                    
-                    // Calculate setup start time
-                    const setupStart = new Date(eventStart);
-                    setupStart.setMinutes(setupStart.getMinutes() - setupMinutes);
-                    
-                    // Calculate teardown end time
-                    const teardownEnd = new Date(eventEnd);
-                    teardownEnd.setMinutes(teardownEnd.getMinutes() + teardownMinutes);
-                    
-                    const formatTime = (date) => {
-                      return date.toLocaleTimeString('en-US', { 
-                        hour: 'numeric', 
-                        minute: '2-digit',
-                        hour12: true 
-                      });
-                    };
-                    
-                    const totalMinutes = setupMinutes + teardownMinutes;
-                    const hours = Math.floor(totalMinutes / 60);
-                    const mins = totalMinutes % 60;
-                    const totalTimeStr = hours > 0 ? `${hours}h ${mins}min` : `${mins}min`;
-                    
-                    return (
-                      <>
-                        • Reserved time: <strong>{formatTime(setupStart)} - {formatTime(teardownEnd)}</strong><br />
-                        • Setup: {setupMinutes}min before ({formatTime(setupStart)} - {formatTime(eventStart)})<br />
-                        • Event: {formatTime(eventStart)} - {formatTime(eventEnd)}<br />
-                        • Teardown: {teardownMinutes}min after ({formatTime(eventEnd)} - {formatTime(teardownEnd)})<br />
-                        • Total extra time: {totalTimeStr}<br />
-                        {assignedTo && `• Assigned to: ${assignedTo}`}
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
+      {/* Location Row */}
+      <div className="form-row">
+        <div className="form-icon">📍</div>
+        <div className="form-content">
+          {readOnly ? (
+            <span className="readonly-text">
+              {formData.locations && formData.locations.length > 0 
+                ? formData.locations.join(', ') 
+                : 'Add location'}
+            </span>
+          ) : (
+            <div className="location-wrapper">
+              <MultiSelect
+                options={availableLocations}
+                selected={formData.locations || []}
+                onChange={handleLocationChange}
+                label="Add location"
+              />
             </div>
           )}
         </div>
+      </div>
+
+      {/* Category and Assignment Row */}
+      <div className="form-row">
+        <div className="form-icon">👥</div>
+        <div className="form-content form-content-split">
+          <div className="split-left">
+            {readOnly ? (
+              <span className="readonly-text">
+                {formData.category || 'No category selected'}
+              </span>
+            ) : (
+              <SingleSelect
+                options={categories}
+                selected={formData.category}
+                onChange={(value) => setFormData(prev => ({ ...prev, category: value }))}
+                placeholder="Add categories"
+              />
+            )}
+          </div>
+          {!readOnly && (
+            <div className="split-right">
+              <input
+                type="text"
+                value={assignedTo || ''}
+                onChange={(e) => setAssignedTo(e.target.value)}
+                placeholder="Assigned to"
+                className="google-input-small"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Description/Notes Row */}
+      {!readOnly && (
+        <div className="form-row">
+          <div className="form-icon">📝</div>
+          <div className="form-content">
+            <textarea
+              value={registrationNotes || ''}
+              onChange={(e) => setRegistrationNotes(e.target.value)}
+              placeholder="Add description or notes"
+              className="google-textarea"
+              rows="3"
+            />
+          </div>
+        </div>
       )}
+
 
       <div className="form-actions">
         <button type="button" className="cancel-button" onClick={onCancel}>
