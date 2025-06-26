@@ -17,7 +17,7 @@ https: {
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 80, // Using port 80 as required by ngrok
+    port: 5173, // Standard Vite development port
     
     // Enable CORS globally
     cors: {

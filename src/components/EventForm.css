@@ -94,7 +94,7 @@
 /* Form rows */
 .form-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: 4px 0;
 }
@@ -107,16 +107,17 @@
 .setup-teardown-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 0;
+  gap: 20px;
+  padding: 4px 0;
+  width: 100%;
 }
 
 .form-icon {
-  font-size: 18px;
-  line-height: 1;
-  margin-top: 4px;
-  flex-shrink: 0;
+  font-size: 16px;
   color: #5f6368;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
 }
 
 .form-content {
@@ -150,16 +151,11 @@
 .google-datetime-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 20px;
   padding: 8px 0;
+  flex-wrap: nowrap;
 }
 
-.datetime-icon {
-  font-size: 18px;
-  color: #5f6368;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
 
 .datetime-inputs {
   display: flex;
@@ -170,14 +166,15 @@
 
 .google-date-input,
 .google-time-input {
-  padding: 6px 8px;
+  padding: 5px 8px;
   border: 1px solid #dadce0;
   border-radius: 4px;
   font-size: 13px;
   background: #f8f9fa;
   color: #3c4043;
   outline: none;
-  height: 32px;
+  height: 30px;
+  box-sizing: border-box;
 }
 
 .google-date-input:focus,
@@ -188,16 +185,29 @@
 }
 
 .google-date-input {
-  min-width: 120px;
+  width: 110px;
 }
 
 .google-time-input {
-  min-width: 70px;
+  width: 90px;
+  min-width: 90px;
+}
+
+/* Fix time input clock icon visibility */
+.google-time-input::-webkit-calendar-picker-indicator {
+  background-color: #5f6368;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.google-time-input::-webkit-calendar-picker-indicator:hover {
+  background-color: #3c4043;
 }
 
 .time-separator {
   color: #5f6368;
-  font-size: 16px;
+  font-size: 12px;
+  padding: 0 2px;
 }
 
 /* Checkbox styling */
@@ -212,10 +222,13 @@
 .google-checkbox-label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
   color: #3c4043;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 .timezone-link {
@@ -387,6 +400,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 1;
 }
 
 .time-number-input {
@@ -406,6 +420,56 @@
   background: white;
   border-color: #1a73e8;
   box-shadow: 0 0 0 1px #1a73e8;
+}
+
+/* Hide default number input spinners */
+.time-number-input::-webkit-outer-spin-button,
+.time-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.time-number-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* Custom number input container */
+.number-input-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spinner-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.spinner-btn {
+  width: 20px;
+  height: 14px;
+  border: 1px solid #dadce0;
+  background: #f8f9fa;
+  color: #5f6368;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  user-select: none;
+}
+
+.spinner-btn:hover {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+.spinner-btn:active {
+  background: #d2e3fc;
 }
 
 .time-unit {

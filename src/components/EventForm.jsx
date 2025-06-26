@@ -287,8 +287,38 @@ function EventForm({
   };
 
   const handleAllDayToggle = () => {
-    // Just toggle the flag without changing time values
-    setIsAllDay(!isAllDay);
+    const newIsAllDay = !isAllDay;
+    setIsAllDay(newIsAllDay);
+    
+    // If switching FROM all-day TO timed, set smart default times
+    if (!newIsAllDay && isAllDay) {
+      const now = new Date();
+      const nextHour = new Date(now);
+      
+      // Round up to next hour
+      nextHour.setHours(now.getHours() + (now.getMinutes() > 0 ? 1 : 0));
+      nextHour.setMinutes(0);
+      nextHour.setSeconds(0);
+      
+      // End time is 1 hour later
+      const endTime = new Date(nextHour);
+      endTime.setHours(nextHour.getHours() + 1);
+      
+      // Format times for form inputs (HH:MM)
+      const startTimeStr = nextHour.toTimeString().slice(0, 5);
+      const endTimeStr = endTime.toTimeString().slice(0, 5);
+      
+      // Update form data
+      setFormData(prev => ({
+        ...prev,
+        startTime: startTimeStr,
+        endTime: endTimeStr,
+        // Handle date change if crossing midnight
+        endDate: endTime.getDate() !== nextHour.getDate() 
+          ? endTime.toISOString().split('T')[0] 
+          : prev.endDate
+      }));
+    }
   };
 
   const handleLocationChange = (selectedLocations) => {
@@ -392,7 +422,7 @@ function EventForm({
         </div>
         
         {/* Registration Preview - inline with tabs */}
-        {!readOnly && (setupMinutes > 0 || teardownMinutes > 0) && formData.startDate && formData.startTime && formData.endDate && formData.endTime && (
+        {!readOnly && formData.startDate && formData.startTime && formData.endDate && formData.endTime && (
           <div className="registration-preview-inline">
             {(() => {
               const eventStart = new Date(`${formData.startDate}T${formData.startTime}`);
@@ -410,9 +440,16 @@ function EventForm({
                 });
               };
               
+              // Check if setup/teardown times exist
+              const hasSetupTeardown = (setupMinutes && setupMinutes > 0) || (teardownMinutes && teardownMinutes > 0);
+              
               return (
                 <div className="preview-content-inline">
-                  <strong>Reserved: {formatTime(setupStart)} - {formatTime(teardownEnd)}</strong>
+                  {hasSetupTeardown ? (
+                    <strong>Reserved: {formatTime(setupStart)} - {formatTime(teardownEnd)}</strong>
+                  ) : (
+                    <strong>Event: {formatTime(eventStart)} - {formatTime(eventEnd)}</strong>
+                  )}
                 </div>
               );
             })()}
@@ -420,9 +457,9 @@ function EventForm({
         )}
       </div>
 
-      {/* Date and Time Row */}
+      {/* Date, Time and All Day Row */}
       <div className="google-datetime-row">
-        <div className="datetime-icon">🕒</div>
+        <div className="form-icon">🕒</div>
         <div className="datetime-inputs">
           <input
             type="date"
@@ -457,19 +494,15 @@ function EventForm({
             </>
           )}
         </div>
-      </div>
-
-      {/* All Day Toggle */}
-      <div className="google-checkbox-row">
-        <label className="google-checkbox-label">
-          <input
-            type="checkbox"
-            checked={isAllDay}
-            onChange={handleAllDayToggle}
-            disabled={readOnly}
-          />
-          All day
-        </label>
+        {/* All Day Toggle */}
+        <button
+          type="button"
+          onClick={handleAllDayToggle}
+          disabled={readOnly}
+          className="setup-toggle-btn"
+        >
+          {isAllDay ? 'Set Times' : 'All Day'}
+        </button>
       </div>
 
       {/* Setup/Teardown Time Row */}
@@ -477,26 +510,62 @@ function EventForm({
         <div className="setup-teardown-row">
           <div className="form-icon">⏱️</div>
           <div className="setup-control">
-            <input
-              type="number"
-              value={setupMinutes || 0}
-              onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-              min="0"
-              max="240"
-              className="time-number-input"
-            />
-            <span className="time-unit">min before</span>
+            <div className="number-input-container">
+              <input
+                type="number"
+                value={setupMinutes || 0}
+                onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                min="0"
+                max="240"
+                className="time-number-input"
+              />
+              <div className="spinner-buttons">
+                <button
+                  type="button"
+                  className="spinner-btn"
+                  onClick={() => setSetupMinutes(Math.min(240, (setupMinutes || 0) + 1))}
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="spinner-btn"
+                  onClick={() => setSetupMinutes(Math.max(0, (setupMinutes || 0) - 1))}
+                >
+                  −
+                </button>
+              </div>
+            </div>
+            <span className="time-unit">Setup</span>
           </div>
           <div className="setup-control">
-            <input
-              type="number"
-              value={teardownMinutes || 0}
-              onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-              min="0"
-              max="240"
-              className="time-number-input"
-            />
-            <span className="time-unit">min after</span>
+            <div className="number-input-container">
+              <input
+                type="number"
+                value={teardownMinutes || 0}
+                onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                min="0"
+                max="240"
+                className="time-number-input"
+              />
+              <div className="spinner-buttons">
+                <button
+                  type="button"
+                  className="spinner-btn"
+                  onClick={() => setTeardownMinutes(Math.min(240, (teardownMinutes || 0) + 1))}
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="spinner-btn"
+                  onClick={() => setTeardownMinutes(Math.max(0, (teardownMinutes || 0) - 1))}
+                >
+                  −
+                </button>
+              </div>
+            </div>
+            <span className="time-unit">Teardown</span>
           </div>
           <button
             type="button"
