@@ -11,6 +11,7 @@ const MonthView = memo(({
   getWeekdayHeaders,
   selectedFilter,
   handleEventClick,
+  handleDayCellClick,
   getEventContentStyle,
   formatEventTime,
   getCategoryColor,
@@ -38,6 +39,7 @@ const MonthView = memo(({
   updateUserProfilePreferences  
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
+  const [showSetupTeardown, setShowSetupTeardown] = useState(false);
   
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
@@ -57,7 +59,11 @@ const MonthView = memo(({
   
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
-  }, []);
+    // Also trigger the add event functionality
+    if (handleDayCellClick) {
+      handleDayCellClick(day.date);
+    }
+  }, [handleDayCellClick]);
 
   // Memoize category calculation to prevent unnecessary re-renders
   const getAvailableCategoriesInRange = useCallback(() => {
@@ -233,6 +239,29 @@ const MonthView = memo(({
                         if (dayFilteredEvents.length > 0) {
                           const size = Math.min(20 + (dayFilteredEvents.length * 3), 50);
                           
+                          // Check if any events have setup/teardown times
+                          const hasSetupTeardown = dayFilteredEvents.some(event => 
+                            (event.setupMinutes && event.setupMinutes > 0) || 
+                            (event.teardownMinutes && event.teardownMinutes > 0)
+                          );
+                          
+                          // Calculate total setup/teardown time for tooltip
+                          const totalSetupTeardown = dayFilteredEvents.reduce((total, event) => {
+                            return total + (event.setupMinutes || 0) + (event.teardownMinutes || 0);
+                          }, 0);
+                          
+                          const backgroundColor = showSetupTeardown && hasSetupTeardown 
+                            ? '#f59e0b' // Orange when showing setup/teardown times
+                            : hasSetupTeardown 
+                              ? '#10b981' // Green with slight blue tint when has setup/teardown but not showing
+                              : '#4caf50'; // Standard green for regular events
+                          
+                          const tooltipText = showSetupTeardown && hasSetupTeardown
+                            ? `${dayFilteredEvents.length} events (${totalSetupTeardown}min setup/teardown)`
+                            : hasSetupTeardown
+                              ? `${dayFilteredEvents.length} events (with setup/teardown times)`
+                              : `${dayFilteredEvents.length} events visible`;
+                          
                           return (
                             <div 
                               className="event-count-circle"
@@ -240,11 +269,30 @@ const MonthView = memo(({
                                 width: `${size}px`,
                                 height: `${size}px`,
                                 fontSize: `${Math.min(14 + (dayFilteredEvents.length * 0.5), 20)}px`,
-                                backgroundColor: '#4caf50' // Green for visible events
+                                backgroundColor,
+                                border: showSetupTeardown && hasSetupTeardown ? '2px solid #d97706' : 'none'
                               }}
-                              title={`${dayFilteredEvents.length} events visible`}
+                              title={tooltipText}
                             >
                               {dayFilteredEvents.length}
+                              {showSetupTeardown && hasSetupTeardown && (
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: '-2px',
+                                  right: '-2px',
+                                  width: '8px',
+                                  height: '8px',
+                                  backgroundColor: '#dc2626',
+                                  borderRadius: '50%',
+                                  fontSize: '8px',
+                                  color: 'white',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  ⏱
+                                </div>
+                              )}
                             </div>
                           );
                         }
@@ -286,12 +334,45 @@ const MonthView = memo(({
               maxHeight={200}
             />
           </div>
+          
+          <div className="filter-section">
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              padding: '8px',
+              background: '#f8f9fa',
+              borderRadius: '4px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '13px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                margin: 0
+              }}>
+                <input
+                  type="checkbox"
+                  checked={showSetupTeardown}
+                  onChange={(e) => setShowSetupTeardown(e.target.checked)}
+                  style={{ margin: 0 }}
+                />
+                📋 Show Setup/Teardown
+              </label>
+            </div>
+          </div>
         </div>
       
         <DayEventPanel
           selectedDay={selectedDay}
           events={getEventsForSelectedDay()}
           onEventClick={handleEventClick}
+          onEventEdit={handleEventClick} // Reuse existing click handler for edit
+          onEventDelete={handleEventClick} // Reuse existing click handler for delete
           formatEventTime={formatEventTimeWithTimezone} // Use timezone-aware formatter
           getCategoryColor={getCategoryColor}
           getLocationColor={getLocationColor}
@@ -314,6 +395,7 @@ const MonthView = memo(({
           <div><strong>Active Filters:</strong></div>
           <div>Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
           <div><strong>Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</strong></div>
+          <div><strong>Setup/Teardown: {showSetupTeardown ? 'Visible' : 'Hidden'}</strong></div>
           <div><strong>Timezone: {userTimezone}</strong></div>
         </div>
       </div>

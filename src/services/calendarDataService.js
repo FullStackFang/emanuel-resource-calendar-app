@@ -109,8 +109,8 @@ class CalendarDataService {
         
         // Parse the UTC event time
         const eventStartUTC = new Date(eventStartTime);
-        const rangeStartUTC = new Date(start);
-        const rangeEndUTC = new Date(end);
+        // const rangeStartUTC = new Date(start);
+        // const rangeEndUTC = new Date(end);
         
         if (isNaN(eventStartUTC.getTime())) {
           console.warn('Invalid event start time:', eventStartTime, event.subject);
@@ -260,6 +260,13 @@ class CalendarDataService {
         });
 
         if (!response.ok) {
+          // Handle specific error cases for shared calendars
+          if (response.status === 403) {
+            console.error('Access denied to calendar. This may be a shared calendar with limited permissions.');
+            throw new Error('You do not have permission to access events in this calendar');
+          } else if (response.status === 404) {
+            throw new Error('Calendar not found');
+          }
           throw new Error(`API request failed: ${response.status}`);
         }
 
@@ -371,7 +378,17 @@ class CalendarDataService {
     
     // Handle batch response
     if (result.responses && result.responses[0] && result.responses[0].status >= 400) {
-      throw new Error(`Event operation failed: ${result.responses[0].body?.error?.message || 'Unknown error'}`);
+      const errorStatus = result.responses[0].status;
+      const errorMessage = result.responses[0].body?.error?.message || 'Unknown error';
+      
+      // Handle specific error cases for shared calendars
+      if (errorStatus === 403) {
+        throw new Error('You do not have permission to modify events in this calendar. This may be a read-only shared calendar.');
+      } else if (errorStatus === 404) {
+        throw new Error('Calendar or event not found');
+      }
+      
+      throw new Error(`Event operation failed: ${errorMessage}`);
     }
 
     return { success: true };

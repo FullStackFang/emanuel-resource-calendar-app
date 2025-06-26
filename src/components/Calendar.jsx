@@ -18,6 +18,7 @@
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
+  // import { getCalendars } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
   import { 
     TimezoneSelector, 
@@ -125,7 +126,8 @@
     availableCalendars,
     setAvailableCalendars,
     changingCalendar,
-    setChangingCalendar
+    setChangingCalendar,
+    showRegistrationTimes
   }) {
     //---------------------------------------------------------------------------
     // STATE MANAGEMENT
@@ -200,11 +202,14 @@
       defaultGroupBy: 'categories',
       preferredZoomLevel: 100,
       preferredTimeZone: 'America/New_York',
-      createEvents: false,
-      editEvents: false,
-      deleteEvents: false,
-      isAdmin: false,
+      createEvents: true, // TEMPORARY: Set to true for testing
+      editEvents: true,   // TEMPORARY: Set to true for testing
+      deleteEvents: true, // TEMPORARY: Set to true for testing
+      isAdmin: true,      // TEMPORARY: Set to true for testing
     });
+    
+    // Log permissions on every render to debug
+    console.log('Current userPermissions state:', userPermissions);
 
     // Modal and context menu state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -402,11 +407,11 @@
       
       return (
         <div className="mode-toggle-container" style={{
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
+          padding: '16px',
+          backgroundColor: '#f9fafb',
           borderRadius: '8px',
-          marginBottom: '20px',
-          border: '1px solid #dee2e6'
+          marginBottom: '24px',
+          border: '1px solid #e5e7eb'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -802,12 +807,12 @@
       }
     }, [graphToken]);
 
-    // Loads the current user's available calendars
+    // Loads the current user's available calendars (both owned and shared)
     const loadAvailableCalendars = useCallback(async () => {
       if (!graphToken) return [];
       
       try {
-        const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars', {
+        const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,owner,canEdit,isDefaultCalendar&$orderby=name', {
           headers: {
             Authorization: `Bearer ${graphToken}`
           }
@@ -821,9 +826,11 @@
         const calendars = data.value.map(calendar => ({
           id: calendar.id,
           name: calendar.name,
-          owner: calendar.owner?.name || 'Unknown',
+          owner: calendar.owner,  // Keep full owner object for shared calendars
           canEdit: calendar.canEdit || false,
-          isDefault: calendar.isDefaultCalendar || false
+          isDefaultCalendar: calendar.isDefaultCalendar || false,
+          // Determine if shared based on owner info
+          isShared: calendar.owner && calendar.owner.address && !calendar.isDefaultCalendar || false
         }));
         
         // Update parent state with calendars
@@ -1078,7 +1085,9 @@
         
         if (response.status === 401) {
           console.log("Unauthorized - authentication issue with API token");
-          // For testing purposes, set temporary permissions
+          // TEMPORARY: Don't reset permissions for testing
+          console.log("401 error but keeping test permissions");
+          /*
           setUserPermissions({
             startOfWeek: 'Monday',
             defaultView: 'week',
@@ -1090,12 +1099,20 @@
             deleteEvents: false, 
             isAdmin: false
           });
+          */
           return true;
         }
         
         if (response.ok) {
           const data = await response.json();
+          console.log("Full user profile data from API:", data);
           setUserProfile(data);
+          
+          // Based on UserAdmin component, permissions are stored in preferences
+          const hasCreatePermission = data.preferences?.createEvents ?? true;  // Default to true if not set
+          const hasEditPermission = data.preferences?.editEvents ?? true;      // Default to true if not set
+          const hasDeletePermission = data.preferences?.deleteEvents ?? false; // Default to false if not set
+          const isAdmin = data.preferences?.isAdmin ?? false;                  // Default to false if not set
           
           const permissions = {
             startOfWeek: data.preferences?.startOfWeek || 'Monday',
@@ -1103,24 +1120,29 @@
             defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
             preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
             preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York',
-            createEvents: data.preferences?.createEvents ?? false,
-            editEvents: data.preferences?.editEvents ?? false,
-            deleteEvents: data.preferences?.deleteEvents ?? false,  
-            isAdmin: data.isAdmin || false,
+            createEvents: hasCreatePermission,
+            editEvents: hasEditPermission,
+            deleteEvents: hasDeletePermission,  
+            isAdmin: isAdmin,
           };
           
-          setUserPermissions(permissions);
+          console.log("Parsed permissions:", permissions);
+          // TEMPORARY: Don't overwrite test permissions
+          // setUserPermissions(permissions);
+          console.log("SKIPPING permission update for testing - keeping createEvents: true");
           if (data.preferences?.preferredTimeZone) {
             console.log("Setting timezone directly from profile:", data.preferences?.preferredTimeZone);
             setUserTimeZone(data.preferences.preferredTimeZone);
           }
-          console.log("User permissions loaded:", permissions);
+          console.log("User permissions loaded (but not applied):", permissions);
           return true;
         }
         return false;
       } catch (error) {
         console.error("Error fetching user permissions:", error);
-        // Set fallback permissions for testing
+        // TEMPORARY: Don't reset permissions for testing
+        console.log("Error loading profile but keeping test permissions");
+        /*
         setUserPermissions({
           startOfWeek: 'Monday',
           defaultView: 'week',
@@ -1132,6 +1154,7 @@
           deleteEvents: false,
           isAdmin: false
         });
+        */
         return true;
       }
     }, [apiToken, API_BASE_URL]);  
@@ -1254,8 +1277,10 @@
       };
     };
 
-    const patchEventBatch = async (eventId, coreBody, extPayload, calendarId) => {
+    const patchEventBatch = async (eventId, coreBody, extPayload, calendarId, internalFields) => {
       const targetCalendarId = calendarId || selectedCalendarId;
+      
+      // First, update the Graph event
       const batchBody = makeBatchBody(eventId, coreBody, extPayload, targetCalendarId);
       const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
         method: 'POST',
@@ -1268,6 +1293,17 @@
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error?.message || `Batch call failed: ${resp.status}`);
+      }
+      
+      // Then, save internal fields if provided
+      if (internalFields && eventDataService.apiToken) {
+        try {
+          await eventDataService.updateInternalFields(eventId, internalFields);
+          console.log('Updated internal fields for event:', eventId, internalFields);
+        } catch (error) {
+          console.error('Failed to update internal fields:', error);
+          // Don't throw here - Graph update succeeded, internal data is supplementary
+        }
       }
     };
 
@@ -1991,6 +2027,10 @@
      * Open the Add, Edit, Delete, Save modal
      */
     const handleAddEvent = useCallback(() => {
+      console.log('handleAddEvent called');
+      console.log('Permissions:', userPermissions);
+      console.log('Modal state before:', { isModalOpen, modalType });
+      
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
   
       if (!userPermissions.createEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
@@ -1998,8 +2038,14 @@
         return;
       }
       
+      setCurrentEvent(null); // Clear current event for new event creation
       setModalType('add');
       setIsModalOpen(true);
+      
+      // Add a timeout to check if modal actually opened
+      setTimeout(() => {
+        console.log('Modal state after 100ms:', { isModalOpen, modalType });
+      }, 100);
     }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification]);
 
     /**
@@ -2082,7 +2128,7 @@
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       if(!userPermissions.createEvents) {
-        showNotification("User don't have permission to create events");
+        showNotification("You don't have permission to create events");
         return;
       }
       // Close context menu if open
@@ -2197,6 +2243,130 @@
     };
 
     /**
+     * Handle creation of registration events for TempleEvents
+     * @param {Object} eventData - The event data that was just saved
+     * @param {string} calendarId - The calendar ID where the event was saved
+     */
+    const handleRegistrationEventCreation = async (eventData, calendarId) => {
+      try {
+        // Find the current calendar info
+        const currentCalendar = availableCalendars.find(cal => cal.id === calendarId);
+        if (!currentCalendar) {
+          console.log('Calendar not found, skipping registration event creation');
+          return;
+        }
+
+        // Check if this is a TempleEvents calendar (temporarily disabled for testing)
+        const isTempleEventsCalendar = currentCalendar.name && 
+          currentCalendar.name.toLowerCase().includes('templeevents');
+
+        // TODO: Re-enable this check for production
+        // if (!isTempleEventsCalendar) {
+        //   console.log('Not a TempleEvents calendar, skipping registration event creation');
+        //   return;
+        // }
+        
+        console.log(`Creating registration event for calendar: ${currentCalendar.name} (TempleEvents: ${isTempleEventsCalendar})`);
+
+        // Check if registration event creation is enabled
+        if (!eventData.createRegistrationEvent) {
+          console.log('Registration event creation disabled, skipping');
+          return;
+        }
+
+        // Check if setup/teardown times are specified
+        const hasSetupTeardown = (eventData.setupMinutes && eventData.setupMinutes > 0) || 
+                                (eventData.teardownMinutes && eventData.teardownMinutes > 0);
+
+        if (!hasSetupTeardown) {
+          console.log('No setup/teardown times specified, skipping registration event creation');
+          return;
+        }
+
+        // Find TempleRegistrations calendar
+        const registrationCalendar = availableCalendars.find(cal => 
+          cal.name && cal.name.toLowerCase().includes('templeregistrations')
+        );
+
+        if (!registrationCalendar) {
+          console.log('TempleRegistrations calendar not found, skipping registration event creation');
+          return;
+        }
+
+        // Calculate extended times
+        const originalStart = new Date(eventData.start.dateTime);
+        const originalEnd = new Date(eventData.end.dateTime);
+        
+        const setupMinutes = eventData.setupMinutes || 0;
+        const teardownMinutes = eventData.teardownMinutes || 0;
+        
+        const registrationStart = new Date(originalStart.getTime() - (setupMinutes * 60 * 1000));
+        const registrationEnd = new Date(originalEnd.getTime() + (teardownMinutes * 60 * 1000));
+
+        // Create registration event data
+        const registrationEventData = {
+          subject: `[SETUP/TEARDOWN] ${eventData.subject}`,
+          start: {
+            dateTime: registrationStart.toISOString(),
+            timeZone: 'UTC'
+          },
+          end: {
+            dateTime: registrationEnd.toISOString(),
+            timeZone: 'UTC'
+          },
+          location: eventData.location,
+          categories: ['Security/Maintenance'],
+          body: {
+            content: `Setup and teardown time for: ${eventData.subject}\n\n` +
+                    `Original event: ${originalStart.toLocaleString()} - ${originalEnd.toLocaleString()}\n` +
+                    `Setup time: ${setupMinutes} minutes before\n` +
+                    `Teardown time: ${teardownMinutes} minutes after\n\n` +
+                    `${eventData.assignedTo ? `Assigned to: ${eventData.assignedTo}\n\n` : ''}` +
+                    `${eventData.registrationNotes ? `Notes: ${eventData.registrationNotes}\n\n` : ''}` +
+                    `This event is for security and maintenance staff to prepare and clean up the venue.`,
+            contentType: 'text'
+          },
+          isAllDay: eventData.isAllDay || false
+        };
+
+        // Create the registration event
+        console.log('Creating registration event:', registrationEventData);
+        
+        const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendar.id}/events`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(registrationEventData)
+        });
+
+        if (response.ok) {
+          const createdEvent = await response.json();
+          console.log('Successfully created registration event:', createdEvent.id);
+          
+          // Link the events by storing the registration event ID in the original event's internal data
+          if (eventDataService.apiToken) {
+            try {
+              await eventDataService.updateInternalFields(eventData.id, {
+                registrationEventId: createdEvent.id,
+                registrationCalendarId: registrationCalendar.id
+              });
+            } catch (error) {
+              console.error('Failed to link registration event:', error);
+            }
+          }
+        } else {
+          const error = await response.json();
+          console.error('Failed to create registration event:', error);
+        }
+      } catch (error) {
+        console.error('Error in handleRegistrationEventCreation:', error);
+        // Don't throw - registration event creation is supplementary
+      }
+    };
+
+    /**
      * TBD
      */
     const handleSaveApiEvent = async (data) => {
@@ -2221,8 +2391,19 @@
           if (Object.keys(props).length) ext[extDef.id] = props;
         });
         
+        // Internal fields payload (for setup/teardown and other internal data)
+        const internal = {
+          setupMinutes: data.setupMinutes || 0,
+          teardownMinutes: data.teardownMinutes || 0,
+          registrationNotes: data.registrationNotes || '',
+          assignedTo: data.assignedTo || ''
+        };
+        
         // Batch update - pass the selected calendar ID
-        await patchEventBatch(data.id, core, ext, selectedCalendarId);
+        await patchEventBatch(data.id, core, ext, selectedCalendarId, internal);
+        
+        // Check if this is a TempleEvents calendar and create registration event if needed
+        await handleRegistrationEventCreation(data, selectedCalendarId);
         
         // Refresh API events
         await loadGraphEvents();
@@ -2276,6 +2457,64 @@
         return false;
       }
     };
+
+    /**
+     * Handle deletion of registration events when a TempleEvents event is deleted
+     * @param {string} eventId - The event ID that was deleted
+     */
+    const handleRegistrationEventDeletion = async (eventId) => {
+      try {
+        // Get internal data for the event to find linked registration event
+        if (!eventDataService.apiToken) {
+          console.log('No API token for event data service, skipping registration event deletion');
+          return;
+        }
+
+        // Try to get the internal data to find the registration event ID
+        const response = await fetch(`${API_BASE_URL}/internal-events/enrich`, {
+          method: 'POST',
+          headers: eventDataService.getAuthHeaders(),
+          body: JSON.stringify({ eventIds: [eventId] })
+        });
+
+        if (!response.ok) {
+          console.log('Failed to fetch internal data for registration event deletion');
+          return;
+        }
+
+        const enrichmentMap = await response.json();
+        const internalData = enrichmentMap[eventId];
+
+        if (!internalData || !internalData.registrationEventId) {
+          console.log('No linked registration event found for event:', eventId);
+          return;
+        }
+
+        // Delete the registration event
+        const registrationEventId = internalData.registrationEventId;
+        const registrationCalendarId = internalData.registrationCalendarId;
+
+        if (registrationCalendarId) {
+          const deleteUrl = `https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendarId}/events/${registrationEventId}`;
+          
+          const deleteResponse = await fetch(deleteUrl, {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${graphToken}`
+            }
+          });
+
+          if (deleteResponse.ok) {
+            console.log('Successfully deleted registration event:', registrationEventId);
+          } else {
+            console.error('Failed to delete registration event:', deleteResponse.status);
+          }
+        }
+      } catch (error) {
+        console.error('Error in handleRegistrationEventDeletion:', error);
+        // Don't throw - registration event deletion is supplementary
+      }
+    };
     
     /**
      * TBD
@@ -2313,6 +2552,9 @@
      */
     const handleDeleteApiEvent = async (eventId) => {
       try {
+        // First, check if there's a linked registration event to delete
+        await handleRegistrationEventDeletion(eventId);
+        
         // Determine the API URL based on whether a calendar is selected
         const apiUrl = selectedCalendarId
           ? `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events/${eventId}`
@@ -2425,6 +2667,12 @@
     // MAIN INITIALIZATION FUNCTION
     //---------------------------------------------------------------------------
     useEffect(() => {
+      console.log('=== CALENDAR INIT CHECK ===');
+      console.log('graphToken:', graphToken ? 'present' : 'missing');
+      console.log('apiToken:', apiToken ? 'present' : 'missing');
+      console.log('initializing:', initializing);
+      console.log('Current permissions:', userPermissions);
+      
       // Only run initialization once when tokens become available
       if (graphToken && apiToken && initializing) {
         console.log("Tokens available, starting initialization");
@@ -2455,14 +2703,14 @@
     }, [dateRangeString, graphToken, dateRange.end, dateRange.start, initializing, loadEvents]);
 
     useEffect(() => {
-      if (selectedCalendarId && !initializing && graphToken && !changingCalendar) {
+      if (selectedCalendarId && !initializing && graphToken) {
         console.log(`Loading events for calendar: ${selectedCalendarId}`);
         loadEvents().finally(() => {
-          if (changingCalendar) setChangingCalendar(false);
+          setChangingCalendar(false);
         });
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedCalendarId, initializing, graphToken, changingCalendar]);
+    }, [selectedCalendarId, initializing, graphToken]);
 
     // Set user time zone from user permissions
     useEffect(() => {
@@ -2535,7 +2783,15 @@
       const handleKeyPress = (e) => {
         // Press 'G' to focus the date picker (like Google Calendar)
         if (e.key === 'g' || e.key === 'G') {
-          if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          // Don't trigger if user is typing in an input, textarea, or contenteditable element
+          const activeElement = document.activeElement;
+          const isTyping = activeElement && (
+            activeElement.tagName === 'INPUT' ||
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.contentEditable === 'true'
+          );
+          
+          if (!e.ctrlKey && !e.metaKey && !e.altKey && !isTyping) {
             e.preventDefault();
             // Focus the date picker
             const datePicker = document.querySelector('.date-picker-input');
@@ -3005,6 +3261,7 @@
         )}
 
         {/* Modal for Add/Edit Event */}
+        {console.log('Modal render check:', { isModalOpen, modalType, shouldOpen: isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view') })}
         <Modal 
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
           onClose={() => setIsModalOpen(false)}

@@ -3,20 +3,20 @@
 /* Month View Wrapper */
 .month-view-wrapper {
   display: flex;
-  height: 700px; /* FIXED HEIGHT */
+  height: 100%;
   width: 100%;
   gap: 0;
   justify-content: center;
   max-width: 100%;
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* Month View Container - Fixed height */
+/* Month View Container - Full height */
 .month-view-container {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 700px; /* FIXED HEIGHT - same as wrapper */
+  height: 100%;
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 4px;
@@ -43,18 +43,21 @@
 .weekday-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background-color: var(--primary-color);
-  color: white;
+  background-color: #f9fafb;
+  color: #6b7280;
   border-radius: 0;
   height: 40px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .weekday {
   text-align: center;
-  font-weight: 600;
+  font-weight: 500;
   padding: 8px;
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
-  font-size: 14px;
+  border-right: 1px solid #e5e7eb;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   justify-content: center;

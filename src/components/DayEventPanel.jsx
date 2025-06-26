@@ -7,6 +7,8 @@ const DayEventPanel = memo(({
   selectedDay, 
   events, 
   onEventClick,
+  onEventEdit,
+  onEventDelete,
   formatEventTime,
   getCategoryColor,
   getLocationColor,
@@ -77,7 +79,7 @@ const DayEventPanel = memo(({
                 <div 
                   key={`${event.id}-${userTimezone}`} // Include timezone in key to force re-render
                   className="panel-event-item"
-                  onClick={(e) => onEventClick(event, e)}
+                  onClick={(e) => onEventClick && onEventClick(event, e)}
                   style={{
                     borderLeft: `4px solid ${
                       groupBy === 'categories' 
@@ -86,6 +88,32 @@ const DayEventPanel = memo(({
                     }`
                   }}
                 >
+                  <div className="event-actions">
+                    {onEventEdit && (
+                      <button 
+                        className="event-action-btn edit"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEventEdit(event);
+                        }}
+                        title="Edit event"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    {onEventDelete && (
+                      <button 
+                        className="event-action-btn delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEventDelete(event);
+                        }}
+                        title="Delete event"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
                   <div className="event-time">
                     {formatEventTimeWithContext(event.start.dateTime, event.subject)}
                     {' - '}
@@ -105,6 +133,16 @@ const DayEventPanel = memo(({
                     <span className="detail-icon">🏷️</span>
                     {event.category || 'Uncategorized'}
                   </div>
+                  
+                  {((event.setupMinutes && event.setupMinutes > 0) || (event.teardownMinutes && event.teardownMinutes > 0)) && (
+                    <div className="event-detail setup-teardown-info">
+                      <span className="detail-icon">⏱️</span>
+                      Setup/Teardown: 
+                      {event.setupMinutes > 0 && <span> {event.setupMinutes}min before</span>}
+                      {event.setupMinutes > 0 && event.teardownMinutes > 0 && <span>,</span>}
+                      {event.teardownMinutes > 0 && <span> {event.teardownMinutes}min after</span>}
+                    </div>
+                  )}
                   
                   {event.calendarName && (
                     <div className="event-detail calendar-name">

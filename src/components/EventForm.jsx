@@ -119,6 +119,13 @@ function EventForm({
   
   // Add state for MEC Categories
   const [selectedMecCategories, setSelectedMecCategories] = useState([]);
+  
+  // Add state for registration event creation
+  const [createRegistrationEvent, setCreateRegistrationEvent] = useState(true); // Default to ON
+  const [setupMinutes, setSetupMinutes] = useState(30); // Default to 30 minutes
+  const [teardownMinutes, setTeardownMinutes] = useState(15); // Default to 15 minutes
+  const [registrationNotes, setRegistrationNotes] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const availableMecCategories = [
     'Community',
     'Membership',
@@ -207,6 +214,44 @@ function EventForm({
       
       // Reset MEC Categories for now (will be populated from event data later)
       setSelectedMecCategories([]);
+      
+      // Load registration event data if they exist
+      const hasRegistrationData = (event.setupMinutes && event.setupMinutes > 0) || 
+                                 (event.teardownMinutes && event.teardownMinutes > 0) ||
+                                 event.registrationNotes || event.assignedTo;
+      
+      setCreateRegistrationEvent(hasRegistrationData || true); // Default to true even for existing events
+      setSetupMinutes(event.setupMinutes || 30);
+      setTeardownMinutes(event.teardownMinutes || 15);
+      setRegistrationNotes(event.registrationNotes || '');
+      setAssignedTo(event.assignedTo || '');
+    } else {
+      // Handle new event creation - initialize with defaults
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+      
+      const defaultStartTime = '09:00';
+      const defaultEndTime = '10:00';
+      
+      setFormData({
+        id: '',
+        subject: '',
+        startDate: today.toISOString().split('T')[0],
+        startTime: defaultStartTime,
+        endDate: today.toISOString().split('T')[0],
+        endTime: defaultEndTime,
+        locations: [],
+        category: categories[0] || ''
+      });
+      
+      setIsAllDay(false);
+      setSelectedMecCategories([]);
+      setCreateRegistrationEvent(true); // Default to true for new events
+      setSetupMinutes(30);
+      setTeardownMinutes(15);
+      setRegistrationNotes('');
+      setAssignedTo('');
     }
   }, [event, categories, availableLocations, userTimeZone]); 
 
@@ -307,7 +352,12 @@ function EventForm({
           : '' 
       },
       categories: [formData.category],
-      isAllDay
+      isAllDay,
+      setupMinutes: createRegistrationEvent ? setupMinutes : 0,
+      teardownMinutes: createRegistrationEvent ? teardownMinutes : 0,
+      registrationNotes: createRegistrationEvent ? registrationNotes : '',
+      assignedTo: createRegistrationEvent ? assignedTo : '',
+      createRegistrationEvent
     };
     
     console.log("Final event data:", eventData);
@@ -315,7 +365,7 @@ function EventForm({
   };
 
   return (
-    <form className="event-form" onSubmit={handleSubmit} style={{ paddingBottom: '100px' }}>
+    <form className="event-form" onSubmit={handleSubmit}>
       <div className="form-group">
         <label htmlFor="subject">Subject *</label>
         <input
@@ -408,39 +458,41 @@ function EventForm({
         </div>
       </div>
 
-      <div className="form-group">
-        <label htmlFor="location">Locations</label>
-        {readOnly ? (
-          <div className="readonly-display">
-            {formData.locations && formData.locations.length > 0 
-              ? formData.locations.join(', ') 
-              : 'No locations selected'}
-          </div>
-        ) : (
-          <MultiSelect
-            options={availableLocations}
-            selected={formData.locations || []}
-            onChange={handleLocationChange}
-            label="Select location(s)"
-          />
-        )}
-      </div>
+      <div className="form-row">
+        <div className="form-group">
+          <label htmlFor="category">Category</label>
+          <select
+            id="category"
+            name="category"
+            value={formData.category}
+            onChange={handleChange}
+            disabled={readOnly}
+          >
+            {categories.map(category => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <div className="form-group">
-        <label htmlFor="category">Category</label>
-        <select
-          id="category"
-          name="category"
-          value={formData.category}
-          onChange={handleChange}
-          disabled={readOnly}
-        >
-          {categories.map(category => (
-            <option key={category} value={category}>
-              {category}
-            </option>
-          ))}
-        </select>
+        <div className="form-group">
+          <label htmlFor="location">Locations</label>
+          {readOnly ? (
+            <div className="readonly-display">
+              {formData.locations && formData.locations.length > 0 
+                ? formData.locations.join(', ') 
+                : 'No locations selected'}
+            </div>
+          ) : (
+            <MultiSelect
+              options={availableLocations}
+              selected={formData.locations || []}
+              onChange={handleLocationChange}
+              label="Select location(s)"
+            />
+          )}
+        </div>
       </div>
 
       {/* MEC Categories Multi-Select */}
@@ -468,6 +520,241 @@ function EventForm({
           </div>
         )}
       </div>
+
+      {/* Registration Event Toggle */}
+      {!readOnly && (
+        <div className="form-group registration-toggle-section">
+          <div style={{
+            padding: '8px 10px',
+            background: '#f8f9fa',
+            borderRadius: '4px',
+            border: '1px solid #e5e7eb',
+            marginBottom: '8px'
+          }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              margin: 0,
+              fontWeight: 600,
+              fontSize: '13px'
+            }}>
+              <input
+                type="checkbox"
+                checked={createRegistrationEvent || false}
+                onChange={(e) => setCreateRegistrationEvent(e.target.checked)}
+                style={{ 
+                  margin: 0,
+                  accentColor: '#3b82f6'
+                }}
+              />
+              <span style={{ fontSize: '14px' }}>🔧</span>
+              Create setup/teardown registration event
+            </label>
+            <div style={{
+              fontSize: '11px',
+              color: '#6b7280',
+              marginTop: '2px',
+              marginLeft: '30px'
+            }}>
+              For security and maintenance staff preparation
+            </div>
+          </div>
+
+          {/* Registration Details Section */}
+          {createRegistrationEvent && (
+            <div className="registration-details-section" style={{
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              padding: '10px',
+              background: '#ffffff',
+              marginBottom: '8px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginBottom: '8px',
+                borderBottom: '1px solid #f3f4f6',
+                paddingBottom: '6px'
+              }}>
+                <span style={{ fontSize: '14px' }}>🔧</span>
+                <h4 style={{ margin: 0, color: '#374151', fontSize: '13px', fontWeight: 600 }}>
+                  Registration Event Details
+                </h4>
+              </div>
+
+              {/* Setup/Teardown Times */}
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="setupMinutes">Setup Time (minutes before)</label>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      id="setupMinutes"
+                      value={setupMinutes || 0}
+                      onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                      min="0"
+                      max="240"
+                      style={{ width: '60px', height: '28px' }}
+                    />
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      {[15, 30, 45, 60].map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setSetupMinutes(preset)}
+                          style={{
+                            padding: '3px 6px',
+                            fontSize: '10px',
+                            border: '1px solid #ccc',
+                            borderRadius: '3px',
+                            background: setupMinutes === preset ? '#3b82f6' : 'white',
+                            color: setupMinutes === preset ? 'white' : '#666',
+                            cursor: 'pointer',
+                            height: '24px'
+                          }}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="teardownMinutes">Teardown Time (minutes after)</label>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      id="teardownMinutes"
+                      value={teardownMinutes || 0}
+                      onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                      min="0"
+                      max="240"
+                      style={{ width: '60px', height: '28px' }}
+                    />
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      {[15, 30, 45, 60].map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setTeardownMinutes(preset)}
+                          style={{
+                            padding: '3px 6px',
+                            fontSize: '10px',
+                            border: '1px solid #ccc',
+                            borderRadius: '3px',
+                            background: teardownMinutes === preset ? '#3b82f6' : 'white',
+                            color: teardownMinutes === preset ? 'white' : '#666',
+                            cursor: 'pointer',
+                            height: '24px'
+                          }}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Registration Fields */}
+              <div className="form-group">
+                <label htmlFor="registrationNotes">Registration Notes (optional)</label>
+                <textarea
+                  id="registrationNotes"
+                  value={registrationNotes || ''}
+                  onChange={(e) => setRegistrationNotes(e.target.value)}
+                  placeholder="Additional instructions for security/maintenance staff..."
+                  style={{
+                    width: '100%',
+                    minHeight: '40px',
+                    padding: '5px 8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="assignedTo">Assigned To (optional)</label>
+                <input
+                  type="text"
+                  id="assignedTo"
+                  value={assignedTo || ''}
+                  onChange={(e) => setAssignedTo(e.target.value)}
+                  placeholder="Security Team, Maintenance, etc."
+                  style={{
+                    width: '100%',
+                    padding: '5px 8px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    height: '32px'
+                  }}
+                />
+              </div>
+
+              {/* Registration Preview */}
+              {(setupMinutes > 0 || teardownMinutes > 0) && formData.startDate && formData.startTime && formData.endDate && formData.endTime && (
+                <div style={{
+                  background: '#f0f7ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '4px',
+                  padding: '8px',
+                  marginTop: '8px',
+                  fontSize: '11px',
+                  color: '#1e40af'
+                }}>
+                  <strong>Registration Event Preview:</strong><br />
+                  {(() => {
+                    // Calculate the actual start and end times
+                    const eventStart = new Date(`${formData.startDate}T${formData.startTime}`);
+                    const eventEnd = new Date(`${formData.endDate}T${formData.endTime}`);
+                    
+                    // Calculate setup start time
+                    const setupStart = new Date(eventStart);
+                    setupStart.setMinutes(setupStart.getMinutes() - setupMinutes);
+                    
+                    // Calculate teardown end time
+                    const teardownEnd = new Date(eventEnd);
+                    teardownEnd.setMinutes(teardownEnd.getMinutes() + teardownMinutes);
+                    
+                    const formatTime = (date) => {
+                      return date.toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      });
+                    };
+                    
+                    const totalMinutes = setupMinutes + teardownMinutes;
+                    const hours = Math.floor(totalMinutes / 60);
+                    const mins = totalMinutes % 60;
+                    const totalTimeStr = hours > 0 ? `${hours}h ${mins}min` : `${mins}min`;
+                    
+                    return (
+                      <>
+                        • Reserved time: <strong>{formatTime(setupStart)} - {formatTime(teardownEnd)}</strong><br />
+                        • Setup: {setupMinutes}min before ({formatTime(setupStart)} - {formatTime(eventStart)})<br />
+                        • Event: {formatTime(eventStart)} - {formatTime(eventEnd)}<br />
+                        • Teardown: {teardownMinutes}min after ({formatTime(eventEnd)} - {formatTime(teardownEnd)})<br />
+                        • Total extra time: {totalTimeStr}<br />
+                        {assignedTo && `• Assigned to: ${assignedTo}`}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-actions">
         <button type="button" className="cancel-button" onClick={onCancel}>

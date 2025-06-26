@@ -25,12 +25,28 @@ function App() {
   const [selectedCalendarId, setSelectedCalendarId] = useState(null);
   const [availableCalendars, setAvailableCalendars] = useState([]);
   const [changingCalendar, setChangingCalendar] = useState(false);
+  const [isSharedCalendarEnabled, setIsSharedCalendarEnabled] = useState(false);
+  const [sharedCalendarInfo, setSharedCalendarInfo] = useState(null);
+  const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
 
   // Handle calendar change
   const handleCalendarChange = (newCalendarId) => {
     setChangingCalendar(true);
     setSelectedCalendarId(newCalendarId);
   };
+
+  // Handle shared calendar toggle
+  const handleSharedCalendarToggle = useCallback((enabled, calendarInfo) => {
+    setIsSharedCalendarEnabled(enabled);
+    setSharedCalendarInfo(enabled ? calendarInfo : null);
+    console.log('Shared calendar toggled:', enabled, calendarInfo);
+  }, []);
+
+  // Handle registration times toggle
+  const handleRegistrationTimesToggle = useCallback((enabled) => {
+    setShowRegistrationTimes(enabled);
+    console.log('Registration times toggled:', enabled);
+  }, []);
 
   // Memoized token acquisition function
   const acquireTokens = useCallback(async (account) => {
@@ -164,6 +180,11 @@ function App() {
                 availableCalendars={availableCalendars}
                 onCalendarChange={handleCalendarChange}
                 changingCalendar={changingCalendar}
+                graphToken={graphToken}
+                onSharedCalendarToggle={handleSharedCalendarToggle}
+                isSharedCalendarEnabled={isSharedCalendarEnabled}
+                showRegistrationTimes={showRegistrationTimes}
+                onRegistrationTimesToggle={handleRegistrationTimesToggle}
               />
               <Routes>
                 <Route path="/" element={
@@ -176,6 +197,9 @@ function App() {
                     setAvailableCalendars={setAvailableCalendars}
                     changingCalendar={changingCalendar}
                     setChangingCalendar={setChangingCalendar}
+                    isSharedCalendarEnabled={isSharedCalendarEnabled}
+                    sharedCalendarInfo={sharedCalendarInfo}
+                    showRegistrationTimes={showRegistrationTimes}
                   />
                 } />  
                 <Route path="/settings" element={<Settings graphToken={graphToken} />} />

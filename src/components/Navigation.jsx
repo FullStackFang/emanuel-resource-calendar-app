@@ -2,13 +2,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import CalendarSelector from './CalendarSelector';
+import SharedCalendarToggle from './SharedCalendarToggle';
+import RegistrationTimesToggle from './RegistrationTimesToggle';
 import './Navigation.css';
 
 export default function Navigation({
   selectedCalendarId,
   availableCalendars,
   onCalendarChange,
-  changingCalendar
+  changingCalendar,
+  graphToken,
+  onSharedCalendarToggle,
+  isSharedCalendarEnabled,
+  showRegistrationTimes,
+  onRegistrationTimesToggle
 }) {
   const [adminExpanded, setAdminExpanded] = useState(false);
   const location = useLocation();
@@ -63,6 +70,28 @@ export default function Navigation({
               availableCalendars={availableCalendars}
               onCalendarChange={onCalendarChange}
               changingCalendar={changingCalendar}
+            />
+          </li>
+        )}
+        
+        {/* Add shared calendar toggle */}
+        {showCalendarSelector && (
+          <li className="shared-calendar-toggle-item">
+            <SharedCalendarToggle
+              graphToken={graphToken}
+              availableCalendars={availableCalendars}
+              onSharedCalendarToggle={onSharedCalendarToggle}
+              isSharedCalendarEnabled={isSharedCalendarEnabled}
+            />
+          </li>
+        )}
+        
+        {/* Add registration times toggle */}
+        {showCalendarSelector && (
+          <li className="shared-calendar-toggle-item">
+            <RegistrationTimesToggle
+              showRegistrationTimes={showRegistrationTimes}
+              onToggle={onRegistrationTimesToggle}
             />
           </li>
         )}

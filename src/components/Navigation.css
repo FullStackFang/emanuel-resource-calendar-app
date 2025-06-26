@@ -1,8 +1,10 @@
 /* src/components/Navigation.css */
 .main-navigation {
-    background-color: #f8f9fa;
-    border-bottom: 1px solid #dee2e6;
-    margin-bottom: 20px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    margin: 0;
+    flex-shrink: 0;
+    height: 48px;
   }
   
   .nav-list {
@@ -18,23 +20,39 @@
   
   .nav-list a,
   .dropdown-toggle {
-    display: block;
-    padding: 15px 20px;
-    color: #495057;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    color: #6b7280;
     text-decoration: none;
     font-weight: 500;
-    transition: background-color 0.2s;
+    font-size: 14px;
+    transition: all 0.2s;
     cursor: pointer;
+    height: 48px;
+    box-sizing: border-box;
+    position: relative;
   }
   
   .nav-list a:hover,
   .dropdown-toggle:hover {
-    background-color: #e9ecef;
+    color: #111827;
+    background-color: #f9fafb;
   }
   
   .nav-list a.active {
-    color: #007bff;
-    border-bottom: 2px solid #007bff;
+    color: #111827;
+    font-weight: 600;
+  }
+  
+  .nav-list a.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 16px;
+    right: 16px;
+    height: 2px;
+    background-color: #3b82f6;
   }
   
   .has-dropdown {
@@ -97,17 +115,36 @@
 }
 
 .nav-calendar-selector {
-  padding: 6px 28px 6px 10px;
-  border-radius: 4px;
-  border: 1px solid #ddd;
-  background-color: #fff;
+  padding: 6px 32px 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  color: #111827;
   font-size: 14px;
+  font-weight: 500;
   appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 12px;
-  min-width: 180px;
+  background-position: right 10px center;
+  background-size: 14px;
+  min-width: 200px;
+  transition: all 0.15s ease;
+}
+
+.nav-calendar-selector:hover {
+  border-color: #d1d5db;
+}
+
+.nav-calendar-selector:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.nav-calendar-selector option {
+  color: #111827;
+  background-color: #ffffff;
+  padding: 8px;
 }
 
 .loading-indicator {
@@ -121,6 +158,12 @@
   font-size: 12px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   z-index: 100;
+}
+
+.shared-calendar-toggle-item {
+  display: flex;
+  align-items: center;
+  margin: 0 10px;
 }
   /* Responsive navigation */
   @media (max-width: 768px) {

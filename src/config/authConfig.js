@@ -23,7 +23,7 @@ export const msalConfig = {
   
   // for login requests
   export const loginRequest = {
-    scopes: ["User.Read", "Calendars.Read", "Calendars.ReadWrite"]
+    scopes: ["User.Read", "Calendars.Read", "Calendars.ReadWrite", "Calendars.Read.Shared", "Calendars.ReadWrite.Shared"]
   };
 
   // for your custom API

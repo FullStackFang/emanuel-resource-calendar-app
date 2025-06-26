@@ -12,10 +12,11 @@ function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarCh
         value={selectedCalendarId || ''}
         onChange={(e) => onCalendarChange(e.target.value)}
         className="nav-calendar-selector"
+        disabled={changingCalendar}
       >
         {availableCalendars.map(calendar => (
           <option key={calendar.id} value={calendar.id}>
-            {calendar.isDefault ? `${calendar.name} (Default)` : `${calendar.name} (${calendar.owner})`}
+            {calendar.isDefaultCalendar ? `${calendar.name} (Default)` : `${calendar.name}${calendar.isShared ? ` (${calendar.owner?.name || 'Shared'})` : ''}`}
           </option>
         ))}
       </select>

@@ -43,6 +43,39 @@ export const getCalendarEvents = async (accessToken, startDateTime, endDateTime)
   }
 };
 
+// Get all calendars (owned and shared)
+export const getCalendars = async (accessToken) => {
+  try {
+    const graphClient = getGraphClient(accessToken);
+    const calendars = await graphClient
+      .api('/me/calendars')
+      .select('id,name,owner,canEdit,canShare,canViewPrivateItems,isDefaultCalendar,isShared,isRemovable')
+      .orderby('name')
+      .get();
+    return calendars;
+  } catch (error) {
+    console.error("Error getting calendars:", error);
+    throw error;
+  }
+};
+
+// Get shared calendars specifically
+export const getSharedCalendars = async (accessToken) => {
+  try {
+    const graphClient = getGraphClient(accessToken);
+    const calendars = await graphClient
+      .api('/me/calendars')
+      .select('id,name,owner,canEdit,canShare,canViewPrivateItems,isDefaultCalendar,isShared,isRemovable')
+      .filter('isShared eq true')
+      .orderby('name')
+      .get();
+    return calendars;
+  } catch (error) {
+    console.error("Error getting shared calendars:", error);
+    throw error;
+  }
+};
+
 // Create a new calendar event
 export const createCalendarEvent = async (accessToken, event) => {
   try {
