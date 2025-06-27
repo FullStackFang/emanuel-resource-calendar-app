@@ -75,7 +75,19 @@ const parseLocationsFromEvent = (location, availableOptions) => {
   return parsedLocations.filter(loc => availableOptions.includes(loc));
 };
 
-// Add a helper function to format time in the user's timezone
+// Helper functions for time conversion
+const minutesToTimeString = (minutes) => {
+  if (!minutes || minutes === 0) return '';
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+};
+
+const timeStringToMinutes = (timeString) => {
+  if (!timeString) return 0;
+  const [hours, minutes] = timeString.split(':').map(Number);
+  return (hours * 60) + minutes;
+};
 
 function EventForm({ 
   event, 
@@ -125,8 +137,12 @@ function EventForm({
   const [createRegistrationEvent, setCreateRegistrationEvent] = useState(true); // Default to ON
   const [setupMinutes, setSetupMinutes] = useState(30); // Default to 30 minutes
   const [teardownMinutes, setTeardownMinutes] = useState(15); // Default to 15 minutes
-  const [registrationNotes, setRegistrationNotes] = useState('');
+  const [eventDescription, setEventDescription] = useState(''); // Main event description
+  const [registrationNotes, setRegistrationNotes] = useState(''); // Setup/teardown notes
   const [assignedTo, setAssignedTo] = useState('');
+  const [useTimeInputs, setUseTimeInputs] = useState(true); // Toggle between minutes and time inputs - default to time
+  const [setupTime, setSetupTime] = useState(''); // Setup time in HH:MM format
+  const [teardownTime, setTeardownTime] = useState(''); // Teardown time in HH:MM format
   const availableMecCategories = [
     'Community',
     'Membership',
@@ -222,8 +238,13 @@ function EventForm({
                                  event.registrationNotes || event.assignedTo;
       
       setCreateRegistrationEvent(hasRegistrationData || true); // Default to true even for existing events
-      setSetupMinutes(event.setupMinutes || 30);
-      setTeardownMinutes(event.teardownMinutes || 15);
+      const setupMins = event.setupMinutes || 30;
+      const teardownMins = event.teardownMinutes || 15;
+      setSetupMinutes(setupMins);
+      setTeardownMinutes(teardownMins);
+      setSetupTime(minutesToTimeString(setupMins));
+      setTeardownTime(minutesToTimeString(teardownMins));
+      setEventDescription(event.body?.content || event.description || '');
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
     } else {
@@ -251,6 +272,9 @@ function EventForm({
       setCreateRegistrationEvent(true); // Default to true for new events
       setSetupMinutes(30);
       setTeardownMinutes(15);
+      setSetupTime(minutesToTimeString(30));
+      setTeardownTime(minutesToTimeString(15));
+      setEventDescription('');
       setRegistrationNotes('');
       setAssignedTo('');
     }
@@ -321,6 +345,30 @@ function EventForm({
     }
   };
 
+  const handleTimeInputToggle = () => {
+    setUseTimeInputs(!useTimeInputs);
+  };
+
+  const handleSetupMinutesChange = (newMinutes) => {
+    setSetupMinutes(newMinutes);
+    setSetupTime(minutesToTimeString(newMinutes));
+  };
+
+  const handleTeardownMinutesChange = (newMinutes) => {
+    setTeardownMinutes(newMinutes);
+    setTeardownTime(minutesToTimeString(newMinutes));
+  };
+
+  const handleSetupTimeChange = (timeString) => {
+    setSetupTime(timeString);
+    setSetupMinutes(timeStringToMinutes(timeString));
+  };
+
+  const handleTeardownTimeChange = (timeString) => {
+    setTeardownTime(timeString);
+    setTeardownMinutes(timeStringToMinutes(timeString));
+  };
+
   const handleLocationChange = (selectedLocations) => {
     // Filter locations to ensure they only contain values from availableLocations
     const validLocations = selectedLocations.filter(loc => availableLocations.includes(loc));
@@ -384,6 +432,12 @@ function EventForm({
       },
       categories: formData.category ? [formData.category] : [],
       isAllDay,
+      // Main event description (for TempleEvents calendar)
+      body: {
+        content: eventDescription || '',
+        contentType: 'text'
+      },
+      // Registration event data (for TempleRegistration calendar when enabled)
       setupMinutes: createRegistrationEvent ? setupMinutes : 0,
       teardownMinutes: createRegistrationEvent ? teardownMinutes : 0,
       registrationNotes: createRegistrationEvent ? registrationNotes : '',
@@ -507,82 +561,127 @@ function EventForm({
 
       {/* Setup/Teardown Time Row */}
       {!readOnly && (
-        <div className="setup-teardown-row">
-          <div className="form-icon">⏱️</div>
-          <div className="setup-control">
-            <div className="number-input-container">
-              <input
-                type="number"
-                value={setupMinutes || 0}
-                onChange={(e) => setSetupMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-                min="0"
-                max="240"
-                className="time-number-input"
-              />
-              <div className="spinner-buttons">
-                <button
-                  type="button"
-                  className="spinner-btn"
-                  onClick={() => setSetupMinutes(Math.min(240, (setupMinutes || 0) + 1))}
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  className="spinner-btn"
-                  onClick={() => setSetupMinutes(Math.max(0, (setupMinutes || 0) - 1))}
-                >
-                  −
-                </button>
+        <>
+          <div className="setup-teardown-row">
+            <div 
+              className="form-icon clickable-icon" 
+              onClick={handleTimeInputToggle}
+              title={useTimeInputs ? 'Switch to minutes input' : 'Switch to time input'}
+            >
+              ⏱️
+            </div>
+            {useTimeInputs ? (
+              <div className="datetime-inputs">
+                <span className="setup-teardown-label">Setup/Teardown</span>
+                <input
+                  type="time"
+                  value={setupTime || ''}
+                  onChange={(e) => handleSetupTimeChange(e.target.value)}
+                  className="google-time-input"
+                  title="Setup time"
+                />
+                <span className="time-separator">–</span>
+                <input
+                  type="time"
+                  value={teardownTime || ''}
+                  onChange={(e) => handleTeardownTimeChange(e.target.value)}
+                  className="google-time-input"
+                  title="Teardown time"
+                />
+              </div>
+            ) : (
+              <div className="datetime-inputs">
+                <span className="setup-teardown-label">Setup/Teardown</span>
+                <div className="minutes-input-container">
+                  <input
+                    type="number"
+                    value={setupMinutes || 0}
+                    onChange={(e) => handleSetupMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
+                    min="0"
+                    max="240"
+                    className="minutes-number-input"
+                  />
+                  <div className="minutes-spinner-buttons">
+                    <button
+                      type="button"
+                      className="minutes-spinner-btn"
+                      onClick={() => handleSetupMinutesChange(Math.min(240, (setupMinutes || 0) + 1))}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      className="minutes-spinner-btn"
+                      onClick={() => handleSetupMinutesChange(Math.max(0, (setupMinutes || 0) - 1))}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <span className="minutes-label">min</span>
+                </div>
+                <span className="time-separator">–</span>
+                <div className="minutes-input-container">
+                  <input
+                    type="number"
+                    value={teardownMinutes || 0}
+                    onChange={(e) => handleTeardownMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
+                    min="0"
+                    max="240"
+                    className="minutes-number-input"
+                  />
+                  <div className="minutes-spinner-buttons">
+                    <button
+                      type="button"
+                      className="minutes-spinner-btn"
+                      onClick={() => handleTeardownMinutesChange(Math.min(240, (teardownMinutes || 0) + 1))}
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      className="minutes-spinner-btn"
+                      onClick={() => handleTeardownMinutesChange(Math.max(0, (teardownMinutes || 0) - 1))}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  <span className="minutes-label">min</span>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (setupMinutes === 0 && teardownMinutes === 0) {
+                  handleSetupMinutesChange(30);
+                  handleTeardownMinutesChange(15);
+                } else {
+                  handleSetupMinutesChange(0);
+                  handleTeardownMinutesChange(0);
+                }
+              }}
+              className="setup-toggle-btn"
+            >
+              {setupMinutes === 0 && teardownMinutes === 0 ? 'Enable' : 'Disable'}
+            </button>
+          </div>
+
+          {/* Registration Notes Row - directly under setup/teardown */}
+          {(setupMinutes > 0 || teardownMinutes > 0) && (
+            <div className="form-row">
+              <div className="form-icon">⚙️</div>
+              <div className="form-content">
+                <textarea
+                  value={registrationNotes || ''}
+                  onChange={(e) => setRegistrationNotes(e.target.value)}
+                  placeholder="Setup/teardown instructions and notes"
+                  className="google-textarea"
+                  rows="2"
+                />
               </div>
             </div>
-            <span className="time-unit">Setup</span>
-          </div>
-          <div className="setup-control">
-            <div className="number-input-container">
-              <input
-                type="number"
-                value={teardownMinutes || 0}
-                onChange={(e) => setTeardownMinutes(Math.max(0, parseInt(e.target.value) || 0))}
-                min="0"
-                max="240"
-                className="time-number-input"
-              />
-              <div className="spinner-buttons">
-                <button
-                  type="button"
-                  className="spinner-btn"
-                  onClick={() => setTeardownMinutes(Math.min(240, (teardownMinutes || 0) + 1))}
-                >
-                  +
-                </button>
-                <button
-                  type="button"
-                  className="spinner-btn"
-                  onClick={() => setTeardownMinutes(Math.max(0, (teardownMinutes || 0) - 1))}
-                >
-                  −
-                </button>
-              </div>
-            </div>
-            <span className="time-unit">Teardown</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (setupMinutes === 0 && teardownMinutes === 0) {
-                setSetupMinutes(30);
-                setTeardownMinutes(15);
-              } else {
-                setSetupMinutes(0);
-                setTeardownMinutes(0);
-              }
-            }}
-            className="setup-toggle-btn"
-          >
-            {setupMinutes === 0 && teardownMinutes === 0 ? 'Enable' : 'Disable'}
-          </button>
-        </div>
+          )}
+        </>
       )}
 
       {/* Location Row */}
@@ -640,21 +739,21 @@ function EventForm({
         </div>
       </div>
 
-      {/* Description/Notes Row */}
-      {!readOnly && (
-        <div className="form-row">
-          <div className="form-icon">📝</div>
-          <div className="form-content">
-            <textarea
-              value={registrationNotes || ''}
-              onChange={(e) => setRegistrationNotes(e.target.value)}
-              placeholder="Add description or notes"
-              className="google-textarea"
-              rows="3"
-            />
-          </div>
+      {/* Event Description Row */}
+      <div className="form-row">
+        <div className="form-icon">📝</div>
+        <div className="form-content">
+          <textarea
+            value={eventDescription || ''}
+            onChange={(e) => setEventDescription(e.target.value)}
+            placeholder="Add event description"
+            className="google-textarea"
+            rows="2"
+            disabled={readOnly}
+          />
         </div>
-      )}
+      </div>
+
 
 
       <div className="form-actions">

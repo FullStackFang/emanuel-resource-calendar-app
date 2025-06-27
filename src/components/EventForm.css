@@ -120,6 +120,24 @@
   text-align: center;
 }
 
+.clickable-icon {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  background: #e8f0fe;
+  border-radius: 4px;
+  position: relative;
+}
+
+.clickable-icon:hover {
+  background: #1a73e8;
+  color: white;
+}
+
+.clickable-icon:active {
+  background: #1557b0;
+}
+
 .form-content {
   flex: 1;
   display: flex;
@@ -475,6 +493,105 @@
 .time-unit {
   color: #5f6368;
   font-size: 13px;
+}
+
+/* Setup/Teardown label - matches date input width */
+.setup-teardown-label {
+  width: 110px;
+  padding: 5px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #f8f9fa;
+  color: #3c4043;
+  text-align: center;
+  height: 30px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Minutes input container - matches time input size */
+.minutes-input-container {
+  position: relative;
+  width: 90px;
+  min-width: 90px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+}
+
+.minutes-number-input {
+  width: 40px;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 13px;
+  color: #3c4043;
+  outline: none;
+  padding: 0 2px;
+}
+
+/* Hide default number spinners */
+.minutes-number-input::-webkit-outer-spin-button,
+.minutes-number-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.minutes-number-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+.minutes-spinner-buttons {
+  position: absolute;
+  right: 22px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.minutes-spinner-btn {
+  width: 16px;
+  height: 15px;
+  border: none;
+  background: transparent;
+  color: #5f6368;
+  cursor: pointer;
+  font-size: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.minutes-spinner-btn:hover {
+  background: #e8eaed;
+  color: #3c4043;
+}
+
+.minutes-spinner-btn:active {
+  background: #dadce0;
+}
+
+.minutes-label {
+  position: absolute;
+  right: 4px;
+  font-size: 11px;
+  color: #5f6368;
+  pointer-events: none;
+}
+
+.minutes-input-container:focus-within {
+  background: white;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
 }
 
 /* Google-style inputs */
