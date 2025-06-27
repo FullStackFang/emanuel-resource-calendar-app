@@ -401,36 +401,6 @@ const MonthView = memo(({
             />
           </div>
           
-          <div className="filter-section">
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '8px',
-              background: '#f8f9fa',
-              borderRadius: '4px',
-              border: '1px solid #e5e7eb'
-            }}>
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '13px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                margin: 0
-              }}>
-                <input
-                  type="checkbox"
-                  checked={showSetupTeardown}
-                  onChange={(e) => setShowSetupTeardown(e.target.checked)}
-                  style={{ margin: 0 }}
-                />
-                📋 Show Setup/Teardown
-              </label>
-            </div>
-          </div>
         </div>
       
         <DayEventPanel

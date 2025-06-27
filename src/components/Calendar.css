@@ -999,4 +999,17 @@
     word-wrap: break-word;
     word-break: break-word;
   }
+
+/* ============================================================================
+   MODE TOGGLE CONTAINER WITH ACTION BUTTONS
+   ============================================================================ */
+.mode-toggle-container .search-button:hover {
+  background-color: var(--hover-light) !important;
+  border-color: var(--dark-gray) !important;
+}
+
+.mode-toggle-container .add-event-button:hover {
+  background-color: var(--secondary-color) !important;
+  border-color: var(--secondary-color) !important;
+}
 }

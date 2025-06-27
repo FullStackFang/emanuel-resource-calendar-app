@@ -412,65 +412,95 @@
       
       return (
         <div className="mode-toggle-container" style={{
-          padding: '16px',
+          padding: '12px 16px',
           backgroundColor: '#f9fafb',
           borderRadius: '8px',
-          marginBottom: '24px',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e5e7eb',
+          marginBottom: '24px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: '500' }}>Mode:</span>
-              <button
-                onClick={handleModeToggle}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '15px', flexWrap: 'wrap' }}>
+            {/* Left side - Mode controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                
+                <button
+                  onClick={handleModeToggle}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
+                </button>
+              </div>
+              
+              {!isDemoMode && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label htmlFor="demo-upload" style={{
+                    padding: '6px 14px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}>
+                    📁 Upload Demo Data
+                  </label>
+                  <input
+                    id="demo-upload"
+                    type="file"
+                    accept=".json"
+                    onChange={handleDemoDataUpload}
+                    disabled={isUploadingDemo}
+                    style={{ display: 'none' }}
+                  />
+                  {isUploadingDemo && <span>Uploading...</span>}
+                </div>
+              )}
+              
+              {isDemoMode && demoStats && (
+                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
+                  📊 {demoStats.totalEvents} events loaded
+                  {demoStats.year && ` | 📅 ${demoStats.year}`}
+                  {demoStats.dateRange?.start && demoStats.dateRange?.end && (
+                    ` | 📅 ${new Date(demoStats.dateRange.start).toLocaleDateString()} - ${new Date(demoStats.dateRange.end).toLocaleDateString()}`
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Right side - Action buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button 
+                className="search-button" 
+                onClick={() => setShowSearch(true)}
                 style={{
-                  padding: '6px 12px',
-                  backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
+                  padding: '6px 14px',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '6px',
+                  backgroundColor: '#ffffff',
+                  color: '#111827',
+                  fontSize: '14px',
+                  fontWeight: '500',
                   cursor: 'pointer',
-                  fontSize: '0.9rem'
+                  whiteSpace: 'nowrap'
                 }}
               >
-                {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
+                🔍 Search & Export
               </button>
+              <ExportToPdfButton 
+                events={filteredEvents} 
+                dateRange={dateRange} 
+              />
             </div>
-            
-            {!isDemoMode && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <label htmlFor="demo-upload" style={{
-                  padding: '6px 12px',
-                  backgroundColor: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem'
-                }}>
-                  📁 Upload Demo Data
-                </label>
-                <input
-                  id="demo-upload"
-                  type="file"
-                  accept=".json"
-                  onChange={handleDemoDataUpload}
-                  disabled={isUploadingDemo}
-                  style={{ display: 'none' }}
-                />
-                {isUploadingDemo && <span>Uploading...</span>}
-              </div>
-            )}
-            
-            {isDemoMode && demoStats && (
-              <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
-                📊 {demoStats.totalEvents} events loaded
-                {demoStats.year && ` | 📅 ${demoStats.year}`}
-                {demoStats.dateRange?.start && demoStats.dateRange?.end && (
-                  ` | 📅 ${new Date(demoStats.dateRange.start).toLocaleDateString()} - ${new Date(demoStats.dateRange.end).toLocaleDateString()}`
-                )}
-              </div>
-            )}
           </div>
         </div>
       );
@@ -2262,6 +2292,11 @@
     }, [viewType, currentDate]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
+      // Disable add event behavior in month view
+      if (viewType === 'month') {
+        return;
+      }
+      
       if(!userPermissions.createEvents) {
         showNotification("You don't have permission to create events");
         return;
@@ -3207,21 +3242,6 @@
                 </button>
               </div>
 
-              {/* Action Buttons */}
-              <div className="calendar-action-buttons">
-                <button className="search-button" onClick={() => setShowSearch(true)}>
-                  🔍 Search & Export
-                </button>
-                {userPermissions.createEvents && (
-                  <button className="add-event-button" onClick={handleAddEvent}>
-                    + Add Event
-                  </button>
-                )}
-                <ExportToPdfButton 
-                  events={filteredEvents} 
-                  dateRange={dateRange} 
-                />
-              </div>
             </div>
 
             {/* BOTTOM ROW - Settings and Group Controls */}
@@ -3283,6 +3303,7 @@
                   </select>
                 </div>
 
+                {/* Div Zoom Controls
                 <div className="zoom-controls">
                   <button onClick={() => {
                       handleZoom('out');
@@ -3297,6 +3318,7 @@
                     }
                   } title="Zoom In">+</button>
                 </div>
+                */}
               </div>
 
               {/* View mode selectors - Hide in month view */}
@@ -3330,7 +3352,7 @@
           </div>
         </div>
 
-        {/* Toggle Between ApiMode & DemoMode */}
+        {/* Mode Toggle with Action Buttons */}
         {renderModeToggle()}
 
         {initializing ? (
