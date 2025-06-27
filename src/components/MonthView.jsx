@@ -36,7 +36,8 @@ const MonthView = memo(({
   isUnspecifiedLocation,
   hasPhysicalLocation,
   isVirtualLocation,
-  updateUserProfilePreferences  
+  updateUserProfilePreferences,
+  showRegistrationTimes
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showSetupTeardown, setShowSetupTeardown] = useState(false);
@@ -227,7 +228,11 @@ const MonthView = memo(({
                       {(() => {
                         // Use filteredEvents from Calendar's main filtering system
                         const dayFilteredEvents = filteredEvents.filter(event => {
-                          const eventDate = new Date(event.start.dateTime);
+                          // Use registration times if showing setup/teardown
+                          const eventStartTime = (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) 
+                            ? event.registrationStart 
+                            : event.start.dateTime;
+                          const eventDate = new Date(eventStartTime);
                           return (
                             eventDate.getFullYear() === day.date.getFullYear() &&
                             eventDate.getMonth() === day.date.getMonth() &&
@@ -250,13 +255,13 @@ const MonthView = memo(({
                             return total + (event.setupMinutes || 0) + (event.teardownMinutes || 0);
                           }, 0);
                           
-                          const backgroundColor = showSetupTeardown && hasSetupTeardown 
+                          const backgroundColor = showRegistrationTimes && hasSetupTeardown 
                             ? '#f59e0b' // Orange when showing setup/teardown times
                             : hasSetupTeardown 
                               ? '#10b981' // Green with slight blue tint when has setup/teardown but not showing
                               : '#4caf50'; // Standard green for regular events
                           
-                          const tooltipText = showSetupTeardown && hasSetupTeardown
+                          const tooltipText = showRegistrationTimes && hasSetupTeardown
                             ? `${dayFilteredEvents.length} events (${totalSetupTeardown}min setup/teardown)`
                             : hasSetupTeardown
                               ? `${dayFilteredEvents.length} events (with setup/teardown times)`
@@ -270,12 +275,12 @@ const MonthView = memo(({
                                 height: `${size}px`,
                                 fontSize: `${Math.min(14 + (dayFilteredEvents.length * 0.5), 20)}px`,
                                 backgroundColor,
-                                border: showSetupTeardown && hasSetupTeardown ? '2px solid #d97706' : 'none'
+                                border: showRegistrationTimes && hasSetupTeardown ? '2px solid #d97706' : 'none'
                               }}
                               title={tooltipText}
                             >
                               {dayFilteredEvents.length}
-                              {showSetupTeardown && hasSetupTeardown && (
+                              {showRegistrationTimes && hasSetupTeardown && (
                                 <div style={{
                                   position: 'absolute',
                                   bottom: '-2px',
@@ -395,7 +400,7 @@ const MonthView = memo(({
           <div><strong>Active Filters:</strong></div>
           <div>Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
           <div><strong>Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</strong></div>
-          <div><strong>Setup/Teardown: {showSetupTeardown ? 'Visible' : 'Hidden'}</strong></div>
+          <div><strong>Setup/Teardown: {showRegistrationTimes ? 'Visible' : 'Hidden'}</strong></div>
           <div><strong>Timezone: {userTimezone}</strong></div>
         </div>
       </div>

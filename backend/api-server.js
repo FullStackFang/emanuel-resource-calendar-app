@@ -23,13 +23,27 @@ app.use(cors({
     'http://localhost:80', 
     'http://localhost', 
     'http://localhost:3000',
+    'http://localhost:5173', // Vite dev server
+    'https://localhost:5173', // Vite dev server with HTTPS
     process.env.FRONTEND_URL || webAppURL
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,
-  exposedHeaders: ['Authorization']
+  exposedHeaders: ['Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 app.use(express.json());
+
+// Handle preflight requests explicitly
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(204);
+});
 
 // Log all incoming requests for debugging
 app.use((req, res, next) => {

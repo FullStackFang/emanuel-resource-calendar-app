@@ -24,7 +24,8 @@ const DayView = memo(({
   isEventVirtual,
   isUnspecifiedLocation,
   hasPhysicalLocation,
-  dynamicLocations
+  dynamicLocations,
+  showRegistrationTimes
 }) => {
   // For day view, we only need the current day
   const currentDay = dateRange.start;
@@ -154,9 +155,17 @@ const DayView = memo(({
                 return (
                   <div className="event-container">
                     {sortedEvents.map((event) => {
-                      const startTime = new Date(event.start.dateTime);
-                      const endTime = new Date(event.end.dateTime);
-                      const duration = Math.round((endTime - startTime) / (1000 * 60)); // duration in minutes
+                      // Use registration times if available and toggle is enabled
+                      let displayStartTime, displayEndTime;
+                      if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
+                        displayStartTime = new Date(event.registrationStart);
+                        displayEndTime = new Date(event.registrationEnd);
+                      } else {
+                        displayStartTime = new Date(event.start.dateTime);
+                        displayEndTime = new Date(event.end.dateTime);
+                      }
+                      
+                      const duration = Math.round((displayEndTime - displayStartTime) / (1000 * 60)); // duration in minutes
                       
                       // Check if it's an all-day event (24 hours or more)
                       const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
@@ -166,12 +175,12 @@ const DayView = memo(({
                         timeDisplay = "All day";
                       } else {
                         // Format start and end times (e.g., "9:30 AM", "10:30 AM")
-                        const startTimeStr = startTime.toLocaleTimeString([], { 
+                        const startTimeStr = displayStartTime.toLocaleTimeString([], { 
                           hour: 'numeric', 
                           minute: '2-digit',
                           hour12: true 
                         });
-                        const endTimeStr = endTime.toLocaleTimeString([], { 
+                        const endTimeStr = displayEndTime.toLocaleTimeString([], { 
                           hour: 'numeric', 
                           minute: '2-digit',
                           hour12: true 
@@ -185,6 +194,11 @@ const DayView = memo(({
                           : `${minutes}m`;
                         
                         timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
+                        
+                        // Add indicator if showing registration times
+                        if (showRegistrationTimes && event.hasRegistrationEvent) {
+                          timeDisplay = `⏱️ ${timeDisplay}`;
+                        }
                       }
                       
                       const eventColor = groupBy === 'categories' 
@@ -199,7 +213,11 @@ const DayView = memo(({
                         return `rgba(${r}, ${g}, ${b}, ${alpha})`;
                       };
                       
-                      const transparentColor = hexToRgba(eventColor, 0.15);
+                      // Use different styling if showing registration times
+                      const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
+                      const bgAlpha = isShowingRegistrationTime ? 0.15 : 0.2;
+                      
+                      const transparentColor = hexToRgba(eventColor, bgAlpha);
                       
                       return (
                         <div 
@@ -212,7 +230,12 @@ const DayView = memo(({
                             margin: '2px 0',
                             cursor: 'pointer',
                             borderRadius: '8px',
-                            color: '#333'
+                            color: '#333',
+                            ...(isShowingRegistrationTime && {
+                              border: `1px dashed ${eventColor}`,
+                              borderLeftWidth: '3px',
+                              borderLeftStyle: 'solid'
+                            })
                           }}
                           onClick={(e) => handleEventClick(event, e)}
                         >

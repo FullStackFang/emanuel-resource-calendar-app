@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
 import SingleSelect from './SingleSelect';
+import EventPreviewModal from './EventPreviewModal';
 import './EventForm.css';
 
 // ===== ADD THESE FUNCTIONS AT THE TOP OF EventForm.jsx (outside the component) =====
@@ -143,6 +144,10 @@ function EventForm({
   const [useTimeInputs, setUseTimeInputs] = useState(true); // Toggle between minutes and time inputs - default to time
   const [setupTime, setSetupTime] = useState(''); // Setup time in HH:MM format
   const [teardownTime, setTeardownTime] = useState(''); // Teardown time in HH:MM format
+  
+  // Preview modal state
+  const [showPreview, setShowPreview] = useState(false);
+  const [pendingEventData, setPendingEventData] = useState(null);
   const availableMecCategories = [
     'Community',
     'Membership',
@@ -232,12 +237,15 @@ function EventForm({
       // Reset MEC Categories for now (will be populated from event data later)
       setSelectedMecCategories([]);
       
-      // Load registration event data if they exist
-      const hasRegistrationData = (event.setupMinutes && event.setupMinutes > 0) || 
+      // Load registration event data if they exist (from the enriched event data)
+      const hasRegistrationData = event.hasRegistrationEvent || 
+                                 (event.setupMinutes && event.setupMinutes > 0) || 
                                  (event.teardownMinutes && event.teardownMinutes > 0) ||
                                  event.registrationNotes || event.assignedTo;
       
       setCreateRegistrationEvent(hasRegistrationData || true); // Default to true even for existing events
+      
+      // Use the registration data from the enriched event (populated during loadGraphEvents)
       const setupMins = event.setupMinutes || 30;
       const teardownMins = event.teardownMinutes || 15;
       setSetupMinutes(setupMins);
@@ -247,6 +255,14 @@ function EventForm({
       setEventDescription(event.body?.content || event.description || '');
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
+      
+      console.log('Loaded registration data from event:', {
+        hasRegistrationEvent: event.hasRegistrationEvent,
+        setupMinutes: setupMins,
+        teardownMinutes: teardownMins,
+        registrationNotes: event.registrationNotes,
+        assignedTo: event.assignedTo
+      });
     } else {
       // Handle new event creation - initialize with defaults
       const today = new Date();
@@ -308,6 +324,19 @@ function EventForm({
       ...prev,
       [name]: value
     }));
+    
+    // Update setup/teardown times when event times change
+    if (name === 'startTime' && setupMinutes > 0) {
+      const eventStartMinutes = timeStringToMinutes(value);
+      const setupStartMinutes = eventStartMinutes - setupMinutes;
+      setSetupTime(minutesToTimeString(Math.max(0, setupStartMinutes)));
+    }
+    
+    if (name === 'endTime' && teardownMinutes > 0) {
+      const eventEndMinutes = timeStringToMinutes(value);
+      const teardownEndMinutes = eventEndMinutes + teardownMinutes;
+      setTeardownTime(minutesToTimeString(teardownEndMinutes));
+    }
   };
 
   const handleAllDayToggle = () => {
@@ -350,23 +379,45 @@ function EventForm({
   };
 
   const handleSetupMinutesChange = (newMinutes) => {
-    setSetupMinutes(newMinutes);
-    setSetupTime(minutesToTimeString(newMinutes));
+    // Cap at maximum 8 hours (480 minutes)
+    const clampedMinutes = Math.min(Math.max(0, newMinutes), 480);
+    setSetupMinutes(clampedMinutes);
+    setSetupTime(minutesToTimeString(clampedMinutes));
   };
 
   const handleTeardownMinutesChange = (newMinutes) => {
-    setTeardownMinutes(newMinutes);
-    setTeardownTime(minutesToTimeString(newMinutes));
+    // Cap at maximum 8 hours (480 minutes)
+    const clampedMinutes = Math.min(Math.max(0, newMinutes), 480);
+    setTeardownMinutes(clampedMinutes);
+    setTeardownTime(minutesToTimeString(clampedMinutes));
   };
 
   const handleSetupTimeChange = (timeString) => {
     setSetupTime(timeString);
-    setSetupMinutes(timeStringToMinutes(timeString));
+    
+    // Calculate setup duration based on event start time
+    if (timeString && formData.startTime) {
+      const eventStartMinutes = timeStringToMinutes(formData.startTime);
+      const setupStartMinutes = timeStringToMinutes(timeString);
+      const duration = eventStartMinutes - setupStartMinutes;
+      setSetupMinutes(Math.max(0, duration)); // Ensure positive duration
+    } else {
+      setSetupMinutes(0);
+    }
   };
 
   const handleTeardownTimeChange = (timeString) => {
     setTeardownTime(timeString);
-    setTeardownMinutes(timeStringToMinutes(timeString));
+    
+    // Calculate teardown duration based on event end time
+    if (timeString && formData.endTime) {
+      const eventEndMinutes = timeStringToMinutes(formData.endTime);
+      const teardownEndMinutes = timeStringToMinutes(timeString);
+      const duration = teardownEndMinutes - eventEndMinutes;
+      setTeardownMinutes(Math.max(0, duration)); // Ensure positive duration
+    } else {
+      setTeardownMinutes(0);
+    }
   };
 
   const handleLocationChange = (selectedLocations) => {
@@ -379,6 +430,39 @@ function EventForm({
     }));
   };
 
+  // Validation function for setup/teardown times
+  const validateSetupTeardown = () => {
+    if (!formData.startDate || !formData.startTime || !formData.endDate || !formData.endTime) {
+      return null; // Skip validation if event times aren't set
+    }
+    
+    if (!useTimeInputs) {
+      // Skip validation for minutes input mode - just use the simple duration limits
+      return null;
+    }
+    
+    // For time input mode, validate that times are in correct order
+    const eventStart = new Date(`${formData.startDate}T${formData.startTime}`);
+    const eventEnd = new Date(`${formData.endDate}T${formData.endTime}`);
+    
+    // Parse setup and teardown times
+    if (setupTime) {
+      const setupDateTime = new Date(`${formData.startDate}T${setupTime}`);
+      if (setupDateTime >= eventStart) {
+        return `Setup time (${setupTime}) must be before event start time (${formData.startTime}).`;
+      }
+    }
+    
+    if (teardownTime) {
+      const teardownDateTime = new Date(`${formData.endDate}T${teardownTime}`);
+      if (teardownDateTime < eventEnd) {
+        return `Teardown time (${teardownTime}) must be on or after event end time (${formData.endTime}).`;
+      }
+    }
+    
+    return null;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     
@@ -388,7 +472,14 @@ function EventForm({
       return;
     }
     
-    console.log("SAVING EVENT:");
+    // Validate setup/teardown times
+    const validationError = validateSetupTeardown();
+    if (validationError) {
+      alert(validationError);
+      return;
+    }
+    
+    console.log("PREPARING EVENT DATA FOR PREVIEW:");
     console.log(`  Form values: startDate=${formData.startDate}, startTime=${formData.startTime}`);
     
     // Convert display times to UTC for API
@@ -428,9 +519,9 @@ function EventForm({
       location: { 
         displayName: formData.locations.length > 0 
           ? formData.locations.join('; ') 
-          : '' 
+          : 'Unspecified'
       },
-      categories: formData.category ? [formData.category] : [],
+      categories: formData.category ? [formData.category] : ['Uncategorized'],
       isAllDay,
       // Main event description (for TempleEvents calendar)
       body: {
@@ -445,8 +536,24 @@ function EventForm({
       createRegistrationEvent
     };
     
-    console.log("Final event data:", eventData);
-    onSave(eventData);
+    console.log("Final event data prepared for preview:", eventData);
+    
+    // Show preview modal instead of directly saving
+    setPendingEventData(eventData);
+    setShowPreview(true);
+  };
+  
+  // Handler for confirming save from preview modal
+  const handleConfirmSave = () => {
+    console.log("SAVING EVENT after preview confirmation:", pendingEventData);
+    setShowPreview(false);
+    onSave(pendingEventData);
+  };
+  
+  // Handler for canceling save from preview modal
+  const handleCancelSave = () => {
+    setShowPreview(false);
+    setPendingEventData(null);
   };
 
   return (
@@ -598,7 +705,7 @@ function EventForm({
                     value={setupMinutes || 0}
                     onChange={(e) => handleSetupMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
                     min="0"
-                    max="240"
+                    max="480"
                     className="minutes-number-input"
                   />
                   <div className="minutes-spinner-buttons">
@@ -626,7 +733,7 @@ function EventForm({
                     value={teardownMinutes || 0}
                     onChange={(e) => handleTeardownMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
                     min="0"
-                    max="240"
+                    max="480"
                     className="minutes-number-input"
                   />
                   <div className="minutes-spinner-buttons">
@@ -762,10 +869,18 @@ function EventForm({
         </button>
         {!readOnly && (
           <button type="submit" className="save-button">
-            Save
+            Preview & Save
           </button>
         )}
       </div>
+      
+      {/* Event Preview Modal */}
+      <EventPreviewModal
+        isOpen={showPreview}
+        onClose={handleCancelSave}
+        onConfirm={handleConfirmSave}
+        eventData={pendingEventData}
+      />
     </form>
   );
 }

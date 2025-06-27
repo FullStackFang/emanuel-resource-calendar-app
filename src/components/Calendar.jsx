@@ -18,6 +18,12 @@
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
   // import { getCalendars } from '../services/graphService';
+  import { 
+    createLinkedEvents,
+    findLinkedEvent,
+    updateLinkedEvent,
+    deleteLinkedEvent
+  } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
   import { 
     TimezoneSelector, 
@@ -935,8 +941,59 @@
           nextLink = js["@odata.nextLink"] || null;
         }
     
-        // 5. Normalize into your UI model
-        const converted = all.map(evt => {
+        // 5. Check for linked registration events and extract setup/teardown data
+        const eventsWithRegistrationData = await Promise.all(all.map(async (evt) => {
+          // Check if this event has a linked registration event
+          try {
+            if (evt.singleValueExtendedProperties) {
+              const linkedEventIdProp = evt.singleValueExtendedProperties.find(
+                prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6e} Name Emanuel-Calendar-App_linkedEventId'
+              );
+              const eventTypeProp = evt.singleValueExtendedProperties.find(
+                prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType'
+              );
+              
+              if (linkedEventIdProp && eventTypeProp?.value === 'main') {
+                // This is a main event with a linked registration event
+                const linkedEvent = await findLinkedEvent(graphToken, evt.id);
+                if (linkedEvent) {
+                  // Calculate setup and teardown times
+                  const mainStart = new Date(evt.start.dateTime);
+                  const mainEnd = new Date(evt.end.dateTime);
+                  const regStart = new Date(linkedEvent.start.dateTime);
+                  const regEnd = new Date(linkedEvent.end.dateTime);
+                  
+                  const setupMinutes = Math.round((mainStart - regStart) / (1000 * 60));
+                  const teardownMinutes = Math.round((regEnd - mainEnd) / (1000 * 60));
+                  
+                  // Extract notes and assignment from registration event body
+                  const regBody = linkedEvent.body?.content || '';
+                  const assignedMatch = regBody.match(/Assigned to: (.+?)(?:\n|$)/);
+                  const notesMatch = regBody.match(/Notes: (.+?)(?:\n\n|$)/s);
+                  
+                  return {
+                    ...evt,
+                    hasRegistrationEvent: true,
+                    linkedEventId: linkedEvent.id,
+                    setupMinutes: setupMinutes > 0 ? setupMinutes : 0,
+                    teardownMinutes: teardownMinutes > 0 ? teardownMinutes : 0,
+                    registrationNotes: notesMatch ? notesMatch[1].trim() : '',
+                    assignedTo: assignedMatch ? assignedMatch[1].trim() : '',
+                    registrationStart: linkedEvent.start.dateTime,
+                    registrationEnd: linkedEvent.end.dateTime
+                  };
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error fetching linked event for ${evt.id}:`, error);
+          }
+          
+          return evt;
+        }));
+        
+        // 6. Normalize into your UI model
+        const converted = eventsWithRegistrationData.map(evt => {
           // Extract extension data
           const extData = {};
           if (evt.extensions && evt.extensions.length > 0) {
@@ -966,7 +1023,16 @@
             extensions: evt.extensions || [],
             calendarId: selectedCalendarId,
             calendarName: availableCalendars.find(c => c.id === selectedCalendarId)?.name,
-            ...extData
+            ...extData,
+            // Include registration event data if it exists
+            hasRegistrationEvent: evt.hasRegistrationEvent || false,
+            linkedEventId: evt.linkedEventId || null,
+            setupMinutes: evt.setupMinutes || 0,
+            teardownMinutes: evt.teardownMinutes || 0,
+            registrationNotes: evt.registrationNotes || '',
+            assignedTo: evt.assignedTo || '',
+            registrationStart: evt.registrationStart || null,
+            registrationEnd: evt.registrationEnd || null
           };
         });
 
@@ -1294,8 +1360,20 @@
         throw new Error(err.error?.message || `Batch call failed: ${resp.status}`);
       }
       
-      // Then, save internal fields if provided
-      if (internalFields && eventDataService.apiToken) {
+      // Parse the batch response to get the created/updated event data
+      const batchResponse = await resp.json();
+      let createdEventData = null;
+      
+      if (batchResponse.responses && batchResponse.responses.length > 0) {
+        const mainResponse = batchResponse.responses.find(r => r.id === '1');
+        if (mainResponse && mainResponse.status >= 200 && mainResponse.status < 300) {
+          createdEventData = mainResponse.body;
+          console.log('Created/updated event:', createdEventData);
+        }
+      }
+      
+      // Then, save internal fields if provided (only for existing events)
+      if (internalFields && eventDataService.apiToken && eventId) {
         try {
           await eventDataService.updateInternalFields(eventId, internalFields);
           console.log('Updated internal fields for event:', eventId, internalFields);
@@ -1304,6 +1382,9 @@
           // Don't throw here - Graph update succeeded, internal data is supplementary
         }
       }
+      
+      // Return the created event data for further processing
+      return createdEventData;
     };
 
     //---------------------------------------------------------------------------
@@ -2248,6 +2329,18 @@
      */
     const handleRegistrationEventCreation = async (eventData, calendarId) => {
       try {
+        console.log('handleRegistrationEventCreation called with:', {
+          calendarId,
+          availableCalendars: availableCalendars.map(c => ({ id: c.id, name: c.name })),
+          eventData: { 
+            id: eventData.id, 
+            subject: eventData.subject,
+            createRegistrationEvent: eventData.createRegistrationEvent,
+            setupMinutes: eventData.setupMinutes,
+            teardownMinutes: eventData.teardownMinutes
+          }
+        });
+        
         // Find the current calendar info
         const currentCalendar = availableCalendars.find(cal => cal.id === calendarId);
         if (!currentCalendar) {
@@ -2266,6 +2359,11 @@
         // }
         
         console.log(`Creating registration event for calendar: ${currentCalendar.name} (TempleEvents: ${isTempleEventsCalendar})`);
+        console.log('Event data for registration:', {
+          createRegistrationEvent: eventData.createRegistrationEvent,
+          setupMinutes: eventData.setupMinutes,
+          teardownMinutes: eventData.teardownMinutes
+        });
 
         // Check if registration event creation is enabled
         if (!eventData.createRegistrationEvent) {
@@ -2282,15 +2380,31 @@
           return;
         }
 
-        // Find TempleRegistrations calendar
+        // Find Temple Event Registrations calendar (check various naming patterns)
         const registrationCalendar = availableCalendars.find(cal => 
-          cal.name && cal.name.toLowerCase().includes('templeregistrations')
+          cal.name && (
+            cal.name.toLowerCase().includes('templeregistrations') ||
+            cal.name.toLowerCase().includes('temple event registrations') ||
+            cal.name.toLowerCase().includes('temple registrations')
+          )
         );
 
         if (!registrationCalendar) {
-          console.log('TempleRegistrations calendar not found, skipping registration event creation');
+          console.log('Temple Registrations calendar not found, skipping registration event creation');
+          console.log('Available calendars:', availableCalendars.map(c => c.name));
           return;
         }
+
+        // Prepare main event data (this will be created or updated)
+        const mainEventData = {
+          subject: eventData.subject,
+          start: eventData.start,
+          end: eventData.end,
+          location: eventData.location,
+          categories: eventData.categories || [],
+          body: eventData.body,
+          isAllDay: eventData.isAllDay || false
+        };
 
         // Calculate extended times
         const originalStart = new Date(eventData.start.dateTime);
@@ -2307,11 +2421,11 @@
           subject: `[SETUP/TEARDOWN] ${eventData.subject}`,
           start: {
             dateTime: registrationStart.toISOString(),
-            timeZone: 'UTC'
+            timeZone: eventData.start.timeZone || 'UTC'
           },
           end: {
             dateTime: registrationEnd.toISOString(),
-            timeZone: 'UTC'
+            timeZone: eventData.end.timeZone || 'UTC'
           },
           location: eventData.location,
           categories: ['Security/Maintenance'],
@@ -2328,36 +2442,90 @@
           isAllDay: eventData.isAllDay || false
         };
 
-        // Create the registration event
-        console.log('Creating registration event:', registrationEventData);
-        
-        const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendar.id}/events`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${graphToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(registrationEventData)
-        });
-
-        if (response.ok) {
-          const createdEvent = await response.json();
-          console.log('Successfully created registration event:', createdEvent.id);
+        // Use new linked events creation for new events
+        if (!eventData.id) {
+          console.log('Creating new linked events with extended properties');
           
-          // Link the events by storing the registration event ID in the original event's internal data
+          const linkedEvents = await createLinkedEvents(
+            graphToken,
+            mainEventData,
+            registrationEventData,
+            calendarId,
+            registrationCalendar.id
+          );
+          
+          console.log('Successfully created linked events:', {
+            mainEvent: linkedEvents.mainEvent.id,
+            registrationEvent: linkedEvents.registrationEvent.id
+          });
+          
+          // Update the eventData object with the new main event ID for subsequent processing
+          eventData.id = linkedEvents.mainEvent.id;
+          
+          // Store backup linking in internal data
           if (eventDataService.apiToken) {
             try {
-              await eventDataService.updateInternalFields(eventData.id, {
-                registrationEventId: createdEvent.id,
-                registrationCalendarId: registrationCalendar.id
+              await eventDataService.updateInternalFields(linkedEvents.mainEvent.id, {
+                registrationEventId: linkedEvents.registrationEvent.id,
+                registrationCalendarId: registrationCalendar.id,
+                setupMinutes: setupMinutes,
+                teardownMinutes: teardownMinutes
               });
             } catch (error) {
-              console.error('Failed to link registration event:', error);
+              console.error('Failed to store internal linking data:', error);
             }
           }
         } else {
-          const error = await response.json();
-          console.error('Failed to create registration event:', error);
+          // For existing events, check if a linked registration event already exists
+          const existingLinkedEvent = await findLinkedEvent(graphToken, eventData.id, calendarId);
+          
+          if (existingLinkedEvent) {
+            console.log('Updating existing linked registration event');
+            
+            // Update the linked event with new times
+            await updateLinkedEvent(
+              graphToken,
+              eventData.id,
+              mainEventData,
+              calendarId,
+              setupMinutes,
+              teardownMinutes
+            );
+          } else {
+            console.log('No existing linked event found, creating new registration event');
+            
+            // Fall back to old method for existing events without links
+            const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendar.id}/events`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(registrationEventData)
+            });
+
+            if (response.ok) {
+              const createdEvent = await response.json();
+              console.log('Successfully created registration event:', createdEvent.id);
+              
+              // Store linking in internal data
+              if (eventDataService.apiToken) {
+                try {
+                  await eventDataService.updateInternalFields(eventData.id, {
+                    registrationEventId: createdEvent.id,
+                    registrationCalendarId: registrationCalendar.id,
+                    setupMinutes: setupMinutes,
+                    teardownMinutes: teardownMinutes
+                  });
+                } catch (error) {
+                  console.error('Failed to link registration event:', error);
+                }
+              }
+            } else {
+              const error = await response.json();
+              console.error('Failed to create registration event:', error);
+            }
+          }
         }
       } catch (error) {
         console.error('Error in handleRegistrationEventCreation:', error);
@@ -2398,11 +2566,45 @@
           assignedTo: data.assignedTo || ''
         };
         
-        // Batch update - pass the selected calendar ID
-        await patchEventBatch(data.id, core, ext, selectedCalendarId, internal);
+        // Use the selected calendar from the calendar toggle
+        let targetCalendarId = selectedCalendarId;
+        if (!targetCalendarId) {
+          // If no calendar is selected, use the first available calendar
+          targetCalendarId = availableCalendars[0]?.id;
+          console.log('No calendar selected, using first available:', availableCalendars[0]?.name);
+        } else {
+          const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+          console.log('Creating event in selected calendar:', selectedCalendar?.name);
+        }
         
-        // Check if this is a TempleEvents calendar and create registration event if needed
-        await handleRegistrationEventCreation(data, selectedCalendarId);
+        // For new events with registration, use createLinkedEvents directly
+        if (!data.id && data.createRegistrationEvent && (data.setupMinutes > 0 || data.teardownMinutes > 0)) {
+          // Skip the regular batch creation and use linked events creation instead
+          await handleRegistrationEventCreation({
+            ...data,
+            createRegistrationEvent: data.createRegistrationEvent,
+            setupMinutes: data.setupMinutes,
+            teardownMinutes: data.teardownMinutes,
+            registrationNotes: data.registrationNotes,
+            assignedTo: data.assignedTo
+          }, targetCalendarId);
+        } else {
+          // For existing events or events without registration, use normal batch update
+          const createdEvent = await patchEventBatch(data.id, core, ext, targetCalendarId, internal);
+          
+          // For existing events that need registration event updates
+          if (data.id && data.createRegistrationEvent) {
+            const eventDataForRegistration = createdEvent || data;
+            await handleRegistrationEventCreation({
+              ...eventDataForRegistration,
+              createRegistrationEvent: data.createRegistrationEvent,
+              setupMinutes: data.setupMinutes,
+              teardownMinutes: data.teardownMinutes,
+              registrationNotes: data.registrationNotes,
+              assignedTo: data.assignedTo
+            }, targetCalendarId);
+          }
+        }
         
         // Refresh API events
         await loadGraphEvents();
@@ -2463,7 +2665,15 @@
      */
     const handleRegistrationEventDeletion = async (eventId) => {
       try {
-        // Get internal data for the event to find linked registration event
+        // First try the new linked events deletion method
+        const linkedEventDeleted = await deleteLinkedEvent(graphToken, eventId, selectedCalendarId);
+        
+        if (linkedEventDeleted) {
+          console.log('Successfully deleted linked registration event using extended properties');
+          return;
+        }
+
+        // Fall back to legacy method using internal data
         if (!eventDataService.apiToken) {
           console.log('No API token for event data service, skipping registration event deletion');
           return;
@@ -2489,7 +2699,7 @@
           return;
         }
 
-        // Delete the registration event
+        // Delete the registration event using legacy method
         const registrationEventId = internalData.registrationEventId;
         const registrationCalendarId = internalData.registrationCalendarId;
 
@@ -2504,7 +2714,7 @@
           });
 
           if (deleteResponse.ok) {
-            console.log('Successfully deleted registration event:', registrationEventId);
+            console.log('Successfully deleted registration event (legacy method):', registrationEventId);
           } else {
             console.error('Failed to delete registration event:', deleteResponse.status);
           }
@@ -3103,6 +3313,7 @@
                           isUnspecifiedLocation={isUnspecifiedLocation}
                           hasPhysicalLocation={hasPhysicalLocation}
                           isVirtualLocation={isVirtualLocation}
+                          showRegistrationTimes={showRegistrationTimes}
                         />
                       </div>
                     </div>
@@ -3142,6 +3353,7 @@
                           setSelectedCategories={setSelectedCategories}
                           setSelectedLocations={setSelectedLocations}
                           updateUserProfilePreferences={updateUserProfilePreferences}
+                          showRegistrationTimes={showRegistrationTimes}
                         />
                       ) : (
                         <DayView
@@ -3170,6 +3382,7 @@
                           setSelectedCategories={setSelectedCategories}
                           setSelectedLocations={setSelectedLocations}
                           updateUserProfilePreferences={updateUserProfilePreferences}
+                          showRegistrationTimes={showRegistrationTimes}
                         />
                       )}
                     </div>
