@@ -1,4 +1,5 @@
 import React, { memo, useMemo } from 'react';
+import { processEventsForOverlap } from '../utils/eventOverlapUtils';
 
 const WeekView = memo(({
   // Props
@@ -129,8 +130,9 @@ const WeekView = memo(({
                 )}
               >
                 {/* Events for this group and day */}
-                {filteredEvents
-                  .filter(event => {
+                {(() => {
+                  // Filter events for this group and day
+                  const dayEvents = filteredEvents.filter(event => {
                     // Check if event is for this day
                     if (!getEventPosition(event, day)) return false;
                     
@@ -142,33 +144,110 @@ const WeekView = memo(({
                       const displayLocation = getEventDisplayLocation(event);
                       return displayLocation === group;
                     }
-                  })
-                  .map(event => (
-                    <div 
-                      key={event.id} 
-                      className="event-item"
-                      style={{
-                        borderLeft: `4px solid ${groupBy === 'categories' 
+                  });
+
+                  // Sort events by start time
+                  const sortedEvents = dayEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+
+                  return (
+                    <div className="event-container">
+                      {sortedEvents.map((event) => {
+                        const startTime = new Date(event.start.dateTime);
+                        const endTime = new Date(event.end.dateTime);
+                        const duration = Math.round((endTime - startTime) / (1000 * 60)); // duration in minutes
+                        
+                        // Check if it's an all-day event (24 hours or more)
+                        const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
+                        
+                        let timeDisplay;
+                        if (isAllDay) {
+                          timeDisplay = "All day";
+                        } else {
+                          // Format start and end times (e.g., "9:30 AM", "10:30 AM")
+                          const startTimeStr = startTime.toLocaleTimeString([], { 
+                            hour: 'numeric', 
+                            minute: '2-digit',
+                            hour12: true 
+                          });
+                          const endTimeStr = endTime.toLocaleTimeString([], { 
+                            hour: 'numeric', 
+                            minute: '2-digit',
+                            hour12: true 
+                          });
+                          
+                          // Format total duration (e.g., "1h 30m" or "30m")
+                          const hours = Math.floor(duration / 60);
+                          const minutes = duration % 60;
+                          const durationStr = hours > 0 
+                            ? `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`
+                            : `${minutes}m`;
+                          
+                          timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
+                        }
+                        
+                        const eventColor = groupBy === 'categories' 
                           ? getCategoryColor(event.category || 'Uncategorized') 
-                          : getLocationColor(getEventDisplayLocation(event))}`,
-                        padding: viewType === 'month' ? '2px 4px' : '4px 8px',
-                        margin: viewType === 'month' ? '1px 0' : '2px 0'
-                      }}
-                      onClick={(e) => handleEventClick(event, e)}
-                    >
-                      {renderEventContent(event, viewType)}
-                      {event.calendarId && event.calendarId !== 'primary' && (
-                        <div className="calendar-source" style={{ 
-                          fontSize: '10px', 
-                          opacity: 0.8,
-                          marginTop: '2px'
-                        }}>
-                          {event.calendarName}
-                        </div>
-                      )}
+                          : getLocationColor(getEventDisplayLocation(event));
+                        
+                        // Convert hex color to rgba with transparency
+                        const hexToRgba = (hex, alpha) => {
+                          const r = parseInt(hex.slice(1, 3), 16);
+                          const g = parseInt(hex.slice(3, 5), 16);
+                          const b = parseInt(hex.slice(5, 7), 16);
+                          return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                        };
+                        
+                        const transparentColor = hexToRgba(eventColor, 0.15);
+                        
+                        return (
+                          <div 
+                            key={event.id} 
+                            className="event-item"
+                            style={{
+                              backgroundColor: transparentColor,
+                              borderLeft: `2px solid ${eventColor}`,
+                              padding: viewType === 'month' ? '4px 6px' : '6px 8px',
+                              margin: '1px 0',
+                              cursor: 'pointer',
+                              borderRadius: viewType === 'month' ? '6px' : '7px',
+                              color: '#333'
+                            }}
+                            onClick={(e) => handleEventClick(event, e)}
+                          >
+                            <div style={{ lineHeight: '1.2' }}>
+                              <div style={{ 
+                                fontSize: viewType === 'month' ? '8px' : '9px',
+                                color: '#666',
+                                fontWeight: '500'
+                              }}>
+                                {timeDisplay}
+                              </div>
+                              <div style={{ 
+                                fontSize: viewType === 'month' ? '9px' : '10px',
+                                fontWeight: '600',
+                                marginTop: '1px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {event.subject}
+                              </div>
+                            </div>
+                            {event.calendarId && event.calendarId !== 'primary' && (
+                              <div className="calendar-source" style={{ 
+                                fontSize: '7px', 
+                                opacity: 0.8,
+                                marginTop: '1px'
+                              }}>
+                                {event.calendarName}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))
-                }
+                  );
+                })()}
               </div>
             ))}
           </div>

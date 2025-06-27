@@ -1,5 +1,6 @@
 // Fixed DayView.jsx with proper virtual location detection
 import React, { memo, useMemo } from 'react';
+import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
 
 const DayView = memo(({
   // Props
@@ -131,8 +132,9 @@ const DayView = memo(({
               )}
             >
               {/* Events for this group on this day */}
-              {filteredEvents
-                .filter(event => {
+              {(() => {
+                // Filter events for this group and day
+                const groupEvents = filteredEvents.filter(event => {
                   // Check if event is for this day
                   if (!getEventPosition(event, currentDay)) return false;
                   
@@ -144,34 +146,110 @@ const DayView = memo(({
                     const displayLocation = getEventDisplayLocation(event);
                     return displayLocation === group;
                   }
-                })
-                .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime)) // Sort by time
-                .map(event => (
-                  <div 
-                    key={event.id} 
-                    className="event-item"
-                    style={{
-                      borderLeft: `4px solid ${groupBy === 'categories' 
+                });
+
+                // Sort events by start time
+                const sortedEvents = groupEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+
+                return (
+                  <div className="event-container">
+                    {sortedEvents.map((event) => {
+                      const startTime = new Date(event.start.dateTime);
+                      const endTime = new Date(event.end.dateTime);
+                      const duration = Math.round((endTime - startTime) / (1000 * 60)); // duration in minutes
+                      
+                      // Check if it's an all-day event (24 hours or more)
+                      const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
+                      
+                      let timeDisplay;
+                      if (isAllDay) {
+                        timeDisplay = "All day";
+                      } else {
+                        // Format start and end times (e.g., "9:30 AM", "10:30 AM")
+                        const startTimeStr = startTime.toLocaleTimeString([], { 
+                          hour: 'numeric', 
+                          minute: '2-digit',
+                          hour12: true 
+                        });
+                        const endTimeStr = endTime.toLocaleTimeString([], { 
+                          hour: 'numeric', 
+                          minute: '2-digit',
+                          hour12: true 
+                        });
+                        
+                        // Format total duration (e.g., "1h 30m" or "30m")
+                        const hours = Math.floor(duration / 60);
+                        const minutes = duration % 60;
+                        const durationStr = hours > 0 
+                          ? `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`
+                          : `${minutes}m`;
+                        
+                        timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
+                      }
+                      
+                      const eventColor = groupBy === 'categories' 
                         ? getCategoryColor(event.category || 'Uncategorized') 
-                        : getLocationColor(getEventDisplayLocation(event))}`,
-                      padding: '4px 8px',
-                      margin: '2px 0'
-                    }}
-                    onClick={(e) => handleEventClick(event, e)}
-                  >
-                    {renderEventContent(event, viewType)}
-                    {event.calendarId && event.calendarId !== 'primary' && (
-                      <div className="calendar-source" style={{ 
-                        fontSize: '10px', 
-                        opacity: 0.8,
-                        marginTop: '2px'
-                      }}>
-                        {event.calendarName}
-                      </div>
-                    )}
+                        : getLocationColor(getEventDisplayLocation(event));
+                      
+                      // Convert hex color to rgba with transparency
+                      const hexToRgba = (hex, alpha) => {
+                        const r = parseInt(hex.slice(1, 3), 16);
+                        const g = parseInt(hex.slice(3, 5), 16);
+                        const b = parseInt(hex.slice(5, 7), 16);
+                        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                      };
+                      
+                      const transparentColor = hexToRgba(eventColor, 0.15);
+                      
+                      return (
+                        <div 
+                          key={event.id} 
+                          className="event-item"
+                          style={{
+                            backgroundColor: transparentColor,
+                            borderLeft: `3px solid ${eventColor}`,
+                            padding: '8px 10px',
+                            margin: '2px 0',
+                            cursor: 'pointer',
+                            borderRadius: '8px',
+                            color: '#333'
+                          }}
+                          onClick={(e) => handleEventClick(event, e)}
+                        >
+                          <div style={{ lineHeight: '1.3' }}>
+                            <div style={{ 
+                              fontSize: '11px',
+                              color: '#666',
+                              fontWeight: '500'
+                            }}>
+                              {timeDisplay}
+                            </div>
+                            <div style={{ 
+                              fontSize: '13px', 
+                              fontWeight: '600',
+                              marginTop: '2px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {event.subject}
+                            </div>
+                          </div>
+                          {event.calendarId && event.calendarId !== 'primary' && (
+                            <div className="calendar-source" style={{ 
+                              fontSize: '9px', 
+                              opacity: 0.8,
+                              marginTop: '2px'
+                            }}>
+                              {event.calendarName}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))
-              }
+                );
+              })()}
             </div>
           </div>
         ))
