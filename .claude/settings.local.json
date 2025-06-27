@@ -15,7 +15,8 @@
       "Bash(npm run lint:*)",
       "Bash(timeout 10s npm run dev)",
       "Bash(curl:*)",
-      "Bash(timeout 10s npm start)"
+      "Bash(timeout 10s npm start)",
+      "Bash(npx eslint:*)"
     ],
     "deny": []
   }

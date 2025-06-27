@@ -28,6 +28,30 @@ const WeekView = memo(({
   showRegistrationTimes
 }) => {
   
+  // DEBUG: Log the showRegistrationTimes prop
+  console.log('WeekView: showRegistrationTimes prop:', showRegistrationTimes);
+  
+  // DEBUG: Check if any filtered events have registration properties
+  if (filteredEvents && filteredEvents.length > 0) {
+    const eventsWithRegistration = filteredEvents.filter(event => 
+      event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
+    );
+    console.log('WeekView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    
+    // DEBUG: Let's see a sample event structure
+    if (filteredEvents.length > 0) {
+      console.log('WeekView: Sample event structure:', {
+        id: filteredEvents[0].id,
+        subject: filteredEvents[0].subject,
+        hasRegistrationEvent: filteredEvents[0].hasRegistrationEvent,
+        registrationStart: filteredEvents[0].registrationStart,
+        registrationEnd: filteredEvents[0].registrationEnd,
+        setupMinutes: filteredEvents[0].setupMinutes,
+        teardownMinutes: filteredEvents[0].teardownMinutes
+      });
+    }
+  }
+  
   // Helper function to get the display location for an event
   const getEventDisplayLocation = (event) => {
     if (isUnspecifiedLocation(event)) {
@@ -156,6 +180,13 @@ const WeekView = memo(({
                         // Use registration times if available and toggle is enabled
                         let displayStartTime, displayEndTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
+                          console.log('WeekView: Using registration times for event:', {
+                            subject: event.subject,
+                            originalStart: event.start.dateTime,
+                            originalEnd: event.end.dateTime,
+                            registrationStart: event.registrationStart,
+                            registrationEnd: event.registrationEnd
+                          });
                           displayStartTime = new Date(event.registrationStart);
                           displayEndTime = new Date(event.registrationEnd);
                         } else {
@@ -184,12 +215,17 @@ const WeekView = memo(({
                             hour12: true 
                           });
                           
-                          // Format total duration (e.g., "1h 30m" or "30m")
+                          // Format total duration - simplified to prevent overflow
                           const hours = Math.floor(duration / 60);
                           const minutes = duration % 60;
-                          const durationStr = hours > 0 
-                            ? `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`
-                            : `${minutes}m`;
+                          let durationStr;
+                          if (hours > 0) {
+                            // Only show hours for events longer than 1 hour
+                            durationStr = `${hours}h`;
+                          } else {
+                            // Show minutes for short events
+                            durationStr = `${minutes}m`;
+                          }
                           
                           timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
                           
@@ -240,7 +276,10 @@ const WeekView = memo(({
                               <div style={{ 
                                 fontSize: viewType === 'month' ? '8px' : '9px',
                                 color: '#666',
-                                fontWeight: '500'
+                                fontWeight: '500',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
                               }}>
                                 {timeDisplay}
                               </div>

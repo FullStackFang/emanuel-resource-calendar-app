@@ -30,6 +30,20 @@ const DayView = memo(({
   // For day view, we only need the current day
   const currentDay = dateRange.start;
   
+  // DEBUG: Log the showRegistrationTimes prop
+  console.log('DayView: showRegistrationTimes prop:', showRegistrationTimes);
+  
+  // DEBUG: Check if any filtered events have registration properties
+  if (filteredEvents && filteredEvents.length > 0) {
+    const eventsWithRegistration = filteredEvents.filter(event => 
+      event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
+    );
+    console.log('DayView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    if (eventsWithRegistration.length > 0) {
+      console.log('DayView: Sample event with registration data:', eventsWithRegistration[0]);
+    }
+  }
+  
   // Helper function to get the display location for an event
   const getEventDisplayLocation = (event) => {
     if (isUnspecifiedLocation(event)) {
@@ -186,12 +200,17 @@ const DayView = memo(({
                           hour12: true 
                         });
                         
-                        // Format total duration (e.g., "1h 30m" or "30m")
+                        // Format total duration - simplified to prevent overflow
                         const hours = Math.floor(duration / 60);
                         const minutes = duration % 60;
-                        const durationStr = hours > 0 
-                          ? `${hours}h${minutes > 0 ? ` ${minutes}m` : ''}`
-                          : `${minutes}m`;
+                        let durationStr;
+                        if (hours > 0) {
+                          // Only show hours for events longer than 1 hour
+                          durationStr = `${hours}h`;
+                        } else {
+                          // Show minutes for short events
+                          durationStr = `${minutes}m`;
+                        }
                         
                         timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
                         
@@ -243,7 +262,10 @@ const DayView = memo(({
                             <div style={{ 
                               fontSize: '11px',
                               color: '#666',
-                              fontWeight: '500'
+                              fontWeight: '500',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
                             }}>
                               {timeDisplay}
                             </div>

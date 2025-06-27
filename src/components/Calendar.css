@@ -791,6 +791,9 @@
   color: var(--dark-gray);
   margin-bottom: 2px;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .event-title {

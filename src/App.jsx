@@ -25,8 +25,6 @@ function App() {
   const [selectedCalendarId, setSelectedCalendarId] = useState(null);
   const [availableCalendars, setAvailableCalendars] = useState([]);
   const [changingCalendar, setChangingCalendar] = useState(false);
-  const [isSharedCalendarEnabled, setIsSharedCalendarEnabled] = useState(false);
-  const [sharedCalendarInfo, setSharedCalendarInfo] = useState(null);
   const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
 
   // Handle calendar change
@@ -35,12 +33,6 @@ function App() {
     setSelectedCalendarId(newCalendarId);
   };
 
-  // Handle shared calendar toggle
-  const handleSharedCalendarToggle = useCallback((enabled, calendarInfo) => {
-    setIsSharedCalendarEnabled(enabled);
-    setSharedCalendarInfo(enabled ? calendarInfo : null);
-    console.log('Shared calendar toggled:', enabled, calendarInfo);
-  }, []);
 
   // Handle registration times toggle
   const handleRegistrationTimesToggle = useCallback((enabled) => {
@@ -180,9 +172,6 @@ function App() {
                 availableCalendars={availableCalendars}
                 onCalendarChange={handleCalendarChange}
                 changingCalendar={changingCalendar}
-                graphToken={graphToken}
-                onSharedCalendarToggle={handleSharedCalendarToggle}
-                isSharedCalendarEnabled={isSharedCalendarEnabled}
                 showRegistrationTimes={showRegistrationTimes}
                 onRegistrationTimesToggle={handleRegistrationTimesToggle}
               />
@@ -197,8 +186,6 @@ function App() {
                     setAvailableCalendars={setAvailableCalendars}
                     changingCalendar={changingCalendar}
                     setChangingCalendar={setChangingCalendar}
-                    isSharedCalendarEnabled={isSharedCalendarEnabled}
-                    sharedCalendarInfo={sharedCalendarInfo}
                     showRegistrationTimes={showRegistrationTimes}
                   />
                 } />  

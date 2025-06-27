@@ -48,15 +48,65 @@ const MonthView = memo(({
   // DEBUG: Add console logs to see what data we're getting
   useEffect(() => {
     console.log('=== MONTHVIEW DEBUG ===');
+    console.log('MonthView: showRegistrationTimes prop:', showRegistrationTimes);
+    
+    // Check if any filtered events have registration properties
+    if (filteredEvents && filteredEvents.length > 0) {
+      const eventsWithRegistration = filteredEvents.filter(event => 
+        event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
+      );
+      console.log('MonthView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+      if (eventsWithRegistration.length > 0) {
+        console.log('MonthView: Sample event with registration data:', eventsWithRegistration[0]);
+      }
+    }
     console.log('allEvents:', allEvents?.length || 0);
     console.log('filteredEvents:', filteredEvents?.length || 0);
+    console.log('showRegistrationTimes:', showRegistrationTimes);
     console.log('dynamicCategories:', dynamicCategories);
     console.log('dynamicLocations:', dynamicLocations);
     console.log('selectedCategories:', selectedCategories);
     console.log('selectedLocations:', selectedLocations);
     console.log('userTimezone from context:', userTimezone);
+    
+    // DEBUG: Check if any events have registration properties
+    if (allEvents && allEvents.length > 0) {
+      const eventsWithRegistration = allEvents.filter(event => 
+        event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
+      );
+      console.log('Events with registration properties:', eventsWithRegistration.length);
+      
+      if (eventsWithRegistration.length > 0) {
+        console.log('Sample event with registration:', {
+          id: eventsWithRegistration[0].id,
+          subject: eventsWithRegistration[0].subject,
+          hasRegistrationEvent: eventsWithRegistration[0].hasRegistrationEvent,
+          registrationStart: eventsWithRegistration[0].registrationStart,
+          registrationEnd: eventsWithRegistration[0].registrationEnd,
+          setupMinutes: eventsWithRegistration[0].setupMinutes,
+          teardownMinutes: eventsWithRegistration[0].teardownMinutes
+        });
+      } else {
+        // Check setup/teardown properties
+        const eventsWithSetup = allEvents.filter(event => 
+          (event.setupMinutes && event.setupMinutes > 0) || 
+          (event.teardownMinutes && event.teardownMinutes > 0)
+        );
+        console.log('Events with setup/teardown:', eventsWithSetup.length);
+        if (eventsWithSetup.length > 0) {
+          console.log('Sample event with setup/teardown:', {
+            id: eventsWithSetup[0].id,
+            subject: eventsWithSetup[0].subject,
+            setupMinutes: eventsWithSetup[0].setupMinutes,
+            teardownMinutes: eventsWithSetup[0].teardownMinutes,
+            originalStart: eventsWithSetup[0].start?.dateTime,
+            originalEnd: eventsWithSetup[0].end?.dateTime
+          });
+        }
+      }
+    }
     console.log('========================');
-  }, [allEvents, filteredEvents, dynamicCategories, dynamicLocations, selectedCategories, selectedLocations, userTimezone]);
+  }, [allEvents, filteredEvents, dynamicCategories, dynamicLocations, selectedCategories, selectedLocations, userTimezone, showRegistrationTimes]);
   
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
@@ -233,6 +283,17 @@ const MonthView = memo(({
                             ? event.registrationStart 
                             : event.start.dateTime;
                           const eventDate = new Date(eventStartTime);
+                          
+                          // DEBUG: Log when showRegistrationTimes is true
+                          if (showRegistrationTimes && event.hasRegistrationEvent) {
+                            console.log('Using registration time for event:', {
+                              subject: event.subject,
+                              originalStart: event.start.dateTime,
+                              registrationStart: event.registrationStart,
+                              usingRegistrationTime: !!event.registrationStart
+                            });
+                          }
+                          
                           return (
                             eventDate.getFullYear() === day.date.getFullYear() &&
                             eventDate.getMonth() === day.date.getMonth() &&

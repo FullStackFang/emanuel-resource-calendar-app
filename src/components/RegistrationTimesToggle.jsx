@@ -32,7 +32,7 @@ function RegistrationTimesToggle({ showRegistrationTimes, onToggle }) {
           }}
         />
         <span style={{ fontSize: '14px' }}>⏱️</span>
-        Setup/Teardown
+        Show Setup/Teardown Times
       </label>
     </div>
   );

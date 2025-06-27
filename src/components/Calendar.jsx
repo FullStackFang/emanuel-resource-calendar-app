@@ -942,9 +942,13 @@
         }
     
         // 5. Check for linked registration events and extract setup/teardown data
+        console.log('loadGraphEvents: Processing', all.length, 'events for registration data');
         const eventsWithRegistrationData = await Promise.all(all.map(async (evt) => {
           // Check if this event has a linked registration event
           try {
+            console.log('loadGraphEvents: Checking event:', evt.subject, 'for extended properties');
+            console.log('loadGraphEvents: singleValueExtendedProperties:', evt.singleValueExtendedProperties);
+            
             if (evt.singleValueExtendedProperties) {
               const linkedEventIdProp = evt.singleValueExtendedProperties.find(
                 prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6e} Name Emanuel-Calendar-App_linkedEventId'
@@ -953,9 +957,16 @@
                 prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType'
               );
               
+              console.log('loadGraphEvents: Found extended properties for', evt.subject, {
+                linkedEventId: linkedEventIdProp?.value,
+                eventType: eventTypeProp?.value
+              });
+              
               if (linkedEventIdProp && eventTypeProp?.value === 'main') {
                 // This is a main event with a linked registration event
+                console.log('loadGraphEvents: Attempting to find linked event for main event:', evt.subject);
                 const linkedEvent = await findLinkedEvent(graphToken, evt.id);
+                console.log('loadGraphEvents: findLinkedEvent result:', linkedEvent ? 'Found' : 'Not found');
                 if (linkedEvent) {
                   // Calculate setup and teardown times
                   const mainStart = new Date(evt.start.dateTime);
@@ -971,7 +982,7 @@
                   const assignedMatch = regBody.match(/Assigned to: (.+?)(?:\n|$)/);
                   const notesMatch = regBody.match(/Notes: (.+?)(?:\n\n|$)/s);
                   
-                  return {
+                  const enrichedEvent = {
                     ...evt,
                     hasRegistrationEvent: true,
                     linkedEventId: linkedEvent.id,
@@ -982,6 +993,15 @@
                     registrationStart: linkedEvent.start.dateTime,
                     registrationEnd: linkedEvent.end.dateTime
                   };
+                  console.log('loadGraphEvents: Found event with registration data:', {
+                    subject: evt.subject,
+                    hasRegistrationEvent: true,
+                    setupMinutes: enrichedEvent.setupMinutes,
+                    teardownMinutes: enrichedEvent.teardownMinutes,
+                    registrationStart: enrichedEvent.registrationStart,
+                    registrationEnd: enrichedEvent.registrationEnd
+                  });
+                  return enrichedEvent;
                 }
               }
             }
@@ -991,6 +1011,11 @@
           
           return evt;
         }));
+        
+        // DEBUG: Log summary of events with registration data
+        const eventsWithRegistration = eventsWithRegistrationData.filter(evt => evt.hasRegistrationEvent);
+        console.log('loadGraphEvents: Summary - Total events:', eventsWithRegistrationData.length, 
+                   'Events with registration data:', eventsWithRegistration.length);
         
         // 6. Normalize into your UI model
         const converted = eventsWithRegistrationData.map(evt => {
@@ -1042,6 +1067,36 @@
           try {
             enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
             console.log(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
+            
+            // Calculate registration start/end times for events with setup/teardown data
+            enrichedEvents = enrichedEvents.map(event => {
+              if (event._hasInternalData && (event.setupMinutes > 0 || event.teardownMinutes > 0)) {
+                const mainStart = new Date(event.start.dateTime);
+                const mainEnd = new Date(event.end.dateTime);
+                
+                // Calculate registration start (main start - setup minutes)
+                const registrationStart = new Date(mainStart.getTime() - (event.setupMinutes * 60 * 1000));
+                // Calculate registration end (main end + teardown minutes)  
+                const registrationEnd = new Date(mainEnd.getTime() + (event.teardownMinutes * 60 * 1000));
+                
+                console.log('Calculating registration times for:', event.subject, {
+                  setupMinutes: event.setupMinutes,
+                  teardownMinutes: event.teardownMinutes,
+                  mainStart: mainStart.toISOString(),
+                  mainEnd: mainEnd.toISOString(),
+                  registrationStart: registrationStart.toISOString(),
+                  registrationEnd: registrationEnd.toISOString()
+                });
+                
+                return {
+                  ...event,
+                  hasRegistrationEvent: true,
+                  registrationStart: registrationStart.toISOString(),
+                  registrationEnd: registrationEnd.toISOString()
+                };
+              }
+              return event;
+            });
           } catch (error) {
             console.error('Failed to enrich events, using Graph data only:', error);
             // Continue with non-enriched events
@@ -2569,12 +2624,38 @@
         // Use the selected calendar from the calendar toggle
         let targetCalendarId = selectedCalendarId;
         if (!targetCalendarId) {
-          // If no calendar is selected, use the first available calendar
-          targetCalendarId = availableCalendars[0]?.id;
-          console.log('No calendar selected, using first available:', availableCalendars[0]?.name);
+          // If no calendar is selected, find the first writable calendar
+          // Filter out read-only calendars like Birthdays, Holidays, etc.
+          const writableCalendars = availableCalendars.filter(cal => 
+            cal.canEdit !== false && 
+            !cal.name?.toLowerCase().includes('birthday') &&
+            !cal.name?.toLowerCase().includes('holiday') &&
+            !cal.name?.toLowerCase().includes('vacation')
+          );
+          
+          // Prefer Temple Events or main Calendar, otherwise use first writable calendar
+          const preferredCalendar = writableCalendars.find(cal => 
+            cal.name?.toLowerCase().includes('temple events') || 
+            cal.name?.toLowerCase() === 'calendar'
+          ) || writableCalendars[0];
+          
+          targetCalendarId = preferredCalendar?.id;
+          console.log('No calendar selected, using first writable calendar:', preferredCalendar?.name);
         } else {
           const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
           console.log('Creating event in selected calendar:', selectedCalendar?.name);
+          
+          // Check if the selected calendar is read-only
+          if (selectedCalendar && selectedCalendar.canEdit === false) {
+            showNotification(`Cannot create events in read-only calendar: ${selectedCalendar.name}`, 'error');
+            return false;
+          }
+        }
+        
+        // Final check to ensure we have a valid target calendar
+        if (!targetCalendarId) {
+          showNotification('No writable calendar available for event creation', 'error');
+          return false;
         }
         
         // For new events with registration, use createLinkedEvents directly
