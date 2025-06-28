@@ -325,30 +325,32 @@
 /* Action buttons - Google style */
 .form-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
+  gap: 8px;
   margin-top: 16px;
   padding-top: 12px;
 }
 
 .cancel-button {
-  padding: 6px 12px;
+  padding: 10px 20px;
   background: transparent;
   color: #5f6368;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .save-button {
-  padding: 8px 20px;
+  padding: 10px 20px;
   background: #1a73e8;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -667,4 +669,11 @@
   color: #5f6368;
   font-size: 11px;
   margin-top: 2px;
+}
+
+/* Delete button styling */
+.delete-button:hover {
+  background-color: #dc2626 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
 }

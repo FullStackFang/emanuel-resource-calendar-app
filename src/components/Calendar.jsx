@@ -216,12 +216,10 @@
     // Log permissions on every render to debug
     console.log('Current userPermissions state:', userPermissions);
 
-    // Modal and context menu state
+    // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
-    const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
-    const [showContextMenu, setShowContextMenu] = useState(false);
     const [, setNotification] = useState({ show: false, message: '', type: 'info' });
 
     //---------------------------------------------------------------------------
@@ -2301,8 +2299,6 @@
         showNotification("You don't have permission to create events");
         return;
       }
-      // Close context menu if open
-      setShowContextMenu(false);
       
       // Set up start and end times (1 hour duration)
       const startTime = new Date(day);
@@ -2355,11 +2351,11 @@
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
       console.log('Event clicked:', event);
-      // Rest of your handler
+      // Directly open edit modal when event is clicked
       setCurrentEvent(event);
-      setContextMenuPosition({ x: e.clientX, y: e.clientY });
-      setShowContextMenu(true);
-    }, []);
+      setModalType(userPermissions.editEvents ? 'edit' : 'view');
+      setIsModalOpen(true);
+    }, [userPermissions.editEvents]);
 
     /**
      * TBD
@@ -2373,9 +2369,11 @@
         return;
       }
       
-      setShowContextMenu(false);
-      setModalType('delete');
-      setIsModalOpen(true);
+      // Show confirmation dialog
+      if (window.confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+        setModalType('delete');
+        setIsModalOpen(true);
+      }
     };
 
     /**
@@ -3079,16 +3077,6 @@
       }
     }, [groupBy, dynamicCategories]);
 
-    // Close context menu when clicking outside
-    useEffect(() => {      
-      const handleClickOutside = () => {
-        setShowContextMenu(false);
-      };
-      document.addEventListener('click', handleClickOutside);
-      return () => {
-        document.removeEventListener('click', handleClickOutside);
-      };
-    }, []);
 
     // Debugging 
     useEffect(() => {
@@ -3548,30 +3536,6 @@
               )}
             </div>
 
-            {/* Context Menu */}
-            {showContextMenu && currentEvent && (
-              <div 
-                className="context-menu"
-                style={{ 
-                  top: `${contextMenuPosition.y}px`, 
-                  left: `${contextMenuPosition.x}px` 
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="context-menu-item" onClick={() => {
-                  setModalType(userPermissions.editEvents ? 'edit' : 'view');
-                  setShowContextMenu(false);
-                  setIsModalOpen(true);
-                }}>
-                  {userPermissions.editEvents ? 'Edit Event' : 'View Event'}
-                </div>
-                {userPermissions.deleteEvents && (
-                  <div className="context-menu-item delete" onClick={handleDeleteEvent}>
-                    Delete Event
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
 
@@ -3594,6 +3558,7 @@
             schemaExtensions={schemaExtensions}
             onSave={handleSaveEvent}
             onCancel={() => setIsModalOpen(false)}
+            onDelete={userPermissions.deleteEvents ? handleDeleteEvent : null}
             readOnly={modalType === 'view'}
             userTimeZone={userTimezone}
           />

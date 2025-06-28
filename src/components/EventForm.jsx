@@ -96,7 +96,8 @@ function EventForm({
   availableLocations = [], 
   schemaExtensions = [], 
   onSave, 
-  onCancel, 
+  onCancel,
+  onDelete,
   readOnly = false,
   userTimeZone = 'America/New_York' // Default fallback
 }) {
@@ -870,6 +871,25 @@ function EventForm({
         {!readOnly && (
           <button type="submit" className="save-button">
             Preview & Save
+          </button>
+        )}
+        {!readOnly && event && event.id && onDelete && (
+          <button 
+            type="button" 
+            className="delete-button" 
+            onClick={onDelete}
+            style={{
+              backgroundColor: '#ef4444',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '10px 20px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}
+          >
+            Delete Event
           </button>
         )}
       </div>
