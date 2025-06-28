@@ -251,8 +251,50 @@ function EventForm({
       const teardownMins = event.teardownMinutes || 15;
       setSetupMinutes(setupMins);
       setTeardownMinutes(teardownMins);
-      setSetupTime(minutesToTimeString(setupMins));
-      setTeardownTime(minutesToTimeString(teardownMins));
+      
+      // Calculate actual setup and teardown times based on main event times
+      if (newFormData.startDate && newFormData.startTime && newFormData.endDate && newFormData.endTime) {
+        const eventStart = new Date(`${newFormData.startDate}T${newFormData.startTime}`);
+        const eventEnd = new Date(`${newFormData.endDate}T${newFormData.endTime}`);
+        
+        // Calculate setup start time (event start - setup minutes)
+        const setupStart = new Date(eventStart);
+        setupStart.setMinutes(setupStart.getMinutes() - setupMins);
+        
+        // Calculate teardown end time (event end + teardown minutes)
+        const teardownEnd = new Date(eventEnd);
+        teardownEnd.setMinutes(teardownEnd.getMinutes() + teardownMins);
+        
+        // Convert to HH:MM format for the time inputs
+        const setupTimeStr = setupStart.toLocaleTimeString('en-US', { 
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        const teardownTimeStr = teardownEnd.toLocaleTimeString('en-US', { 
+          hour12: false, 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        setSetupTime(setupTimeStr);
+        setTeardownTime(teardownTimeStr);
+        
+        console.log('Calculated setup/teardown times from event:', {
+          eventStart: eventStart.toISOString(),
+          eventEnd: eventEnd.toISOString(),
+          setupMins,
+          teardownMins,
+          setupStart: setupStart.toISOString(),
+          teardownEnd: teardownEnd.toISOString(),
+          setupTimeStr,
+          teardownTimeStr
+        });
+      } else {
+        // Fallback to converting minutes directly
+        setSetupTime(minutesToTimeString(setupMins));
+        setTeardownTime(minutesToTimeString(teardownMins));
+      }
       setEventDescription(event.body?.content || event.description || '');
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
@@ -883,7 +925,6 @@ function EventForm({
               color: 'white',
               border: 'none',
               borderRadius: '4px',
-              padding: '10px 20px',
               cursor: 'pointer',
               fontSize: '14px',
               fontWeight: '500'

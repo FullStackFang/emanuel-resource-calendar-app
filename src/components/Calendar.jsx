@@ -2367,11 +2367,24 @@
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
       console.log('Event clicked:', event);
+      
+      // Find the enriched version of this event from allEvents (which contains enriched data)
+      const enrichedEvent = allEvents.find(enriched => enriched.id === event.id) || event;
+      
+      console.log('Using enriched event for editing:', {
+        originalEvent: event,
+        enrichedEvent: enrichedEvent,
+        hasSetupMinutes: enrichedEvent.setupMinutes > 0,
+        hasTeardownMinutes: enrichedEvent.teardownMinutes > 0,
+        setupMinutes: enrichedEvent.setupMinutes,
+        teardownMinutes: enrichedEvent.teardownMinutes
+      });
+      
       // Directly open edit modal when event is clicked
-      setCurrentEvent(event);
+      setCurrentEvent(enrichedEvent);
       setModalType(userPermissions.editEvents ? 'edit' : 'view');
       setIsModalOpen(true);
-    }, [userPermissions.editEvents]);
+    }, [userPermissions.editEvents, allEvents]);
 
     /**
      * TBD

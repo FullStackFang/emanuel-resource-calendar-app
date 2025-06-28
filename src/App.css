@@ -874,7 +874,7 @@
     border-radius: 12px;
     width: 580px;
     max-width: 95%;
-    max-height: 90vh;
+    max-height: 95vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
@@ -912,7 +912,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 0;
-    max-height: calc(90vh - 80px); /* Account for header and some padding */
+    max-height: calc(95vh - 60px); /* Account for header and some padding */
   }
   
   /* Hide scrollbar for Chrome, Safari and Opera */

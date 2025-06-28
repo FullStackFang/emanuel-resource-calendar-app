@@ -59,11 +59,11 @@ const EventPreviewModal = ({
         <div style={{ 
           textAlign: 'left',
           backgroundColor: '#f8f9fa', 
-          padding: '20px', 
-          borderRadius: '8px', 
-          marginBottom: '20px' 
+          padding: '12px', 
+          borderRadius: '6px', 
+          marginBottom: '12px' 
         }}>
-          <h3 style={{ margin: '0 0 15px 0', color: '#0078d4', fontSize: '18px' }}>Main Event</h3>
+          <h3 style={{ margin: '0 0 8px 0', color: '#0078d4', fontSize: '16px' }}>Main Event</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', fontSize: '14px' }}>
             <strong>Subject:</strong>
             <span>{eventData.subject || 'Untitled Event'}</span>
@@ -88,9 +88,9 @@ const EventPreviewModal = ({
           </div>
           
           {eventData.body?.content && (
-            <div style={{ marginTop: '10px' }}>
+            <div style={{ marginTop: '6px' }}>
               <strong>Notes:</strong>
-              <div style={{ marginTop: '4px', padding: '8px', backgroundColor: 'white', borderRadius: '4px', fontSize: '13px' }}>
+              <div style={{ marginTop: '2px', padding: '6px', backgroundColor: 'white', borderRadius: '4px', fontSize: '13px' }}>
                 {eventData.body.content}
               </div>
             </div>
@@ -102,11 +102,11 @@ const EventPreviewModal = ({
           <div style={{ 
             textAlign: 'left',
             backgroundColor: '#fff4e6', 
-            padding: '20px', 
-            borderRadius: '8px', 
-            marginBottom: '20px' 
+            padding: '12px', 
+            borderRadius: '6px', 
+            marginBottom: '12px' 
           }}>
-            <h3 style={{ margin: '0 0 15px 0', color: '#d83b01', fontSize: '18px' }}>Setup & Teardown</h3>
+            <h3 style={{ margin: '0 0 8px 0', color: '#d83b01', fontSize: '16px' }}>Setup & Teardown</h3>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', fontSize: '14px' }}>
                 <strong>Setup Time:</strong>
                 <span>{formatDuration(eventData.setupMinutes)} before event</span>
@@ -135,7 +135,7 @@ const EventPreviewModal = ({
         )}
 
         {/* Debug Information */}
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '12px' }}>
           <button
             onClick={() => setShowDebug(!showDebug)}
             style={{
@@ -149,7 +149,7 @@ const EventPreviewModal = ({
               cursor: 'pointer',
               fontSize: '14px',
               color: '#6b7280',
-              marginBottom: '12px',
+              marginBottom: '8px',
               transition: 'all 0.2s'
             }}
           >
@@ -162,17 +162,17 @@ const EventPreviewModal = ({
           </button>
           
           {showDebug && (
-            <div style={{ marginTop: '12px' }}>
+            <div style={{ marginTop: '8px' }}>
               {/* Registration Event Preview */}
               {eventData.createRegistrationEvent && registrationStart && (
                 <div style={{ 
                   textAlign: 'left',
                   backgroundColor: '#f3f9f1', 
-                  padding: '16px', 
+                  padding: '10px', 
                   borderRadius: '6px', 
-                  marginBottom: '16px' 
+                  marginBottom: '10px' 
                 }}>
-                  <h4 style={{ margin: '0 0 12px 0', color: '#107c10', fontSize: '16px' }}>Registration Event (Will Be Created)</h4>
+                  <h4 style={{ margin: '0 0 6px 0', color: '#107c10', fontSize: '14px' }}>Registration Event (Will Be Created)</h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px', fontSize: '13px' }}>
                     <strong>Subject:</strong>
                     <span>[SETUP/TEARDOWN] {eventData.subject}</span>
@@ -195,14 +195,14 @@ const EventPreviewModal = ({
                 </div>
               )}
               
-              <h4 style={{ margin: '0 0 8px 0', color: '#6b7280', fontSize: '14px' }}>Raw Event Data</h4>
+              <h4 style={{ margin: '0 0 6px 0', color: '#6b7280', fontSize: '14px' }}>Raw Event Data</h4>
               <pre style={{ 
                 backgroundColor: '#f1f1f1', 
-                padding: '12px', 
+                padding: '8px', 
                 borderRadius: '6px', 
                 fontSize: '11px', 
                 overflow: 'auto',
-                maxHeight: '250px',
+                maxHeight: '200px',
                 margin: '0'
               }}>
                 {JSON.stringify(eventData, null, 2)}
@@ -216,12 +216,12 @@ const EventPreviewModal = ({
           <div style={{ 
             backgroundColor: '#ffebee', 
             border: '1px solid #f44336', 
-            padding: '10px', 
+            padding: '8px', 
             borderRadius: '4px', 
-            marginBottom: '15px' 
+            marginBottom: '10px' 
           }}>
             <strong style={{ color: '#d32f2f' }}>⚠️ Warning:</strong>
-            <span style={{ marginLeft: '8px', fontSize: '14px' }}>
+            <span style={{ marginLeft: '8px', fontSize: '13px' }}>
               Setup or teardown time seems unusually long (over 4 hours). Please verify these values are correct.
             </span>
           </div>
@@ -232,7 +232,7 @@ const EventPreviewModal = ({
           display: 'flex', 
           gap: '12px', 
           justifyContent: 'center',
-          marginTop: '24px' 
+          marginTop: '16px' 
         }}>
           <button
             onClick={onClose}
