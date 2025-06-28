@@ -172,8 +172,6 @@ function App() {
                 availableCalendars={availableCalendars}
                 onCalendarChange={handleCalendarChange}
                 changingCalendar={changingCalendar}
-                showRegistrationTimes={showRegistrationTimes}
-                onRegistrationTimesToggle={handleRegistrationTimesToggle}
               />
               <Routes>
                 <Route path="/" element={

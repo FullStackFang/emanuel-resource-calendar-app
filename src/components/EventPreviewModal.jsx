@@ -1,5 +1,5 @@
 // src/components/EventPreviewModal.jsx
-import React from 'react';
+import React, { useState } from 'react';
 import Modal from './Modal';
 
 const EventPreviewModal = ({ 
@@ -9,6 +9,7 @@ const EventPreviewModal = ({
   eventData, 
   registrationEventData = null 
 }) => {
+  const [showDebug, setShowDebug] = useState(false);
   if (!isOpen || !eventData) {
     return null;
   }
@@ -41,11 +42,28 @@ const EventPreviewModal = ({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Preview Event Data">
-      <div style={{ maxWidth: '600px', lineHeight: '1.5' }}>
-        <h3 style={{ margin: '0 0 15px 0', color: '#0078d4' }}>Main Event</h3>
+    <Modal isOpen={isOpen} onClose={onClose} hideTitle={true}>
+      <div style={{ 
+        textAlign: 'center',
+        padding: '20px 0'
+      }}>
+        <h2 style={{ 
+          fontSize: '24px',
+          fontWeight: '600',
+          color: '#111827',
+          marginBottom: '24px'
+        }}>
+          Preview Event Data
+        </h2>
         
-        <div style={{ backgroundColor: '#f8f9fa', padding: '15px', borderRadius: '6px', marginBottom: '20px' }}>
+        <div style={{ 
+          textAlign: 'left',
+          backgroundColor: '#f8f9fa', 
+          padding: '20px', 
+          borderRadius: '8px', 
+          marginBottom: '20px' 
+        }}>
+          <h3 style={{ margin: '0 0 15px 0', color: '#0078d4', fontSize: '18px' }}>Main Event</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', fontSize: '14px' }}>
             <strong>Subject:</strong>
             <span>{eventData.subject || 'Untitled Event'}</span>
@@ -81,10 +99,14 @@ const EventPreviewModal = ({
 
         {/* Setup/Teardown Information */}
         {(eventData.setupMinutes > 0 || eventData.teardownMinutes > 0) && (
-          <>
-            <h3 style={{ margin: '0 0 15px 0', color: '#d83b01' }}>Setup & Teardown</h3>
-            
-            <div style={{ backgroundColor: '#fff4e6', padding: '15px', borderRadius: '6px', marginBottom: '20px' }}>
+          <div style={{ 
+            textAlign: 'left',
+            backgroundColor: '#fff4e6', 
+            padding: '20px', 
+            borderRadius: '8px', 
+            marginBottom: '20px' 
+          }}>
+            <h3 style={{ margin: '0 0 15px 0', color: '#d83b01', fontSize: '18px' }}>Setup & Teardown</h3>
               <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', fontSize: '14px' }}>
                 <strong>Setup Time:</strong>
                 <span>{formatDuration(eventData.setupMinutes)} before event</span>
@@ -109,55 +131,85 @@ const EventPreviewModal = ({
                   </>
                 )}
               </div>
-            </div>
-          </>
-        )}
-
-        {/* Registration Event Preview */}
-        {eventData.createRegistrationEvent && registrationStart && (
-          <>
-            <h3 style={{ margin: '0 0 15px 0', color: '#107c10' }}>Registration Event (Will Be Created)</h3>
-            
-            <div style={{ backgroundColor: '#f3f9f1', padding: '15px', borderRadius: '6px', marginBottom: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '8px', fontSize: '14px' }}>
-                <strong>Subject:</strong>
-                <span>[SETUP/TEARDOWN] {eventData.subject}</span>
-                
-                <strong>Start Time:</strong>
-                <span>{formatTime(registrationStart.toISOString())}</span>
-                
-                <strong>End Time:</strong>
-                <span>{formatTime(registrationEnd.toISOString())}</span>
-                
-                <strong>Duration:</strong>
-                <span>{formatDuration(registrationDuration)}</span>
-                
-                <strong>Calendar:</strong>
-                <span>TempleRegistrations</span>
-                
-                <strong>Category:</strong>
-                <span>Security/Maintenance</span>
-              </div>
-            </div>
-          </>
+          </div>
         )}
 
         {/* Debug Information */}
-        <details style={{ marginBottom: '20px' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>
-            🔧 Debug Information (Raw Data)
-          </summary>
-          <pre style={{ 
-            backgroundColor: '#f1f1f1', 
-            padding: '10px', 
-            borderRadius: '4px', 
-            fontSize: '11px', 
-            overflow: 'auto',
-            maxHeight: '300px'
-          }}>
-            {JSON.stringify(eventData, null, 2)}
-          </pre>
-        </details>
+        <div style={{ marginBottom: '20px' }}>
+          <button
+            onClick={() => setShowDebug(!showDebug)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: 'transparent',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              padding: '8px 12px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              color: '#6b7280',
+              marginBottom: '12px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <span style={{ 
+              transform: showDebug ? 'rotate(90deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s',
+              fontSize: '12px'
+            }}>▶</span>
+            Debug Information (Raw Data)
+          </button>
+          
+          {showDebug && (
+            <div style={{ marginTop: '12px' }}>
+              {/* Registration Event Preview */}
+              {eventData.createRegistrationEvent && registrationStart && (
+                <div style={{ 
+                  textAlign: 'left',
+                  backgroundColor: '#f3f9f1', 
+                  padding: '16px', 
+                  borderRadius: '6px', 
+                  marginBottom: '16px' 
+                }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#107c10', fontSize: '16px' }}>Registration Event (Will Be Created)</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px', fontSize: '13px' }}>
+                    <strong>Subject:</strong>
+                    <span>[SETUP/TEARDOWN] {eventData.subject}</span>
+                    
+                    <strong>Start Time:</strong>
+                    <span>{formatTime(registrationStart.toISOString())}</span>
+                    
+                    <strong>End Time:</strong>
+                    <span>{formatTime(registrationEnd.toISOString())}</span>
+                    
+                    <strong>Duration:</strong>
+                    <span>{formatDuration(registrationDuration)}</span>
+                    
+                    <strong>Calendar:</strong>
+                    <span>TempleRegistrations</span>
+                    
+                    <strong>Category:</strong>
+                    <span>Security/Maintenance</span>
+                  </div>
+                </div>
+              )}
+              
+              <h4 style={{ margin: '0 0 8px 0', color: '#6b7280', fontSize: '14px' }}>Raw Event Data</h4>
+              <pre style={{ 
+                backgroundColor: '#f1f1f1', 
+                padding: '12px', 
+                borderRadius: '6px', 
+                fontSize: '11px', 
+                overflow: 'auto',
+                maxHeight: '250px',
+                margin: '0'
+              }}>
+                {JSON.stringify(eventData, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
 
         {/* Warning for unusual values */}
         {(eventData.setupMinutes > 240 || eventData.teardownMinutes > 240) && (
@@ -176,15 +228,34 @@ const EventPreviewModal = ({
         )}
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+        <div style={{ 
+          display: 'flex', 
+          gap: '12px', 
+          justifyContent: 'center',
+          marginTop: '24px' 
+        }}>
           <button
             onClick={onClose}
             style={{
-              padding: '8px 16px',
-              backgroundColor: '#f5f5f5',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              padding: '10px 20px',
+              backgroundColor: 'white',
+              color: '#6b7280',
+              border: '1px solid #e5e7eb',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#f9fafb';
+              e.target.style.color = '#111827';
+              e.target.style.borderColor = '#d1d5db';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = 'white';
+              e.target.style.color = '#6b7280';
+              e.target.style.borderColor = '#e5e7eb';
             }}
           >
             Cancel
@@ -192,12 +263,26 @@ const EventPreviewModal = ({
           <button
             onClick={onConfirm}
             style={{
-              padding: '8px 16px',
-              backgroundColor: '#0078d4',
+              padding: '10px 20px',
+              backgroundColor: '#3b82f6',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              transition: 'all 0.15s ease',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#2563eb';
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = '#3b82f6';
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
             }}
           >
             Confirm & Save Event

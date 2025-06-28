@@ -2,16 +2,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import CalendarSelector from './CalendarSelector';
-import RegistrationTimesToggle from './RegistrationTimesToggle';
 import './Navigation.css';
 
 export default function Navigation({
   selectedCalendarId,
   availableCalendars,
   onCalendarChange,
-  changingCalendar,
-  showRegistrationTimes,
-  onRegistrationTimesToggle
+  changingCalendar
 }) {
   const [adminExpanded, setAdminExpanded] = useState(false);
   const location = useLocation();
@@ -70,15 +67,6 @@ export default function Navigation({
           </li>
         )}
         
-        {/* Setup/Teardown Times Toggle */}
-        {showCalendarSelector && (
-          <li className="shared-calendar-toggle-item">
-            <RegistrationTimesToggle
-              showRegistrationTimes={showRegistrationTimes}
-              onToggle={onRegistrationTimesToggle}
-            />
-          </li>
-        )}
 
         <li>
           <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>

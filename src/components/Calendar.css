@@ -1012,4 +1012,17 @@
   background-color: var(--secondary-color) !important;
   border-color: var(--secondary-color) !important;
 }
+
+/* ============================================================================
+   DELETE CONFIRMATION MODAL
+   ============================================================================ */
+.delete-confirmation .cancel-button:hover {
+  background-color: #e8eaed !important;
+  border-color: #dadce0 !important;
+}
+
+.delete-confirmation .delete-button:hover {
+  background-color: #d33b2c !important;
+  box-shadow: 0 1px 3px rgba(234, 67, 53, 0.3);
+}
 }

@@ -9,6 +9,7 @@
   import MonthView from './MonthView';
   import WeekView from './WeekView';
   import DayView from './DayView';
+  import RegistrationTimesToggle from './RegistrationTimesToggle';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -132,7 +133,7 @@
     setAvailableCalendars,
     changingCalendar,
     setChangingCalendar,
-    showRegistrationTimes
+    showRegistrationTimes: showRegistrationTimesProp
   }) {
     //---------------------------------------------------------------------------
     // STATE MANAGEMENT
@@ -190,6 +191,9 @@
     // Separate filters for month view
     const [, setSelectedCategoryFilter] = useState('');
     const [, setSelectedLocationFilter] = useState('');
+    
+    // Registration times toggle state
+    const [showRegistrationTimes, setShowRegistrationTimes] = useState(showRegistrationTimesProp || false);
 
     // Profile states
     const { userTimezone, setUserTimezone } = useTimezone();
@@ -225,6 +229,14 @@
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
     //---------------------------------------------------------------------------
+    
+    /**
+     * Handle registration times toggle
+     */
+    const handleRegistrationTimesToggle = useCallback((enabled) => {
+      setShowRegistrationTimes(enabled);
+      console.log('Registration times toggled:', enabled);
+    }, []);
     /**
      * @param {*} event 
      * @returns 
@@ -477,6 +489,10 @@
 
             {/* Right side - Action buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <RegistrationTimesToggle
+                showRegistrationTimes={showRegistrationTimes}
+                onToggle={handleRegistrationTimesToggle}
+              />
               <button 
                 className="search-button" 
                 onClick={() => setShowSearch(true)}
@@ -2369,11 +2385,9 @@
         return;
       }
       
-      // Show confirmation dialog
-      if (window.confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
-        setModalType('delete');
-        setIsModalOpen(true);
-      }
+      // Show modal confirmation
+      setModalType('delete');
+      setIsModalOpen(true);
     };
 
     /**
@@ -3568,20 +3582,65 @@
         <Modal
           isOpen={isModalOpen && modalType === 'delete'}
           onClose={() => setIsModalOpen(false)}
-          title="Delete Event"
+          hideTitle={true}
         >
-          <div className="delete-confirmation">
-            <p>Are you sure you want to delete "{currentEvent?.subject}"?</p>
-            <div className="form-actions">
+          <div className="delete-confirmation" style={{
+            padding: '24px',
+            textAlign: 'center'
+          }}>
+            <h2 style={{
+              fontSize: '20px',
+              fontWeight: '500',
+              color: '#202124',
+              marginBottom: '16px',
+              margin: '0 0 16px 0'
+            }}>
+              Delete Event
+            </h2>
+            <p style={{
+              fontSize: '14px',
+              color: '#5f6368',
+              marginBottom: '24px',
+              lineHeight: '1.5'
+            }}>
+              Are you sure you want to delete "{currentEvent?.subject}"?<br />
+              This action cannot be undone.
+            </p>
+            <div className="form-actions" style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '12px',
+              marginTop: '24px'
+            }}>
               <button 
                 className="cancel-button" 
                 onClick={() => setIsModalOpen(false)}
+                style={{
+                  padding: '10px 24px',
+                  background: '#f8f9fa',
+                  color: '#5f6368',
+                  border: '1px solid #dadce0',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
               >
                 Cancel
               </button>
               <button 
                 className="delete-button" 
                 onClick={handleDeleteConfirm}
+                style={{
+                  padding: '10px 24px',
+                  background: '#ea4335',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
               >
                 Delete
               </button>
