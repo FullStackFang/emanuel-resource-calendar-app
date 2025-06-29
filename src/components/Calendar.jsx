@@ -150,6 +150,7 @@
 
     const [initializing, setInitializing] = useState(true);
     const [loading, setLoading] = useState(false);
+    const [savingEvent, setSavingEvent] = useState(false);
     const [loadingState, setLoadingState] = useState({
       user: true,
       categories: true,
@@ -3086,6 +3087,9 @@
         return false;
       }
     
+      // Set loading state
+      setSavingEvent(true);
+    
       try {
         // Dispatch to the appropriate handler based on mode
         if (isDemoMode) {
@@ -3106,6 +3110,9 @@
         logger.error('Save failed:', error);
         alert('Save failed: ' + error.message);
         return false;
+      } finally {
+        // Clear loading state
+        setSavingEvent(false);
       }
     };
 
@@ -3908,6 +3915,7 @@
             onDelete={userPermissions.deleteEvents ? handleDeleteEvent : null}
             readOnly={modalType === 'view'}
             userTimeZone={userTimezone}
+            savingEvent={savingEvent}
           />
         </Modal>
 

@@ -100,7 +100,8 @@ function EventForm({
   onCancel,
   onDelete,
   readOnly = false,
-  userTimeZone = 'America/New_York' // Default fallback
+  userTimeZone = 'America/New_York', // Default fallback
+  savingEvent = false
 }) {
   // Add this time zone mapping
   const timeZoneOptions = [
@@ -912,8 +913,15 @@ function EventForm({
           {readOnly ? 'Close' : 'Cancel'}
         </button>
         {!readOnly && (
-          <button type="submit" className="save-button">
-            Preview & Save
+          <button type="submit" className="save-button" disabled={savingEvent}>
+            {savingEvent ? (
+              <>
+                <span className="spinner"></span>
+                Saving...
+              </>
+            ) : (
+              'Preview & Save'
+            )}
           </button>
         )}
         {!readOnly && event && event.id && onDelete && (
