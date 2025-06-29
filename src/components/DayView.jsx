@@ -1,4 +1,5 @@
 // Fixed DayView.jsx with proper virtual location detection
+import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
 
@@ -31,16 +32,16 @@ const DayView = memo(({
   const currentDay = dateRange.start;
   
   // DEBUG: Log the showRegistrationTimes prop
-  console.log('DayView: showRegistrationTimes prop:', showRegistrationTimes);
+  logger.debug('DayView: showRegistrationTimes prop:', showRegistrationTimes);
   
   // DEBUG: Check if any filtered events have registration properties
   if (filteredEvents && filteredEvents.length > 0) {
     const eventsWithRegistration = filteredEvents.filter(event => 
       event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
     );
-    console.log('DayView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    logger.debug('DayView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
     if (eventsWithRegistration.length > 0) {
-      console.log('DayView: Sample event with registration data:', eventsWithRegistration[0]);
+      logger.debug('DayView: Sample event with registration data:', eventsWithRegistration[0]);
     }
   }
   

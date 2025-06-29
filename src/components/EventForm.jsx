@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
 import SingleSelect from './SingleSelect';
 import EventPreviewModal from './EventPreviewModal';
+import { logger } from '../utils/logger';
 import './EventForm.css';
 
 // ===== ADD THESE FUNCTIONS AT THE TOP OF EventForm.jsx (outside the component) =====
@@ -193,9 +194,9 @@ function EventForm({
     prevEventRef.current = event;
     
     if (event) {
-      console.log("OPENING EVENT FORM:");
-      console.log(`  Raw start: ${event.start?.dateTime}`);
-      console.log(`  Raw end: ${event.end?.dateTime}`);
+      logger.debug("OPENING EVENT FORM:");
+      logger.debug(`  Raw start: ${event.start?.dateTime}`);
+      logger.debug(`  Raw end: ${event.end?.dateTime}`);
       
       // Set event ID and subject
       const newFormData = {
@@ -230,7 +231,7 @@ function EventForm({
         newFormData.endTime = '';
       }
       
-      console.log(`  Display values: startDate=${newFormData.startDate}, startTime=${newFormData.startTime}`);
+      logger.debug(`  Display values: startDate=${newFormData.startDate}, startTime=${newFormData.startTime}`);
     
       // Apply the form data update
       setFormData(newFormData);
@@ -280,7 +281,7 @@ function EventForm({
         setSetupTime(setupTimeStr);
         setTeardownTime(teardownTimeStr);
         
-        console.log('Calculated setup/teardown times from event:', {
+        logger.debug('Calculated setup/teardown times from event:', {
           eventStart: eventStart.toISOString(),
           eventEnd: eventEnd.toISOString(),
           setupMins,
@@ -299,7 +300,7 @@ function EventForm({
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
       
-      console.log('Loaded registration data from event:', {
+      logger.debug('Loaded registration data from event:', {
         hasRegistrationEvent: event.hasRegistrationEvent,
         setupMinutes: setupMins,
         teardownMinutes: teardownMins,
@@ -344,7 +345,7 @@ function EventForm({
     // Skip if no event data is loaded or if this is the initial render
     if (!event?.start?.dateTime || !prevEventRef.current) return;
     
-    console.log(`TIMEZONE CHANGED TO: ${userTimeZone}`);
+    logger.info(`TIMEZONE CHANGED TO: ${userTimeZone}`);
     
     // Convert the UTC times to display times in the new timezone
     const startDisplay = utcToDisplayTime(event.start.dateTime, userTimeZone);
@@ -522,8 +523,8 @@ function EventForm({
       return;
     }
     
-    console.log("PREPARING EVENT DATA FOR PREVIEW:");
-    console.log(`  Form values: startDate=${formData.startDate}, startTime=${formData.startTime}`);
+    logger.debug("PREPARING EVENT DATA FOR PREVIEW:");
+    logger.debug(`  Form values: startDate=${formData.startDate}, startTime=${formData.startTime}`);
     
     // Convert display times to UTC for API
     const startUtc = displayToUtcTime(
@@ -536,7 +537,7 @@ function EventForm({
       isAllDay ? '00:00' : formData.endTime
     );
     
-    console.log(`  Converted to UTC: start=${startUtc}, end=${endUtc}`);
+    logger.debug(`  Converted to UTC: start=${startUtc}, end=${endUtc}`);
     
     // For all-day events spanning a single day, end date should be next day
     let adjustedEndUtc = endUtc;
@@ -544,7 +545,7 @@ function EventForm({
       const endDate = new Date(endUtc);
       endDate.setDate(endDate.getDate() + 1);
       adjustedEndUtc = endDate.toISOString();
-      console.log(`  Adjusted all-day end: ${adjustedEndUtc}`);
+      logger.debug(`  Adjusted all-day end: ${adjustedEndUtc}`);
     }
     
     // Build the payload for Graph API
@@ -579,7 +580,7 @@ function EventForm({
       createRegistrationEvent
     };
     
-    console.log("Final event data prepared for preview:", eventData);
+    logger.debug("Final event data prepared for preview:", eventData);
     
     // Show preview modal instead of directly saving
     setPendingEventData(eventData);
@@ -588,7 +589,7 @@ function EventForm({
   
   // Handler for confirming save from preview modal
   const handleConfirmSave = () => {
-    console.log("SAVING EVENT after preview confirmation:", pendingEventData);
+    logger.log("SAVING EVENT after preview confirmation:", pendingEventData);
     setShowPreview(false);
     onSave(pendingEventData);
   };

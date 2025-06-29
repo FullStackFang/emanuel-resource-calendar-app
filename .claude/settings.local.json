@@ -17,7 +17,8 @@
       "Bash(curl:*)",
       "Bash(timeout 10s npm start)",
       "Bash(npx eslint:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

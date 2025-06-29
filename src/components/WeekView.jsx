@@ -1,5 +1,6 @@
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap } from '../utils/eventOverlapUtils';
+import { logger } from '../utils/logger';
 
 const WeekView = memo(({
   // Props
@@ -29,18 +30,18 @@ const WeekView = memo(({
 }) => {
   
   // DEBUG: Log the showRegistrationTimes prop
-  console.log('WeekView: showRegistrationTimes prop:', showRegistrationTimes);
+  logger.debug('WeekView: showRegistrationTimes prop:', showRegistrationTimes);
   
   // DEBUG: Check if any filtered events have registration properties
   if (filteredEvents && filteredEvents.length > 0) {
     const eventsWithRegistration = filteredEvents.filter(event => 
       event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
     );
-    console.log('WeekView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    logger.debug('WeekView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
     
     // DEBUG: Let's see a sample event structure
     if (filteredEvents.length > 0) {
-      console.log('WeekView: Sample event structure:', {
+      logger.debug('WeekView: Sample event structure:', {
         id: filteredEvents[0].id,
         subject: filteredEvents[0].subject,
         hasRegistrationEvent: filteredEvents[0].hasRegistrationEvent,
@@ -180,7 +181,7 @@ const WeekView = memo(({
                         // Use registration times if available and toggle is enabled
                         let displayStartTime, displayEndTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
-                          console.log('WeekView: Using registration times for event:', {
+                          logger.debug('WeekView: Using registration times for event:', {
                             subject: event.subject,
                             originalStart: event.start.dateTime,
                             originalEnd: event.end.dateTime,

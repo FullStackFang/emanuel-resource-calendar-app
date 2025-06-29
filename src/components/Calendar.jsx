@@ -10,6 +10,7 @@
   import WeekView from './WeekView';
   import DayView from './DayView';
   import RegistrationTimesToggle from './RegistrationTimesToggle';
+  import { logger } from '../utils/logger';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -199,9 +200,9 @@
     const { userTimezone, setUserTimezone } = useTimezone();
     const hasUserManuallyChangedTimezone = useRef(false);
 
-    console.log('Calendar timezone context:', { userTimezone, setUserTimezone });
+    logger.debug('Calendar timezone context:', { userTimezone, setUserTimezone });
     useEffect(() => {
-      console.log('Calendar timezone changed to:', userTimezone);
+      logger.debug('Calendar timezone changed to:', userTimezone);
     }, [userTimezone]);
 
     const [, setUserProfile] = useState(null);
@@ -218,7 +219,7 @@
     });
     
     // Log permissions on every render to debug
-    console.log('Current userPermissions state:', userPermissions);
+    logger.debug('Current userPermissions state:', userPermissions);
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -235,7 +236,7 @@
      */
     const handleRegistrationTimesToggle = useCallback((enabled) => {
       setShowRegistrationTimes(enabled);
-      console.log('Registration times toggled:', enabled);
+      logger.debug('Registration times toggled:', enabled);
     }, []);
     /**
      * @param {*} event 
@@ -256,7 +257,7 @@
         const text = await file.text();
         const rawJsonData = JSON.parse(text);
         
-        console.log('Raw uploaded JSON:', rawJsonData);
+        logger.debug('Raw uploaded JSON:', rawJsonData);
         
         // Validate the structure - your JSON has a different structure
         if (!rawJsonData.events || !Array.isArray(rawJsonData.events)) {
@@ -335,7 +336,7 @@
           uploadDate: new Date().toISOString()
         };
         
-        console.log('Processed demo data:', processedData);
+        logger.debug('Processed demo data:', processedData);
         
         // Set demo data
         setDemoData(processedData);
@@ -344,21 +345,21 @@
         calendarDataService.setDemoMode(processedData);
         setIsDemoMode(true);
         
-        console.log('Demo mode activated, loading events...');
+        logger.log('Demo mode activated, loading events...');
         
         // Test loading events for current date range
         const events = await calendarDataService.getEvents(dateRange);
-        console.log('Loaded demo events for current range:', events);
+        logger.debug('Loaded demo events for current range:', events);
         
         if (events.length === 0) {
-          console.warn('No events in current date range. Navigating to events...');
+          logger.warn('No events in current date range. Navigating to events...');
           
           // Find the date range of your events and navigate there
           const eventDates = transformedEvents.map(e => new Date(e.startDateTime));
           const earliestEvent = new Date(Math.min(...eventDates));
           const latestEvent = new Date(Math.max(...eventDates));
           
-          console.log('Event date range:', {
+          logger.debug('Event date range:', {
             earliest: earliestEvent.toLocaleDateString(),
             latest: latestEvent.toLocaleDateString(),
             currentViewStart: dateRange.start.toLocaleDateString(),
@@ -385,7 +386,7 @@
         }
         
       } catch (error) {
-        console.error('Error uploading demo data:', error);
+        logger.error('Error uploading demo data:', error);
         alert(`Error loading demo data: ${error.message}`);
       } finally {
         setIsUploadingDemo(false);
@@ -674,7 +675,7 @@
           const eventDateUTC = new Date(utcDateString);
           
           if (isNaN(eventDateUTC.getTime())) {
-            console.error('Invalid event date:', event.start.dateTime, event);
+            logger.error('Invalid event date:', event.start.dateTime, event);
             return false;
           }
           
@@ -692,7 +693,7 @@
           
           return eventDay.getTime() === compareDay.getTime();
         } catch (err) {
-          console.error('Error comparing event date in month view:', err, event);
+          logger.error('Error comparing event date in month view:', err, event);
           return false;
         }
       }, [userTimezone]);
@@ -711,7 +712,7 @@
           const eventDateUTC = new Date(utcDateString);
           
           if (isNaN(eventDateUTC.getTime())) {
-            console.error('Invalid event date:', event.start.dateTime, event);
+            logger.error('Invalid event date:', event.start.dateTime, event);
             return false;
           }
           
@@ -730,7 +731,7 @@
           // Compare dates in user timezone
           return eventDay.getTime() === compareDay.getTime();
         } catch (err) {
-          console.error('Error comparing event date:', err, event);
+          logger.error('Error comparing event date:', err, event);
           return false;
         }
       }, [userTimezone]);
@@ -742,18 +743,18 @@
     const updateUserProfilePreferences = async (updates) => {
       // No User Updates if in Demo Mode
       if (isDemoMode) {
-        console.log("Demo mode active - user preferences not saved:", updates);
+        logger.debug("Demo mode active - user preferences not saved:", updates);
         return false;
       }
       
       // No User Updates if no API Token
       if (!apiToken) {
-        console.log("No API token available for updating preferences");
+        logger.warn("No API token available for updating preferences");
         return false;
       }
       
       try {
-        console.log("Updating user preferences:", updates);
+        logger.debug("Updating user preferences:", updates);
         
         const response = await fetch(`${API_BASE_URL}/users/current/preferences`, {
           method: 'PATCH',  // Or whatever method your API expects
@@ -765,7 +766,7 @@
         });
         
         if (!response.ok) {
-          console.error("Failed to update user preferences:", response.status);
+          logger.error("Failed to update user preferences:", response.status);
           return false;
         }
         
@@ -775,10 +776,10 @@
           ...updates
         }));
         
-        console.log("User preferences updated successfully");
+        logger.debug("User preferences updated successfully");
         return true;
       } catch (error) {
-        console.error("Error updating user preferences:", error);
+        logger.error("Error updating user preferences:", error);
         return false;
       }
     };
@@ -799,7 +800,7 @@
         });
         
         if (!response.ok) {
-          console.error('Failed to load schema extensions');
+          logger.error('Failed to load schema extensions');
           return [];
         }
         
@@ -816,7 +817,7 @@
         
         return eventExtensions;
       } catch (err) {
-        console.error('Error loading schema extensions:', err);
+        logger.error('Error loading schema extensions:', err);
         return [];
       }
     }, [graphToken]);
@@ -835,12 +836,12 @@
         
         if (!response.ok) {
           const errorData = await response.json();
-          console.error('Failed to fetch Outlook categories:', errorData);
+          logger.error('Failed to fetch Outlook categories:', errorData);
           return [];
         }
         
         const data = await response.json();
-        console.log('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
+        logger.debug('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
         
         // Extract category names
         const outlookCategories = data.value.map(cat => ({
@@ -851,7 +852,7 @@
         
         return outlookCategories;
       } catch (err) {
-        console.error('Error fetching Outlook categories:', err);
+        logger.error('Error fetching Outlook categories:', err);
         return [];
       }
     }, [graphToken]);
@@ -887,7 +888,7 @@
         
         return calendars;
       } catch (error) {
-        console.error('Error fetching calendars:', error);
+        logger.error('Error fetching calendars:', error);
         return [];
       }
     }, [graphToken, setAvailableCalendars]);
@@ -897,7 +898,7 @@
      */
     const loadDemoEvents = useCallback(async () => {
       if (!isDemoMode || !demoData) {
-        console.log("Not in demo mode or no demo data available");
+        logger.debug("Not in demo mode or no demo data available");
         return false;
       }
       
@@ -914,7 +915,7 @@
         // Get events through the service (demo mode)
         const events = await calendarDataService.getEvents(dateRange);
         
-        console.log(`[loadDemoEvents] Loaded ${events.length} demo events for date range:`, {
+        logger.debug(`[loadDemoEvents] Loaded ${events.length} demo events for date range:`, {
           start: dateRange.start.toISOString(),
           end: dateRange.end.toISOString()
         });
@@ -923,7 +924,7 @@
         return true;
         
       } catch (error) {
-        console.error('loadDemoEvents failed:', error);
+        logger.error('loadDemoEvents failed:', error);
         showNotification('Failed to load demo events: ' + error.message);
         return false;
       } finally {
@@ -951,9 +952,9 @@
         const extIds = schemaExtensions.map(e => e.id);
         
         if (extIds.length === 0) {
-          console.log("No schema extensions registered; skipping extension expand.");
+          logger.debug("No schema extensions registered; skipping extension expand.");
         } else {
-          console.log("Found schema extensions:", extIds);
+          logger.debug("Found schema extensions:", extIds);
         }
     
         // 3. Build your extensionName filter (OData)
@@ -977,7 +978,7 @@
             headers: { Authorization: `Bearer ${graphToken}` }
           });
           if (!resp.ok) {
-            console.error("Graph error paging events:", await resp.json());
+            logger.error("Graph error paging events:", await resp.json());
             break;
           }
           const js = await resp.json();
@@ -986,12 +987,12 @@
         }
     
         // 5. Check for linked registration events and extract setup/teardown data
-        console.log('loadGraphEvents: Processing', all.length, 'events for registration data');
+        logger.debug('loadGraphEvents: Processing', all.length, 'events for registration data');
         const eventsWithRegistrationData = await Promise.all(all.map(async (evt) => {
           // Check if this event has a linked registration event
           try {
-            console.log('loadGraphEvents: Checking event:', evt.subject, 'for extended properties');
-            console.log('loadGraphEvents: singleValueExtendedProperties:', evt.singleValueExtendedProperties);
+            logger.debug('loadGraphEvents: Checking event:', evt.subject, 'for extended properties');
+            logger.debug('loadGraphEvents: singleValueExtendedProperties:', evt.singleValueExtendedProperties);
             
             if (evt.singleValueExtendedProperties) {
               const linkedEventIdProp = evt.singleValueExtendedProperties.find(
@@ -1001,16 +1002,16 @@
                 prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType'
               );
               
-              console.log('loadGraphEvents: Found extended properties for', evt.subject, {
+              logger.debug('loadGraphEvents: Found extended properties for', evt.subject, {
                 linkedEventId: linkedEventIdProp?.value,
                 eventType: eventTypeProp?.value
               });
               
               if (linkedEventIdProp && eventTypeProp?.value === 'main') {
                 // This is a main event with a linked registration event
-                console.log('loadGraphEvents: Attempting to find linked event for main event:', evt.subject);
+                logger.debug('loadGraphEvents: Attempting to find linked event for main event:', evt.subject);
                 const linkedEvent = await findLinkedEvent(graphToken, evt.id);
-                console.log('loadGraphEvents: findLinkedEvent result:', linkedEvent ? 'Found' : 'Not found');
+                logger.debug('loadGraphEvents: findLinkedEvent result:', linkedEvent ? 'Found' : 'Not found');
                 if (linkedEvent) {
                   // Calculate setup and teardown times
                   const mainStart = new Date(evt.start.dateTime);
@@ -1037,7 +1038,7 @@
                     registrationStart: linkedEvent.start.dateTime,
                     registrationEnd: linkedEvent.end.dateTime
                   };
-                  console.log('loadGraphEvents: Found event with registration data:', {
+                  logger.debug('loadGraphEvents: Found event with registration data:', {
                     subject: evt.subject,
                     hasRegistrationEvent: true,
                     setupMinutes: enrichedEvent.setupMinutes,
@@ -1050,7 +1051,7 @@
               }
             }
           } catch (error) {
-            console.error(`Error fetching linked event for ${evt.id}:`, error);
+            logger.error(`Error fetching linked event for ${evt.id}:`, error);
           }
           
           return evt;
@@ -1058,7 +1059,7 @@
         
         // DEBUG: Log summary of events with registration data
         const eventsWithRegistration = eventsWithRegistrationData.filter(evt => evt.hasRegistrationEvent);
-        console.log('loadGraphEvents: Summary - Total events:', eventsWithRegistrationData.length, 
+        logger.debug('loadGraphEvents: Summary - Total events:', eventsWithRegistrationData.length, 
                    'Events with registration data:', eventsWithRegistration.length);
         
         // 6. Normalize into your UI model
@@ -1066,14 +1067,14 @@
           // Extract extension data
           const extData = {};
           if (evt.extensions && evt.extensions.length > 0) {
-            console.log(`Processing extensions for event ${evt.id}:`, evt.extensions);
+            logger.debug(`Processing extensions for event ${evt.id}:`, evt.extensions);
             
             // Flatten out any extension props
             evt.extensions.forEach(x =>
               Object.entries(x).forEach(([k, v]) => {
                 if (!k.startsWith("@") && k !== "id" && k !== "extensionName") {
                   extData[k] = v;
-                  console.log(`  Extracted property: ${k} = ${v}`);
+                  logger.debug(`  Extracted property: ${k} = ${v}`);
                 }
               })
             );
@@ -1110,7 +1111,7 @@
         if (apiToken) {
           try {
             enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
-            console.log(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
+            logger.debug(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
             
             // Calculate registration start/end times for events with setup/teardown data
             enrichedEvents = enrichedEvents.map(event => {
@@ -1123,7 +1124,7 @@
                 // Calculate registration end (main end + teardown minutes)  
                 const registrationEnd = new Date(mainEnd.getTime() + (event.teardownMinutes * 60 * 1000));
                 
-                console.log('Calculating registration times for:', event.subject, {
+                logger.debug('Calculating registration times for:', event.subject, {
                   setupMinutes: event.setupMinutes,
                   teardownMinutes: event.teardownMinutes,
                   mainStart: mainStart.toISOString(),
@@ -1142,17 +1143,17 @@
               return event;
             });
           } catch (error) {
-            console.error('Failed to enrich events, using Graph data only:', error);
+            logger.error('Failed to enrich events, using Graph data only:', error);
             // Continue with non-enriched events
           }
         }
         
-        console.log("[loadGraphEvents] events:", enrichedEvents);
+        logger.debug("[loadGraphEvents] events:", enrichedEvents);
         setAllEvents(enrichedEvents);
 
         return true;
       } catch (err) {
-        console.error("loadGraphEvents failed:", err);
+        logger.error("loadGraphEvents failed:", err);
       } finally {
         setLoading(false);
       }
@@ -1177,7 +1178,7 @@
      */
     const syncEventsToInternal = useCallback(async (startDate, endDate) => {
       if (!graphToken || !apiToken) {
-        console.error('Missing tokens for sync');
+        logger.error('Missing tokens for sync');
         return { success: false, error: 'Authentication required' };
       }
       
@@ -1214,7 +1215,7 @@
         
         return { success: true, result: syncResult };
       } catch (error) {
-        console.error('Sync failed:', error);
+        logger.error('Sync failed:', error);
         return { success: false, error: error.message };
       }
     }, [graphToken, apiToken, selectedCalendarId, loadGraphEvents]);
@@ -1226,13 +1227,13 @@
      */
     const loadUserProfile = useCallback(async () => {
       if (!apiToken) {
-        console.log("No API token available");
+        logger.debug("No API token available");
         return false;
       }
       
       try {
-        console.log("API token length:", apiToken.length);
-        console.log("Fetching user profile for calendar permissions from:", `${API_BASE_URL}/users/current`);
+        logger.debug("API token length:", apiToken.length);
+        logger.debug("Fetching user profile for calendar permissions from:", `${API_BASE_URL}/users/current`);
         
         const response = await fetch(`${API_BASE_URL}/users/current`, {
           headers: {
@@ -1240,17 +1241,17 @@
           }
         });
         
-        console.log("User profile response status:", response.status);
+        logger.debug("User profile response status:", response.status);
         
         if (response.status === 404) {
-          console.log("User profile not found - permissions will use defaults");
+          logger.debug("User profile not found - permissions will use defaults");
           return false;
         }
         
         if (response.status === 401) {
-          console.log("Unauthorized - authentication issue with API token");
+          logger.debug("Unauthorized - authentication issue with API token");
           // TEMPORARY: Don't reset permissions for testing
-          console.log("401 error but keeping test permissions");
+          logger.debug("401 error but keeping test permissions");
           /*
           setUserPermissions({
             startOfWeek: 'Monday',
@@ -1269,7 +1270,7 @@
         
         if (response.ok) {
           const data = await response.json();
-          console.log("Full user profile data from API:", data);
+          logger.debug("Full user profile data from API:", data);
           setUserProfile(data);
           
           // Based on UserAdmin component, permissions are stored in preferences
@@ -1290,22 +1291,22 @@
             isAdmin: isAdmin,
           };
           
-          console.log("Parsed permissions:", permissions);
+          logger.debug("Parsed permissions:", permissions);
           // TEMPORARY: Don't overwrite test permissions
           // setUserPermissions(permissions);
-          console.log("SKIPPING permission update for testing - keeping createEvents: true");
+          logger.debug("SKIPPING permission update for testing - keeping createEvents: true");
           if (data.preferences?.preferredTimeZone) {
-            console.log("Setting timezone directly from profile:", data.preferences?.preferredTimeZone);
+            logger.debug("Setting timezone directly from profile:", data.preferences?.preferredTimeZone);
             setUserTimeZone(data.preferences.preferredTimeZone);
           }
-          console.log("User permissions loaded (but not applied):", permissions);
+          logger.debug("User permissions loaded (but not applied):", permissions);
           return true;
         }
         return false;
       } catch (error) {
-        console.error("Error fetching user permissions:", error);
+        logger.error("Error fetching user permissions:", error);
         // TEMPORARY: Don't reset permissions for testing
-        console.log("Error loading profile but keeping test permissions");
+        logger.debug("Error loading profile but keeping test permissions");
         /*
         setUserPermissions({
           startOfWeek: 'Monday',
@@ -1325,11 +1326,11 @@
 
     // Add this function to your component to coordinate the loading sequence
     const initializeApp = useCallback(async () => {
-      console.log("initializeApp function called");
+      logger.debug("initializeApp function called");
 
       // Check if initialization has already started
       if (initializationStarted.current) {
-        console.log("Initialization already in progress, skipping");
+        logger.debug("Initialization already in progress, skipping");
         return;
       }
 
@@ -1337,23 +1338,23 @@
       initializationStarted.current = true;
 
       if (!graphToken || !apiToken) {
-        console.log("Cannot initialize: Missing authentication tokens");
+        logger.debug("Cannot initialize: Missing authentication tokens");
         return;
       }
 
-      console.log("Starting application initialization...");
+      logger.debug("Starting application initialization...");
       try {
         // Load user profile and permissions first
-        console.log("Step: Loading user profile...");
+        logger.debug("Step: Loading user profile...");
         const userLoaded = await loadUserProfile();
         setLoadingState(prev => ({ ...prev, user: false }));
         
         if (!userLoaded) {
-          console.log("Could not load user profile, but continuing with defaults");
+          logger.debug("Could not load user profile, but continuing with defaults");
         }
 
         // Load available calendars
-        console.log("Step: Loading available calendars...");
+        logger.debug("Step: Loading available calendars...");
         const calendars = await loadAvailableCalendars();
         setAvailableCalendars(calendars);
         
@@ -1364,32 +1365,32 @@
         }
         
         // Load Outlook categories
-        console.log("Step: Loading Outlook categories...");
+        logger.debug("Step: Loading Outlook categories...");
         const categories = await loadOutlookCategories();
         setOutlookCategories(categories);
         setLoadingState(prev => ({ ...prev, categories: false }));
         
         // Create default categories if needed (optional)
         if (categories.length === 0) {
-          console.log("No categories found, creating defaults");
+          logger.debug("No categories found, creating defaults");
           await createDefaultCategories();
         }
         
         // Step 3: Load schema extensions
-        console.log("Step: Loading schema extensions...");
+        logger.debug("Step: Loading schema extensions...");
         await loadSchemaExtensions();
         setLoadingState(prev => ({ ...prev, extensions: false }));
         
         // Step 4: Finally load events
-        console.log("Step: Loading calendar events...");
+        logger.debug("Step: Loading calendar events...");
         await loadGraphEvents();
         setLoadingState(prev => ({ ...prev, events: false }));
         
-        console.log("Application initialized successfully");
+        logger.debug("Application initialized successfully");
         setInitializing(false);
 
       } catch (error) {
-        console.error("Error during initialization:", error);
+        logger.error("Error during initialization:", error);
         // Ensure we exit loading state even on error
         setLoadingState({
           user: false,
@@ -1406,7 +1407,7 @@
     //---------------------------------------------------------------------------
     const showNotification = (message, type = 'error') => {
       setNotification({ show: true, message, type });
-      console.log(`[Notification] ${type}: ${message}`);
+      logger.debug(`[Notification] ${type}: ${message}`);
       // Auto-hide after 3 seconds
       setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 3000);
     };
@@ -1467,7 +1468,7 @@
         const mainResponse = batchResponse.responses.find(r => r.id === '1');
         if (mainResponse && mainResponse.status >= 200 && mainResponse.status < 300) {
           createdEventData = mainResponse.body;
-          console.log('Created/updated event:', createdEventData);
+          logger.debug('Created/updated event:', createdEventData);
         }
       }
       
@@ -1475,9 +1476,9 @@
       if (internalFields && eventDataService.apiToken && eventId) {
         try {
           await eventDataService.updateInternalFields(eventId, internalFields);
-          console.log('Updated internal fields for event:', eventId, internalFields);
+          logger.debug('Updated internal fields for event:', eventId, internalFields);
         } catch (error) {
-          console.error('Failed to update internal fields:', error);
+          logger.error('Failed to update internal fields:', error);
           // Don't throw here - Graph update succeeded, internal data is supplementary
         }
       }
@@ -1872,7 +1873,7 @@
         if (selectedCategories.length === 0) {
           // No categories selected = show NO events
           categoryMatch = false;
-          console.log('No categories selected - filtering out all events');
+          logger.debug('No categories selected - filtering out all events');
         } else {
           // Categories are selected, check if event matches
           if (isUncategorizedEvent(event)) {
@@ -1889,17 +1890,17 @@
         if (selectedLocations.length === 0) {
           // No locations selected = show NO events
           locationMatch = false;
-          console.log('No locations selected - filtering out all events');
+          logger.debug('No locations selected - filtering out all events');
         } else {
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
             locationMatch = selectedLocations.includes('Unspecified');
-            console.log('Unspecified location result:', locationMatch);
+            logger.debug('Unspecified location result:', locationMatch);
           }
           // Handle virtual events
           else if (isEventVirtual(event)) {
             locationMatch = selectedLocations.includes('Virtual');
-            console.log('Virtual location result:', locationMatch);
+            logger.debug('Virtual location result:', locationMatch);
           }
           // Handle physical locations
           else {
@@ -1910,7 +1911,7 @@
               .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
                         
             if (eventLocations.length === 0) {
-              console.log('No physical locations found, but event not marked as virtual - check logic');
+              logger.debug('No physical locations found, but event not marked as virtual - check logic');
               locationMatch = false;
             } else {
               // Check if any physical location matches selected locations
@@ -1926,7 +1927,7 @@
         const result = categoryMatch && locationMatch;
         
         if (!result) {
-          console.log(`Filtered out "${event.subject}": categoryMatch=${categoryMatch}, locationMatch=${locationMatch}`);
+          logger.debug(`Filtered out "${event.subject}": categoryMatch=${categoryMatch}, locationMatch=${locationMatch}`);
         }
         
         return result;
@@ -1946,7 +1947,7 @@
         return aEndTime - bEndTime;
       });
       
-      console.log('Filtered events result:', sorted.length);
+      logger.debug('Filtered events result:', sorted.length);
       
       return sorted;
     }, [
@@ -1973,10 +1974,10 @@
         groups[location] = [];
       });
       
-      console.log('=== LOCATION GROUPING DEBUG ===');
-      console.log('selectedLocations:', selectedLocations);
-      console.log('filteredEvents count:', filteredEvents.length);
-      console.log('groupBy:', groupBy);
+      logger.debug('=== LOCATION GROUPING DEBUG ===');
+      logger.debug('selectedLocations:', selectedLocations);
+      logger.debug('filteredEvents count:', filteredEvents.length);
+      logger.debug('groupBy:', groupBy);
       
       // Group filtered events by their actual location
       filteredEvents.forEach((event) => {
@@ -2072,14 +2073,14 @@
               color: data.color
             });
           } else {
-            console.error(`Failed to create category ${cat.displayName}`);
+            logger.error(`Failed to create category ${cat.displayName}`);
           }
         }
         
         setOutlookCategories(createdCategories);
         return createdCategories;
       } catch (err) {
-        console.error('Error creating default categories:', err);
+        logger.error('Error creating default categories:', err);
         return [];
       }
     };
@@ -2115,12 +2116,12 @@
         
         if (!response.ok) {
           const errorData = await response.json();
-          console.error(`Failed to create category ${categoryName}:`, errorData);
+          logger.error(`Failed to create category ${categoryName}:`, errorData);
           return null;
         }
         
         const data = await response.json();
-        console.log(`Created new Outlook category: ${categoryName}`, data);
+        logger.debug(`Created new Outlook category: ${categoryName}`, data);
         
         // Add the new category to the local state
         const newCategory = {
@@ -2133,7 +2134,7 @@
         
         return newCategory;
       } catch (err) {
-        console.error(`Error creating category ${categoryName}:`, err);
+        logger.error(`Error creating category ${categoryName}:`, err);
         return null;
       }
     }, [graphToken]);
@@ -2206,9 +2207,9 @@
      * Open the Add, Edit, Delete, Save modal
      */
     const handleAddEvent = useCallback(() => {
-      console.log('handleAddEvent called');
-      console.log('Permissions:', userPermissions);
-      console.log('Modal state before:', { isModalOpen, modalType });
+      logger.debug('handleAddEvent called');
+      logger.debug('Permissions:', userPermissions);
+      logger.debug('Modal state before:', { isModalOpen, modalType });
       
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
   
@@ -2223,7 +2224,7 @@
       
       // Add a timeout to check if modal actually opened
       setTimeout(() => {
-        console.log('Modal state after 100ms:', { isModalOpen, modalType });
+        logger.debug('Modal state after 100ms:', { isModalOpen, modalType });
       }, 100);
     }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification]);
 
@@ -2232,7 +2233,7 @@
      * @param {string} newView - The new view type
      */
     const handleViewChange = useCallback((newView) => {
-      console.log(`View changed to ${newView}`);
+      logger.debug(`View changed to ${newView}`);
       setViewType(newView);
       // currentDate stays the same, dateRange will recalculate via useMemo
     }, []);
@@ -2243,7 +2244,7 @@
      * @param {Date} eventDate - The date of the event
      */
     const handleViewInCalendar = (event) => {
-      console.log("View in calendar clicked", event); // Add debugging
+      logger.debug("View in calendar clicked", event); // Add debugging
       
       // Navigate to the event's date in the calendar
       const eventDate = new Date(event.start.dateTime);
@@ -2335,7 +2336,7 @@
           const categoryExists = outlookCategories.some(cat => cat.name === category);
           
           if (!categoryExists) {
-            console.log(`Category ${category} doesn't exist in Outlook categories, creating it...`);
+            logger.debug(`Category ${category} doesn't exist in Outlook categories, creating it...`);
             await createOutlookCategory(category);
           }
         }
@@ -2366,12 +2367,12 @@
      */
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
-      console.log('Event clicked:', event);
+      logger.debug('Event clicked:', event);
       
       // Find the enriched version of this event from allEvents (which contains enriched data)
       const enrichedEvent = allEvents.find(enriched => enriched.id === event.id) || event;
       
-      console.log('Using enriched event for editing:', {
+      logger.debug('Using enriched event for editing:', {
         originalEvent: event,
         enrichedEvent: enrichedEvent,
         hasSetupMinutes: enrichedEvent.setupMinutes > 0,
@@ -2428,11 +2429,11 @@
         // Reload demo events to show changes
         await loadDemoEvents();
         
-        console.log(`[handleSaveDemoEvent] ${isNew ? 'Created' : 'Updated'} demo event:`, data.subject);
+        logger.debug(`[handleSaveDemoEvent] ${isNew ? 'Created' : 'Updated'} demo event:`, data.subject);
         return true;
         
       } catch (error) {
-        console.error('Demo save failed:', error);
+        logger.error('Demo save failed:', error);
         throw error;
       }
     };
@@ -2444,7 +2445,7 @@
      */
     const handleRegistrationEventCreation = async (eventData, calendarId) => {
       try {
-        console.log('handleRegistrationEventCreation called with:', {
+        logger.debug('handleRegistrationEventCreation called with:', {
           calendarId,
           availableCalendars: availableCalendars.map(c => ({ id: c.id, name: c.name })),
           eventData: { 
@@ -2459,7 +2460,7 @@
         // Find the current calendar info
         const currentCalendar = availableCalendars.find(cal => cal.id === calendarId);
         if (!currentCalendar) {
-          console.log('Calendar not found, skipping registration event creation');
+          logger.debug('Calendar not found, skipping registration event creation');
           return;
         }
 
@@ -2469,12 +2470,12 @@
 
         // TODO: Re-enable this check for production
         // if (!isTempleEventsCalendar) {
-        //   console.log('Not a TempleEvents calendar, skipping registration event creation');
+        //   logger.debug('Not a TempleEvents calendar, skipping registration event creation');
         //   return;
         // }
         
-        console.log(`Creating registration event for calendar: ${currentCalendar.name} (TempleEvents: ${isTempleEventsCalendar})`);
-        console.log('Event data for registration:', {
+        logger.debug(`Creating registration event for calendar: ${currentCalendar.name} (TempleEvents: ${isTempleEventsCalendar})`);
+        logger.debug('Event data for registration:', {
           createRegistrationEvent: eventData.createRegistrationEvent,
           setupMinutes: eventData.setupMinutes,
           teardownMinutes: eventData.teardownMinutes
@@ -2482,7 +2483,7 @@
 
         // Check if registration event creation is enabled
         if (!eventData.createRegistrationEvent) {
-          console.log('Registration event creation disabled, skipping');
+          logger.debug('Registration event creation disabled, skipping');
           return;
         }
 
@@ -2491,7 +2492,7 @@
                                 (eventData.teardownMinutes && eventData.teardownMinutes > 0);
 
         if (!hasSetupTeardown) {
-          console.log('No setup/teardown times specified, skipping registration event creation');
+          logger.debug('No setup/teardown times specified, skipping registration event creation');
           return;
         }
 
@@ -2505,8 +2506,8 @@
         );
 
         if (!registrationCalendar) {
-          console.log('Temple Registrations calendar not found, skipping registration event creation');
-          console.log('Available calendars:', availableCalendars.map(c => c.name));
+          logger.debug('Temple Registrations calendar not found, skipping registration event creation');
+          logger.debug('Available calendars:', availableCalendars.map(c => c.name));
           return;
         }
 
@@ -2559,7 +2560,7 @@
 
         // Use new linked events creation for new events
         if (!eventData.id) {
-          console.log('Creating new linked events with extended properties');
+          logger.debug('Creating new linked events with extended properties');
           
           const linkedEvents = await createLinkedEvents(
             graphToken,
@@ -2569,7 +2570,7 @@
             registrationCalendar.id
           );
           
-          console.log('Successfully created linked events:', {
+          logger.debug('Successfully created linked events:', {
             mainEvent: linkedEvents.mainEvent.id,
             registrationEvent: linkedEvents.registrationEvent.id
           });
@@ -2587,7 +2588,7 @@
                 teardownMinutes: teardownMinutes
               });
             } catch (error) {
-              console.error('Failed to store internal linking data:', error);
+              logger.error('Failed to store internal linking data:', error);
             }
           }
         } else {
@@ -2595,7 +2596,7 @@
           const existingLinkedEvent = await findLinkedEvent(graphToken, eventData.id, calendarId);
           
           if (existingLinkedEvent) {
-            console.log('Updating existing linked registration event');
+            logger.debug('Updating existing linked registration event');
             
             // Update the linked event with new times
             await updateLinkedEvent(
@@ -2607,7 +2608,7 @@
               teardownMinutes
             );
           } else {
-            console.log('No existing linked event found, creating new registration event');
+            logger.debug('No existing linked event found, creating new registration event');
             
             // Fall back to old method for existing events without links
             const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendar.id}/events`, {
@@ -2621,7 +2622,7 @@
 
             if (response.ok) {
               const createdEvent = await response.json();
-              console.log('Successfully created registration event:', createdEvent.id);
+              logger.debug('Successfully created registration event:', createdEvent.id);
               
               // Store linking in internal data
               if (eventDataService.apiToken) {
@@ -2633,17 +2634,17 @@
                     teardownMinutes: teardownMinutes
                   });
                 } catch (error) {
-                  console.error('Failed to link registration event:', error);
+                  logger.error('Failed to link registration event:', error);
                 }
               }
             } else {
               const error = await response.json();
-              console.error('Failed to create registration event:', error);
+              logger.error('Failed to create registration event:', error);
             }
           }
         }
       } catch (error) {
-        console.error('Error in handleRegistrationEventCreation:', error);
+        logger.error('Error in handleRegistrationEventCreation:', error);
         // Don't throw - registration event creation is supplementary
       }
     };
@@ -2700,10 +2701,10 @@
           ) || writableCalendars[0];
           
           targetCalendarId = preferredCalendar?.id;
-          console.log('No calendar selected, using first writable calendar:', preferredCalendar?.name);
+          logger.debug('No calendar selected, using first writable calendar:', preferredCalendar?.name);
         } else {
           const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-          console.log('Creating event in selected calendar:', selectedCalendar?.name);
+          logger.debug('Creating event in selected calendar:', selectedCalendar?.name);
           
           // Check if the selected calendar is read-only
           if (selectedCalendar && selectedCalendar.canEdit === false) {
@@ -2750,11 +2751,11 @@
         // Refresh API events
         await loadGraphEvents();
         
-        console.log(`[handleSaveApiEvent] ${data.id ? 'Updated' : 'Created'} API event:`, data.subject);
+        logger.debug(`[handleSaveApiEvent] ${data.id ? 'Updated' : 'Created'} API event:`, data.subject);
         return true;
         
       } catch (error) {
-        console.error('API save failed:', error);
+        logger.error('API save failed:', error);
         throw error;
       }
     };
@@ -2794,7 +2795,7 @@
         return true;
         
       } catch (error) {
-        console.error('Save failed:', error);
+        logger.error('Save failed:', error);
         alert('Save failed: ' + error.message);
         return false;
       }
@@ -2810,13 +2811,13 @@
         const linkedEventDeleted = await deleteLinkedEvent(graphToken, eventId, selectedCalendarId);
         
         if (linkedEventDeleted) {
-          console.log('Successfully deleted linked registration event using extended properties');
+          logger.debug('Successfully deleted linked registration event using extended properties');
           return;
         }
 
         // Fall back to legacy method using internal data
         if (!eventDataService.apiToken) {
-          console.log('No API token for event data service, skipping registration event deletion');
+          logger.debug('No API token for event data service, skipping registration event deletion');
           return;
         }
 
@@ -2828,7 +2829,7 @@
         });
 
         if (!response.ok) {
-          console.log('Failed to fetch internal data for registration event deletion');
+          logger.debug('Failed to fetch internal data for registration event deletion');
           return;
         }
 
@@ -2836,7 +2837,7 @@
         const internalData = enrichmentMap[eventId];
 
         if (!internalData || !internalData.registrationEventId) {
-          console.log('No linked registration event found for event:', eventId);
+          logger.debug('No linked registration event found for event:', eventId);
           return;
         }
 
@@ -2855,13 +2856,13 @@
           });
 
           if (deleteResponse.ok) {
-            console.log('Successfully deleted registration event (legacy method):', registrationEventId);
+            logger.debug('Successfully deleted registration event (legacy method):', registrationEventId);
           } else {
-            console.error('Failed to delete registration event:', deleteResponse.status);
+            logger.error('Failed to delete registration event:', deleteResponse.status);
           }
         }
       } catch (error) {
-        console.error('Error in handleRegistrationEventDeletion:', error);
+        logger.error('Error in handleRegistrationEventDeletion:', error);
         // Don't throw - registration event deletion is supplementary
       }
     };
@@ -2888,11 +2889,11 @@
         // Reload demo events to ensure consistency
         await loadDemoEvents();
         
-        console.log(`[handleDeleteDemoEvent] Deleted demo event:`, eventId);
+        logger.debug(`[handleDeleteDemoEvent] Deleted demo event:`, eventId);
         return true;
         
       } catch (error) {
-        console.error('Demo delete failed:', error);
+        logger.error('Demo delete failed:', error);
         throw error;
       }
     };
@@ -2919,10 +2920,10 @@
     
         if (!response.ok) {
           const error = await response.json();
-          console.error('Failed to delete event from Graph:', error);
+          logger.error('Failed to delete event from Graph:', error);
           throw new Error(`API delete failed: ${response.status}`);
         } else {
-          console.log('Event deleted from Microsoft Calendar');
+          logger.debug('Event deleted from Microsoft Calendar');
         }
         
         // Update local state immediately
@@ -2931,11 +2932,11 @@
         // Reload API events to ensure consistency
         await loadGraphEvents();
         
-        console.log(`[handleDeleteApiEvent] Deleted API event:`, eventId);
+        logger.debug(`[handleDeleteApiEvent] Deleted API event:`, eventId);
         return true;
         
       } catch (error) {
-        console.error('API delete failed:', error);
+        logger.error('API delete failed:', error);
         throw error;
       }
     };
@@ -2964,7 +2965,7 @@
         showNotification('Event deleted successfully!', 'success');
         
       } catch (error) {
-        console.error('Delete failed:', error);
+        logger.error('Delete failed:', error);
         alert('Delete failed: ' + error.message);
       }
     };
@@ -2974,23 +2975,23 @@
     //---------------------------------------------------------------------------
     const debugDemoData = () => {
       if (demoData?.events) {
-        console.log('=== DEMO DATA DEBUG ===');
-        console.log('Total events:', demoData.events.length);
-        console.log('Date range of demo data:', demoData.searchCriteria?.dateRange);
-        console.log('Current calendar view:', {
+        logger.debug('=== DEMO DATA DEBUG ===');
+        logger.debug('Total events:', demoData.events.length);
+        logger.debug('Date range of demo data:', demoData.searchCriteria?.dateRange);
+        logger.debug('Current calendar view:', {
           start: dateRange.start.toISOString(),
           end: dateRange.end.toISOString()
         });
         
         // Show first few events
         const sampleEvents = demoData.events.slice(0, 5);
-        console.log('Sample events:');
+        logger.debug('Sample events:');
         sampleEvents.forEach((event, i) => {
-          console.log(`${i + 1}. ${event.subject}`);
-          console.log(`   Start: ${event.startDateTime}`);
-          console.log(`   End: ${event.endDateTime}`);
-          console.log(`   Location: ${event.location}`);
-          console.log(`   Categories: ${JSON.stringify(event.categories)}`);
+          logger.debug(`${i + 1}. ${event.subject}`);
+          logger.debug(`   Start: ${event.startDateTime}`);
+          logger.debug(`   End: ${event.endDateTime}`);
+          logger.debug(`   Location: ${event.location}`);
+          logger.debug(`   Categories: ${JSON.stringify(event.categories)}`);
         });
         
         // Check if any events fall in current date range
@@ -2998,18 +2999,18 @@
           const eventDate = new Date(event.startDateTime);
           return eventDate >= dateRange.start && eventDate <= dateRange.end;
         });
-        console.log(`Events in current range (${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}):`, eventsInRange.length);
+        logger.debug(`Events in current range (${dateRange.start.toLocaleDateString()} - ${dateRange.end.toLocaleDateString()}):`, eventsInRange.length);
         
         if (eventsInRange.length === 0) {
           const eventDates = demoData.events.map(e => new Date(e.startDateTime));
           const earliestEvent = new Date(Math.min(...eventDates));
           const latestEvent = new Date(Math.max(...eventDates));
-          console.log('Event date range in data:');
-          console.log(`  Earliest: ${earliestEvent.toLocaleDateString()}`);
-          console.log(`  Latest: ${latestEvent.toLocaleDateString()}`);
-          console.log('SUGGESTION: Navigate calendar to these dates to see events');
+          logger.debug('Event date range in data:');
+          logger.debug(`  Earliest: ${earliestEvent.toLocaleDateString()}`);
+          logger.debug(`  Latest: ${latestEvent.toLocaleDateString()}`);
+          logger.debug('SUGGESTION: Navigate calendar to these dates to see events');
         }
-        console.log('======================');
+        logger.debug('======================');
       }
     };
 
@@ -3017,15 +3018,15 @@
     // MAIN INITIALIZATION FUNCTION
     //---------------------------------------------------------------------------
     useEffect(() => {
-      console.log('=== CALENDAR INIT CHECK ===');
-      console.log('graphToken:', graphToken ? 'present' : 'missing');
-      console.log('apiToken:', apiToken ? 'present' : 'missing');
-      console.log('initializing:', initializing);
-      console.log('Current permissions:', userPermissions);
+      logger.debug('=== CALENDAR INIT CHECK ===');
+      logger.debug('graphToken:', graphToken ? 'present' : 'missing');
+      logger.debug('apiToken:', apiToken ? 'present' : 'missing');
+      logger.debug('initializing:', initializing);
+      logger.debug('Current permissions:', userPermissions);
       
       // Only run initialization once when tokens become available
       if (graphToken && apiToken && initializing) {
-        console.log("Tokens available, starting initialization");
+        logger.debug("Tokens available, starting initialization");
         initializeApp();
       }
     }, [graphToken, apiToken, initializing, initializeApp]);
@@ -3043,7 +3044,7 @@
 
     useEffect(() => {
       if (graphToken && !initializing) {
-        console.log("Date range changed, loading events for:", {
+        logger.debug("Date range changed, loading events for:", {
           start: dateRange.start.toISOString(),
           end: dateRange.end.toISOString()
         });
@@ -3054,7 +3055,7 @@
 
     useEffect(() => {
       if (selectedCalendarId && !initializing && graphToken) {
-        console.log(`Loading events for calendar: ${selectedCalendarId}`);
+        logger.debug(`Loading events for calendar: ${selectedCalendarId}`);
         loadEvents().finally(() => {
           setChangingCalendar(false);
         });
@@ -3069,7 +3070,7 @@
     if (userPermissions.preferredTimeZone && 
         userPermissions.preferredTimeZone !== userTimezone &&
         !hasUserManuallyChangedTimezone.current) {
-      console.log("Setting initial timezone from userPermissions:", userPermissions.preferredTimeZone);
+      logger.debug("Setting initial timezone from userPermissions:", userPermissions.preferredTimeZone);
       setUserTimezone(userPermissions.preferredTimeZone);
     }
   }, [userPermissions.preferredTimeZone]); 
@@ -3079,7 +3080,7 @@
       if (dynamicLocations.length > 0) {
         // Select all locations by default
         setSelectedLocations(dynamicLocations);
-        console.log("Updated selected locations based on dynamic locations from events");
+        logger.debug("Updated selected locations based on dynamic locations from events");
       }
     }, [dynamicLocations]);
 
@@ -3088,7 +3089,7 @@
       if (dynamicCategories.length > 0) {
         // Select all categories by default
         setSelectedCategories(dynamicCategories);
-        console.log("Updated selected categories based on dynamic categories from events");
+        logger.debug("Updated selected categories based on dynamic categories from events");
       }
     }, [dynamicCategories]);
 
@@ -3108,14 +3109,14 @@
     // Debugging 
     useEffect(() => {
       if (allEvents.length > 0) {
-        console.log('All events locations:', allEvents.map(event => ({
+        logger.debug('All events locations:', allEvents.map(event => ({
           subject: event.subject,
           location: event.location?.displayName,
           isVirtual: isEventVirtual(event),
           isUnspecified: isUnspecifiedLocation(event)
         })));
         
-        console.log('Dynamic locations:', dynamicLocations);
+        logger.debug('Dynamic locations:', dynamicLocations);
       }
     }, [allEvents, isEventVirtual, isUnspecifiedLocation, dynamicLocations]);
 
@@ -3267,7 +3268,7 @@
                   <TimezoneSelector
                     value={userTimezone}
                     onChange={(newTz) => {
-                      console.log('Timezone dropdown changed to:', newTz);
+                      logger.debug('Timezone dropdown changed to:', newTz);
                       hasUserManuallyChangedTimezone.current = true; 
                       setUserTimezone(newTz);
                     }}
@@ -3567,7 +3568,7 @@
         )}
 
         {/* Modal for Add/Edit Event */}
-        {console.log('Modal render check:', { isModalOpen, modalType, shouldOpen: isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view') })}
+        {logger.debug('Modal render check:', { isModalOpen, modalType, shouldOpen: isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view') })}
         <Modal 
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
           onClose={() => setIsModalOpen(false)}

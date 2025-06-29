@@ -13,6 +13,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
 import APP_CONFIG from './config/config';
+import { logger } from './utils/logger';
 import './App.css';
 
 function App() {
@@ -37,63 +38,63 @@ function App() {
   // Handle registration times toggle
   const handleRegistrationTimesToggle = useCallback((enabled) => {
     setShowRegistrationTimes(enabled);
-    console.log('Registration times toggled:', enabled);
+    logger.debug('Registration times toggled:', enabled);
   }, []);
 
   // Memoized token acquisition function
   const acquireTokens = useCallback(async (account) => {
     if (!account) {
-      console.log('No account provided for token acquisition');
+      logger.warn('No account provided for token acquisition');
       return;
     }
 
-    console.log('Acquiring tokens for account:', account.username);
+    logger.log('Acquiring tokens for account:', account.username);
 
     // Acquire Graph token
     try {
-      console.log('Attempting to acquire Graph token silently');
+      logger.debug('Attempting to acquire Graph token silently');
       const graphResponse = await instance.acquireTokenSilent({
         ...loginRequest,
         account
       });
-      console.log('Graph token acquired successfully');
+      logger.debug('Graph token acquired successfully');
       setGraphToken(graphResponse.accessToken);
     } catch (error) {
-      console.error('Silent Graph token acquisition failed:', error);
+      logger.error('Silent Graph token acquisition failed:', error);
       try {
-        console.log('Falling back to popup for Graph token');
+        logger.debug('Falling back to popup for Graph token');
         const graphPopup = await instance.acquireTokenPopup({
           ...loginRequest,
           account
         });
-        console.log('Graph token acquired via popup');
+        logger.debug('Graph token acquired via popup');
         setGraphToken(graphPopup.accessToken);
       } catch (popupError) {
-        console.error('Graph token popup failed:', popupError);
+        logger.error('Graph token popup failed:', popupError);
       }
     }
 
     // Acquire API token
     try {
-      console.log('Attempting to acquire API token silently');
+      logger.debug('Attempting to acquire API token silently');
       const apiResponse = await instance.acquireTokenSilent({
         ...apiRequest,
         account
       });
-      console.log('API token acquired successfully');
+      logger.debug('API token acquired successfully');
       setApiToken(apiResponse.accessToken);
     } catch (error) {
-      console.error('Silent API token acquisition failed:', error);
+      logger.error('Silent API token acquisition failed:', error);
       try {
-        console.log('Falling back to popup for API token');
+        logger.debug('Falling back to popup for API token');
         const apiPopup = await instance.acquireTokenPopup({
           ...apiRequest,
           account
         });
-        console.log('API token acquired via popup');
+        logger.debug('API token acquired via popup');
         setApiToken(apiPopup.accessToken);
       } catch (popupError) {
-        console.error('API token popup failed:', popupError);
+        logger.error('API token popup failed:', popupError);
       }
     }
   }, [instance]);
@@ -102,15 +103,15 @@ function App() {
   useEffect(() => {
     const initializeMsal = async () => {
       try {
-        console.log('Initializing MSAL...');
+        logger.log('Initializing MSAL...');
         // Wait for MSAL to be ready (if not already)
         if (!instance.getActiveAccount() && instance.getAllAccounts().length > 0) {
           instance.setActiveAccount(instance.getAllAccounts()[0]);
         }
         setIsInitialized(true);
-        console.log('MSAL initialized successfully');
+        logger.log('MSAL initialized successfully');
       } catch (error) {
-        console.error('MSAL initialization error:', error);
+        logger.error('MSAL initialization error:', error);
       }
     };
 
@@ -121,17 +122,17 @@ function App() {
   useEffect(() => {
     const silentLogin = async () => {
       if (!isInitialized) {
-        console.log('MSAL not yet initialized, skipping token acquisition');
+        logger.debug('MSAL not yet initialized, skipping token acquisition');
         return;
       }
 
-      console.log('Attempting silent login after initialization');
+      logger.debug('Attempting silent login after initialization');
       const accounts = instance.getAllAccounts();
       if (accounts.length > 0) {
-        console.log('Found existing account, acquiring tokens');
+        logger.debug('Found existing account, acquiring tokens');
         await acquireTokens(accounts[0]);
       } else {
-        console.log('No existing accounts found');
+        logger.debug('No existing accounts found');
       }
     };
 

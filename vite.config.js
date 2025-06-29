@@ -43,6 +43,15 @@ export default defineConfig({
     ]
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    // Remove console statements in production
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,      // Remove all console.* statements
+        drop_debugger: true,     // Remove debugger statements
+        pure_funcs: ['console.log', 'console.debug', 'console.info']  // Additional safety
+      }
+    }
   }
 })

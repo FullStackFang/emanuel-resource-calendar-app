@@ -1,6 +1,7 @@
 // src/contexts/TimezoneContext.jsx
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { DEFAULT_TIMEZONE, getSafeTimezone } from '../utils/timezoneUtils';
+import { logger } from '../utils/logger';
 
 // Create the context
 const TimezoneContext = createContext();
@@ -44,7 +45,7 @@ export const TimezoneProvider = ({
     
     // Only attempt API call if we have the necessary tokens
     if (!apiToken || !apiBaseUrl) {
-      console.log('No API configuration available - timezone saved locally only');
+      logger.debug('No API configuration available - timezone saved locally only');
       return true;
     }
     
@@ -65,7 +66,7 @@ export const TimezoneProvider = ({
       
       if (!response.ok) {
         // Don't revert local state - user preference is still valid locally
-        console.warn(`Failed to save timezone preference to API: ${response.status}`);
+        logger.warn(`Failed to save timezone preference to API: ${response.status}`);
         
         if (response.status === 401) {
           setError('Authentication expired - timezone saved locally');
@@ -76,11 +77,11 @@ export const TimezoneProvider = ({
         return false;
       }
       
-      console.log(`Timezone preference saved to API: ${safeTimezone}`);
+      logger.debug(`Timezone preference saved to API: ${safeTimezone}`);
       return true;
       
     } catch (error) {
-      console.error('Error updating timezone preference:', error);
+      logger.error('Error updating timezone preference:', error);
       setError('Network error - timezone saved locally');
       return false;
     } finally {
@@ -96,7 +97,7 @@ export const TimezoneProvider = ({
   const loadUserTimezone = useCallback(async () => {
     // Skip API call if no configuration
     if (!apiToken || !apiBaseUrl) {
-      console.log('No API configuration - using default timezone');
+      logger.debug('No API configuration - using default timezone');
       return;
     }
     
@@ -116,20 +117,20 @@ export const TimezoneProvider = ({
         if (savedTimezone) {
           const safeTimezone = getSafeTimezone(savedTimezone);
           setUserTimezone(safeTimezone);
-          console.log(`Loaded user timezone from API: ${safeTimezone}`);
+          logger.debug(`Loaded user timezone from API: ${safeTimezone}`);
         } else {
-          console.log('No saved timezone preference found - using default');
+          logger.debug('No saved timezone preference found - using default');
         }
       } else if (response.status === 404) {
-        console.log('User profile not found - using default timezone');
+        logger.debug('User profile not found - using default timezone');
       } else if (response.status === 401) {
-        console.log('Authentication expired - using default timezone');
+        logger.debug('Authentication expired - using default timezone');
         setError('Authentication expired');
       } else {
-        console.warn(`Failed to load user profile: ${response.status}`);
+        logger.warn(`Failed to load user profile: ${response.status}`);
       }
     } catch (error) {
-      console.error('Error loading user timezone:', error);
+      logger.error('Error loading user timezone:', error);
       setError('Failed to load timezone preference');
     } finally {
       setIsLoading(false);
