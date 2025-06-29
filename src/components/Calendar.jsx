@@ -16,6 +16,7 @@
   import './DayEventPanel.css';
   import DayEventPanel from './DayEventPanel';
   import eventDataService from '../services/eventDataService';
+  import eventCacheService from '../services/eventCacheService';
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
@@ -494,6 +495,50 @@
                 showRegistrationTimes={showRegistrationTimes}
                 onToggle={handleRegistrationTimesToggle}
               />
+              
+              {/* Cache Control Buttons (only show when API token is available) */}
+              {apiToken && (
+                <>
+                  <button 
+                    onClick={() => refreshEvents(false)}
+                    disabled={loading}
+                    style={{
+                      padding: '6px 14px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '6px',
+                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
+                      color: loading ? '#9ca3af' : '#111827',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Refresh events (cache-first)"
+                  >
+                    {loading ? '⏳' : '🔄'} Refresh
+                  </button>
+                  
+                  <button 
+                    onClick={() => refreshEvents(true)}
+                    disabled={loading}
+                    style={{
+                      padding: '6px 14px',
+                      border: '1px solid #dc2626',
+                      borderRadius: '6px',
+                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
+                      color: loading ? '#9ca3af' : '#dc2626',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Force refresh from Graph API (bypasses cache)"
+                  >
+                    {loading ? '⏳' : '🚀'} Force Refresh
+                  </button>
+                </>
+              )}
+              
               <button 
                 className="search-button" 
                 onClick={() => setShowSearch(true)}
@@ -1080,6 +1125,11 @@
             );
           }
         
+          // Get the actual calendar ID for this event
+          // If we're fetching from a specific calendar, use that ID
+          // Otherwise, try to get it from the event's calendar property
+          const eventCalendarId = selectedCalendarId || evt.calendar?.id || null;
+          
           return {
             id: evt.id,
             subject: evt.subject,
@@ -1091,8 +1141,9 @@
             location: { displayName: evt.location?.displayName || "" },
             category: evt.categories?.[0] || "Uncategorized",
             extensions: evt.extensions || [],
-            calendarId: selectedCalendarId,
-            calendarName: availableCalendars.find(c => c.id === selectedCalendarId)?.name,
+            calendarId: eventCalendarId,
+            calendarName: eventCalendarId ? 
+              availableCalendars.find(c => c.id === eventCalendarId)?.name : null,
             ...extData,
             // Include registration event data if it exists
             hasRegistrationEvent: evt.hasRegistrationEvent || false,
@@ -1151,6 +1202,43 @@
         logger.debug("[loadGraphEvents] events:", enrichedEvents);
         setAllEvents(enrichedEvents);
 
+        // Selectively cache uncached events (fire-and-forget to avoid performance issues)
+        if (apiToken && enrichedEvents.length > 0) {
+          // Use setTimeout to ensure this doesn't block the main loading flow
+          setTimeout(async () => {
+            try {
+              eventCacheService.setApiToken(apiToken);
+              
+              // Group events by calendar ID and cache each group separately
+              const eventsByCalendar = enrichedEvents.reduce((acc, event) => {
+                const calId = event.calendarId;
+                if (calId) { // Only cache events with valid calendar IDs
+                  if (!acc[calId]) acc[calId] = [];
+                  acc[calId].push(event);
+                }
+                return acc;
+              }, {});
+              
+              logger.debug('Selective caching for calendars:', Object.keys(eventsByCalendar));
+              logger.debug('Events without calendarId:', enrichedEvents.filter(e => !e.calendarId).map(e => ({id: e.id, subject: e.subject})));
+              
+              // Cache events for each calendar separately
+              for (const [calendarId, events] of Object.entries(eventsByCalendar)) {
+                try {
+                  const result = await eventCacheService.cacheUncachedEvents(events, calendarId);
+                  logger.debug(`Selective caching completed for calendar ${calendarId}:`, result);
+                } catch (cacheError) {
+                  logger.warn(`Selective caching failed for calendar ${calendarId}:`, cacheError);
+                }
+              }
+            } catch (cacheError) {
+              logger.warn('Selective caching failed (non-critical):', cacheError);
+            }
+          }, 500); // Small delay to let UI update first
+        }
+        
+        logger.debug('Events loaded from Graph API, selective caching initiated for uncached events');
+
         return true;
       } catch (err) {
         logger.error("loadGraphEvents failed:", err);
@@ -1160,15 +1248,93 @@
     }, [graphToken, dateRange, selectedCalendarId, availableCalendars, apiToken, schemaExtensions]);
 
     /**
-     * TBD
+     * Load events using cache-first approach with Graph API fallback
+     * @param {boolean} forceRefresh - Force refresh from Graph API
      */
-    const loadEvents = useCallback(async () => {
+    const loadEventsWithCache = useCallback(async (forceRefresh = false) => {
+      if (!graphToken) {
+        logger.debug("Missing graph token");
+        return false;
+      }
+
+      // If no calendar is selected, fall back to direct Graph API loading
+      if (!selectedCalendarId) {
+        logger.debug("No calendar selected, falling back to Graph API loading");
+        return await loadGraphEvents();
+      }
+
+      setLoading(true);
+      
+      try {
+        // Prepare parameters for cache query
+        const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
+
+        if (apiToken && !forceRefresh) {
+          // Try cache-first approach
+          eventCacheService.setApiToken(apiToken);
+          
+          try {
+            const cacheResult = await eventCacheService.loadEvents({
+              calendarId: selectedCalendarId,
+              startTime: start,
+              endTime: end,
+              forceRefresh: false
+            });
+            
+            if (cacheResult.source === 'cache' && cacheResult.events.length > 0) {
+              logger.debug('loadEventsWithCache: Using cached events', {
+                count: cacheResult.events.length,
+                cachedAt: cacheResult.cachedAt
+              });
+              setAllEvents(cacheResult.events);
+              
+              // Also check if there are any missing events in this date range that need caching
+              // by running a parallel Graph API call to fill gaps
+              setTimeout(async () => {
+                try {
+                  logger.debug('loadEventsWithCache: Checking for missing events in date range');
+                  const graphSuccess = await loadGraphEvents();
+                  if (graphSuccess) {
+                    logger.debug('loadEventsWithCache: Background Graph API call completed, events refreshed');
+                  }
+                } catch (error) {
+                  logger.warn('loadEventsWithCache: Background Graph API call failed:', error);
+                }
+              }, 1000); // Delay to avoid interfering with UI
+              
+              return true;
+            }
+          } catch (cacheError) {
+            logger.warn('loadEventsWithCache: Cache loading failed, falling back to Graph API', cacheError);
+          }
+        }
+
+        // Cache miss, stale data, or force refresh - use Graph API
+        logger.debug('loadEventsWithCache: Loading from Graph API', { forceRefresh });
+        const success = await loadGraphEvents();
+        
+        // Events are automatically cached in loadGraphEvents if successful
+
+        return success;
+      } catch (error) {
+        logger.error('loadEventsWithCache failed:', error);
+        return false;
+      } finally {
+        setLoading(false);
+      }
+    }, [graphToken, selectedCalendarId, apiToken, dateRange, formatDateRangeForAPI, loadGraphEvents]);
+
+    /**
+     * Enhanced load events with cache-first approach
+     * @param {boolean} forceRefresh - Force refresh from Graph API
+     */
+    const loadEvents = useCallback(async (forceRefresh = false) => {
       if (isDemoMode) {
         return await loadDemoEvents();
       } else {
-        return await loadGraphEvents();
+        return await loadEventsWithCache(forceRefresh);
       }
-    }, [isDemoMode, loadDemoEvents, loadGraphEvents]);
+    }, [isDemoMode, loadDemoEvents, loadEventsWithCache]);
 
     /**
      * Sync events to internal database 
@@ -1381,9 +1547,9 @@
         await loadSchemaExtensions();
         setLoadingState(prev => ({ ...prev, extensions: false }));
         
-        // Step 4: Finally load events
+        // Step 4: Finally load events (using cache-first approach)
         logger.debug("Step: Loading calendar events...");
-        await loadGraphEvents();
+        await loadEvents();
         setLoadingState(prev => ({ ...prev, events: false }));
         
         logger.debug("Application initialized successfully");
@@ -1401,6 +1567,60 @@
         setInitializing(false);
       }
     }, [graphToken, apiToken, loadUserProfile, loadOutlookCategories, loadSchemaExtensions, loadGraphEvents]);
+
+    //---------------------------------------------------------------------------
+    // CACHE MANAGEMENT FUNCTIONS
+    //---------------------------------------------------------------------------
+    
+    /**
+     * Refresh events with cache control
+     * @param {boolean} forceRefresh - Force refresh from Graph API
+     */
+    const refreshEvents = useCallback(async (forceRefresh = false) => {
+      logger.debug('refreshEvents called', { forceRefresh });
+      await loadEvents(forceRefresh);
+    }, [loadEvents]);
+
+    /**
+     * Invalidate cache for current calendar
+     */
+    const invalidateCurrentCalendarCache = useCallback(async () => {
+      if (!apiToken || !selectedCalendarId) {
+        logger.debug('Cannot invalidate cache: missing API token or calendar ID');
+        return;
+      }
+
+      try {
+        eventCacheService.setApiToken(apiToken);
+        await eventCacheService.invalidateCache({ calendarId: selectedCalendarId });
+        logger.debug('Cache invalidated for calendar:', selectedCalendarId);
+        
+        // Reload events after cache invalidation
+        await loadEvents(true);
+      } catch (error) {
+        logger.error('Failed to invalidate cache:', error);
+      }
+    }, [apiToken, selectedCalendarId, loadEvents]);
+
+    /**
+     * Get cache statistics for debugging
+     */
+    const getCacheStats = useCallback(async () => {
+      if (!apiToken) {
+        logger.debug('Cannot get cache stats: missing API token');
+        return null;
+      }
+
+      try {
+        eventCacheService.setApiToken(apiToken);
+        const stats = await eventCacheService.getCacheStats();
+        logger.debug('Cache statistics:', stats);
+        return stats;
+      } catch (error) {
+        logger.error('Failed to get cache stats:', error);
+        return null;
+      }
+    }, [apiToken]);
 
     //---------------------------------------------------------------------------
     // UTILITY/HELPER FUNCTIONS
@@ -2578,6 +2798,13 @@
           // Update the eventData object with the new main event ID for subsequent processing
           eventData.id = linkedEvents.mainEvent.id;
           
+          // Return the created event information for caching
+          const result = {
+            mainEventId: linkedEvents.mainEvent.id,
+            registrationEventId: linkedEvents.registrationEvent.id,
+            registrationCalendarId: registrationCalendar.id
+          };
+          
           // Store backup linking in internal data
           if (eventDataService.apiToken) {
             try {
@@ -2591,6 +2818,9 @@
               logger.error('Failed to store internal linking data:', error);
             }
           }
+          
+          // Return the result for caching
+          return result;
         } else {
           // For existing events, check if a linked registration event already exists
           const existingLinkedEvent = await findLinkedEvent(graphToken, eventData.id, calendarId);
@@ -2646,6 +2876,7 @@
       } catch (error) {
         logger.error('Error in handleRegistrationEventCreation:', error);
         // Don't throw - registration event creation is supplementary
+        return null;
       }
     };
 
@@ -2722,7 +2953,7 @@
         // For new events with registration, use createLinkedEvents directly
         if (!data.id && data.createRegistrationEvent && (data.setupMinutes > 0 || data.teardownMinutes > 0)) {
           // Skip the regular batch creation and use linked events creation instead
-          await handleRegistrationEventCreation({
+          const registrationResult = await handleRegistrationEventCreation({
             ...data,
             createRegistrationEvent: data.createRegistrationEvent,
             setupMinutes: data.setupMinutes,
@@ -2730,6 +2961,53 @@
             registrationNotes: data.registrationNotes,
             assignedTo: data.assignedTo
           }, targetCalendarId);
+          
+          // Cache the new registration events immediately
+          if (apiToken && registrationResult && targetCalendarId) {
+            setTimeout(async () => {
+              try {
+                eventCacheService.setApiToken(apiToken);
+                
+                // Cache the main event if created
+                if (registrationResult.mainEventId) {
+                  const mainEventForCache = {
+                    id: registrationResult.mainEventId,
+                    subject: data.subject,
+                    start: data.start,
+                    end: data.end,
+                    location: data.location,
+                    calendarId: targetCalendarId,
+                    category: data.category || "Uncategorized",
+                    extensions: data.extensions || [],
+                    lastModifiedDateTime: new Date().toISOString(),
+                    '@odata.etag': null
+                  };
+                  await eventCacheService.cacheSingleEvent(mainEventForCache, targetCalendarId);
+                  logger.debug('Cached new registration main event:', registrationResult.mainEventId);
+                }
+                
+                // Cache the registration event if created and we have its calendar
+                if (registrationResult.registrationEventId && registrationResult.registrationCalendarId) {
+                  const regEventForCache = {
+                    id: registrationResult.registrationEventId,
+                    subject: `Registration - ${data.subject}`,
+                    start: data.registrationStart || data.start,
+                    end: data.registrationEnd || data.end,
+                    location: data.location,
+                    calendarId: registrationResult.registrationCalendarId,
+                    category: "Registration",
+                    extensions: [],
+                    lastModifiedDateTime: new Date().toISOString(),
+                    '@odata.etag': null
+                  };
+                  await eventCacheService.cacheSingleEvent(regEventForCache, registrationResult.registrationCalendarId);
+                  logger.debug('Cached new registration event:', registrationResult.registrationEventId);
+                }
+              } catch (cacheError) {
+                logger.warn('Failed to cache new registration events:', cacheError);
+              }
+            }, 100);
+          }
         } else {
           // For existing events or events without registration, use normal batch update
           const createdEvent = await patchEventBatch(data.id, core, ext, targetCalendarId, internal);
@@ -2748,8 +3026,38 @@
           }
         }
         
-        // Refresh API events
-        await loadGraphEvents();
+        // Reload events and cache only the modified event
+        await loadEvents();
+        
+        // Cache the specific updated/created event immediately using the data we have
+        if (apiToken && data.id && targetCalendarId) {
+          // Cache immediately in the background
+          setTimeout(async () => {
+            try {
+              eventCacheService.setApiToken(apiToken);
+              
+              // Create event object for caching with the data we know
+              const eventForCache = {
+                id: data.id,
+                subject: data.subject,
+                start: data.start,
+                end: data.end,
+                location: data.location,
+                calendarId: targetCalendarId,
+                // Include other properties that might be needed
+                category: data.category || "Uncategorized",
+                extensions: data.extensions || [],
+                lastModifiedDateTime: new Date().toISOString(),
+                '@odata.etag': data['@odata.etag'] || null
+              };
+              
+              await eventCacheService.cacheSingleEvent(eventForCache, targetCalendarId);
+              logger.debug('Cached updated/created event individually:', data.id, 'in calendar:', targetCalendarId);
+            } catch (cacheError) {
+              logger.warn('Failed to cache updated/created event:', cacheError);
+            }
+          }, 100);
+        }
         
         logger.debug(`[handleSaveApiEvent] ${data.id ? 'Updated' : 'Created'} API event:`, data.subject);
         return true;
@@ -2929,8 +3237,18 @@
         // Update local state immediately
         setAllEvents(allEvents.filter(event => event.id !== eventId));
         
-        // Reload API events to ensure consistency
-        await loadGraphEvents();
+        // Remove deleted event from cache
+        if (apiToken) {
+          try {
+            eventCacheService.setApiToken(apiToken);
+            await eventCacheService.invalidateCache({ eventIds: [eventId] });
+            logger.debug('Deleted event removed from cache:', eventId);
+          } catch (cacheError) {
+            logger.warn('Failed to remove deleted event from cache:', cacheError);
+          }
+        }
+        
+        await loadEvents(); // Use cache-first approach for reload
         
         logger.debug(`[handleDeleteApiEvent] Deleted API event:`, eventId);
         return true;
@@ -3051,7 +3369,8 @@
         
         loadEvents();
       }
-    }, [dateRangeString, graphToken, dateRange.end, dateRange.start, initializing, loadEvents]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dateRangeString, graphToken, initializing]);
 
     useEffect(() => {
       if (selectedCalendarId && !initializing && graphToken) {
@@ -3077,21 +3396,21 @@
 
     // Update selected locations when dynamic locations change
     useEffect(() => {
-      if (dynamicLocations.length > 0) {
-        // Select all locations by default
+      if (dynamicLocations.length > 0 && selectedLocations.length === 0) {
+        // Only select all locations by default if none are currently selected
         setSelectedLocations(dynamicLocations);
         logger.debug("Updated selected locations based on dynamic locations from events");
       }
-    }, [dynamicLocations]);
+    }, [dynamicLocations, selectedLocations.length]);
 
     // Update selected categories when Outlook categories change
     useEffect(() => {
-      if (dynamicCategories.length > 0) {
-        // Select all categories by default
+      if (dynamicCategories.length > 0 && selectedCategories.length === 0) {
+        // Only select all categories by default if none are currently selected
         setSelectedCategories(dynamicCategories);
         logger.debug("Updated selected categories based on dynamic categories from events");
       }
-    }, [dynamicCategories]);
+    }, [dynamicCategories, selectedCategories.length]);
 
     
 

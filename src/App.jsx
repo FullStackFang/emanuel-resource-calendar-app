@@ -9,6 +9,7 @@ import CalendarSelector from './components/CalendarSelector';
 import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
 import UserAdmin from './components/UserAdmin';
 import EventSyncAdmin from './components/EventSyncAdmin';
+import CacheAdmin from './components/CacheAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
@@ -202,6 +203,7 @@ function App() {
                     changingCalendar={changingCalendar}
                   />
                 } />
+                <Route path="/admin/cache" element={<CacheAdmin apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </TimezoneProvider>

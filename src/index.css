@@ -13,6 +13,36 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Custom Scrollbars for the entire application */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
+  border: 1px solid #f7fafc;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: #f7fafc;
+}
+
 a {
   font-weight: 500;
   color: #646cff;

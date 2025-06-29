@@ -110,6 +110,15 @@ export default function Navigation({
                 Event Sync
               </NavLink>
             </li>
+              <li>
+                <NavLink 
+                  to="/admin/cache" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Cache Management
+                </NavLink>
+              </li>
             </ul>
           )}
         </li>
