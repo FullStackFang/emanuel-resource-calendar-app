@@ -10,6 +10,7 @@ import SchemaExtensionAdmin from './components/SchemaExtensionAdmin';
 import UserAdmin from './components/UserAdmin';
 import EventSyncAdmin from './components/EventSyncAdmin';
 import CacheAdmin from './components/CacheAdmin';
+import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
@@ -204,6 +205,7 @@ function App() {
                   />
                 } />
                 <Route path="/admin/cache" element={<CacheAdmin apiToken={apiToken} />} />
+                <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </TimezoneProvider>

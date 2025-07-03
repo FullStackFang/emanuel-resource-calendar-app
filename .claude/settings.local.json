@@ -20,7 +20,13 @@
       "Bash(npm run build:*)",
       "Bash(sed:*)",
       "Bash(pkill:*)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(git add:*)",
+      "WebFetch(domain:docs.microsoft.com)",
+      "Bash(ss:*)",
+      "Bash(cat:*)",
+      "Bash(npm start)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

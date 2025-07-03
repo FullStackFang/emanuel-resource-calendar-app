@@ -29,7 +29,7 @@ app.use(cors({
     process.env.FRONTEND_URL || webAppURL
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token'],
   credentials: true,
   exposedHeaders: ['Authorization'],
   preflightContinue: false,
@@ -41,7 +41,7 @@ app.use(express.json());
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.sendStatus(204);
 });
@@ -49,6 +49,21 @@ app.options('*', (req, res) => {
 // Log all incoming requests for debugging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  
+  // Special detailed logging for delta sync requests
+  if (req.url.includes('/events/sync-delta')) {
+    logger.debug('Incoming delta sync request details:', {
+      method: req.method,
+      url: req.url,
+      headers: {
+        'authorization': req.headers.authorization ? 'Bearer [PRESENT]' : 'MISSING',
+        'x-graph-token': req.headers['x-graph-token'] ? '[PRESENT]' : 'MISSING',
+        'content-type': req.headers['content-type']
+      },
+      bodyPreview: req.method === 'POST' ? 'Will be logged in handler' : 'N/A'
+    });
+  }
+  
   next();
 });
 
@@ -62,8 +77,10 @@ const client = new MongoClient(connectionString, {
 });
 let db;
 let usersCollection;
-let internalEventsCollection;
-let eventCacheCollection;
+let internalEventsCollection; // TODO: Remove after migration
+let eventCacheCollection; // TODO: Remove after migration
+let unifiedEventsCollection; // New unified collection
+let calendarDeltasCollection; // Delta token storage
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -151,6 +168,122 @@ async function createEventCacheIndexes() {
   }
 }
 
+/**
+ * Create indexes for the unified events collection for optimal performance
+ */
+async function createUnifiedEventIndexes() {
+  try {
+    console.log('Creating unified event indexes...');
+    
+    // Unique index to prevent duplicate events
+    await unifiedEventsCollection.createIndex(
+      { 
+        userId: 1, 
+        calendarId: 1, 
+        eventId: 1 
+      },
+      { 
+        name: "userId_calendarId_eventId_unique",
+        unique: true,
+        background: true 
+      }
+    );
+    
+    // Index for efficient date range queries
+    await unifiedEventsCollection.createIndex(
+      { 
+        userId: 1, 
+        calendarId: 1, 
+        "graphData.start.dateTime": 1 
+      },
+      { 
+        name: "userId_calendarId_startTime",
+        background: true 
+      }
+    );
+    
+    // Index for ETag-based change detection
+    await unifiedEventsCollection.createIndex(
+      { 
+        userId: 1, 
+        eventId: 1, 
+        etag: 1 
+      },
+      { 
+        name: "userId_eventId_etag",
+        background: true 
+      }
+    );
+    
+    // Index for finding deleted events
+    await unifiedEventsCollection.createIndex(
+      { 
+        userId: 1, 
+        isDeleted: 1 
+      },
+      { 
+        name: "userId_isDeleted",
+        background: true,
+        sparse: true
+      }
+    );
+    
+    // Index for multi-calendar source tracking
+    await unifiedEventsCollection.createIndex(
+      { 
+        userId: 1, 
+        "sourceCalendars.calendarId": 1 
+      },
+      { 
+        name: "userId_sourceCalendars",
+        background: true 
+      }
+    );
+    
+    console.log('Unified event indexes created successfully');
+  } catch (error) {
+    console.error('Error creating unified event indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the calendar deltas collection
+ */
+async function createCalendarDeltaIndexes() {
+  try {
+    console.log('Creating calendar delta indexes...');
+    
+    // Unique index for delta tokens
+    await calendarDeltasCollection.createIndex(
+      { 
+        userId: 1, 
+        calendarId: 1 
+      },
+      { 
+        name: "userId_calendarId_unique",
+        unique: true,
+        background: true 
+      }
+    );
+    
+    // Index for finding stale delta tokens
+    await calendarDeltasCollection.createIndex(
+      { 
+        userId: 1, 
+        lastDeltaSync: 1 
+      },
+      { 
+        name: "userId_lastDeltaSync",
+        background: true 
+      }
+    );
+    
+    console.log('Calendar delta indexes created successfully');
+  } catch (error) {
+    console.error('Error creating calendar delta indexes:', error);
+  }
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
@@ -159,10 +292,16 @@ async function connectToDatabase() {
     
     db = client.db('emanuelnyc');
     usersCollection = db.collection('templeEvents__Users');
-    internalEventsCollection = db.collection('templeEvents__InternalEvents');
-    eventCacheCollection = db.collection('templeEvents__EventCache');
+    internalEventsCollection = db.collection('templeEvents__InternalEvents'); // TODO: Remove after migration
+    eventCacheCollection = db.collection('templeEvents__EventCache'); // TODO: Remove after migration
+    unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
+    calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
     
-    // Create indexes for event cache collection
+    // Create indexes for new unified collections
+    await createUnifiedEventIndexes();
+    await createCalendarDeltaIndexes();
+    
+    // Keep old indexes for now during migration
     await createEventCacheIndexes();
     
     console.log('Database and collections initialized');
@@ -265,157 +404,6 @@ const verifyToken = async (req, res, next) => {
 // ============================================
 // Sync events from Microsoft Graph to internal database (Admin only)
 // Sync events from Microsoft Graph to internal database (Admin only)
-app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
-  try {
-    // Check if user is admin
-    const user = await usersCollection.findOne({ userId: req.user.userId });
-    if (!user?.preferences?.isAdmin && !user?.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    const { events, calendarId } = req.body;
-    
-    if (!events || !Array.isArray(events)) {
-      return res.status(400).json({ error: 'Events array is required' });
-    }
-    
-    console.log(`Syncing ${events.length} events for calendar ${calendarId}`);
-    
-    const syncResults = {
-      created: 0,
-      updated: 0,
-      skipped: 0, // Add skipped counter
-      errors: []
-    };
-    
-    // Define how recent is "recently synced" (e.g., 5 minutes)
-    const SYNC_THRESHOLD_MINUTES = 5;
-    const syncThreshold = new Date(Date.now() - SYNC_THRESHOLD_MINUTES * 60 * 1000);
-    
-    for (const graphEvent of events) {
-      try {
-        // Check if internal event already exists
-        const existingEvent = await internalEventsCollection.findOne({
-          graphEventId: graphEvent.id
-        });
-        
-        const now = new Date();
-        
-        if (existingEvent) {
-          // Check if event was recently synced
-          if (existingEvent.lastSyncedAt > syncThreshold) {
-            console.log(`Skipping event ${graphEvent.id} - synced ${existingEvent.lastSyncedAt}`);
-            syncResults.skipped++;
-            continue;
-          }
-          
-          // Check if the event has actually changed
-          const graphModifiedTime = new Date(graphEvent.lastModifiedDateTime || 0);
-          const lastSyncTime = new Date(existingEvent.lastSyncedAt);
-          
-          if (graphModifiedTime <= lastSyncTime) {
-            console.log(`Skipping event ${graphEvent.id} - no changes since last sync`);
-            syncResults.skipped++;
-            continue;
-          }
-          
-          // Update only external data, preserve internal fields
-          const updateData = {
-            calendarId: calendarId || graphEvent.calendarId,
-            externalData: {
-              subject: graphEvent.subject,
-              start: graphEvent.start,
-              end: graphEvent.end,
-              location: graphEvent.location || { displayName: '' },
-              categories: graphEvent.category ? [graphEvent.category] : [],
-              lastModifiedDateTime: graphEvent.lastModifiedDateTime || now.toISOString()
-            },
-            lastSyncedAt: now,
-            syncStatus: 'synced',
-            updatedAt: now
-          };
-          
-          // If event was marked as deleted, unmark it since it exists in Graph
-          if (existingEvent.isDeleted) {
-            updateData.isDeleted = false;
-          }
-          
-          await internalEventsCollection.updateOne(
-            { graphEventId: graphEvent.id },
-            { $set: updateData }
-          );
-          
-          syncResults.updated++;
-        } else {
-          // Create new internal event with default internal fields
-          const newInternalEvent = {
-            graphEventId: graphEvent.id,
-            calendarId: calendarId || graphEvent.calendarId,
-            externalData: {
-              subject: graphEvent.subject,
-              start: graphEvent.start,
-              end: graphEvent.end,
-              location: graphEvent.location || { displayName: '' },
-              categories: graphEvent.category ? [graphEvent.category] : [],
-              lastModifiedDateTime: graphEvent.lastModifiedDateTime || now.toISOString()
-            },
-            internalData: {
-              mecCategories: [],
-              setupStartTime: null,
-              doorStartTime: null,
-              teardownEndTime: null,
-              staffAssignments: [],
-              internalNotes: '',
-              setupStatus: 'pending',
-              estimatedCost: null,
-              actualCost: null,
-              customFields: {}
-            },
-            isDeleted: false,
-            lastSyncedAt: now,
-            syncStatus: 'synced',
-            createdAt: now,
-            updatedAt: now
-          };
-          
-          await internalEventsCollection.insertOne(newInternalEvent);
-          syncResults.created++;
-        }
-      } catch (error) {
-        console.error(`Error syncing event ${graphEvent.id}:`, error);
-        syncResults.errors.push({
-          eventId: graphEvent.id,
-          error: error.message
-        });
-      }
-    }
-    
-    // Mark events as deleted if they weren't in the sync
-    const syncedEventIds = events.map(e => e.id);
-    await internalEventsCollection.updateMany(
-      {
-        calendarId: calendarId,
-        graphEventId: { $nin: syncedEventIds },
-        isDeleted: false
-      },
-      {
-        $set: {
-          isDeleted: true,
-          updatedAt: new Date()
-        }
-      }
-    );
-    
-    console.log('Sync completed:', syncResults);
-    res.status(200).json({
-      message: 'Sync completed',
-      results: syncResults
-    });
-  } catch (error) {
-    console.error('Error syncing events:', error);
-    res.status(500).json({ error: 'Failed to sync events' });
-  }
-});
 
 // Get synced events for a calendar
 // Update the GET /api/internal-events endpoint in api-server.js
@@ -434,15 +422,15 @@ app.get('/api/internal-events', verifyToken, async (req, res) => {
     }
     
     // Remove the sort to avoid index issues with Cosmos DB
-    const events = await internalEventsCollection
+    const events = await unifiedEventsCollection
       .find(query)
       .limit(100)
       .toArray();
     
     // Sort in memory instead
     events.sort((a, b) => {
-      const dateA = new Date(a.externalData?.start?.dateTime || 0);
-      const dateB = new Date(b.externalData?.start?.dateTime || 0);
+      const dateA = new Date(a.graphData?.start?.dateTime || 0);
+      const dateB = new Date(b.graphData?.start?.dateTime || 0);
       return dateA - dateB;
     });
     
@@ -457,22 +445,35 @@ app.get('/api/internal-events', verifyToken, async (req, res) => {
 app.post('/api/internal-events/enrich', verifyToken, async (req, res) => {
   try {
     const { eventIds } = req.body;
+    const userId = req.user.userId;
     
     if (!eventIds || !Array.isArray(eventIds)) {
       return res.status(400).json({ error: 'eventIds array is required' });
     }
     
-    // Fetch internal events
-    const internalEvents = await internalEventsCollection.find({
-      graphEventId: { $in: eventIds },
+    logger.log(`Enriching ${eventIds.length} events with internal data for user ${userId}`);
+    
+    // Fetch internal events - MUST filter by userId for security and correctness
+    const internalEvents = await unifiedEventsCollection.find({
+      userId: userId,
+      eventId: { $in: eventIds },
       isDeleted: false
     }).toArray();
+    
+    logger.debug(`Found ${internalEvents.length} internal event records for enrichment out of ${eventIds.length} requested`);
+    
+    // Log which events were not found for debugging
+    if (internalEvents.length < eventIds.length) {
+      const foundEventIds = internalEvents.map(e => e.eventId);
+      const missingEventIds = eventIds.filter(id => !foundEventIds.includes(id));
+      logger.warn(`Missing ${missingEventIds.length} events in unified collection:`, missingEventIds.slice(0, 5)); // Log first 5
+    }
     
     // Create a map for easy lookup
     const enrichmentMap = {};
     
     internalEvents.forEach(event => {
-      enrichmentMap[event.graphEventId] = {
+      enrichmentMap[event.eventId] = {
         ...event.internalData,
         _lastSyncedAt: event.lastSyncedAt,
         _internalId: event._id
@@ -491,8 +492,9 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
   try {
     const { graphEventId } = req.params;
     const updates = req.body;
+    const userId = req.user.userId;
     
-    console.log(`Updating internal data for event ${graphEventId}:`, updates);
+    console.log(`Updating internal data for event ${graphEventId} for user ${userId}:`, updates);
     
     // Define which fields can be updated
     const allowedFields = [
@@ -519,46 +521,62 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
       }
     });
     
-    const result = await internalEventsCollection.updateOne(
-      { graphEventId: graphEventId },
+    const result = await unifiedEventsCollection.updateOne(
+      { 
+        userId: userId,
+        eventId: graphEventId 
+      },
       { $set: updateData }
     );
     
     if (result.matchedCount === 0) {
-      // Event doesn't exist in internal DB, create it with minimal data
+      // Event doesn't exist in unified DB, create it with minimal data
       const newEvent = {
-        graphEventId: graphEventId,
-        externalData: {
+        eventId: graphEventId,
+        userId: req.user.userId,
+        calendarId: 'unknown',
+        graphData: {
+          id: graphEventId,
           subject: 'Unsynced Event',
           start: { dateTime: new Date().toISOString() },
-          end: { dateTime: new Date().toISOString() }
+          end: { dateTime: new Date().toISOString() },
+          location: { displayName: '' },
+          categories: [],
+          bodyPreview: '',
+          importance: 'normal',
+          showAs: 'busy',
+          sensitivity: 'normal',
+          isAllDay: false,
+          lastModifiedDateTime: new Date().toISOString(),
+          createdDateTime: new Date().toISOString()
         },
         internalData: {
           mecCategories: [],
-          setupStartTime: null,
-          doorStartTime: null,
-          teardownEndTime: null,
-          staffAssignments: [],
+          setupMinutes: 0,
+          teardownMinutes: 0,
+          registrationNotes: '',
+          assignedTo: '',
           internalNotes: '',
           setupStatus: 'pending',
           estimatedCost: null,
           actualCost: null,
-          customFields: {},
           ...updates // Apply the updates
         },
+        sourceCalendars: [],
         isDeleted: false,
         lastSyncedAt: new Date(),
-        syncStatus: 'pending', // Mark as pending since it wasn't synced
+        lastAccessedAt: new Date(),
+        cachedAt: new Date(),
         createdAt: new Date(),
         updatedAt: new Date()
       };
       
-      await internalEventsCollection.insertOne(newEvent);
-      return res.status(201).json({ message: 'Created new internal event', event: newEvent });
+      await unifiedEventsCollection.insertOne(newEvent);
+      return res.status(201).json({ message: 'Created new unified event', event: newEvent });
     }
     
     // Return the updated event
-    const updatedEvent = await internalEventsCollection.findOne({ graphEventId });
+    const updatedEvent = await unifiedEventsCollection.findOne({ eventId: graphEventId });
     res.status(200).json(updatedEvent);
   } catch (error) {
     console.error('Error updating internal event:', error);
@@ -566,11 +584,13 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
   }
 });
 
+// Legacy sync endpoint removed - now using unified manual sync endpoint
+
 // Get available MEC categories
 app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => {
   try {
     // Get distinct MEC categories from all events
-    const categories = await internalEventsCollection.distinct('internalData.mecCategories');
+    const categories = await unifiedEventsCollection.distinct('internalData.mecCategories');
     
     // Filter out null/empty values and sort
     const cleanCategories = categories
@@ -595,9 +615,9 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
     
     // Check if collection exists, if not return empty stats
     try {
-      const totalEvents = await internalEventsCollection.countDocuments({});
-      const deletedEvents = await internalEventsCollection.countDocuments({ isDeleted: true });
-      const lastSync = await internalEventsCollection.findOne(
+      const totalEvents = await unifiedEventsCollection.countDocuments({});
+      const deletedEvents = await unifiedEventsCollection.countDocuments({ isDeleted: true });
+      const lastSync = await unifiedEventsCollection.findOne(
         {},
         { sort: { lastSyncedAt: -1 } }
       );
@@ -610,7 +630,7 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
       });
     } catch (collectionError) {
       // Collection might not exist yet
-      console.log('Internal events collection might not exist yet:', collectionError.message);
+      console.log('Unified events collection might not exist yet:', collectionError.message);
       res.status(200).json({
         totalEvents: 0,
         activeEvents: 0,
@@ -653,6 +673,12 @@ async function cacheEvent(userId, calendarId, eventData, internalData = null) {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (CACHE_CONFIG.DEFAULT_TTL_HOURS * 60 * 60 * 1000));
     
+    // Validate required fields
+    if (!userId || !calendarId || !eventData.id) {
+      logger.error('cacheEvent: Missing required fields', { userId, calendarId, eventId: eventData.id });
+      throw new Error('Missing required fields for caching');
+    }
+    
     const cacheEntry = {
       userId: userId,
       calendarId: calendarId,
@@ -669,8 +695,16 @@ async function cacheEvent(userId, calendarId, eventData, internalData = null) {
       lastAccessedAt: now
     };
     
+    logger.debug(`cacheEvent: Caching event`, {
+      userId,
+      calendarId,
+      eventId: eventData.id,
+      subject: eventData.subject,
+      expiresAt: expiresAt.toISOString()
+    });
+    
     // Use upsert to handle updates
-    await eventCacheCollection.replaceOne(
+    const result = await eventCacheCollection.replaceOne(
       { 
         userId: userId, 
         calendarId: calendarId, 
@@ -680,10 +714,22 @@ async function cacheEvent(userId, calendarId, eventData, internalData = null) {
       { upsert: true }
     );
     
-    logger.debug(`Cached event: ${eventData.subject} (${eventData.id})`);
+    logger.debug(`cacheEvent: Successfully cached`, {
+      eventId: eventData.id,
+      matched: result.matchedCount,
+      modified: result.modifiedCount,
+      upserted: result.upsertedCount
+    });
+    
     return cacheEntry;
   } catch (error) {
-    logger.error('Error caching event:', error);
+    logger.error('cacheEvent: Error caching event', {
+      error: error.message,
+      userId,
+      calendarId,
+      eventId: eventData?.id,
+      subject: eventData?.subject
+    });
     throw error;
   }
 }
@@ -698,14 +744,32 @@ async function getCachedEvents(userId, calendarId, startDate, endDate) {
     const query = {
       userId: userId,
       calendarId: calendarId,
-      "eventData.start.dateTime": {
-        $gte: startDate.toISOString(),
-        $lte: endDate.toISOString()
-      },
+      // Find events that overlap with the date range
+      // An event overlaps if: event.start < range.end AND event.end > range.start
+      $and: [
+        {
+          "eventData.start.dateTime": { $lt: endDate.toISOString() }
+        },
+        {
+          "eventData.end.dateTime": { $gt: startDate.toISOString() }
+        }
+      ],
       expiresAt: { $gt: now } // Only non-expired events
     };
     
+    logger.debug('getCachedEvents: Query parameters', {
+      userId,
+      calendarId,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      now: now.toISOString()
+    });
+    
     const cachedEvents = await eventCacheCollection.find(query).toArray();
+    
+    logger.debug(`getCachedEvents: Found ${cachedEvents.length} cached events`, {
+      eventIds: cachedEvents.slice(0, 5).map(e => ({ id: e.eventId, subject: e.eventData?.subject }))
+    });
     
     // Update last accessed time for LRU
     if (cachedEvents.length > 0) {
@@ -720,7 +784,6 @@ async function getCachedEvents(userId, calendarId, startDate, endDate) {
       );
     }
     
-    logger.debug(`Found ${cachedEvents.length} cached events for date range`);
     return cachedEvents;
   } catch (error) {
     logger.error('Error getting cached events:', error);
@@ -756,6 +819,854 @@ async function getStaleEvents(userId, calendarId, eventIds) {
     return eventIds; // Fallback to refreshing all events
   }
 }
+
+// ============================================
+// UNIFIED EVENT STORAGE WITH DELTA SYNC
+// ============================================
+
+/**
+ * Get or create delta token for a calendar
+ */
+async function getDeltaToken(userId, calendarId) {
+  try {
+    const deltaRecord = await calendarDeltasCollection.findOne({
+      userId: userId,
+      calendarId: calendarId
+    });
+    
+    return deltaRecord || {
+      userId: userId,
+      calendarId: calendarId,
+      deltaToken: null,
+      skipToken: null,
+      lastDeltaSync: null,
+      fullSyncRequired: true
+    };
+  } catch (error) {
+    logger.error('Error getting delta token:', error);
+    return {
+      userId: userId,
+      calendarId: calendarId,
+      deltaToken: null,
+      skipToken: null,
+      lastDeltaSync: null,
+      fullSyncRequired: true
+    };
+  }
+}
+
+/**
+ * Update delta token after successful sync
+ */
+async function updateDeltaToken(userId, calendarId, deltaToken, skipToken = null) {
+  try {
+    const now = new Date();
+    const update = {
+      userId: userId,
+      calendarId: calendarId,
+      deltaToken: deltaToken,
+      skipToken: skipToken,
+      lastDeltaSync: now,
+      fullSyncRequired: false,
+      updatedAt: now
+    };
+    
+    await calendarDeltasCollection.replaceOne(
+      { userId: userId, calendarId: calendarId },
+      update,
+      { upsert: true }
+    );
+    
+    logger.debug('Updated delta token for calendar', { userId, calendarId, deltaToken: deltaToken?.substring(0, 20) + '...' });
+  } catch (error) {
+    logger.error('Error updating delta token:', error);
+    throw error;
+  }
+}
+
+/**
+ * Reset delta token to force full sync
+ */
+async function resetDeltaToken(userId, calendarId) {
+  try {
+    await calendarDeltasCollection.updateOne(
+      { userId: userId, calendarId: calendarId },
+      {
+        $set: {
+          deltaToken: null,
+          skipToken: null,
+          fullSyncRequired: true,
+          lastDeltaSync: null,
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+    
+    logger.debug('Reset delta token for calendar', { userId, calendarId });
+  } catch (error) {
+    logger.error('Error resetting delta token:', error);
+    throw error;
+  }
+}
+
+/**
+ * Store or update event in unified collection
+ */
+async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData = {}, sourceCalendars = []) {
+  try {
+    const now = new Date();
+    
+    // Ensure sourceCalendars includes current calendar
+    const updatedSourceCalendars = [...sourceCalendars];
+    if (!updatedSourceCalendars.find(sc => sc.calendarId === calendarId)) {
+      updatedSourceCalendars.push({
+        calendarId: calendarId,
+        calendarName: calendarId === 'primary' ? 'Primary Calendar' : 'Shared Calendar',
+        role: calendarId.includes('TempleRegistration') ? 'shared' : 'primary'
+      });
+    }
+    
+    const unifiedEvent = {
+      userId: userId,
+      calendarId: calendarId,
+      eventId: graphEvent.id,
+      
+      // Graph API data (source of truth)
+      graphData: {
+        id: graphEvent.id,
+        subject: graphEvent.subject,
+        start: graphEvent.start,
+        end: graphEvent.end,
+        location: graphEvent.location || { displayName: '' },
+        categories: graphEvent.categories || [],
+        bodyPreview: graphEvent.bodyPreview || '',
+        importance: graphEvent.importance || 'normal',
+        showAs: graphEvent.showAs || 'busy',
+        sensitivity: graphEvent.sensitivity || 'normal',
+        isAllDay: graphEvent.isAllDay || false,
+        organizer: graphEvent.organizer,
+        attendees: graphEvent.attendees || [],
+        lastModifiedDateTime: graphEvent.lastModifiedDateTime,
+        createdDateTime: graphEvent.createdDateTime,
+        extensions: graphEvent.extensions || [],
+        singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || []
+      },
+      
+      // Internal enrichments
+      internalData: {
+        mecCategories: internalData.mecCategories || [],
+        setupMinutes: internalData.setupMinutes || 0,
+        teardownMinutes: internalData.teardownMinutes || 0,
+        registrationNotes: internalData.registrationNotes || '',
+        assignedTo: internalData.assignedTo || '',
+        staffAssignments: internalData.staffAssignments || [],
+        internalNotes: internalData.internalNotes || '',
+        setupStatus: internalData.setupStatus || 'pending',
+        estimatedCost: internalData.estimatedCost,
+        actualCost: internalData.actualCost,
+        customFields: internalData.customFields || {}
+      },
+      
+      // Change tracking
+      etag: graphEvent['@odata.etag'] || null,
+      changeKey: graphEvent.changeKey || null,
+      lastModifiedDateTime: new Date(graphEvent.lastModifiedDateTime || now),
+      lastSyncedAt: now,
+      
+      // Multi-calendar support
+      sourceCalendars: updatedSourceCalendars,
+      
+      // Status
+      isDeleted: false,
+      cachedAt: now,
+      lastAccessedAt: now
+    };
+    
+    // Use upsert to handle updates while preserving internal data
+    const result = await unifiedEventsCollection.replaceOne(
+      { 
+        userId: userId, 
+        eventId: graphEvent.id 
+      },
+      unifiedEvent,
+      { upsert: true }
+    );
+    
+    logger.debug(`Upserted unified event: ${graphEvent.subject}`, {
+      eventId: graphEvent.id,
+      matched: result.matchedCount,
+      modified: result.modifiedCount,
+      upserted: result.upsertedCount
+    });
+    
+    return unifiedEvent;
+  } catch (error) {
+    logger.error('Error upserting unified event:', error);
+    throw error;
+  }
+}
+
+/**
+ * Merge events from multiple calendars and enhance with internal data
+ * This function handles the case where the same event exists in both the user's calendar
+ * and the TempleRegistration shared calendar, combining the data intelligently
+ */
+async function mergeEventFromMultipleCalendars(userId, eventId, newGraphEvent, newCalendarId) {
+  try {
+    // Find existing unified event
+    const existingEvent = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!existingEvent) {
+      // No existing event, create new one
+      logger.debug(`Creating new unified event: ${eventId}`);
+      return await upsertUnifiedEvent(userId, newCalendarId, newGraphEvent);
+    }
+
+    // Event exists - merge data from multiple calendars
+    logger.debug(`Merging event data from multiple calendars: ${eventId}`, {
+      existingCalendars: existingEvent.sourceCalendars?.map(sc => sc.calendarId),
+      newCalendar: newCalendarId
+    });
+
+    // Determine which calendar should be primary source of truth
+    const isNewCalendarTempleRegistration = newCalendarId.toLowerCase().includes('templeregistration');
+    const existingTempleRegistrationCalendar = existingEvent.sourceCalendars?.find(sc => 
+      sc.calendarId.toLowerCase().includes('templeregistration')
+    );
+
+    // Merge internal data from TempleRegistration calendar
+    let enhancedInternalData = { ...existingEvent.internalData };
+    
+    if (isNewCalendarTempleRegistration) {
+      // New event is from TempleRegistration - extract setup/teardown info
+      const setupInfo = extractSetupTeardownInfo(newGraphEvent);
+      enhancedInternalData = {
+        ...enhancedInternalData,
+        ...setupInfo,
+        registrationNotes: newGraphEvent.bodyPreview || enhancedInternalData.registrationNotes,
+        // Preserve existing internal notes and combine with new ones
+        internalNotes: combineNotes(enhancedInternalData.internalNotes, newGraphEvent.bodyPreview)
+      };
+    }
+
+    // Update source calendars list
+    const updatedSourceCalendars = [...(existingEvent.sourceCalendars || [])];
+    if (!updatedSourceCalendars.find(sc => sc.calendarId === newCalendarId)) {
+      updatedSourceCalendars.push({
+        calendarId: newCalendarId,
+        calendarName: isNewCalendarTempleRegistration ? 'TempleRegistration' : 'User Calendar',
+        role: isNewCalendarTempleRegistration ? 'shared' : 'primary'
+      });
+    }
+
+    // Use the most recent event data as the primary source
+    const primaryGraphEvent = new Date(newGraphEvent.lastModifiedDateTime) > new Date(existingEvent.lastModifiedDateTime) 
+      ? newGraphEvent 
+      : existingEvent.graphData;
+
+    // Update the unified event with merged data
+    return await upsertUnifiedEvent(
+      userId,
+      newCalendarId,
+      primaryGraphEvent,
+      enhancedInternalData,
+      updatedSourceCalendars
+    );
+
+  } catch (error) {
+    logger.error('Error merging event from multiple calendars:', error);
+    throw error;
+  }
+}
+
+/**
+ * Extract setup and teardown time information from TempleRegistration event
+ */
+function extractSetupTeardownInfo(graphEvent) {
+  const setupTeardownInfo = {
+    setupMinutes: 0,
+    teardownMinutes: 0
+  };
+
+  // Look for setup/teardown info in the event subject, body, or categories
+  const textToSearch = [
+    graphEvent.subject || '',
+    graphEvent.bodyPreview || '',
+    ...(graphEvent.categories || [])
+  ].join(' ').toLowerCase();
+
+  // Extract setup time (look for patterns like "Setup: 30 min", "30 min setup", etc.)
+  const setupMatches = textToSearch.match(/setup[:\s]*(\d+)\s*min/i) || 
+                      textToSearch.match(/(\d+)\s*min[:\s]*setup/i);
+  if (setupMatches) {
+    setupTeardownInfo.setupMinutes = parseInt(setupMatches[1]);
+  }
+
+  // Extract teardown time
+  const teardownMatches = textToSearch.match(/teardown[:\s]*(\d+)\s*min/i) || 
+                         textToSearch.match(/(\d+)\s*min[:\s]*teardown/i);
+  if (teardownMatches) {
+    setupTeardownInfo.teardownMinutes = parseInt(teardownMatches[1]);
+  }
+
+  // Look for total time info and infer setup/teardown if not explicitly stated
+  const totalTimeMatches = textToSearch.match(/total[:\s]*(\d+)\s*min/i);
+  if (totalTimeMatches && !setupMatches && !teardownMatches) {
+    const totalMinutes = parseInt(totalTimeMatches[1]);
+    // Assume 50/50 split if no specific breakdown
+    setupTeardownInfo.setupMinutes = Math.floor(totalMinutes / 2);
+    setupTeardownInfo.teardownMinutes = Math.ceil(totalMinutes / 2);
+  }
+
+  return setupTeardownInfo;
+}
+
+/**
+ * Combine notes from multiple sources
+ */
+function combineNotes(existingNotes, newNotes) {
+  if (!existingNotes && !newNotes) return '';
+  if (!existingNotes) return newNotes;
+  if (!newNotes) return existingNotes;
+  
+  // Avoid duplicating identical notes
+  if (existingNotes.includes(newNotes) || newNotes.includes(existingNotes)) {
+    return existingNotes.length > newNotes.length ? existingNotes : newNotes;
+  }
+  
+  return `${existingNotes}\n\n--- TempleRegistration Notes ---\n${newNotes}`;
+}
+
+/**
+ * Get events from unified collection
+ */
+async function getUnifiedEvents(userId, calendarId = null, startDate = null, endDate = null) {
+  try {
+    const query = { userId: userId, isDeleted: { $ne: true } };
+    
+    // Add calendar filter if specified
+    if (calendarId) {
+      query["sourceCalendars.calendarId"] = calendarId;
+    }
+    
+    // Add date range filter if specified
+    if (startDate && endDate) {
+      query.$and = [
+        { "graphData.start.dateTime": { $lt: endDate.toISOString() } },
+        { "graphData.end.dateTime": { $gt: startDate.toISOString() } }
+      ];
+    }
+    
+    const events = await unifiedEventsCollection.find(query).toArray();
+    
+    logger.debug(`Found ${events.length} unified events`, {
+      userId,
+      calendarId,
+      dateRange: startDate && endDate ? `${startDate.toISOString()} to ${endDate.toISOString()}` : 'all'
+    });
+    
+    return events;
+  } catch (error) {
+    logger.error('Error getting unified events:', error);
+    return [];
+  }
+}
+
+/**
+ * Delta sync API endpoint - fetches only changed events
+ */
+app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
+  try {
+    logger.debug('Delta sync handler started');
+    
+    const { calendarIds, startTime, endTime, forceFullSync = false } = req.body;
+    const userId = req.user.userId;
+    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
+    
+    // Enhanced validation and logging
+    logger.debug('Delta sync handler: validating request', {
+      userId,
+      hasGraphToken: !!graphToken,
+      calendarIds,
+      calendarIdsType: typeof calendarIds,
+      calendarIdsIsArray: Array.isArray(calendarIds),
+      calendarIdsLength: Array.isArray(calendarIds) ? calendarIds.length : 'N/A',
+      startTime,
+      endTime,
+      forceFullSync,
+      requestBody: req.body
+    });
+    
+    if (!graphToken) {
+      logger.error('Delta sync handler: Graph token missing');
+      return res.status(400).json({ error: 'Graph token required for sync' });
+    }
+    
+    if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
+      logger.error('Delta sync handler: Invalid calendarIds', {
+        calendarIds,
+        type: typeof calendarIds,
+        isArray: Array.isArray(calendarIds),
+        length: Array.isArray(calendarIds) ? calendarIds.length : 'N/A'
+      });
+      return res.status(400).json({ error: 'calendarIds array required' });
+    }
+
+    // Validate individual calendar IDs
+    for (let i = 0; i < calendarIds.length; i++) {
+      const calendarId = calendarIds[i];
+      if (!calendarId || typeof calendarId !== 'string' || calendarId.trim() === '') {
+        logger.error('Delta sync handler: Invalid calendar ID at index', {
+          index: i,
+          calendarId,
+          type: typeof calendarId,
+          isEmpty: !calendarId || calendarId.trim() === ''
+        });
+        return res.status(400).json({ 
+          error: `Invalid calendar ID at index ${i}: must be non-empty string`,
+          calendarId,
+          index: i
+        });
+      }
+    }
+
+    // Validate Graph token format (basic JWT check)
+    if (!graphToken.startsWith('eyJ')) {
+      logger.error('Delta sync handler: Graph token appears invalid', {
+        tokenPrefix: graphToken.substring(0, 10)
+      });
+      return res.status(400).json({ error: 'Graph token appears to be invalid format' });
+    }
+    
+    logger.log(`Delta sync requested for user ${userId}, calendars: ${calendarIds.join(', ')}`);
+    
+    const syncResults = {
+      calendars: {},
+      totalEvents: 0,
+      changedEvents: 0,
+      errors: []
+    };
+    
+    // Process each calendar
+    for (const calendarId of calendarIds) {
+      try {
+        logger.debug(`Processing delta sync for calendar: ${calendarId}`);
+        
+        // Get or create delta token
+        const deltaInfo = await getDeltaToken(userId, calendarId);
+        const shouldDoFullSync = forceFullSync || deltaInfo.fullSyncRequired || !deltaInfo.deltaToken;
+        
+        let deltaUrl;
+        if (shouldDoFullSync) {
+          // Full sync
+          logger.debug(`Performing full sync for calendar ${calendarId}`);
+          const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
+          deltaUrl = `https://graph.microsoft.com/v1.0${calendarPath}/delta?` +
+            `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime&` +
+            `$expand=extensions`;
+          // Note: Removed $top parameter - delta queries don't support it
+          // Use Prefer header instead for page size
+          
+          // Note: Delta queries don't support $filter with date ranges
+          // We'll filter events in memory after fetching
+        } else {
+          // Delta sync using stored token
+          logger.debug(`Performing delta sync for calendar ${calendarId} with token`);
+          deltaUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/delta?$deltatoken=${deltaInfo.deltaToken}`;
+        }
+        
+        let allDeltaEvents = [];
+        let nextLink = deltaUrl;
+        let newDeltaToken = null;
+        
+        // Process delta/full sync pages
+        while (nextLink) {
+          logger.debug(`Calling Graph API URL: ${nextLink}`);
+          const response = await fetch(nextLink, {
+            headers: {
+              Authorization: `Bearer ${graphToken}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'odata.maxpagesize=100' // Use Prefer header for page size with delta queries
+            }
+          });
+          
+          if (!response.ok) {
+            // Get error details from response body
+            let errorDetails = '';
+            try {
+              const errorBody = await response.text();
+              errorDetails = errorBody ? ` - ${errorBody}` : '';
+              logger.error(`Graph API error details: ${errorDetails}`);
+            } catch (e) {
+              logger.warn('Could not read error response body');
+            }
+
+            if (response.status === 410 && !shouldDoFullSync) {
+              // Delta token expired, force full sync
+              logger.warn(`Delta token expired for calendar ${calendarId}, forcing full sync${errorDetails}`);
+              await resetDeltaToken(userId, calendarId);
+              // Restart with full sync
+              const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
+              nextLink = `https://graph.microsoft.com/v1.0${calendarPath}/delta?` +
+                `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime&` +
+                `$expand=extensions`;
+              // Note: Removed $top parameter - use Prefer header instead
+              continue;
+            }
+            
+            const errorMsg = `Graph API failed: ${response.status} ${response.statusText}${errorDetails}`;
+            logger.error(`Graph API error for calendar ${calendarId}: ${errorMsg}`);
+            throw new Error(errorMsg);
+          }
+          
+          const data = await response.json();
+          allDeltaEvents = allDeltaEvents.concat(data.value || []);
+          
+          // Get next link or delta token from response
+          nextLink = data['@odata.nextLink'];
+          if (data['@odata.deltaLink']) {
+            // Extract delta token from delta link
+            const deltaLink = data['@odata.deltaLink'];
+            const tokenMatch = deltaLink.match(/\$deltatoken=([^&]+)/);
+            if (tokenMatch) {
+              newDeltaToken = decodeURIComponent(tokenMatch[1]);
+            }
+          }
+        }
+        
+        logger.debug(`Received ${allDeltaEvents.length} delta events for calendar ${calendarId}`);
+        
+        // Filter events by date range if provided (since delta queries don't support $filter)
+        let filteredEvents = allDeltaEvents;
+        if (startTime && endTime && shouldDoFullSync) {
+          const startDate = new Date(startTime);
+          const endDate = new Date(endTime);
+          
+          filteredEvents = allDeltaEvents.filter(event => {
+            if (!event.start || !event.start.dateTime) return false;
+            const eventStart = new Date(event.start.dateTime);
+            return eventStart >= startDate && eventStart <= endDate;
+          });
+          
+          logger.debug(`Filtered events by date range: ${filteredEvents.length} of ${allDeltaEvents.length} events`);
+        }
+        
+        // Process delta events
+        let eventsCreated = 0;
+        let eventsUpdated = 0;
+        let eventsDeleted = 0;
+        
+        for (const deltaEvent of filteredEvents) {
+          try {
+            // Check if event is deleted (indicated by @removed annotation)
+            if (deltaEvent['@removed']) {
+              // Mark as deleted in unified collection
+              await unifiedEventsCollection.updateOne(
+                { userId: userId, eventId: deltaEvent.id },
+                { 
+                  $set: { 
+                    isDeleted: true, 
+                    lastSyncedAt: new Date(),
+                    deltaAction: 'deleted'
+                  } 
+                }
+              );
+              eventsDeleted++;
+              logger.debug(`Marked event as deleted: ${deltaEvent.id}`);
+              continue;
+            }
+            
+            // Use merging function to handle multiple calendars and enrichment
+            const wasExisting = await unifiedEventsCollection.findOne({
+              userId: userId,
+              eventId: deltaEvent.id
+            });
+            
+            // Merge event from multiple calendars (handles both new and existing events)
+            await mergeEventFromMultipleCalendars(
+              userId,
+              deltaEvent.id,
+              deltaEvent,
+              calendarId
+            );
+            
+            if (wasExisting) {
+              eventsUpdated++;
+            } else {
+              eventsCreated++;
+            }
+            
+          } catch (eventError) {
+            logger.error(`Error processing delta event ${deltaEvent.id}:`, eventError);
+            syncResults.errors.push({
+              calendarId: calendarId,
+              eventId: deltaEvent.id,
+              error: eventError.message
+            });
+          }
+        }
+        
+        // Update delta token for next sync
+        if (newDeltaToken) {
+          await updateDeltaToken(userId, calendarId, newDeltaToken);
+        }
+        
+        syncResults.calendars[calendarId] = {
+          totalEvents: filteredEvents.length,
+          rawEvents: allDeltaEvents.length,
+          created: eventsCreated,
+          updated: eventsUpdated,
+          deleted: eventsDeleted,
+          syncType: shouldDoFullSync ? 'full' : 'delta',
+          deltaToken: newDeltaToken ? 'updated' : 'unchanged'
+        };
+        
+        syncResults.totalEvents += filteredEvents.length;
+        syncResults.changedEvents += eventsCreated + eventsUpdated + eventsDeleted;
+        
+        logger.debug(`Calendar ${calendarId} sync complete:`, syncResults.calendars[calendarId]);
+        
+      } catch (calendarError) {
+        logger.error(`Error syncing calendar ${calendarId}:`, calendarError);
+        syncResults.errors.push({
+          calendarId: calendarId,
+          error: calendarError.message
+        });
+      }
+    }
+    
+    // Return unified events for the requested date range
+    let unifiedEvents = [];
+    if (startTime && endTime) {
+      unifiedEvents = await getUnifiedEvents(userId, null, new Date(startTime), new Date(endTime));
+    } else {
+      unifiedEvents = await getUnifiedEvents(userId);
+    }
+    
+    // Transform events to frontend format
+    const transformedEvents = unifiedEvents.map(event => ({
+      // Use Graph data as base
+      ...event.graphData,
+      // Add internal enrichments
+      ...event.internalData,
+      // Add metadata
+      calendarId: event.calendarId,
+      sourceCalendars: event.sourceCalendars,
+      _hasInternalData: Object.keys(event.internalData).some(key => 
+        event.internalData[key] && 
+        (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+      ),
+      _lastSyncedAt: event.lastSyncedAt,
+      _cached: true
+    }));
+    
+    logger.log(`Delta sync complete for user ${userId}: ${syncResults.changedEvents} changes across ${calendarIds.length} calendars`);
+    
+    res.status(200).json({
+      syncResults: syncResults,
+      events: transformedEvents,
+      count: transformedEvents.length,
+      source: 'delta_sync'
+    });
+    
+  } catch (error) {
+    logger.error('Error in delta sync:', error);
+    res.status(500).json({ error: 'Failed to sync events', details: error.message });
+  }
+});
+
+/**
+ * Force full sync endpoint
+ */
+app.post('/api/events/force-sync', verifyToken, async (req, res) => {
+  try {
+    const { calendarIds } = req.body;
+    const userId = req.user.userId;
+    
+    if (!calendarIds || !Array.isArray(calendarIds)) {
+      return res.status(400).json({ error: 'calendarIds array required' });
+    }
+    
+    // Reset delta tokens for all calendars
+    for (const calendarId of calendarIds) {
+      await resetDeltaToken(userId, calendarId);
+    }
+    
+    logger.log(`Reset delta tokens for user ${userId}, calendars: ${calendarIds.join(', ')}`);
+    
+    res.status(200).json({ 
+      message: 'Delta tokens reset, next sync will be full sync',
+      calendarIds: calendarIds
+    });
+    
+  } catch (error) {
+    logger.error('Error in force sync:', error);
+    res.status(500).json({ error: 'Failed to reset sync tokens' });
+  }
+});
+
+/**
+ * Get unified events endpoint
+ */
+app.get('/api/events', verifyToken, async (req, res) => {
+  try {
+    const { calendarId, startTime, endTime } = req.query;
+    const userId = req.user.userId;
+    
+    let startDate = null;
+    let endDate = null;
+    if (startTime && endTime) {
+      startDate = new Date(startTime);
+      endDate = new Date(endTime);
+    }
+    
+    const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
+    
+    // Transform events to frontend format
+    const transformedEvents = unifiedEvents.map(event => ({
+      // Use Graph data as base
+      ...event.graphData,
+      // Add internal enrichments
+      ...event.internalData,
+      // Add metadata
+      calendarId: event.calendarId,
+      sourceCalendars: event.sourceCalendars,
+      _hasInternalData: Object.keys(event.internalData).some(key => 
+        event.internalData[key] && 
+        (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+      ),
+      _lastSyncedAt: event.lastSyncedAt,
+      _cached: true
+    }));
+    
+    res.status(200).json({
+      events: transformedEvents,
+      count: transformedEvents.length,
+      source: 'unified_storage'
+    });
+    
+  } catch (error) {
+    logger.error('Error getting unified events:', error);
+    res.status(500).json({ error: 'Failed to get events' });
+  }
+});
+
+/**
+ * Update internal data for an event
+ */
+app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { internalData } = req.body;
+    const userId = req.user.userId;
+    
+    if (!internalData) {
+      return res.status(400).json({ error: 'internalData required' });
+    }
+    
+    logger.debug(`Updating internal data for event ${eventId}`, { userId, internalData });
+    
+    // Update only internal data, preserve everything else
+    const result = await unifiedEventsCollection.updateOne(
+      { userId: userId, eventId: eventId },
+      { 
+        $set: { 
+          'internalData': internalData,
+          lastAccessedAt: new Date()
+        } 
+      }
+    );
+    
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Return updated event
+    const updatedEvent = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+    
+    if (!updatedEvent) {
+      return res.status(404).json({ error: 'Event not found after update' });
+    }
+    
+    // Transform to frontend format
+    const transformedEvent = {
+      ...updatedEvent.graphData,
+      ...updatedEvent.internalData,
+      calendarId: updatedEvent.calendarId,
+      sourceCalendars: updatedEvent.sourceCalendars,
+      _hasInternalData: Object.keys(updatedEvent.internalData).some(key => 
+        updatedEvent.internalData[key] && 
+        (Array.isArray(updatedEvent.internalData[key]) ? updatedEvent.internalData[key].length > 0 : true)
+      ),
+      _lastSyncedAt: updatedEvent.lastSyncedAt
+    };
+    
+    logger.debug(`Successfully updated internal data for event ${eventId}`);
+    
+    res.status(200).json({
+      event: transformedEvent,
+      message: 'Internal data updated successfully'
+    });
+    
+  } catch (error) {
+    logger.error('Error updating event internal data:', error);
+    res.status(500).json({ error: 'Failed to update internal data' });
+  }
+});
+
+/**
+ * Get sync statistics
+ */
+app.get('/api/events/sync-stats', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Get unified events stats
+    const totalEvents = await unifiedEventsCollection.countDocuments({ userId: userId });
+    const deletedEvents = await unifiedEventsCollection.countDocuments({ 
+      userId: userId, 
+      isDeleted: true 
+    });
+    const activeEvents = totalEvents - deletedEvents;
+    
+    // Get delta token stats
+    const deltaTokens = await calendarDeltasCollection.find({ userId: userId }).toArray();
+    
+    // Get last sync times
+    const recentSyncs = await unifiedEventsCollection.aggregate([
+      { $match: { userId: userId } },
+      { $group: { 
+        _id: "$calendarId", 
+        lastSync: { $max: "$lastSyncedAt" },
+        eventCount: { $sum: 1 }
+      }},
+      { $sort: { lastSync: -1 } }
+    ]).toArray();
+    
+    res.status(200).json({
+      totalEvents: totalEvents,
+      activeEvents: activeEvents,
+      deletedEvents: deletedEvents,
+      deltaTokens: deltaTokens.map(dt => ({
+        calendarId: dt.calendarId,
+        lastDeltaSync: dt.lastDeltaSync,
+        fullSyncRequired: dt.fullSyncRequired
+      })),
+      recentSyncs: recentSyncs
+    });
+    
+  } catch (error) {
+    logger.error('Error getting sync stats:', error);
+    res.status(500).json({ error: 'Failed to get sync stats' });
+  }
+});
 
 /**
  * Cache-first event loading endpoint
@@ -819,14 +1730,84 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
     }
     
     // If we reach here, we need to fetch from Graph API
-    // This would integrate with your existing Graph API loading logic
-    // For now, return a placeholder response indicating cache miss
-    return res.status(200).json({
-      events: [],
-      source: 'cache_miss',
-      message: 'Cache miss - integrate with existing Graph API loading',
-      needsGraphApi: true
-    });
+    // Get the user's Graph token from custom headers
+    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
+    
+    if (!graphToken) {
+      return res.status(200).json({
+        events: [],
+        source: 'cache_miss',
+        message: 'Cache miss - Graph token required for fallback',
+        needsGraphApi: true
+      });
+    }
+    
+    try {
+      // Fetch events from Graph API
+      const calendarPath = calendarId ? 
+        `/me/calendars/${calendarId}/events` : 
+        '/me/events';
+      
+      const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` + 
+        `$filter=start/dateTime ge '${startDate.toISOString()}' and start/dateTime le '${endDate.toISOString()}'&` +
+        `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
+        `$expand=extensions&` +
+        `$orderby=start/dateTime&` +
+        `$top=1000`;
+      
+      const graphResponse = await fetch(graphUrl, {
+        headers: {
+          Authorization: `Bearer ${graphToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!graphResponse.ok) {
+        throw new Error(`Graph API failed: ${graphResponse.status} ${graphResponse.statusText}`);
+      }
+      
+      const graphData = await graphResponse.json();
+      const events = graphData.value || [];
+      
+      logger.log(`Fetched ${events.length} events from Graph API for cache miss`);
+      
+      // Cache the fetched events asynchronously (fire-and-forget)
+      setTimeout(async () => {
+        try {
+          for (const event of events) {
+            await cacheEvent(userId, calendarId, {
+              ...event,
+              calendarId: calendarId // Ensure calendarId is set
+            });
+          }
+          logger.debug(`Cached ${events.length} events after Graph API fetch`);
+        } catch (cacheError) {
+          logger.warn('Failed to cache events after Graph API fetch:', cacheError);
+        }
+      }, 100); // Small delay to avoid blocking the response
+      
+      // Return the events with metadata indicating they came from Graph API
+      const responseEvents = events.map(event => ({
+        ...event,
+        calendarId: calendarId,
+        _cached: false,
+        _source: 'graph'
+      }));
+      
+      return res.status(200).json({
+        events: responseEvents,
+        source: 'graph_fallback',
+        message: 'Cache miss - fetched from Graph API',
+        count: responseEvents.length
+      });
+      
+    } catch (graphError) {
+      logger.error('Graph API fallback failed:', graphError);
+      return res.status(500).json({
+        error: 'Failed to fetch events from Graph API',
+        details: graphError.message
+      });
+    }
     
   } catch (error) {
     logger.error('Error in cache-first loading:', error);
@@ -1004,7 +1985,22 @@ app.post('/api/events/cache', verifyToken, async (req, res) => {
     // Cache each event
     for (const event of events) {
       try {
-        await cacheEvent(userId, calendarId, event);
+        // Separate event data from internal data before caching
+        const { 
+          setupMinutes, teardownMinutes, registrationNotes, assignedTo, 
+          mecCategories, internalNotes, setupStatus, estimatedCost, actualCost,
+          staffAssignments, customFields, _hasInternalData, _lastSyncedAt, _internalId,
+          ...eventData 
+        } = event;
+        
+        // Prepare internal data if it exists
+        const internalData = _hasInternalData ? {
+          setupMinutes, teardownMinutes, registrationNotes, assignedTo,
+          mecCategories, internalNotes, setupStatus, estimatedCost, actualCost,
+          staffAssignments, customFields
+        } : null;
+        
+        await cacheEvent(userId, calendarId, eventData, internalData);
         cachedCount++;
       } catch (error) {
         errorCount++;
@@ -1101,6 +2097,254 @@ app.post('/api/events/cache-missing', verifyToken, async (req, res) => {
 });
 
 // ============================================
+// UNIFIED EVENTS ADMIN ENDPOINTS
+// ============================================
+
+/**
+ * Admin endpoint - Get simple counts for unified events
+ * Cosmos DB compatible - uses simple count queries
+ */
+app.get('/api/admin/unified/counts', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Check if collections are initialized
+    if (!unifiedEventsCollection) {
+      logger.error('Collections not initialized in unified counts');
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Get simple counts using count queries (Cosmos DB compatible)
+    const [total, deleted, enrichedResult] = await Promise.all([
+      // Total events
+      unifiedEventsCollection.countDocuments({ userId: userId }),
+      
+      // Deleted events
+      unifiedEventsCollection.countDocuments({ 
+        userId: userId, 
+        isDeleted: true 
+      }),
+      
+      // Enriched events - using find with limit to check if any exist
+      unifiedEventsCollection.findOne({
+        userId: userId,
+        isDeleted: { $ne: true },
+        "internalData.mecCategories.0": { $exists: true }
+      })
+    ]);
+    
+    // Calculate enriched count more simply
+    let enrichedCount = 0;
+    if (enrichedResult) {
+      // If we found one, count them properly
+      enrichedCount = await unifiedEventsCollection.countDocuments({
+        userId: userId,
+        isDeleted: { $ne: true },
+        $or: [
+          { "internalData.mecCategories.0": { $exists: true } },
+          { "internalData.setupMinutes": { $gt: 0 } },
+          { "internalData.teardownMinutes": { $gt: 0 } }
+        ]
+      });
+    }
+    
+    const active = total - deleted;
+    
+    res.status(200).json({
+      total,
+      active,
+      deleted,
+      enriched: enrichedCount
+    });
+  } catch (error) {
+    logger.error('Error getting unified counts:', error);
+    res.status(500).json({ error: 'Failed to get counts' });
+  }
+});
+
+/**
+ * Admin endpoint - Get delta tokens
+ * Simple query, no aggregation needed
+ */
+app.get('/api/admin/unified/delta-tokens', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!calendarDeltasCollection) {
+      logger.error('Delta collection not initialized');
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Simple find query
+    const tokens = await calendarDeltasCollection.find({ 
+      userId: userId 
+    }).toArray();
+    
+    // Format response
+    const formattedTokens = tokens.map(token => ({
+      calendarId: token.calendarId,
+      hasToken: !!token.deltaToken,
+      lastSync: token.lastDeltaSync,
+      fullSyncRequired: token.fullSyncRequired
+    }));
+    
+    res.status(200).json({
+      tokens: formattedTokens
+    });
+  } catch (error) {
+    logger.error('Error getting delta tokens:', error);
+    res.status(500).json({ error: 'Failed to get delta tokens' });
+  }
+});
+
+/**
+ * Admin endpoint - Browse unified events with simple filtering
+ * Cosmos DB compatible - uses find with simple queries
+ */
+app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      logger.error('Events collection not initialized');
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    const { 
+      page = 1, 
+      limit = 20, 
+      status = 'all',
+      search = ''
+    } = req.query;
+    
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+    
+    // Build query
+    let query = { userId: userId };
+    
+    // Status filter
+    if (status === 'active') {
+      query.isDeleted = { $ne: true };
+    } else if (status === 'deleted') {
+      query.isDeleted = true;
+    } else if (status === 'enriched') {
+      query.isDeleted = { $ne: true };
+      query.$or = [
+        { "internalData.mecCategories.0": { $exists: true } },
+        { "internalData.setupMinutes": { $gt: 0 } },
+        { "internalData.teardownMinutes": { $gt: 0 } }
+      ];
+    }
+    
+    // Get total count first
+    const total = await unifiedEventsCollection.countDocuments(query);
+    
+    // Get events with simple sorting
+    const events = await unifiedEventsCollection.find(query)
+      .sort({ lastSyncedAt: -1 }) // Simple sort by last sync
+      .skip(skip)
+      .limit(limitNum)
+      .toArray();
+    
+    // If search is provided, filter in memory (simpler than text search)
+    let filteredEvents = events;
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredEvents = events.filter(event => 
+        (event.subject || '').toLowerCase().includes(searchLower) ||
+        (event.location || '').toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Format events for response
+    const formattedEvents = filteredEvents.map(event => ({
+      _id: event._id,
+      eventId: event.eventId,
+      subject: event.subject || event.graphData?.subject || 'No Subject',
+      startTime: event.startTime || event.graphData?.start?.dateTime,
+      location: event.location || event.graphData?.location?.displayName,
+      isDeleted: event.isDeleted || false,
+      hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
+      internalData: event.internalData,
+      sourceCalendars: event.sourceCalendars || [],
+      lastSyncedAt: event.lastSyncedAt
+    }));
+    
+    res.status(200).json({
+      events: formattedEvents,
+      total: search ? filteredEvents.length : total,
+      page: pageNum,
+      limit: limitNum
+    });
+  } catch (error) {
+    logger.error('Error getting unified events:', error);
+    res.status(500).json({ error: 'Failed to get events' });
+  }
+});
+
+/**
+ * Admin endpoint - Force full sync
+ */
+app.post('/api/admin/unified/force-sync', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { calendarId } = req.body;
+    
+    if (!calendarDeltasCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    if (calendarId) {
+      // Reset specific calendar
+      await calendarDeltasCollection.updateOne(
+        { userId: userId, calendarId: calendarId },
+        { $set: { fullSyncRequired: true } }
+      );
+      res.status(200).json({ message: `Force sync initiated for calendar ${calendarId}` });
+    } else {
+      // Reset all calendars for user
+      await calendarDeltasCollection.updateMany(
+        { userId: userId },
+        { $set: { fullSyncRequired: true } }
+      );
+      res.status(200).json({ message: 'Force sync initiated for all calendars' });
+    }
+  } catch (error) {
+    logger.error('Error forcing sync:', error);
+    res.status(500).json({ error: 'Failed to force sync' });
+  }
+});
+
+/**
+ * Admin endpoint - Clean deleted events
+ */
+app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Delete soft-deleted events
+    const result = await unifiedEventsCollection.deleteMany({
+      userId: userId,
+      isDeleted: true
+    });
+    
+    res.status(200).json({ 
+      message: 'Deleted events cleaned',
+      removed: result.deletedCount 
+    });
+  } catch (error) {
+    logger.error('Error cleaning deleted:', error);
+    res.status(500).json({ error: 'Failed to clean deleted events' });
+  }
+});
+
+// ============================================
 // ADMIN CACHE MANAGEMENT ENDPOINTS
 // ============================================
 
@@ -1111,74 +2355,126 @@ app.get('/api/admin/cache/overview', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Basic cache statistics
-    const totalCached = await eventCacheCollection.countDocuments({ userId: userId });
-    const expiredCount = await eventCacheCollection.countDocuments({ 
+    // Check if collections are initialized
+    if (!unifiedEventsCollection || !calendarDeltasCollection) {
+      logger.error('Collections not initialized in cache overview');
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Basic unified events statistics
+    const totalEvents = await unifiedEventsCollection.countDocuments({ userId: userId });
+    const deletedCount = await unifiedEventsCollection.countDocuments({ 
       userId: userId,
-      expiresAt: { $lt: new Date() }
+      isDeleted: true 
     });
-    const dirtyCount = await eventCacheCollection.countDocuments({ 
+    const activeEvents = totalEvents - deletedCount;
+    
+    // Events with internal data (enriched)
+    const enrichedCount = await unifiedEventsCollection.countDocuments({
       userId: userId,
-      isDirty: true 
+      isDeleted: { $ne: true },
+      $or: [
+        { "internalData.mecCategories.0": { $exists: true } },
+        { "internalData.setupMinutes": { $gt: 0 } },
+        { "internalData.teardownMinutes": { $gt: 0 } },
+        { "internalData.internalNotes": { $ne: "" } }
+      ]
     });
     
-    // Cache by calendar breakdown
-    const cacheByCalendar = await eventCacheCollection.aggregate([
-      { $match: { userId: userId } },
+    // Events by calendar breakdown
+    const eventsByCalendar = await unifiedEventsCollection.aggregate([
+      { $match: { userId: userId, isDeleted: { $ne: true } } },
+      { $unwind: "$sourceCalendars" },
       { $group: { 
-        _id: "$calendarId", 
+        _id: "$sourceCalendars.calendarId", 
+        calendarName: { $first: "$sourceCalendars.calendarName" },
+        role: { $first: "$sourceCalendars.role" },
         count: { $sum: 1 },
-        oldestCached: { $min: "$cachedAt" },
-        newestCached: { $max: "$cachedAt" },
-        avgResponseTime: { $avg: "$responseTimeMs" }
+        oldestSynced: { $min: "$lastSyncedAt" },
+        newestSynced: { $max: "$lastSyncedAt" }
       }},
       { $sort: { count: -1 } }
     ]).toArray();
     
-    // Recent cache operations (last 24 hours)
+    // Recent sync operations (last 24 hours)
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentOperations = await eventCacheCollection.find({
+    const recentOperations = await unifiedEventsCollection.find({
       userId: userId,
-      $or: [
-        { cachedAt: { $gte: last24Hours } },
-        { lastAccessedAt: { $gte: last24Hours } }
-      ]
+      lastSyncedAt: { $gte: last24Hours }
     })
-    .sort({ lastAccessedAt: -1 })
+    .sort({ lastSyncedAt: -1 })
     .limit(10)
+    .project({
+      eventId: 1,
+      "graphData.subject": 1,
+      calendarId: 1,
+      lastSyncedAt: 1,
+      sourceCalendars: 1
+    })
     .toArray();
     
-    // Storage utilization
-    const cacheCollectionStats = await db.collection('templeEvents__EventCache').stats();
+    // Delta token information
+    const deltaTokens = await calendarDeltasCollection.find({ userId: userId }).toArray();
+    
+    // Storage utilization for new collections
+    const unifiedCollectionStats = await db.collection('templeEvents__Events').stats();
+    const deltaCollectionStats = await db.collection('templeEvents__CalendarDeltas').stats();
+    
+    // Legacy cache stats for comparison (if exists)
+    let legacyCacheStats = null;
+    try {
+      const legacyCount = await eventCacheCollection.countDocuments({ userId: userId });
+      if (legacyCount > 0) {
+        legacyCacheStats = {
+          totalCached: legacyCount,
+          collectionStats: await db.collection('templeEvents__EventCache').stats()
+        };
+      }
+    } catch (legacyError) {
+      // Legacy collection might not exist
+    }
     
     res.status(200).json({
       userId: userId,
+      systemType: 'unified_events',
       statistics: {
-        totalCached: totalCached,
-        expiredCount: expiredCount,
-        dirtyCount: dirtyCount,
-        activeCount: totalCached - expiredCount,
-        hitRatio: totalCached > 0 ? ((totalCached - expiredCount) / totalCached * 100).toFixed(2) : 0
+        totalEvents: totalEvents,
+        activeEvents: activeEvents,
+        deletedEvents: deletedCount,
+        enrichedEvents: enrichedCount,
+        enrichmentRatio: totalEvents > 0 ? ((enrichedCount / totalEvents) * 100).toFixed(2) : 0
       },
-      cacheByCalendar: cacheByCalendar,
+      eventsByCalendar: eventsByCalendar,
+      deltaTokens: deltaTokens.map(dt => ({
+        calendarId: dt.calendarId,
+        lastDeltaSync: dt.lastDeltaSync,
+        fullSyncRequired: dt.fullSyncRequired,
+        hasValidToken: !!dt.deltaToken
+      })),
       recentOperations: recentOperations.map(op => ({
         eventId: op.eventId,
         calendarId: op.calendarId,
-        subject: op.eventData?.subject || 'Unknown',
-        cachedAt: op.cachedAt,
-        lastAccessedAt: op.lastAccessedAt,
-        expiresAt: op.expiresAt,
-        isDirty: op.isDirty
+        subject: op.graphData?.subject || 'Unknown',
+        lastSyncedAt: op.lastSyncedAt,
+        sourceCalendars: op.sourceCalendars?.map(sc => sc.calendarName).join(', ') || op.calendarId
       })),
       storage: {
-        totalSize: cacheCollectionStats.size,
-        indexSize: cacheCollectionStats.totalIndexSize,
-        documentCount: cacheCollectionStats.count
+        unifiedEvents: {
+          totalSize: unifiedCollectionStats.size,
+          indexSize: unifiedCollectionStats.totalIndexSize,
+          documentCount: unifiedCollectionStats.count
+        },
+        deltaTokens: {
+          totalSize: deltaCollectionStats.size,
+          indexSize: deltaCollectionStats.totalIndexSize,
+          documentCount: deltaCollectionStats.count
+        },
+        legacy: legacyCacheStats
       },
       configuration: {
-        maxCacheSize: CACHE_CONFIG.MAX_CACHE_SIZE,
-        ttlHours: CACHE_CONFIG.DEFAULT_TTL_HOURS,
-        staleThresholdMinutes: CACHE_CONFIG.STALE_THRESHOLD_MINUTES
+        deltaQueryEnabled: true,
+        multiCalendarSupport: true,
+        autoSync: true
       }
     });
   } catch (error) {
@@ -1193,7 +2489,7 @@ app.get('/api/admin/cache/overview', verifyToken, async (req, res) => {
 app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    logger.debug('Admin cache events request:', { userId, query: req.query });
+    logger.debug('Admin unified events request:', { userId, query: req.query });
     
     // Check if we have a valid userId
     if (!userId) {
@@ -1201,10 +2497,10 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'User ID not found' });
     }
     
-    // Check if eventCacheCollection is initialized
-    if (!eventCacheCollection) {
-      logger.error('eventCacheCollection is not initialized');
-      return res.status(500).json({ error: 'Cache collection not initialized' });
+    // Check if unifiedEventsCollection is initialized
+    if (!unifiedEventsCollection) {
+      logger.error('unifiedEventsCollection is not initialized');
+      return res.status(500).json({ error: 'Unified events collection not initialized' });
     }
     
     const { 
@@ -1213,7 +2509,7 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
       calendarId, 
       status, 
       search,
-      sortBy = 'cachedAt',
+      sortBy = 'lastSyncedAt',
       sortOrder = 'desc'
     } = req.query;
     
@@ -1221,51 +2517,63 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     
-    // Build simple query first
+    // Build query for unified events
     const query = { userId: userId };
     
-    // Temporarily simplify to avoid Cosmos DB issues
-    logger.debug('Executing simplified query to get all cached events for user');
-    const allEvents = await eventCacheCollection.find(query).toArray();
+    // Apply calendar filter
+    if (calendarId) {
+      query["sourceCalendars.calendarId"] = calendarId;
+    }
+    
+    // Apply status filter
+    if (status === 'deleted') {
+      query.isDeleted = true;
+    } else if (status === 'active') {
+      query.isDeleted = { $ne: true };
+    } else if (status === 'enriched') {
+      query.isDeleted = { $ne: true };
+      query.$or = [
+        { "internalData.mecCategories.0": { $exists: true } },
+        { "internalData.setupMinutes": { $gt: 0 } },
+        { "internalData.teardownMinutes": { $gt: 0 } },
+        { "internalData.internalNotes": { $ne: "" } }
+      ];
+    } else {
+      // Default to active events
+      query.isDeleted = { $ne: true };
+    }
+    
+    logger.debug('Executing query for unified events');
+    const allEvents = await unifiedEventsCollection.find(query).toArray();
     logger.debug('Found total events for user:', allEvents.length);
     
-    // Apply filters in memory
+    // Apply search filter in memory (easier than complex MongoDB text search)
     let filteredEvents = allEvents;
-    
-    if (calendarId) {
-      filteredEvents = filteredEvents.filter(event => event.calendarId === calendarId);
-    }
-    
-    if (status === 'expired') {
-      const now = new Date();
-      filteredEvents = filteredEvents.filter(event => new Date(event.expiresAt) < now);
-    } else if (status === 'active') {
-      const now = new Date();
-      filteredEvents = filteredEvents.filter(event => new Date(event.expiresAt) >= now);
-    } else if (status === 'dirty') {
-      filteredEvents = filteredEvents.filter(event => event.isDirty === true);
-    }
-    
     if (search) {
       const searchLower = search.toLowerCase();
       filteredEvents = filteredEvents.filter(event => 
-        (event.eventData?.subject || '').toLowerCase().includes(searchLower) ||
+        (event.graphData?.subject || '').toLowerCase().includes(searchLower) ||
         (event.eventId || '').toLowerCase().includes(searchLower) ||
-        (event.eventData?.location?.displayName || '').toLowerCase().includes(searchLower)
+        (event.graphData?.location?.displayName || '').toLowerCase().includes(searchLower) ||
+        (event.calendarId || '').toLowerCase().includes(searchLower)
       );
     }
     
     // Sort in memory
     filteredEvents.sort((a, b) => {
-      if (sortBy === 'cachedAt') {
-        const dateA = new Date(a.cachedAt || 0);
-        const dateB = new Date(b.cachedAt || 0);
+      if (sortBy === 'lastSyncedAt') {
+        const dateA = new Date(a.lastSyncedAt || 0);
+        const dateB = new Date(b.lastSyncedAt || 0);
         return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       } else if (sortBy === 'subject') {
-        const subjectA = (a.eventData?.subject || '').toLowerCase();
-        const subjectB = (b.eventData?.subject || '').toLowerCase();
+        const subjectA = (a.graphData?.subject || '').toLowerCase();
+        const subjectB = (b.graphData?.subject || '').toLowerCase();
         const result = subjectA.localeCompare(subjectB);
         return sortOrder === 'desc' ? -result : result;
+      } else if (sortBy === 'startTime') {
+        const dateA = new Date(a.graphData?.start?.dateTime || 0);
+        const dateB = new Date(b.graphData?.start?.dateTime || 0);
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       }
       return 0;
     });
@@ -1280,30 +2588,34 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
         _id: event._id,
         eventId: event.eventId,
         calendarId: event.calendarId,
-        subject: event.eventData?.subject || 'Unknown',
-        startTime: event.eventData?.start?.dateTime,
-        endTime: event.eventData?.end?.dateTime,
-        location: event.eventData?.location?.displayName,
-        category: event.eventData?.category || 'Uncategorized',
-        cachedAt: event.cachedAt,
+        subject: event.graphData?.subject || 'Unknown',
+        startTime: event.graphData?.start?.dateTime,
+        endTime: event.graphData?.end?.dateTime,
+        location: event.graphData?.location?.displayName,
+        categories: event.graphData?.categories || [],
+        lastSyncedAt: event.lastSyncedAt,
         lastAccessedAt: event.lastAccessedAt,
-        expiresAt: event.expiresAt,
-        isDirty: event.isDirty,
+        isDeleted: event.isDeleted,
         etag: event.etag,
-        version: event.version,
-        // Enhanced fields from internal data
-        hasInternalData: event.eventData?._hasInternalData || false,
-        mecCategories: event.eventData?.mecCategories || [],
-        setupMinutes: event.eventData?.setupMinutes || 0,
-        teardownMinutes: event.eventData?.teardownMinutes || 0,
-        registrationNotes: event.eventData?.registrationNotes || '',
-        assignedTo: event.eventData?.assignedTo || '',
-        hasRegistrationEvent: event.eventData?.hasRegistrationEvent || false,
-        linkedEventId: event.eventData?.linkedEventId || null,
-        registrationStart: event.eventData?.registrationStart || null,
-        registrationEnd: event.eventData?.registrationEnd || null,
-        // Extension data (dynamic fields from schema extensions)
-        extensions: event.eventData?.extensions || []
+        changeKey: event.changeKey,
+        sourceCalendars: event.sourceCalendars || [],
+        // Internal enrichment data
+        hasInternalData: Object.keys(event.internalData || {}).some(key => 
+          event.internalData[key] && 
+          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+        ),
+        mecCategories: event.internalData?.mecCategories || [],
+        setupMinutes: event.internalData?.setupMinutes || 0,
+        teardownMinutes: event.internalData?.teardownMinutes || 0,
+        registrationNotes: event.internalData?.registrationNotes || '',
+        assignedTo: event.internalData?.assignedTo || '',
+        internalNotes: event.internalData?.internalNotes || '',
+        setupStatus: event.internalData?.setupStatus || 'pending',
+        estimatedCost: event.internalData?.estimatedCost,
+        actualCost: event.internalData?.actualCost,
+        // Graph extension data
+        extensions: event.graphData?.extensions || [],
+        singleValueExtendedProperties: event.graphData?.singleValueExtendedProperties || []
       })),
       pagination: {
         page: pageNum,
@@ -1364,50 +2676,70 @@ app.get('/api/admin/cache/events/:eventId', verifyToken, async (req, res) => {
 app.post('/api/admin/cache/refresh', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { eventIds, calendarId } = req.body;
+    const { eventIds, calendarIds } = req.body;
     
-    if (!eventIds || !Array.isArray(eventIds)) {
-      return res.status(400).json({ error: 'eventIds array is required' });
+    if (!eventIds && !calendarIds) {
+      return res.status(400).json({ error: 'eventIds array or calendarIds array is required' });
     }
     
     let refreshedCount = 0;
     let errorCount = 0;
     const errors = [];
     
-    for (const eventId of eventIds) {
-      try {
-        // Mark as dirty to force refresh on next access
-        const result = await eventCacheCollection.updateOne(
-          { userId: userId, eventId: eventId },
-          { 
-            $set: { 
-              isDirty: true,
-              lastModified: new Date()
+    if (eventIds && Array.isArray(eventIds)) {
+      // Refresh specific events by marking them for re-sync
+      for (const eventId of eventIds) {
+        try {
+          const result = await unifiedEventsCollection.updateOne(
+            { userId: userId, eventId: eventId },
+            { 
+              $set: { 
+                lastAccessedAt: new Date(),
+                // Could add a flag to force refresh on next sync
+                forceRefresh: true
+              }
             }
+          );
+          
+          if (result.modifiedCount > 0) {
+            refreshedCount++;
           }
-        );
-        
-        if (result.modifiedCount > 0) {
-          refreshedCount++;
+        } catch (error) {
+          errorCount++;
+          errors.push({
+            eventId: eventId,
+            error: error.message
+          });
         }
-      } catch (error) {
-        errorCount++;
-        errors.push({
-          eventId: eventId,
-          error: error.message
-        });
+      }
+    }
+    
+    if (calendarIds && Array.isArray(calendarIds)) {
+      // Reset delta tokens to force full sync
+      for (const calendarId of calendarIds) {
+        try {
+          await resetDeltaToken(userId, calendarId);
+          refreshedCount++;
+        } catch (error) {
+          errorCount++;
+          errors.push({
+            calendarId: calendarId,
+            error: error.message
+          });
+        }
       }
     }
     
     res.status(200).json({
-      message: 'Cache refresh completed',
+      message: 'Refresh completed',
       refreshedCount: refreshedCount,
       errorCount: errorCount,
-      errors: errors.length > 0 ? errors : undefined
+      errors: errors.length > 0 ? errors : undefined,
+      note: calendarIds ? 'Delta tokens reset - next sync will be full' : 'Events marked for refresh'
     });
   } catch (error) {
-    logger.error('Error refreshing cache:', error);
-    res.status(500).json({ error: 'Failed to refresh cache' });
+    logger.error('Error refreshing events:', error);
+    res.status(500).json({ error: 'Failed to refresh events' });
   }
 });
 
@@ -1588,7 +2920,7 @@ app.get('/api/public/internal-events', async (req, res) => {
 app.get('/api/public/mec-categories', async (req, res) => {
   try {
     // Get distinct MEC categories from all events
-    const categories = await internalEventsCollection.distinct('internalData.mecCategories');
+    const categories = await unifiedEventsCollection.distinct('internalData.mecCategories');
     
     // Filter out null/empty values and sort
     const cleanCategories = categories
@@ -1893,6 +3225,195 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+/**
+ * Manual sync endpoint - Creates enriched templeEvents__Events records for loaded events
+ */
+app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { events, dateRange } = req.body;
+    
+    if (!events || !Array.isArray(events)) {
+      return res.status(400).json({ error: 'events array is required' });
+    }
+    
+    logger.debug(`[MANUAL SYNC] Starting manual sync for user ${userId}`, {
+      eventCount: events.length,
+      dateRange,
+      collectionName: 'templeEvents__Events',
+      endpoint: '/api/internal-events/sync'
+    });
+    
+    let enrichedCount = 0;
+    let createdCount = 0;
+    let updatedCount = 0;
+    const errors = [];
+    
+    for (const event of events) {
+      try {
+        // Skip events without IDs
+        if (!event.id) {
+          logger.warn('Skipping event without ID:', event.subject);
+          continue;
+        }
+        
+        // Check if unified event already exists
+        const existingUnified = await unifiedEventsCollection.findOne({
+          eventId: event.id,
+          userId: userId
+        });
+        
+        const now = new Date();
+        
+        // Prepare source calendars array
+        const sourceCalendars = [{
+          calendarId: event.calendarId || 'primary',
+          calendarName: event.calendarId?.includes('TempleRegistration') ? 'Temple Registrations' : 'Primary Calendar',
+          role: event.calendarId?.includes('TempleRegistration') ? 'shared' : 'primary'
+        }];
+        
+        // Prepare unified event structure
+        const unifiedEventData = {
+          userId: userId,
+          calendarId: event.calendarId || 'primary',
+          eventId: event.id,
+          
+          // Graph API data (source of truth)
+          graphData: {
+            id: event.id,
+            subject: event.subject,
+            start: event.start,
+            end: event.end,
+            location: event.location || { displayName: '' },
+            categories: event.categories || [],
+            bodyPreview: event.bodyPreview || '',
+            importance: event.importance || 'normal',
+            showAs: event.showAs || 'busy',
+            sensitivity: event.sensitivity || 'normal',
+            isAllDay: event.isAllDay || false,
+            seriesMasterId: event.seriesMasterId || null,
+            type: event.type || 'singleInstance',
+            recurrence: event.recurrence || null,
+            responseStatus: event.responseStatus || { response: 'none' },
+            attendees: event.attendees || [],
+            organizer: event.organizer || { emailAddress: { name: '', address: '' } },
+            extensions: event.extensions || [],
+            singleValueExtendedProperties: event.singleValueExtendedProperties || [],
+            lastModifiedDateTime: event.lastModifiedDateTime || now.toISOString(),
+            createdDateTime: event.createdDateTime || now.toISOString()
+          },
+          
+          // Internal enrichment data (preserve existing or set defaults)
+          internalData: existingUnified?.internalData || {
+            mecCategories: [],
+            setupMinutes: 0,
+            teardownMinutes: 0,
+            registrationNotes: '',
+            assignedTo: '',
+            internalNotes: '',
+            setupStatus: 'pending',
+            estimatedCost: null,
+            actualCost: null
+          },
+          
+          // Source calendars tracking
+          sourceCalendars: sourceCalendars,
+          
+          // Metadata
+          etag: event.etag || null,
+          changeKey: event.changeKey || null,
+          isDeleted: false,
+          lastSyncedAt: now,
+          lastAccessedAt: now,
+          cachedAt: now
+        };
+        
+        if (existingUnified) {
+          // Update existing unified event (preserve internal data and merge source calendars)
+          const mergedSourceCalendars = [...(existingUnified.sourceCalendars || [])];
+          
+          // Add current calendar if not already in source calendars
+          if (!mergedSourceCalendars.find(sc => sc.calendarId === (event.calendarId || 'primary'))) {
+            mergedSourceCalendars.push(sourceCalendars[0]);
+          }
+          
+          const updateResult = await unifiedEventsCollection.updateOne(
+            { _id: existingUnified._id },
+            { 
+              $set: {
+                ...unifiedEventData,
+                sourceCalendars: mergedSourceCalendars,
+                // Preserve existing internal data
+                internalData: existingUnified.internalData || unifiedEventData.internalData,
+                updatedAt: now
+              }
+            }
+          );
+          
+          if (updateResult.modifiedCount > 0) {
+            updatedCount++;
+            enrichedCount++;
+            logger.debug(`[MANUAL SYNC] Updated unified event in templeEvents__Events: ${event.subject}`, {
+              eventId: event.id,
+              collection: 'templeEvents__Events'
+            });
+          }
+        } else {
+          // Create new unified event
+          const insertResult = await unifiedEventsCollection.insertOne({
+            ...unifiedEventData,
+            createdAt: now,
+            updatedAt: now
+          });
+          
+          if (insertResult.insertedId) {
+            createdCount++;
+            enrichedCount++;
+            logger.debug(`[MANUAL SYNC] Created unified event in templeEvents__Events: ${event.subject}`, {
+              eventId: event.id,
+              insertedId: insertResult.insertedId,
+              collection: 'templeEvents__Events'
+            });
+          }
+        }
+        
+      } catch (eventError) {
+        logger.error(`Error processing event ${event.id}:`, eventError);
+        errors.push({
+          eventId: event.id,
+          subject: event.subject,
+          error: eventError.message
+        });
+      }
+    }
+    
+    const result = {
+      success: true,
+      enrichedCount,
+      createdCount,
+      updatedCount,
+      totalProcessed: events.length,
+      errors: errors.length > 0 ? errors : undefined,
+      dateRange
+    };
+    
+    logger.debug('[MANUAL SYNC] Manual sync completed successfully:', {
+      ...result,
+      collection: 'templeEvents__Events',
+      userId
+    });
+    res.status(200).json(result);
+    
+  } catch (error) {
+    logger.error('Error in manual sync:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to sync events to database',
+      details: error.message 
+    });
   }
 });
 

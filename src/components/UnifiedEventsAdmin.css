@@ -1,0 +1,438 @@
+/* UnifiedEventsAdmin.css */
+.unified-events-admin {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.unified-events-admin .admin-header {
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.unified-events-admin .admin-header h1 {
+  font-size: 2rem;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.unified-events-admin .admin-header p {
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* Messages */
+.unified-events-admin .error-message,
+.unified-events-admin .success-message {
+  padding: 12px 20px;
+  margin-bottom: 20px;
+  border-radius: 6px;
+  font-weight: 500;
+  animation: slideIn 0.3s ease-out;
+}
+
+.unified-events-admin .error-message {
+  background-color: #fee;
+  color: #c00;
+  border: 1px solid #fcc;
+}
+
+.unified-events-admin .success-message {
+  background-color: #efe;
+  color: #060;
+  border: 1px solid #cfc;
+}
+
+/* Tabs */
+.unified-events-admin .admin-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.unified-events-admin .tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #666;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+}
+
+.unified-events-admin .tab:hover {
+  color: #333;
+}
+
+.unified-events-admin .tab.active {
+  color: #0066cc;
+  font-weight: 600;
+  border-bottom-color: #0066cc;
+}
+
+/* Tab Content */
+.unified-events-admin .tab-content {
+  position: relative;
+  min-height: 300px;
+}
+
+.unified-events-admin .loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: #666;
+  z-index: 10;
+}
+
+/* Overview Tab */
+.unified-overview .overview-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  justify-content: flex-end;
+}
+
+.unified-overview .overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 20px;
+}
+
+.unified-overview .stats-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.unified-overview .stats-card h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+.unified-overview .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+}
+
+.unified-overview .stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.unified-overview .stat-label {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.unified-overview .stat-value {
+  font-weight: 600;
+  color: #333;
+  font-size: 1.1rem;
+}
+
+/* Delta Tokens */
+.delta-tokens-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.delta-token-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #f8f8f8;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.delta-token-item .token-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delta-token-item .calendar-id {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #666;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delta-token-item .sync-status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.delta-token-item .sync-status.synced {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+
+.delta-token-item .sync-status.not-synced {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.delta-token-item .token-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delta-token-item .last-sync {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+/* Events Tab */
+.unified-events .events-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.unified-events .search-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.unified-events .filter-select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  background: white;
+}
+
+/* Events Table */
+.events-table-container {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.events-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.events-table th {
+  background: #f5f5f5;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.events-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.events-table tr:hover {
+  background: #f8f8f8;
+}
+
+.event-subject .subject-title {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.event-subject .mec-categories {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.calendars-info {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.calendar-badge {
+  padding: 4px 8px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* Status Badges */
+.status {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status.active {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+
+.status.deleted {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.status.enriched {
+  background: #fef7e0;
+  color: #f9ab00;
+}
+
+/* Action Buttons */
+.action-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.action-btn.primary {
+  background: #1a73e8;
+  color: white;
+}
+
+.action-btn.primary:hover {
+  background: #1557b0;
+}
+
+.action-btn.danger {
+  background: #d93025;
+  color: white;
+}
+
+.action-btn.danger:hover {
+  background: #b7241c;
+}
+
+.action-btn.small {
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+.mini-action-btn {
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.mini-action-btn:hover {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.page-btn {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #ccc;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+/* No Data */
+.no-data {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* Loading */
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* Animations */
+@keyframes slideIn {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

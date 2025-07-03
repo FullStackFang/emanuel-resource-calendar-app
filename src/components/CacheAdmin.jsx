@@ -1,4 +1,4 @@
-// src/components/CacheAdmin.jsx
+// src/components/CacheAdmin.jsx - Updated for Unified Events System
 import React, { useState, useEffect, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
@@ -15,18 +15,18 @@ export default function CacheAdmin({ apiToken }) {
   const [successMessage, setSuccessMessage] = useState('');
 
   // Dashboard state
-  const [cacheOverview, setCacheOverview] = useState(null);
+  const [systemOverview, setSystemOverview] = useState(null);
   
   // Browser state
-  const [cachedEvents, setCachedEvents] = useState([]);
+  const [unifiedEvents, setUnifiedEvents] = useState([]);
   const [pagination, setPagination] = useState({});
   const [filters, setFilters] = useState({
     page: 1,
     limit: 20,
-    status: '',
+    status: 'active', // active, deleted, enriched
     search: '',
     calendarId: '',
-    sortBy: 'cachedAt',
+    sortBy: 'lastSyncedAt',
     sortOrder: 'desc'
   });
   
@@ -65,8 +65,8 @@ export default function CacheAdmin({ apiToken }) {
     setTimeout(() => setError(''), 10000);
   };
 
-  // Load cache overview
-  const loadCacheOverview = useCallback(async () => {
+  // Load system overview
+  const loadSystemOverview = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/admin/cache/overview`, {
@@ -74,22 +74,22 @@ export default function CacheAdmin({ apiToken }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to load cache overview: ${response.status}`);
+        throw new Error(`Failed to load system overview: ${response.status}`);
       }
 
       const data = await response.json();
-      setCacheOverview(data);
-      logger.debug('Cache overview loaded:', data);
+      setSystemOverview(data);
+      logger.debug('System overview loaded:', data);
     } catch (err) {
-      logger.error('Error loading cache overview:', err);
-      showError(`Failed to load cache overview: ${err.message}`);
+      logger.error('Error loading system overview:', err);
+      showError(`Failed to load system overview: ${err.message}`);
     } finally {
       setLoading(false);
     }
   }, [API_BASE_URL, getAuthHeaders]);
 
-  // Load cached events
-  const loadCachedEvents = useCallback(async (newFilters = null) => {
+  // Load unified events
+  const loadUnifiedEvents = useCallback(async (newFilters = null) => {
     const filtersToUse = newFilters || filters;
     try {
       setLoading(true);
@@ -106,17 +106,17 @@ export default function CacheAdmin({ apiToken }) {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to load cached events: ${response.status}`);
+        throw new Error(`Failed to load unified events: ${response.status}`);
       }
 
       const data = await response.json();
-      setCachedEvents(data.events);
+      setUnifiedEvents(data.events);
       setPagination(data.pagination);
       setFilters(newFilters);
-      logger.debug('Cached events loaded:', data);
+      logger.debug('Unified events loaded:', data);
     } catch (err) {
-      logger.error('Error loading cached events:', err);
-      showError(`Failed to load cached events: ${err.message}`);
+      logger.error('Error loading unified events:', err);
+      showError(`Failed to load unified events: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -171,9 +171,9 @@ export default function CacheAdmin({ apiToken }) {
       
       // Refresh data
       if (activeTab === 'dashboard') {
-        await loadCacheOverview();
+        await loadSystemOverview();
       } else if (activeTab === 'browser') {
-        await loadCachedEvents();
+        await loadUnifiedEvents();
       }
     } catch (err) {
       logger.error('Error during cleanup:', err);
@@ -205,9 +205,9 @@ export default function CacheAdmin({ apiToken }) {
       
       // Refresh data
       if (activeTab === 'dashboard') {
-        await loadCacheOverview();
+        await loadSystemOverview();
       } else if (activeTab === 'browser') {
-        await loadCachedEvents();
+        await loadUnifiedEvents();
       }
     } catch (err) {
       logger.error('Error cleaning duplicates:', err);
@@ -217,26 +217,30 @@ export default function CacheAdmin({ apiToken }) {
     }
   };
 
-  // Invalidate cache for selected events
-  const invalidateSelectedEvents = async (eventIds) => {
+  // Refresh selected events or calendars
+  const refreshSelectedItems = async (eventIds, calendarIds) => {
     try {
       setLoading(true);
+      const body = {};
+      if (eventIds && eventIds.length > 0) body.eventIds = eventIds;
+      if (calendarIds && calendarIds.length > 0) body.calendarIds = calendarIds;
+      
       const response = await fetch(`${API_BASE_URL}/admin/cache/refresh`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ eventIds })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {
-        throw new Error(`Cache invalidation failed: ${response.status}`);
+        throw new Error(`Refresh failed: ${response.status}`);
       }
 
       const result = await response.json();
-      showSuccess(result.message);
-      await loadCachedEvents();
+      showSuccess(`${result.message}${result.note ? ` (${result.note})` : ''}`);
+      await loadUnifiedEvents();
     } catch (err) {
-      logger.error('Error invalidating cache:', err);
-      showError(`Cache invalidation failed: ${err.message}`);
+      logger.error('Error refreshing items:', err);
+      showError(`Refresh failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -251,7 +255,7 @@ export default function CacheAdmin({ apiToken }) {
       // For other filters, trigger immediate load
       const newFilters = { ...filters, [key]: value, page: 1 };
       setFilters(newFilters);
-      loadCachedEvents(newFilters);
+      loadUnifiedEvents(newFilters);
     }
   };
 
@@ -260,20 +264,20 @@ export default function CacheAdmin({ apiToken }) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const newFilters = { ...filters, page: 1 };
-      loadCachedEvents(newFilters);
+      loadUnifiedEvents(newFilters);
     }
   };
 
   // Handle search button click
   const handleSearchClick = () => {
     const newFilters = { ...filters, page: 1 };
-    loadCachedEvents(newFilters);
+    loadUnifiedEvents(newFilters);
   };
 
   // Handle pagination
   const handlePageChange = (newPage) => {
     const newFilters = { ...filters, page: newPage };
-    loadCachedEvents(newFilters);
+    loadUnifiedEvents(newFilters);
   };
 
   // Load initial data
@@ -283,49 +287,60 @@ export default function CacheAdmin({ apiToken }) {
       return;
     }
 
-    loadCacheOverview();
-  }, [apiToken, loadCacheOverview]);
+    loadSystemOverview();
+  }, [apiToken, loadSystemOverview]);
 
   // Load data when tab changes
   useEffect(() => {
     if (!apiToken) return;
 
     if (activeTab === 'dashboard') {
-      loadCacheOverview();
+      loadSystemOverview();
     } else if (activeTab === 'browser') {
       // Load with current filters when switching to browser tab
-      loadCachedEvents(filters);
+      loadUnifiedEvents(filters);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, apiToken]); // Intentionally omit loadCachedEvents and filters to prevent infinite loops
 
   // Render dashboard tab
   const renderDashboard = () => {
-    if (!cacheOverview) {
-      return <div className="loading">Loading cache overview...</div>;
+    if (!systemOverview) {
+      return <div className="loading">Loading system overview...</div>;
     }
 
-    const { statistics, cacheByCalendar, recentOperations, storage, configuration } = cacheOverview;
+    const { 
+      statistics, 
+      eventsByCalendar, 
+      deltaTokens, 
+      recentOperations, 
+      storage, 
+      configuration,
+      systemType 
+    } = systemOverview;
 
     return (
       <div className="cache-dashboard">
         <div className="dashboard-controls">
+          <div className="system-type-badge">
+            {systemType === 'unified_events' ? '🔗 Unified Events System' : '📦 Legacy Cache System'}
+          </div>
           <button 
-            onClick={cleanDuplicates}
+            onClick={() => refreshSelectedItems(null, deltaTokens?.map(dt => dt.calendarId))}
             className="action-btn primary"
             disabled={loading}
           >
-            🧹 Clean Duplicate Entries
+            🔄 Force Full Sync
           </button>
           <button 
-            onClick={() => performCleanup('expired')}
+            onClick={() => performCleanup('deleted')}
             className="action-btn"
             disabled={loading}
           >
-            🗑️ Clean Expired Entries
+            🗑️ Clean Deleted Events
           </button>
           <button 
-            onClick={loadCacheOverview}
+            onClick={loadSystemOverview}
             className="action-btn"
             disabled={loading}
           >
@@ -333,29 +348,29 @@ export default function CacheAdmin({ apiToken }) {
           </button>
         </div>
         <div className="dashboard-grid">
-          {/* Cache Statistics */}
+          {/* Event Statistics */}
           <div className="stats-card">
-            <h3>📊 Cache Statistics</h3>
+            <h3>📊 Event Statistics</h3>
             <div className="stats-grid">
               <div className="stat-item">
-                <span className="stat-label">Total Cached:</span>
-                <span className="stat-value">{statistics.totalCached}</span>
+                <span className="stat-label">Total Events:</span>
+                <span className="stat-value">{statistics.totalEvents}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Active:</span>
-                <span className="stat-value">{statistics.activeCount}</span>
+                <span className="stat-label">Active Events:</span>
+                <span className="stat-value">{statistics.activeEvents}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Expired:</span>
-                <span className="stat-value">{statistics.expiredCount}</span>
+                <span className="stat-label">Deleted Events:</span>
+                <span className="stat-value">{statistics.deletedEvents}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Dirty:</span>
-                <span className="stat-value">{statistics.dirtyCount}</span>
+                <span className="stat-label">Enriched Events:</span>
+                <span className="stat-value">{statistics.enrichedEvents}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Hit Ratio:</span>
-                <span className="stat-value">{statistics.hitRatio}%</span>
+                <span className="stat-label">Enrichment Ratio:</span>
+                <span className="stat-value">{statistics.enrichmentRatio}%</span>
               </div>
             </div>
           </div>
@@ -365,17 +380,23 @@ export default function CacheAdmin({ apiToken }) {
             <h3>💾 Storage</h3>
             <div className="stats-grid">
               <div className="stat-item">
-                <span className="stat-label">Total Size:</span>
-                <span className="stat-value">{Math.round(storage.totalSize / 1024)} KB</span>
+                <span className="stat-label">Events Collection:</span>
+                <span className="stat-value">{Math.round(storage.unifiedEvents.totalSize / 1024)} KB</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Index Size:</span>
-                <span className="stat-value">{Math.round(storage.indexSize / 1024)} KB</span>
+                <span className="stat-label">Delta Tokens:</span>
+                <span className="stat-value">{Math.round(storage.deltaTokens.totalSize / 1024)} KB</span>
               </div>
               <div className="stat-item">
                 <span className="stat-label">Documents:</span>
-                <span className="stat-value">{storage.documentCount}</span>
+                <span className="stat-value">{storage.unifiedEvents.documentCount}</span>
               </div>
+              {storage.legacy && (
+                <div className="stat-item">
+                  <span className="stat-label">Legacy Cache:</span>
+                  <span className="stat-value">{storage.legacy.totalCached} events</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -384,40 +405,67 @@ export default function CacheAdmin({ apiToken }) {
             <h3>⚙️ Configuration</h3>
             <div className="stats-grid">
               <div className="stat-item">
-                <span className="stat-label">Max Cache Size:</span>
-                <span className="stat-value">{configuration.maxCacheSize}</span>
+                <span className="stat-label">Delta Queries:</span>
+                <span className="stat-value">{configuration.deltaQueryEnabled ? '✅ Enabled' : '❌ Disabled'}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">TTL Hours:</span>
-                <span className="stat-value">{configuration.ttlHours}</span>
+                <span className="stat-label">Multi-Calendar:</span>
+                <span className="stat-value">{configuration.multiCalendarSupport ? '✅ Enabled' : '❌ Disabled'}</span>
               </div>
               <div className="stat-item">
-                <span className="stat-label">Stale Threshold:</span>
-                <span className="stat-value">{configuration.staleThresholdMinutes} min</span>
+                <span className="stat-label">Auto Sync:</span>
+                <span className="stat-value">{configuration.autoSync ? '✅ Enabled' : '❌ Disabled'}</span>
               </div>
             </div>
           </div>
 
-          {/* Cache by Calendar */}
+          {/* Delta Tokens */}
+          <div className="stats-card">
+            <h3>🔄 Delta Tokens</h3>
+            {deltaTokens && deltaTokens.length > 0 ? (
+              <div className="delta-tokens-list">
+                {deltaTokens.map((token, index) => (
+                  <div key={index} className="delta-token-item">
+                    <span className="calendar-id">{token.calendarId}</span>
+                    <span className={`sync-status ${token.hasValidToken ? 'valid' : 'invalid'}`}>
+                      {token.hasValidToken ? '✅ Valid' : '❌ No Token'}
+                    </span>
+                    <span className="last-sync">
+                      {token.lastDeltaSync ? new Date(token.lastDeltaSync).toLocaleDateString() : 'Never'}
+                    </span>
+                    {token.fullSyncRequired && <span className="full-sync-required">⚠️ Full Sync Required</span>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="no-data">No delta tokens found</div>
+            )}
+          </div>
+
+          {/* Events by Calendar */}
           <div className="stats-card full-width">
-            <h3>📅 Cache by Calendar</h3>
-            {cacheByCalendar.length > 0 ? (
+            <h3>📅 Events by Calendar</h3>
+            {eventsByCalendar && eventsByCalendar.length > 0 ? (
               <div className="calendar-list">
-                {cacheByCalendar.map((cal, index) => (
+                {eventsByCalendar.map((cal, index) => (
                   <div key={index} className="calendar-item">
                     <div className="calendar-info">
                       <span className="calendar-id">{cal._id || 'Unknown'}</span>
+                      <span className="calendar-name">{cal.calendarName || 'Unknown Calendar'}</span>
                       <span className="calendar-count">{cal.count} events</span>
+                      <span className={`calendar-role ${cal.role}`}>
+                        {cal.role === 'shared' ? '👥 Shared' : '👤 Primary'}
+                      </span>
                     </div>
                     <div className="calendar-dates">
-                      {cal.oldestCached && (
-                        <span className="cache-date">
-                          Oldest: {new Date(cal.oldestCached).toLocaleDateString()}
+                      {cal.oldestSynced && (
+                        <span className="sync-date">
+                          Oldest: {new Date(cal.oldestSynced).toLocaleDateString()}
                         </span>
                       )}
-                      {cal.newestCached && (
-                        <span className="cache-date">
-                          Newest: {new Date(cal.newestCached).toLocaleDateString()}
+                      {cal.newestSynced && (
+                        <span className="sync-date">
+                          Newest: {new Date(cal.newestSynced).toLocaleDateString()}
                         </span>
                       )}
                     </div>
@@ -425,29 +473,27 @@ export default function CacheAdmin({ apiToken }) {
                 ))}
               </div>
             ) : (
-              <p>No cached events found</p>
+              <p>No events found</p>
             )}
           </div>
 
-          {/* Recent Operations */}
+          {/* Recent Sync Operations */}
           <div className="stats-card full-width">
-            <h3>🕐 Recent Operations</h3>
-            {recentOperations.length > 0 ? (
+            <h3>🕐 Recent Sync Operations</h3>
+            {recentOperations && recentOperations.length > 0 ? (
               <div className="operations-list">
                 {recentOperations.map((op, index) => (
                   <div key={index} className="operation-item">
                     <div className="operation-info">
                       <span className="operation-subject">{op.subject}</span>
-                      <span className="operation-status">
-                        {op.isDirty ? '🔄 Dirty' : '✅ Clean'}
-                      </span>
+                      <span className="operation-calendars">{op.sourceCalendars}</span>
                     </div>
                     <div className="operation-dates">
                       <span className="operation-date">
-                        Cached: {new Date(op.cachedAt).toLocaleString()}
+                        Synced: {new Date(op.lastSyncedAt).toLocaleString()}
                       </span>
-                      <span className="operation-date">
-                        Last Access: {new Date(op.lastAccessedAt).toLocaleString()}
+                      <span className="operation-calendar">
+                        Calendar: {op.calendarId}
                       </span>
                     </div>
                   </div>
@@ -462,7 +508,7 @@ export default function CacheAdmin({ apiToken }) {
         {/* Action Buttons */}
         <div className="dashboard-actions">
           <button 
-            onClick={() => loadCacheOverview()} 
+            onClick={() => loadSystemOverview()} 
             disabled={loading}
             className="refresh-btn"
           >
@@ -518,18 +564,18 @@ export default function CacheAdmin({ apiToken }) {
             >
               <option value="">All Status</option>
               <option value="active">Active</option>
-              <option value="expired">Expired</option>
-              <option value="dirty">Dirty</option>
+              <option value="deleted">Deleted</option>
+              <option value="enriched">Enriched</option>
             </select>
             <select
               value={filters.sortBy}
               onChange={(e) => handleFilterChange('sortBy', e.target.value)}
               className="filter-select"
             >
-              <option value="cachedAt">Cache Date</option>
-              <option value="lastAccessedAt">Last Access</option>
-              <option value="expiresAt">Expires At</option>
-              <option value="eventData.subject">Subject</option>
+              <option value="lastSyncedAt">Last Synced</option>
+              <option value="subject">Subject</option>
+              <option value="startTime">Start Time</option>
+              <option value="calendarId">Calendar</option>
             </select>
             <select
               value={filters.sortOrder}
@@ -545,33 +591,33 @@ export default function CacheAdmin({ apiToken }) {
         {/* Events Table */}
         <div className="events-table-container">
           {loading ? (
-            <div className="loading">Loading cached events...</div>
-          ) : cachedEvents.length > 0 ? (
+            <div className="loading">Loading unified events...</div>
+          ) : unifiedEvents.length > 0 ? (
             <table className="events-table">
               <thead>
                 <tr>
                   <th>Subject</th>
                   <th>Start Time</th>
                   <th>Location</th>
+                  <th>Calendars</th>
                   <th>Enhanced</th>
-                  <th>Setup/Teardown</th>
-                  <th>Cached At</th>
+                  <th>Last Synced</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {cachedEvents.map((event) => (
+                {unifiedEvents.map((event) => (
                   <tr key={event._id}>
                     <td className="event-subject">
                       <div className="subject-cell">
-                        <div className="subject-title">{event.subject}</div>
-                        {event.category && event.category !== 'Uncategorized' && (
-                          <div className="event-category">📋 {event.category}</div>
+                        <div className="subject-title">{event.subject || 'No Subject'}</div>
+                        {event.internalData?.category && event.internalData.category !== 'Uncategorized' && (
+                          <div className="event-category">📋 {event.internalData.category}</div>
                         )}
-                        {event.mecCategories && event.mecCategories.length > 0 && (
+                        {event.internalData?.mecCategories && event.internalData.mecCategories.length > 0 && (
                           <div className="mec-categories">
-                            🏷️ {event.mecCategories.join(', ')}
+                            🏷️ {event.internalData.mecCategories.join(', ')}
                           </div>
                         )}
                       </div>
@@ -581,52 +627,51 @@ export default function CacheAdmin({ apiToken }) {
                         <div className="main-time">
                           {event.startTime ? new Date(event.startTime).toLocaleString() : 'N/A'}
                         </div>
-                        {event.hasRegistrationEvent && event.registrationStart && (
+                        {event.internalData?.hasRegistrationEvent && event.internalData?.registrationStart && (
                           <div className="registration-time">
-                            🎟️ Reg: {new Date(event.registrationStart).toLocaleString()}
+                            🎟️ Reg: {new Date(event.internalData.registrationStart).toLocaleString()}
                           </div>
                         )}
                       </div>
                     </td>
                     <td className="event-location">{event.location || 'N/A'}</td>
-                    <td className="enhancement-info">
-                      <div className="enhancement-indicators">
-                        {event.hasInternalData && <span title="Has internal data">📝</span>}
-                        {event.hasRegistrationEvent && <span title="Has registration event">🎟️</span>}
-                        {event.setupMinutes > 0 && <span title="Has setup time">⚙️</span>}
-                        {event.teardownMinutes > 0 && <span title="Has teardown time">🧹</span>}
-                        {event.assignedTo && <span title="Has staff assignment">👤</span>}
-                        {event.registrationNotes && <span title="Has notes">📝</span>}
-                        {event.extensions && event.extensions.length > 0 && <span title="Has extensions">🔌</span>}
+                    <td className="calendars-info">
+                      <div className="source-calendars">
+                        {event.sourceCalendars && event.sourceCalendars.map((cal, idx) => (
+                          <span key={idx} className={`calendar-badge ${cal.includes('TempleRegistration') ? 'shared' : 'primary'}`}>
+                            {cal.includes('TempleRegistration') ? '👥 Temple' : '👤 Personal'}
+                          </span>
+                        ))}
                       </div>
                     </td>
-                    <td className="setup-teardown">
-                      {event.setupMinutes > 0 || event.teardownMinutes > 0 ? (
-                        <div className="times">
-                          {event.setupMinutes > 0 && <div>⚙️ {event.setupMinutes}m</div>}
-                          {event.teardownMinutes > 0 && <div>🧹 {event.teardownMinutes}m</div>}
-                        </div>
-                      ) : (
-                        <span className="no-times">-</span>
-                      )}
+                    <td className="enhancement-info">
+                      <div className="enhancement-indicators">
+                        {event.internalData && Object.keys(event.internalData).length > 0 && <span title="Has internal data">📝</span>}
+                        {event.internalData?.hasRegistrationEvent && <span title="Has registration event">🎟️</span>}
+                        {event.internalData?.setupMinutes > 0 && <span title="Has setup time">⚙️</span>}
+                        {event.internalData?.teardownMinutes > 0 && <span title="Has teardown time">🧹</span>}
+                        {event.internalData?.assignedTo && <span title="Has staff assignment">👤</span>}
+                        {event.internalData?.registrationNotes && <span title="Has notes">📝</span>}
+                        {event.internalData?.extensions && event.internalData.extensions.length > 0 && <span title="Has extensions">🔌</span>}
+                      </div>
                     </td>
-                    <td className="cache-date">
-                      {new Date(event.cachedAt).toLocaleString()}
+                    <td className="sync-date">
+                      {event.lastSyncedAt ? new Date(event.lastSyncedAt).toLocaleString() : 'Never'}
                     </td>
                     <td className="event-status">
-                      {event.isDirty ? (
-                        <span className="status dirty">🔄 Dirty</span>
-                      ) : new Date(event.expiresAt) < new Date() ? (
-                        <span className="status expired">⏰ Expired</span>
+                      {event.isDeleted ? (
+                        <span className="status deleted">🗑️ Deleted</span>
+                      ) : event.internalData && Object.keys(event.internalData).length > 0 ? (
+                        <span className="status enriched">✨ Enriched</span>
                       ) : (
                         <span className="status active">✅ Active</span>
                       )}
                     </td>
                     <td className="event-actions">
                       <button
-                        onClick={() => invalidateSelectedEvents([event.eventId])}
-                        className="action-btn invalidate-btn"
-                        title="Invalidate cache for this event"
+                        onClick={() => refreshSelectedItems([event.eventId])}
+                        className="action-btn refresh-btn"
+                        title="Refresh this event from Graph API"
                       >
                         🔄
                       </button>
@@ -643,7 +688,7 @@ export default function CacheAdmin({ apiToken }) {
               </tbody>
             </table>
           ) : (
-            <div className="no-data">No cached events found</div>
+            <div className="no-data">No unified events found</div>
           )}
         </div>
 

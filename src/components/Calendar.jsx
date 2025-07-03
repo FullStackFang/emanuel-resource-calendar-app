@@ -17,6 +17,7 @@
   import DayEventPanel from './DayEventPanel';
   import eventDataService from '../services/eventDataService';
   import eventCacheService from '../services/eventCacheService';
+  import unifiedEventService from '../services/unifiedEventService';
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
@@ -159,10 +160,33 @@
     });
     
     // Core calendar data
-    const [allEvents, setAllEvents] = useState([]);
+    const [allEvents, setAllEventsState] = useState([]);
     const [showSearch, setShowSearch] = useState(false);
     const [outlookCategories, setOutlookCategories] = useState([]);
     const [schemaExtensions, setSchemaExtensions] = useState([]);
+
+    // Safe wrapper for setAllEvents to prevent accidentally clearing events
+    const setAllEvents = useCallback((newEvents) => {
+      // Validate the new events
+      if (!Array.isArray(newEvents)) {
+        logger.error('setAllEvents: Invalid input - not an array', { type: typeof newEvents });
+        return;
+      }
+      
+      // Log when events are being set
+      logger.debug('setAllEvents: Setting events', {
+        newCount: newEvents.length,
+        oldCount: allEvents.length,
+        sample: newEvents.length > 0 ? newEvents[0].subject : 'none'
+      });
+      
+      // Warn if clearing events
+      if (newEvents.length === 0 && allEvents.length > 0) {
+        logger.warn('setAllEvents: Clearing all events (was ' + allEvents.length + ' events)');
+      }
+      
+      setAllEventsState(newEvents);
+    }, [allEvents]);
 
     // UI state
     const [groupBy, setGroupBy] = useState('categories'); 
@@ -201,6 +225,7 @@
     // Profile states
     const { userTimezone, setUserTimezone } = useTimezone();
     const hasUserManuallyChangedTimezone = useRef(false);
+    const [currentUser, setCurrentUser] = useState(null);
 
     logger.debug('Calendar timezone context:', { userTimezone, setUserTimezone });
     useEffect(() => {
@@ -537,6 +562,25 @@
                   >
                     {loading ? '⏳' : '🚀'} Force Refresh
                   </button>
+                  
+                  <button 
+                    onClick={handleManualSync}
+                    disabled={loading || !allEvents || allEvents.length === 0}
+                    style={{
+                      padding: '6px 14px',
+                      border: '1px solid #16a34a',
+                      borderRadius: '6px',
+                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
+                      color: loading || !allEvents || allEvents.length === 0 ? '#9ca3af' : '#16a34a',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: loading || !allEvents || allEvents.length === 0 ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Sync loaded events to database for enrichment"
+                  >
+                    {loading ? '⏳' : '💾'} Sync to Database
+                  </button>
                 </>
               )}
               
@@ -829,6 +873,45 @@
         return false;
       }
     };
+
+    /**
+     * Load current user information from API
+     */
+    const loadCurrentUser = useCallback(async () => {
+      if (!apiToken) {
+        logger.debug("No API token available for loading current user");
+        return;
+      }
+      
+      try {
+        logger.debug("Loading current user information");
+        
+        const response = await fetch(`${API_BASE_URL}/users/current`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          logger.error("Failed to load current user:", response.status);
+          return;
+        }
+        
+        const userData = await response.json();
+        logger.debug("Current user loaded:", userData);
+        
+        setCurrentUser({
+          name: userData.name || userData.displayName,
+          email: userData.email,
+          id: userData.id || userData._id
+        });
+        
+      } catch (error) {
+        logger.error("Error loading current user:", error);
+      }
+    }, [apiToken]);
 
     /**
      * Load schema extensions available for this application
@@ -1128,8 +1211,33 @@
         
           // Get the actual calendar ID for this event
           // If we're fetching from a specific calendar, use that ID
-          // Otherwise, try to get it from the event's calendar property
-          const eventCalendarId = selectedCalendarId || evt.calendar?.id || null;
+          let eventCalendarId = selectedCalendarId || null;
+          
+          // If no specific calendar selected (using /me/events), we need to determine the calendar
+          if (!eventCalendarId) {
+            // First try to get from event's calendar property (if available)
+            eventCalendarId = evt.calendar?.id || null;
+            
+            // If still no calendar ID, try to match against available calendars
+            if (!eventCalendarId && availableCalendars.length > 0) {
+              // For events from /me/events, we need to determine which calendar they belong to
+              // Look for the default calendar first
+              const defaultCalendar = availableCalendars.find(c => c.isDefaultCalendar);
+              if (defaultCalendar) {
+                // Check if this event likely belongs to the default calendar
+                // (In most cases, events from /me/events without specific calendar info are from the default calendar)
+                eventCalendarId = defaultCalendar.id;
+                logger.debug(`Assigned default calendar ID ${defaultCalendar.id} to event: ${evt.subject}`);
+              } else if (availableCalendars.length === 1) {
+                // If only one calendar available, use it
+                eventCalendarId = availableCalendars[0].id;
+                logger.debug(`Assigned only available calendar ID ${availableCalendars[0].id} to event: ${evt.subject}`);
+              } else {
+                // Multiple calendars but no default - this is a problem
+                logger.warn(`Could not determine calendar ID for event: ${evt.subject}. Available calendars:`, availableCalendars.map(c => c.name));
+              }
+            }
+          }
           
           return {
             id: evt.id,
@@ -1158,10 +1266,36 @@
           };
         });
 
-        // Enrich with internal data if API token is available
+        // Sync events to unified collection first, then enrich with internal data
         let enrichedEvents = converted;
         if (apiToken) {
           try {
+            // Sync events to unified collection before enrichment
+            logger.debug('Syncing events to unified collection before enrichment');
+            // Use the manual sync endpoint instead since it doesn't require calendarId
+            const response = await fetch(`${API_BASE_URL}/internal-events/sync`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                events: converted,
+                dateRange: {
+                  start: dateRange.start.toISOString(),
+                  end: dateRange.end.toISOString()
+                }
+              })
+            });
+            
+            if (response.ok) {
+              const syncResult = await response.json();
+              logger.debug('Sync result:', syncResult);
+            } else {
+              logger.warn('Sync failed:', response.status, response.statusText);
+            }
+            
+            // Now enrich with internal data
             enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
             logger.debug(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
             
@@ -1209,24 +1343,65 @@
           setTimeout(async () => {
             try {
               eventCacheService.setApiToken(apiToken);
+              eventCacheService.setGraphToken(graphToken);
               
               // Group events by calendar ID and cache each group separately
               const eventsByCalendar = enrichedEvents.reduce((acc, event) => {
-                const calId = event.calendarId;
-                if (calId) { // Only cache events with valid calendar IDs
+                // Use event's calendarId or fall back to selectedCalendarId or default calendar
+                let calId = event.calendarId || selectedCalendarId;
+                
+                // If still no calendar ID, try to use the default calendar
+                if (!calId && availableCalendars.length > 0) {
+                  const defaultCalendar = availableCalendars.find(c => c.isDefaultCalendar);
+                  if (defaultCalendar) {
+                    calId = defaultCalendar.id;
+                  }
+                }
+                
+                if (calId) {
                   if (!acc[calId]) acc[calId] = [];
                   acc[calId].push(event);
+                } else {
+                  // Group uncategorized events separately
+                  if (!acc['_unknown']) acc['_unknown'] = [];
+                  acc['_unknown'].push(event);
                 }
                 return acc;
               }, {});
               
               logger.debug('Selective caching for calendars:', Object.keys(eventsByCalendar));
-              logger.debug('Events without calendarId:', enrichedEvents.filter(e => !e.calendarId).map(e => ({id: e.id, subject: e.subject})));
+              const eventsWithoutCalendar = eventsByCalendar['_unknown'] || [];
+              if (eventsWithoutCalendar.length > 0) {
+                logger.warn('Events without calendarId:', eventsWithoutCalendar.map(e => ({id: e.id, subject: e.subject})));
+              }
               
               // Cache events for each calendar separately
               for (const [calendarId, events] of Object.entries(eventsByCalendar)) {
+                // Skip unknown calendar group
+                if (calendarId === '_unknown') {
+                  logger.warn(`Skipping cache for ${events.length} events without valid calendar ID`);
+                  continue;
+                }
+                
                 try {
-                  const result = await eventCacheService.cacheUncachedEvents(events, calendarId);
+                  // Ensure events include enrichment data before caching
+                  const eventsWithInternalData = events.map(event => ({
+                    ...event,
+                    // Include internal data if it exists
+                    ...(event._hasInternalData ? {
+                      setupMinutes: event.setupMinutes || 0,
+                      teardownMinutes: event.teardownMinutes || 0,
+                      registrationNotes: event.registrationNotes || '',
+                      assignedTo: event.assignedTo || '',
+                      mecCategories: event.mecCategories || [],
+                      internalNotes: event.internalNotes || '',
+                      setupStatus: event.setupStatus || 'pending',
+                      estimatedCost: event.estimatedCost,
+                      actualCost: event.actualCost
+                    } : {})
+                  }));
+                  
+                  const result = await eventCacheService.cacheUncachedEvents(eventsWithInternalData, calendarId);
                   logger.debug(`Selective caching completed for calendar ${calendarId}:`, result);
                 } catch (cacheError) {
                   logger.warn(`Selective caching failed for calendar ${calendarId}:`, cacheError);
@@ -1254,13 +1429,13 @@
      */
     const loadEventsWithCache = useCallback(async (forceRefresh = false) => {
       if (!graphToken) {
-        logger.debug("Missing graph token");
+        logger.debug("loadEventsWithCache: Missing graph token");
         return false;
       }
 
       // If no calendar is selected, fall back to direct Graph API loading
       if (!selectedCalendarId) {
-        logger.debug("No calendar selected, falling back to Graph API loading");
+        logger.debug("loadEventsWithCache: No calendar selected, falling back to Graph API loading");
         return await loadGraphEvents();
       }
 
@@ -1269,10 +1444,19 @@
       try {
         // Prepare parameters for cache query
         const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
+        
+        logger.debug('loadEventsWithCache: Starting load', {
+          calendarId: selectedCalendarId,
+          startTime: start,
+          endTime: end,
+          forceRefresh,
+          hasApiToken: !!apiToken
+        });
 
         if (apiToken && !forceRefresh) {
           // Try cache-first approach
           eventCacheService.setApiToken(apiToken);
+          eventCacheService.setGraphToken(graphToken);
           
           try {
             const cacheResult = await eventCacheService.loadEvents({
@@ -1280,6 +1464,12 @@
               startTime: start,
               endTime: end,
               forceRefresh: false
+            });
+            
+            logger.debug('loadEventsWithCache: Cache service response', {
+              source: cacheResult.source,
+              count: cacheResult.events?.length || 0,
+              needsGraphApi: cacheResult.needsGraphApi
             });
             
             if (cacheResult.source === 'cache' && cacheResult.events.length > 0) {
@@ -1304,10 +1494,22 @@
               }, 1000); // Delay to avoid interfering with UI
               
               return true;
+            } else if (cacheResult.source === 'graph_fallback' && cacheResult.events.length >= 0) {
+              // Cache miss - backend already fetched from Graph API and cached events
+              logger.debug('loadEventsWithCache: Using Graph API fallback from cache service', {
+                count: cacheResult.events.length,
+                message: cacheResult.message
+              });
+              setAllEvents(cacheResult.events);
+              return true;
             }
           } catch (cacheError) {
             logger.warn('loadEventsWithCache: Cache loading failed, falling back to Graph API', cacheError);
           }
+        } else {
+          logger.debug('loadEventsWithCache: Skipping cache', { 
+            reason: !apiToken ? 'No API token' : 'Force refresh requested' 
+          });
         }
 
         // Cache miss, stale data, or force refresh - use Graph API
@@ -1326,16 +1528,189 @@
     }, [graphToken, selectedCalendarId, apiToken, dateRange, formatDateRangeForAPI, loadGraphEvents]);
 
     /**
-     * Enhanced load events with cache-first approach
+     * Load events using unified delta sync
+     * @param {boolean} forceRefresh - Force full sync instead of delta
+     */
+    const loadEventsUnified = useCallback(async (forceRefresh = false) => {
+      if (!graphToken || !apiToken) {
+        logger.debug("loadEventsUnified: Missing tokens");
+        return false;
+      }
+
+      setLoading(true);
+      
+      try {
+        // Prepare parameters for sync
+        const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
+        
+        // Get calendar IDs to sync - include both user calendar and TempleRegistration
+        const calendarIds = [];
+        
+        // Enhanced logging for calendar ID resolution
+        logger.debug('loadEventsUnified: Resolving calendar IDs', {
+          selectedCalendarId,
+          availableCalendarsCount: availableCalendars?.length || 0,
+          availableCalendars: availableCalendars?.map(cal => ({
+            id: cal.id,
+            name: cal.name,
+            isDefaultCalendar: cal.isDefaultCalendar,
+            ownerName: cal.owner?.name,
+            ownerAddress: cal.owner?.address
+          })) || [],
+          currentUser: currentUser ? {
+            name: currentUser.name,
+            email: currentUser.email
+          } : null
+        });
+        
+        if (selectedCalendarId) {
+          calendarIds.push(selectedCalendarId);
+          logger.debug('loadEventsUnified: Using selected calendar ID', { selectedCalendarId });
+        } else {
+          // If no specific calendar selected, find and use the actual primary calendar ID
+          const primaryCalendar = availableCalendars.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
+          if (primaryCalendar) {
+            calendarIds.push(primaryCalendar.id);
+            logger.debug('loadEventsUnified: Found primary calendar', { 
+              id: primaryCalendar.id, 
+              name: primaryCalendar.name 
+            });
+          } else if (availableCalendars.length > 0) {
+            // Fallback to first available calendar
+            calendarIds.push(availableCalendars[0].id);
+            logger.debug('loadEventsUnified: Using first available calendar', { 
+              id: availableCalendars[0].id, 
+              name: availableCalendars[0].name 
+            });
+          } else {
+            logger.warn('loadEventsUnified: No available calendars found');
+          }
+        }
+        
+        // Always include TempleRegistration shared mailbox if available
+        const templeRegistrationCalendar = availableCalendars.find(cal => 
+          cal.name?.toLowerCase().includes('templeregistration') || 
+          cal.owner?.address?.toLowerCase().includes('templeregistration')
+        );
+        if (templeRegistrationCalendar && !calendarIds.includes(templeRegistrationCalendar.id)) {
+          calendarIds.push(templeRegistrationCalendar.id);
+          logger.debug('loadEventsUnified: Added TempleRegistration calendar', { 
+            id: templeRegistrationCalendar.id, 
+            name: templeRegistrationCalendar.name 
+          });
+        } else if (!templeRegistrationCalendar) {
+          logger.debug('loadEventsUnified: TempleRegistration calendar not found in available calendars');
+        }
+        
+        // Final validation of calendar IDs
+        if (calendarIds.length === 0) {
+          logger.error('loadEventsUnified: No calendar IDs resolved', {
+            selectedCalendarId,
+            availableCalendarsCount: availableCalendars?.length || 0,
+            hasCurrentUser: !!currentUser
+          });
+          throw new Error('No valid calendar IDs found for sync');
+        }
+        
+        logger.debug('loadEventsUnified: Final calendar IDs for sync', { 
+          calendarIds,
+          count: calendarIds.length 
+        });
+        
+        logger.debug('loadEventsUnified: Starting unified delta sync', {
+          calendarIds,
+          startTime: start,
+          endTime: end,
+          forceRefresh
+        });
+        
+        // Initialize unified event service
+        unifiedEventService.setApiToken(apiToken);
+        unifiedEventService.setGraphToken(graphToken);
+        
+        // Perform delta sync
+        const syncResult = await unifiedEventService.syncEvents({
+          calendarIds: calendarIds,
+          startTime: start,
+          endTime: end,
+          forceFullSync: forceRefresh
+        });
+        
+        logger.debug('loadEventsUnified: Delta sync completed', {
+          source: syncResult.source,
+          eventCount: syncResult.count,
+          syncResults: syncResult.syncResults
+        });
+        
+        // Only update events if we got actual results
+        // Don't clear existing events if unified sync returns empty
+        if (syncResult.events && syncResult.events.length > 0) {
+          logger.debug('loadEventsUnified: Setting events from unified sync', { count: syncResult.events.length });
+          setAllEvents(syncResult.events);
+          return true;
+        } else if (syncResult.syncResults && syncResult.syncResults.errors && syncResult.syncResults.errors.length > 0) {
+          // If there were errors, don't clear events - keep existing ones
+          logger.warn('loadEventsUnified: Unified sync had errors, keeping existing events', {
+            errorCount: syncResult.syncResults.errors.length,
+            errors: syncResult.syncResults.errors
+          });
+          return false;
+        } else {
+          // No events returned but no errors - this might be legitimate (empty calendar)
+          // Only clear events if this was explicitly a successful empty result
+          if (syncResult.source === 'delta_sync' && syncResult.syncResults?.totalEvents === 0) {
+            logger.debug('loadEventsUnified: Calendar is empty, clearing events');
+            setAllEvents([]);
+            return true;
+          } else {
+            logger.warn('loadEventsUnified: No events returned, keeping existing events');
+            return false;
+          }
+        }
+        
+      } catch (error) {
+        logger.error('loadEventsUnified failed:', error);
+        
+        // Fallback to old cache approach if unified sync fails
+        logger.warn('loadEventsUnified: Falling back to cache approach');
+        try {
+          return await loadEventsWithCache(forceRefresh);
+        } catch (fallbackError) {
+          logger.error('loadEventsUnified: Fallback also failed:', fallbackError);
+          return false;
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, [graphToken, apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI, loadEventsWithCache]);
+
+    /**
+     * Enhanced load events with unified delta sync (primary) and cache fallback
      * @param {boolean} forceRefresh - Force refresh from Graph API
      */
     const loadEvents = useCallback(async (forceRefresh = false) => {
       if (isDemoMode) {
         return await loadDemoEvents();
       } else {
+        // Hybrid approach: Try unified delta sync first, fallback to cache approach if it fails
+        logger.debug('loadEvents: Starting hybrid event loading approach');
+        
+        try {
+          // Attempt unified delta sync first
+          const unifiedResult = await loadEventsUnified(forceRefresh);
+          if (unifiedResult) {
+            logger.debug('loadEvents: Unified sync successful');
+            return unifiedResult;
+          }
+        } catch (error) {
+          logger.warn('loadEvents: Unified sync failed, falling back to cache approach:', error);
+        }
+        
+        // Fallback to cache-based approach
+        logger.debug('loadEvents: Using cache fallback approach');
         return await loadEventsWithCache(forceRefresh);
       }
-    }, [isDemoMode, loadDemoEvents, loadEventsWithCache]);
+    }, [isDemoMode, loadDemoEvents, loadEventsUnified, loadEventsWithCache]);
 
     /**
      * Sync events to internal database 
@@ -1387,6 +1762,76 @@
       }
     }, [graphToken, apiToken, selectedCalendarId, loadGraphEvents]);
 
+
+    /**
+     * Manual sync of loaded events to database
+     * Creates enriched templeEvents__Events records for currently loaded events
+     */
+    const handleManualSync = useCallback(async () => {
+      if (!allEvents || allEvents.length === 0) {
+        alert('No events to sync. Please load events first.');
+        return;
+      }
+
+      if (!apiToken) {
+        alert('Authentication required for sync.');
+        return;
+      }
+
+      setLoading(true);
+      logger.debug('Starting manual sync of events to database', { eventCount: allEvents.length });
+
+      try {
+        logger.debug('Making manual sync request', {
+          url: `${API_BASE_URL}/internal-events/sync`,
+          eventCount: allEvents.length,
+          hasApiToken: !!apiToken
+        });
+
+        // Call the manual sync endpoint
+        const response = await fetch(`${API_BASE_URL}/internal-events/sync`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            events: allEvents,
+            dateRange: {
+              start: dateRange.start.toISOString(),
+              end: dateRange.end.toISOString()
+            }
+          })
+        });
+
+        logger.debug('Manual sync response received', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          logger.error('Manual sync HTTP error', {
+            status: response.status,
+            statusText: response.statusText,
+            errorText
+          });
+          throw new Error(`Sync failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        logger.debug('Manual sync completed successfully', result);
+        
+        alert(`Successfully synced ${result.enrichedCount || result.totalProcessed || allEvents.length} events to database. Created: ${result.createdCount}, Updated: ${result.updatedCount}`);
+        
+      } catch (error) {
+        logger.error('Manual sync failed:', error);
+        alert(`Sync failed: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }, [allEvents, apiToken, dateRange, API_BASE_URL]);
 
     /**
      * Load user profile and permissions
@@ -1520,6 +1965,10 @@
           logger.debug("Could not load user profile, but continuing with defaults");
         }
 
+        // Load current user information
+        logger.debug("Step: Loading current user information...");
+        await loadCurrentUser();
+
         // Load available calendars
         logger.debug("Step: Loading available calendars...");
         const calendars = await loadAvailableCalendars();
@@ -1567,7 +2016,7 @@
         });
         setInitializing(false);
       }
-    }, [graphToken, apiToken, loadUserProfile, loadOutlookCategories, loadSchemaExtensions, loadGraphEvents]);
+    }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadOutlookCategories, loadSchemaExtensions, loadGraphEvents]);
 
     //---------------------------------------------------------------------------
     // CACHE MANAGEMENT FUNCTIONS

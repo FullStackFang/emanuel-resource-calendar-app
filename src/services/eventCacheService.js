@@ -7,6 +7,7 @@ const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 class EventCacheService {
   constructor() {
     this.apiToken = null;
+    this.graphToken = null;
   }
 
   // Set the API token for authenticated requests
@@ -14,15 +15,27 @@ class EventCacheService {
     this.apiToken = token;
   }
 
+  // Set the Graph token for Graph API fallback
+  setGraphToken(token) {
+    this.graphToken = token;
+  }
+
   // Get authorization headers
   getAuthHeaders() {
     if (!this.apiToken) {
       throw new Error('API token not set');
     }
-    return {
+    const headers = {
       'Authorization': `Bearer ${this.apiToken}`,
       'Content-Type': 'application/json'
     };
+    
+    // Add Graph token if available for cache miss fallback
+    if (this.graphToken) {
+      headers['X-Graph-Token'] = this.graphToken;
+    }
+    
+    return headers;
   }
 
   /**
@@ -51,14 +64,21 @@ class EventCacheService {
       });
 
       if (!response.ok) {
-        throw new Error(`Cache loading failed: ${response.status}`);
+        const errorText = await response.text();
+        logger.error('EventCacheService: Cache loading HTTP error', { 
+          status: response.status, 
+          statusText: response.statusText,
+          errorText: errorText
+        });
+        throw new Error(`Cache loading failed: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
       logger.debug('EventCacheService: Received response', { 
         source: data.source, 
-        count: data.count,
-        needsGraphApi: data.needsGraphApi 
+        count: data.count || data.events?.length || 0,
+        needsGraphApi: data.needsGraphApi,
+        message: data.message
       });
 
       return data;
@@ -76,7 +96,11 @@ class EventCacheService {
    */
   async cacheEvents(events, calendarId) {
     try {
-      logger.debug('EventCacheService: Caching events', { count: events.length, calendarId });
+      logger.debug('EventCacheService: Caching events', { 
+        count: events.length, 
+        calendarId,
+        firstEvent: events[0] ? { id: events[0].id, subject: events[0].subject, calendarId: events[0].calendarId } : null
+      });
 
       const response = await fetch(`${API_BASE_URL}/events/cache`, {
         method: 'POST',
@@ -85,11 +109,21 @@ class EventCacheService {
       });
 
       if (!response.ok) {
-        throw new Error(`Caching failed: ${response.status}`);
+        const errorText = await response.text();
+        logger.error('EventCacheService: Cache POST failed', { 
+          status: response.status, 
+          statusText: response.statusText,
+          errorText: errorText
+        });
+        throw new Error(`Caching failed: ${response.status} - ${errorText}`);
       }
 
       const result = await response.json();
-      logger.debug('EventCacheService: Cached events successfully', result);
+      logger.debug('EventCacheService: Cached events successfully', {
+        cachedCount: result.cachedCount,
+        errorCount: result.errorCount,
+        errors: result.errors
+      });
 
       return result;
     } catch (error) {
@@ -202,12 +236,27 @@ class EventCacheService {
         return { message: 'No events to check', cachedCount: 0 };
       }
 
-      logger.debug('EventCacheService: Checking for uncached events', { totalEvents: events.length, calendarId });
-      logger.debug('EventCacheService: First few event IDs:', events.slice(0, 3).map(e => ({id: e.id, subject: e.subject})));
+      logger.debug('EventCacheService: Checking for uncached events', { 
+        totalEvents: events.length, 
+        calendarId,
+        hasCalendarId: !!calendarId
+      });
+      logger.debug('EventCacheService: First few events:', events.slice(0, 3).map(e => ({
+        id: e.id, 
+        subject: e.subject,
+        calendarId: e.calendarId
+      })));
 
       // Check which events are missing from cache
       const eventIds = events.map(e => e.id);
       const missingInfo = await this.checkMissingFromCache(eventIds, calendarId);
+
+      logger.debug('EventCacheService: Missing cache check result', {
+        totalEvents: eventIds.length,
+        cachedCount: missingInfo.cachedCount || 0,
+        missingCount: missingInfo.missingCount || 0,
+        missingEventIds: missingInfo.missingEventIds?.length || 0
+      });
 
       if (missingInfo.missingCount === 0) {
         logger.debug('EventCacheService: All events already cached');
@@ -223,10 +272,16 @@ class EventCacheService {
         missingInfo.missingEventIds.includes(event.id)
       );
 
-      logger.debug(`EventCacheService: Caching ${eventsToCache.length} missing events`);
+      logger.debug(`EventCacheService: Caching ${eventsToCache.length} missing events for calendar ${calendarId}`);
 
       // Cache the missing events
       const result = await this.cacheEvents(eventsToCache, calendarId);
+      
+      logger.debug('EventCacheService: Cache result', {
+        cachedCount: result.cachedCount || 0,
+        errorCount: result.errorCount || 0,
+        message: result.message
+      });
       
       return {
         ...result,

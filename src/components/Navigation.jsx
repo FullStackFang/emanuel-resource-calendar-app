@@ -116,7 +116,16 @@ export default function Navigation({
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
-                  Cache Management
+                  Cache Management (Legacy)
+                </NavLink>
+              </li>
+              <li>
+                <NavLink 
+                  to="/admin/events" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Unified Events Admin
                 </NavLink>
               </li>
             </ul>
