@@ -32,7 +32,7 @@
     color: #1a1a1a;
     background-color: #f8f9fa;
     margin: 0;
-    padding: 20px;
+    padding: 0;
     width: 100%;
     max-width: 100%;
     min-height: 100vh;
@@ -40,16 +40,13 @@
     overflow-x: hidden;
   }
   
-  /* Remove body padding when signed out to allow full width */
+  /* Signed-out state styles (now consistent with default) */
   body.signed-out {
     padding: 0;
   }
   
-  /* Adjust app-container when body has no padding */
-  body.signed-out .app-container {
-    width: 100vw;
-    max-width: 100vw;
-    border-radius: 0;
+  .app-container.signed-out {
+    /* These properties are now the same as the default app-container */
     min-height: 100vh;
     height: 100vh;
   }
@@ -60,22 +57,22 @@
   .app-container {
     display: flex; 
     flex-direction: column;
-    min-height: calc(100vh - 40px);
-    width: 100%;
-    max-width: calc(100vw - 40px);
+    min-height: 100vh;
+    width: 100vw;
+    max-width: 100vw;
     margin: 0;
     padding: 0;
     overflow-y: auto;
     overflow-x: hidden;
     background-color: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+    border-radius: 0;
+    box-shadow: none;
   }
   
   /* Ensure app-container takes full height when signed out */
   .app-container.signed-out {
-    min-height: calc(100vh - 40px);
-    height: calc(100vh - 40px);
+    min-height: 100vh;
+    height: 100vh;
   }
 
   .app-header {

@@ -4293,58 +4293,82 @@
             </div>
           </div>
 
-          {/* MOVED SIDEBAR - Now sibling to main content */}
-          {viewType !== 'month' && (
+          {/* SIDEBAR - Always present for layout stability */}
+          {viewType !== 'month' ? (
             <div className="calendar-right-sidebar">
-              {/* FILTERS CONTAINER */}
-              <div className="filters-container">
-                {/* CATEGORIES FILTER SECTION */}
-                <div className="filter-section">
-                  <h3 className="filter-title">Categories</h3>
-                  <MultiSelect 
-                        options={dynamicCategories}
-                        selected={selectedCategories}
-                        onChange={val => {
-                          setSelectedCategories(val);
-                          updateUserProfilePreferences({ selectedCategories: val });
-                        }}
-                        label="categories"
-                        maxHeight={200}
-                      />
-                    </div>
-
-                    {/* LOCATIONS FILTER SECTION */}
+              {(loading || initializing) ? (
+                /* Placeholder content during loading */
+                <div className="sidebar-loading-placeholder">
+                  <div className="loading-placeholder-section">
+                    <div className="loading-placeholder-title">Categories</div>
+                    <div className="loading-placeholder-content"></div>
+                  </div>
+                  <div className="loading-placeholder-section">
+                    <div className="loading-placeholder-title">Locations</div>
+                    <div className="loading-placeholder-content"></div>
+                  </div>
+                  <div className="loading-placeholder-section">
+                    <div className="loading-placeholder-title">Filters</div>
+                    <div className="loading-placeholder-content"></div>
+                  </div>
+                </div>
+              ) : (
+                /* Actual sidebar content */
+                <>
+                  {/* FILTERS CONTAINER */}
+                  <div className="filters-container">
+                    {/* CATEGORIES FILTER SECTION */}
                     <div className="filter-section">
-                      <h3 className="filter-title">Locations</h3>
+                      <h3 className="filter-title">Categories</h3>
                       <MultiSelect 
-                        options={dynamicLocations}
-                        selected={selectedLocations}
-                        onChange={val => {
-                          setSelectedLocations(val);
-                          updateUserProfilePreferences({ selectedLocations: val });
-                        }}
-                        label="locations"
-                        maxHeight={200}
-                      />
-                    </div>
-                  </div>
+                            options={dynamicCategories}
+                            selected={selectedCategories}
+                            onChange={val => {
+                              setSelectedCategories(val);
+                              updateUserProfilePreferences({ selectedCategories: val });
+                            }}
+                            label="categories"
+                            maxHeight={200}
+                          />
+                        </div>
 
-                  {/* FILTER STATUS SECTION */}
-                  <div className="filter-status">
-                    <div className="status-title">Active Filters:</div>
-                    <div className="status-info">Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
-                    <div className="status-events">Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</div>
-                  </div>
+                        {/* LOCATIONS FILTER SECTION */}
+                        <div className="filter-section">
+                          <h3 className="filter-title">Locations</h3>
+                          <MultiSelect 
+                            options={dynamicLocations}
+                            selected={selectedLocations}
+                            onChange={val => {
+                              setSelectedLocations(val);
+                              updateUserProfilePreferences({ selectedLocations: val });
+                            }}
+                            label="locations"
+                            maxHeight={200}
+                          />
+                        </div>
+                      </div>
 
-                  {/* GROUPING INFO SECTION */}
-                  <div className="grouping-info">
-                    <h4 className="grouping-title">Current Grouping</h4>
-                    <p className="grouping-description">
-                      Events are visually grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>.
-                      Use the buttons above to change grouping.
-                    </p>
-                  </div>
+                      {/* FILTER STATUS SECTION */}
+                      <div className="filter-status">
+                        <div className="status-title">Active Filters:</div>
+                        <div className="status-info">Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
+                        <div className="status-events">Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</div>
+                      </div>
+
+                      {/* GROUPING INFO SECTION */}
+                      <div className="grouping-info">
+                        <h4 className="grouping-title">Current Grouping</h4>
+                        <p className="grouping-description">
+                          Events are visually grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>.
+                          Use the buttons above to change grouping.
+                        </p>
+                      </div>
+                </>
+              )}
             </div>
+          ) : (
+            /* Month view - no sidebar, but add a placeholder to maintain consistent spacing */
+            <div className="calendar-sidebar-spacer"></div>
           )}
         </div>
 

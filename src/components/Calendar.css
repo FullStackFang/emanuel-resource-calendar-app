@@ -1106,3 +1106,55 @@
     transform: rotate(360deg);
   }
 }
+
+/* ============================================================================
+   SIDEBAR LOADING PLACEHOLDER
+   ============================================================================ */
+
+/* Sidebar loading placeholder - maintains layout stability */
+.sidebar-loading-placeholder {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  height: 100%;
+  min-height: 400px;
+}
+
+.loading-placeholder-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loading-placeholder-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.loading-placeholder-content {
+  height: 80px;
+  background: linear-gradient(90deg, var(--light-gray) 25%, #f0f0f0 50%, var(--light-gray) 75%);
+  background-size: 200% 100%;
+  animation: loading-shimmer 2s infinite;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+@keyframes loading-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Calendar sidebar spacer for month view */
+.calendar-sidebar-spacer {
+  width: 0;
+  flex-shrink: 0;
+}
