@@ -22,6 +22,7 @@ import {
 // Create a client
 const queryClient = new QueryClient();
 
+
 // Search function implementation with timezone support
 async function searchEvents(token, searchTerm = '', dateRange = {}, categories = [], locations = [], pageUrl = null, calendarId = null, timezone = 'UTC') {
   try {
@@ -594,6 +595,8 @@ function EventSearchInner({
                   options={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
                   selected={selectedCategories}
                   onChange={handleCategoryChange}
+                  customHeight="36px"
+                  customPadding="8px 10px"
                 />
               </div>
               
@@ -604,6 +607,8 @@ function EventSearchInner({
                   options={availableLocations}
                   selected={selectedLocations}
                   onChange={handleLocationChange}
+                  customHeight="36px"
+                  customPadding="8px 10px"
                 />
               </div>
             </div>

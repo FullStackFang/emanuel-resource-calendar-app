@@ -5,7 +5,9 @@ function MultiSelect({
   options, 
   selected, 
   onChange, 
-  label
+  label,
+  customHeight = '32px',
+  customPadding = '6px 8px'
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState(selected);
@@ -99,7 +101,7 @@ function MultiSelect({
         onMouseDown={(e) => e.stopPropagation()}
         style={{
           width: '100%',
-          padding: '6px 8px',
+          padding: customPadding,
           border: '1px solid #dadce0',
           borderRadius: '4px',
           backgroundColor: '#f8f9fa',
@@ -110,7 +112,8 @@ function MultiSelect({
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: '13px',
-          height: '32px'
+          height: customHeight,
+          boxSizing: 'border-box'
         }}
       >
         <span style={{ color: localSelected.length === 0 ? '#9aa0a6' : '#3c4043' }}>
