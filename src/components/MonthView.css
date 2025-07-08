@@ -178,7 +178,7 @@
   width: 500px;
   min-width: 500px;
   max-width: 500px;
-  height: 700px; /* FIXED HEIGHT - same as calendar */
+  min-height: 700px; /* FLEXIBLE HEIGHT - can grow as needed */
   display: flex;
   flex-direction: column;
   background-color: var(--white);
@@ -189,7 +189,7 @@
   border-bottom-left-radius: 0;
   flex-shrink: 0;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* Month Filter Container */
@@ -260,12 +260,12 @@
 /* Responsive Design */
 @media (max-width: 1200px) {
   .month-view-wrapper {
-    height: 650px; /* Slightly smaller on medium screens */
+    min-height: 650px; /* Flexible height for medium screens */
   }
   
   .month-view-container,
   .month-right-panel {
-    height: 650px;
+    min-height: 650px;
   }
   
   .month-right-panel {
@@ -287,7 +287,7 @@
   .month-view-container {
     max-width: none;
     min-width: none;
-    height: 400px; /* Fixed height for mobile */
+    min-height: 400px; /* Flexible height for mobile */
     border-right: 1px solid var(--border-color);
     border-radius: 4px;
     border-bottom-right-radius: 0;
@@ -297,7 +297,7 @@
   .month-right-panel {
     width: 100%;
     min-width: none;
-    height: 400px; /* Fixed height for mobile */
+    min-height: 400px; /* Flexible height for mobile */
     border: 1px solid var(--border-color);
     border-top: none;
     border-radius: 0 0 4px 4px;
@@ -307,7 +307,7 @@
 @media (max-width: 768px) {
   .month-view-container,
   .month-right-panel {
-    height: 350px; /* Even smaller on small screens */
+    min-height: 350px; /* Flexible height for small screens */
   }
   
   .day-cell .day-number {

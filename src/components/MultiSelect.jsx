@@ -168,7 +168,9 @@ function MultiSelect({
             overflowY: 'auto',
             zIndex: 1000,
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            marginTop: '2px'
+            marginTop: '2px',
+            minWidth: '100%',
+            width: 'auto'
           }}
         >
           {options.length === 0 ? (

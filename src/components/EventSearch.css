@@ -205,7 +205,6 @@ html {
     display: flex;
     gap: 20px;
     flex: 1;
-    min-width: 400px;
   }
   
   .filter-section {

@@ -59,7 +59,7 @@
   height: 100%;
   overflow: hidden;
   margin: 0;
-  padding: 20px;
+  padding: 0;
   width: 100%;
   box-sizing: border-box;
 }
@@ -68,7 +68,7 @@
 .calendar-header {
   background: var(--white);
   border-bottom: 1px solid var(--border-color);
-  padding: 0 0 16px 0;
+  padding: 20px 20px 16px 20px;
   margin-bottom: 24px;
   flex-shrink: 0;
 }
@@ -78,43 +78,59 @@
   display: flex;
   gap: 15px;
   flex: 1;
-  overflow: hidden;
-  height: calc(100vh - 170px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: calc(100vh - 170px);
+  width: 100%;
+  max-width: 100%;
+  padding: 0 25px 20px 20px;
+  box-sizing: border-box;
 }
 
 /* Updated Main Content */
 .calendar-main-content {
   flex: 1;
   min-width: 0; /* Allows flex item to shrink below content size */
+  min-height: 0; /* Allows flex item to shrink below content size */
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Calendar Grid Container (Primary Content Area) */
 .calendar-grid-container {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   background: var(--white);
   border: 1px solid #dee2e6;
   border-radius: 8px;
 }
 
-/* UPDATED: Right Sidebar - Simplified like MonthView */
+/* UPDATED: Right Sidebar - Enhanced with refined border and shadow */
 .calendar-right-sidebar {
   width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   background-color: var(--white);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border: 1px solid #e1e5e9;
+  border-radius: 12px;
   flex-shrink: 0;
   height: fit-content;
   align-self: flex-start;
   box-sizing: border-box;
   overflow: visible; /* Allow dropdowns to overflow like MonthView */
   position: relative;
+  padding: 0; /* Ensure no extra padding on the sidebar itself */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.calendar-right-sidebar:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08), 0 3px 6px rgba(0, 0, 0, 0.12);
 }
 
 /* ============================================================================
@@ -361,18 +377,20 @@
    4. UPDATED SIDEBAR FILTER COMPONENTS
    ============================================================================ */
 
-/* NEW: Filters Container - Copy MonthView pattern exactly */
+/* NEW: Filters Container - Match sibling container pattern */
 .filters-container {
   padding: 15px;
   background-color: var(--background-light);
   border-bottom: 1px solid var(--border-color);
+  border-radius: 8px;
   flex-shrink: 0;
   display: flex;
   gap: 15px;
-  width: 100%;
+  width: calc(100% - 30px);
+  margin: 15px;
   box-sizing: border-box;
   justify-content: stretch;
-  overflow: visible;
+  overflow: hidden;
   position: relative;
   z-index: 10;
 }
@@ -381,6 +399,7 @@
   flex: 1;
   margin: 0;
   min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   overflow: visible;
@@ -398,10 +417,6 @@
 }
 
 /* Filter Container and Section Styling */
-.filters-container {
-  padding: 16px;
-  background: var(--white);
-}
 
 .filter-section {
   margin-bottom: 20px;
@@ -631,6 +646,19 @@
   color: var(--text-primary);
   min-width: var(--category-column-width);
   flex: 0 0 var(--category-column-width);
+  font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Responsive font sizing for category text */
+.grid-cell.category-cell {
+  font-size: clamp(10px, 2.5vw, 14px);
+}
+
+.grid-cell.location-cell {
+  font-size: clamp(10px, 2.5vw, 14px);
 }
 
 /* Day Cells */
