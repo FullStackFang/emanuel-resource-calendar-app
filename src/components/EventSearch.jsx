@@ -23,106 +23,133 @@ import {
 const queryClient = new QueryClient();
 
 
-// Search function implementation with timezone support
-async function searchEvents(token, searchTerm = '', dateRange = {}, categories = [], locations = [], pageUrl = null, calendarId = null, timezone = 'UTC') {
+// Search function implementation using unified backend search (includes CSV events)
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = 250, calendarId = null, timezone = 'UTC') {
   try {
-    let baseUrl;
-    if (calendarId) {
-      baseUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events`;
-    } else {
-      baseUrl = 'https://graph.microsoft.com/v1.0/me/events';
+    // Build search parameters
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      sortBy: 'startTime',
+      sortOrder: 'desc'
+    });
+
+    // Add search term if provided
+    if (searchTerm) {
+      params.append('search', searchTerm);
     }
 
-    let url = pageUrl || `${baseUrl}?$top=250&$orderby=start/dateTime desc&$count=true`;
-    let filters = [];
-    
-    // Add simple subject search if provided
-    if (searchTerm) {
-      filters.push(`contains(subject,'${searchTerm.replace(/'/g, "''")}')`);
+    // Add calendar filter if provided
+    if (calendarId) {
+      params.append('calendarId', calendarId);
     }
-    
-    // Add date filters if provided - always store/query in UTC
-    if (dateRange.start) {
-      const startDate = new Date(dateRange.start).toISOString();
-      filters.push(`start/dateTime ge '${startDate}'`);
-    }
-    
-    if (dateRange.end) {
-      const endDate = new Date(dateRange.end).toISOString();
-      filters.push(`end/dateTime le '${endDate}'`);
-    }
-    
-    // Only add filters if we have any and we're not using a pagination URL
-    if (filters.length > 0 && !pageUrl) {
-      url += `&$filter=${encodeURIComponent(filters.join(' and '))}`;
-    }
-    
-    console.log("Search URL:", url);
+
+    // Filter by active events only
+    params.append('status', 'active');
+
+    console.log("Unified search params:", params.toString());
     console.log("Display timezone:", timezone);
-    
-    // Always request data in UTC for consistency
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'outlook.timezone="UTC"' // Always request in UTC
-    };
-    
-    if (!pageUrl) {
-      headers['ConsistencyLevel'] = 'eventual';
-    }
-    
-    console.log("Request headers:", headers);
-    
-    // Make the API request
-    const response = await fetch(url, { headers });
-    
+
+    // Make the API request to unified search endpoint
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/cache/events?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
     }
-    
+
     const data = await response.json();
-    
-    // Try to get the total count if available
-    const totalCount = data['@odata.count'] !== undefined ? data['@odata.count'] : null;
-    
-    // Post-filter results for categories and locations
-    let results = data.value || [];
-    
-    // Filter by categories client-side
+    console.log("Unified search response:", data);
+
+    // Get results from unified search
+    let results = data.events || [];
+
+    // Apply date range filtering (the backend doesn't support this yet)
+    if (dateRange.start || dateRange.end) {
+      results = results.filter(event => {
+        const eventStartTime = new Date(event.graphData?.start?.dateTime || event.startTime);
+        const eventEndTime = new Date(event.graphData?.end?.dateTime || event.endTime);
+        
+        if (dateRange.start && eventStartTime < new Date(dateRange.start)) {
+          return false;
+        }
+        if (dateRange.end && eventEndTime > new Date(dateRange.end)) {
+          return false;
+        }
+        return true;
+      });
+    }
+
+    // Apply category filtering
     if (categories && categories.length > 0) {
       results = results.filter(event => {
+        const eventCategories = event.graphData?.categories || [];
+        const mecCategories = event.internalData?.mecCategories || [];
+        
         // Handle "Uncategorized" special case
         if (categories.includes('Uncategorized')) {
-          if (!event.categories || event.categories.length === 0) {
+          if (eventCategories.length === 0 && mecCategories.length === 0) {
             return true;
           }
         }
         
         // Check if any of the event's categories match our filter
-        return event.categories && 
-               event.categories.some(cat => categories.includes(cat));
+        return eventCategories.some(cat => categories.includes(cat)) ||
+               mecCategories.some(cat => categories.includes(cat));
       });
     }
-    
-    // Filter by locations client-side
+
+    // Apply location filtering
     if (locations && locations.length > 0) {
       results = results.filter(event => {
-        const eventLocation = event.location?.displayName || '';
+        const eventLocation = event.graphData?.location?.displayName || '';
         
         // Check if any of our location filters match
-        return locations.some(loc => eventLocation.includes(loc));
+        return locations.some(loc => eventLocation.toLowerCase().includes(loc.toLowerCase()));
       });
     }
-    
+
+    // Convert unified event format to Graph-like format for compatibility
+    const convertedResults = results.map(event => ({
+      id: event.eventId,
+      subject: event.graphData?.subject || event.subject,
+      start: {
+        dateTime: event.graphData?.start?.dateTime || event.startTime,
+        timeZone: event.graphData?.start?.timeZone || timezone
+      },
+      end: {
+        dateTime: event.graphData?.end?.dateTime || event.endTime,
+        timeZone: event.graphData?.end?.timeZone || timezone
+      },
+      location: event.graphData?.location || { displayName: event.location || '' },
+      categories: event.graphData?.categories || [],
+      bodyPreview: event.graphData?.bodyPreview || '',
+      organizer: event.graphData?.organizer || {},
+      calendarId: event.calendarId,
+      calendarName: event.calendarName,
+      // Include internal data for enriched display
+      internalData: event.internalData,
+      mecCategories: event.internalData?.mecCategories || [],
+      setupMinutes: event.internalData?.setupMinutes,
+      teardownMinutes: event.internalData?.teardownMinutes,
+      assignedTo: event.internalData?.assignedTo,
+      estimatedCost: event.internalData?.estimatedCost,
+      actualCost: event.internalData?.actualCost
+    }));
+
     return {
-      results,
-      nextLink: data['@odata.nextLink'] || null,
-      totalCount,
-      timezone: timezone // Include timezone in response for reference
+      results: convertedResults,
+      nextLink: data.hasNextPage ? page + 1 : null,
+      totalCount: data.totalCount || convertedResults.length,
+      timezone: timezone
     };
   } catch (error) {
-    console.error('Error searching events:', error);
+    console.error('Error searching unified events:', error);
     throw error;
   }
 }
@@ -130,6 +157,7 @@ async function searchEvents(token, searchTerm = '', dateRange = {}, categories =
 // The internal component that uses the query hooks
 function EventSearchInner({ 
   graphToken, 
+  apiToken,
   onEventSelect, 
   onClose, 
   outlookCategories, 
@@ -149,7 +177,8 @@ function EventSearchInner({
   const { userTimezone, setUserTimezone } = useTimezone();
   
   // Pagination state
-  const [nextLink, setNextLink] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [autoLoadMore, setAutoLoadMore] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState('');
@@ -190,12 +219,13 @@ function EventSearchInner({
         console.log(`Searching in calendar: ${selectedCalendarId || 'default'} with timezone: ${userTimezone}`);
 
         result = await searchEvents(
-          graphToken, 
+          apiToken, 
           searchTerm, 
           dateRange, 
           selectedCategories, 
           selectedLocations,
-          null, // No pageUrl for first page
+          1, // Start with page 1
+          250, // Limit
           selectedCalendarId,
           userTimezone // Use shared timezone
         );
@@ -206,7 +236,8 @@ function EventSearchInner({
           setLoadingStatus(`Found ${result.totalCount} events. Loading first batch...`);
         }
         
-        setNextLink(result.nextLink);
+        setHasNextPage(result.nextLink !== null);
+        setCurrentPage(1); // Reset to page 1 for new search
 
         // Sort results by start date (latest first)
         const sortedResults = [...result.results].sort((a, b) => {
@@ -274,9 +305,9 @@ function EventSearchInner({
   // Calculate total results
   const searchResults = searchData || [];
 
-  // Load more results function (updated to use shared timezone)
+  // Load more results function (updated to use page-based pagination)
   const loadMoreResults = useCallback(async () => {
-    if (!nextLink || isLoadingMore || loadingThrottleRef.current) return;
+    if (!hasNextPage || isLoadingMore || loadingThrottleRef.current) return;
     
     loadingThrottleRef.current = true;
     setTimeout(() => { loadingThrottleRef.current = false; }, 300);
@@ -290,18 +321,21 @@ function EventSearchInner({
         setLoadingStatus('Loading more events...');
       }
       
+      const nextPage = currentPage + 1;
       const result = await searchEvents(
-        graphToken, 
+        apiToken, 
         searchTerm, 
         dateRange, 
         selectedCategories, 
         selectedLocations, 
-        nextLink,
+        nextPage,
+        250, // Limit
         selectedCalendarId,
         userTimezone // Use shared timezone
       );
       
-      setNextLink(result.nextLink);
+      setHasNextPage(result.nextLink !== null);
+      setCurrentPage(nextPage);
       
       // Append new results to existing ones
       queryClient.setQueryData(searchQueryKey, oldData => {
@@ -343,19 +377,20 @@ function EventSearchInner({
       setIsLoadingMore(false);
     }
   }, [
-    nextLink, 
+    hasNextPage, 
     isLoadingMore, 
     searchResults.length, 
     totalAvailableEvents, 
-    graphToken, 
+    apiToken, 
     searchTerm, 
     dateRange, 
     selectedCalendarId,
     selectedCategories, 
     selectedLocations, 
-    userTimezone, // Use shared timezone
+    userTimezone, 
     searchQueryKey,
-    queryClient
+    queryClient,
+    currentPage
   ]);
 
   const scheduleNextBatch = useCallback(() => {
@@ -372,11 +407,11 @@ function EventSearchInner({
     }
     
     loadingTimeoutRef.current = setTimeout(() => {
-      if (autoLoadMore && nextLink && !isLoadingMore && !isLoading && !isFetching) {
+      if (autoLoadMore && hasNextPage && !isLoadingMore && !isLoading && !isFetching) {
         loadMoreResults();
       }
     }, dynamicDelay);
-  }, [autoLoadMore, nextLink, isLoadingMore, isLoading, isFetching, searchData, loadMoreResults]);
+  }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchData, loadMoreResults]);
   
   // Handle search execution
   const handleSearch = () => {
@@ -404,7 +439,7 @@ function EventSearchInner({
   };
 
   useEffect(() => {
-    if (autoLoadMore && nextLink && !isLoadingMore && !isLoading && !isFetching) {
+    if (autoLoadMore && hasNextPage && !isLoadingMore && !isLoading && !isFetching) {
       scheduleNextBatch();
     }
     
@@ -413,7 +448,7 @@ function EventSearchInner({
         clearTimeout(loadingTimeoutRef.current);
       }
     };
-  }, [nextLink, isLoadingMore, autoLoadMore, isLoading, isFetching, scheduleNextBatch]);
+  }, [hasNextPage, isLoadingMore, autoLoadMore, isLoading, isFetching, scheduleNextBatch]);
 
   useEffect(() => {
     return () => {
@@ -684,7 +719,7 @@ function EventSearchInner({
             ) : searchResults.length > 0 ? (
               <>
                 {/* Load More button at the TOP of the results list */}
-                {nextLink && (
+                {hasNextPage && (
                   <div className="load-more-container load-more-top">
                     <button 
                       onClick={loadMoreResults} 
@@ -704,7 +739,7 @@ function EventSearchInner({
                 </div>
                 
                 {/* Load More button at the BOTTOM of the results list */}
-                {nextLink && (
+                {hasNextPage && (
                   <div className="load-more-container load-more-bottom">
                     <button 
                       onClick={loadMoreResults} 

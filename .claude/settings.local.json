@@ -27,7 +27,8 @@
       "Bash(cat:*)",
       "Bash(npm start)",
       "Bash(timeout:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm run:*)"
     ],
     "deny": []
   }

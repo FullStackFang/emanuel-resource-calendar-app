@@ -4471,6 +4471,7 @@
         {showSearch && (
           <EventSearch 
             graphToken={graphToken}
+            apiToken={apiToken}
             onEventSelect={handleEventSelect}
             onViewInCalendar={handleViewInCalendar}
             onClose={() => setShowSearch(false)}
