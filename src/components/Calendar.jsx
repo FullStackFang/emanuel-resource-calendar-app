@@ -1954,6 +1954,7 @@
         return;
       }
 
+
       logger.debug("Starting application initialization...");
       try {
         // Load user profile and permissions first
@@ -2015,6 +2016,7 @@
           events: false
         });
         setInitializing(false);
+        
       }
     }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadOutlookCategories, loadSchemaExtensions, loadGraphEvents]);
 
@@ -3988,7 +3990,7 @@
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        {(initializing || loading) && <LoadingOverlay/>}
+        {(loading || initializing) && <LoadingOverlay/>}
         
         {/* REORGANIZED HEADER */}
         <div className="calendar-header">
@@ -4168,27 +4170,12 @@
         {/* Mode Toggle with Action Buttons */}
         {renderModeToggle()}
 
-        {initializing ? (
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center', 
-            height: '400px', 
-            width: '100%', 
-            fontSize: '18px' 
-          }}>
-            Loading your calendar data...
-          </div>
-        ) : (
-          <>
-            {/* NEW MAIN LAYOUT CONTAINER */}
-            <div className="calendar-layout-container">
-              {/* Calendar Main Content */}
-              <div className="calendar-main-content">
-                {loading}
-                
-                {/* Calendar grid section */}
-                <div className="calendar-grid-container">
+        {/* MAIN LAYOUT CONTAINER */}
+        <div className="calendar-layout-container">
+          {/* Calendar Main Content */}
+          <div className="calendar-main-content">
+            {/* Calendar grid section */}
+            <div className="calendar-grid-container">
                   {viewType === 'month' ? (
                     <div className="calendar-content-wrapper">
                       <div 
@@ -4303,18 +4290,18 @@
                       )}
                     </div>
                   )}
-                </div>
-              </div>
+            </div>
+          </div>
 
-              {/* MOVED SIDEBAR - Now sibling to main content */}
-              {viewType !== 'month' && (
-                <div className="calendar-right-sidebar">
-                  {/* FILTERS CONTAINER */}
-                  <div className="filters-container">
-                    {/* CATEGORIES FILTER SECTION */}
-                    <div className="filter-section">
-                      <h3 className="filter-title">Categories</h3>
-                      <MultiSelect 
+          {/* MOVED SIDEBAR - Now sibling to main content */}
+          {viewType !== 'month' && (
+            <div className="calendar-right-sidebar">
+              {/* FILTERS CONTAINER */}
+              <div className="filters-container">
+                {/* CATEGORIES FILTER SECTION */}
+                <div className="filter-section">
+                  <h3 className="filter-title">Categories</h3>
+                  <MultiSelect 
                         options={dynamicCategories}
                         selected={selectedCategories}
                         onChange={val => {
@@ -4357,12 +4344,9 @@
                       Use the buttons above to change grouping.
                     </p>
                   </div>
-                </div>
-              )}
             </div>
-
-          </>
-        )}
+          )}
+        </div>
 
         {/* Modal for Add/Edit Event */}
         {logger.debug('Modal render check:', { isModalOpen, modalType, shouldOpen: isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view') })}

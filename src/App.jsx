@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest, apiRequest } from './config/authConfig';
+import Authentication from './components/Authentication';
 import Calendar from './components/Calendar';
 import Settings from './components/Settings';
 import MySettings from './components/MySettings';
@@ -10,7 +11,7 @@ import UserAdmin from './components/UserAdmin';
 import EventSyncAdmin from './components/EventSyncAdmin';
 import CacheAdmin from './components/CacheAdmin';
 import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
 import APP_CONFIG from './config/config';
@@ -34,7 +35,6 @@ function App() {
     setChangingCalendar(true);
     setSelectedCalendarId(newCalendarId);
   };
-
 
   // Handle registration times toggle
   const handleRegistrationTimesToggle = useCallback((enabled) => {
@@ -154,11 +154,27 @@ function App() {
     setSignedOut(true);
   };
 
+  // Add/remove body class based on authentication state
+  useEffect(() => {
+    if (!apiToken || !graphToken) {
+      document.body.classList.add('signed-out');
+    } else {
+      document.body.classList.remove('signed-out');
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.classList.remove('signed-out');
+    };
+  }, [apiToken, graphToken]);
+
+
   return (
     <Router>
-      <div className="app-container">
-        <header>
-          <h1>Temple Events Scheduler</h1>
+      <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
+        <header className="app-header">
+          <h1 className="app-title">Temple Events Scheduler</h1>
+          <Authentication onSignIn={handleSignIn} onSignOut={handleSignOut} />
         </header>
         <main>
           {apiToken && graphToken ? (

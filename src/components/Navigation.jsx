@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import CalendarSelector from './CalendarSelector';
-import Authentication from './Authentication';
 import './Navigation.css';
 
 export default function Navigation({
@@ -49,97 +48,90 @@ export default function Navigation({
 
   return (
     <nav className="main-navigation">
-      <div className="nav-container">
-        <ul className="nav-list">
-          <li>
-            <NavLink to="/" className={({ isActive }) => isActive ? 'active' : ''}>
-              Calendar
-            </NavLink>
-          </li>
+      <ul className="nav-list">
+        <li>
+          <NavLink to="/" className={({ isActive }) => isActive ? 'active' : ''}>
+            Calendar
+          </NavLink>
+        </li>
 
-          {/* Add calendar selector as a new list item */}
-          {showCalendarSelector && availableCalendars && availableCalendars.length > 0 && (
-            <li className="calendar-select-item">
-              <CalendarSelector
-                selectedCalendarId={selectedCalendarId}
-                availableCalendars={availableCalendars}
-                onCalendarChange={onCalendarChange}
-                changingCalendar={changingCalendar}
-              />
-            </li>
-          )}
-          
-
-          <li>
-            <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
-              My Profile
-            </NavLink>
+        {/* Add calendar selector as a new list item */}
+        {showCalendarSelector && availableCalendars && availableCalendars.length > 0 && (
+          <li className="calendar-select-item">
+            <CalendarSelector
+              selectedCalendarId={selectedCalendarId}
+              availableCalendars={availableCalendars}
+              onCalendarChange={onCalendarChange}
+              changingCalendar={changingCalendar}
+            />
           </li>
-          <li className="has-dropdown" ref={dropdownRef}>
-            <div 
-              className="dropdown-toggle"
-              onClick={() => setAdminExpanded(!adminExpanded)}
-            >
-              Admin
-              <span className={`dropdown-arrow ${adminExpanded ? 'expanded' : ''}`}>▼</span>
-            </div>
-            {adminExpanded && (
-              <ul className="dropdown-menu">
-                <li>
-                  <NavLink 
-                    to="/admin" 
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    Schema Extensions
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink 
-                    to="/admin/users" 
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    User Management
-                  </NavLink>
-                </li>
-                <li>
+        )}
+        
+
+        <li>
+          <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
+            My Profile
+          </NavLink>
+        </li>
+        <li className="has-dropdown" ref={dropdownRef}>
+          <div 
+            className="dropdown-toggle"
+            onClick={() => setAdminExpanded(!adminExpanded)}
+          >
+            Admin
+            <span className={`dropdown-arrow ${adminExpanded ? 'expanded' : ''}`}>▼</span>
+          </div>
+          {adminExpanded && (
+            <ul className="dropdown-menu">
+              <li>
                 <NavLink 
-                  to="/admin/event-sync" 
+                  to="/admin" 
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
-                  Event Sync
+                  Schema Extensions
                 </NavLink>
               </li>
-                <li>
-                  <NavLink 
-                    to="/admin/cache" 
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    Cache Management (Legacy)
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink 
-                    to="/admin/events" 
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    Unified Events Admin
-                  </NavLink>
-                </li>
-              </ul>
-            )}
-          </li>
-        </ul>
-        
-        {/* Authentication component on the right side */}
-        <div className="nav-authentication">
-          <Authentication />
-        </div>
-      </div>
+              <li>
+                <NavLink 
+                  to="/admin/users" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  User Management
+                </NavLink>
+              </li>
+              <li>
+              <NavLink 
+                to="/admin/event-sync" 
+                className={({ isActive }) => isActive ? 'active' : ''}
+                onClick={handleDropdownLinkClick}
+              >
+                Event Sync
+              </NavLink>
+            </li>
+              <li>
+                <NavLink 
+                  to="/admin/cache" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Cache Management (Legacy)
+                </NavLink>
+              </li>
+              <li>
+                <NavLink 
+                  to="/admin/events" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Unified Events Admin
+                </NavLink>
+              </li>
+            </ul>
+          )}
+        </li>
+      </ul>
     </nav>
   );
 }
