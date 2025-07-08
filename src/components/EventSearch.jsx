@@ -173,6 +173,9 @@ function EventSearchInner({
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedLocations, setSelectedLocations] = useState([]);
   
+  // Collapsible search form state - show initially, collapse after search
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(true);
+  
   // USE TIMEZONE CONTEXT INSTEAD OF PROPS
   const { userTimezone, setUserTimezone } = useTimezone();
   
@@ -423,6 +426,8 @@ function EventSearchInner({
     
     setSearchError(null);
     setShouldRunSearch(true);
+    // Collapse filters after initiating search
+    setShowAdvancedOptions(false);
     refetch();
   };
 
@@ -580,10 +585,18 @@ function EventSearchInner({
           >
             {(isLoading || isFetching) ? 'Searching...' : 'Search'}
           </button>
+          <button 
+            className="advanced-toggle-button" 
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            type="button"
+          >
+            {showAdvancedOptions ? 'Hide Filters' : 'Show Filters'} {showAdvancedOptions ? '▲' : '▼'}
+          </button>
         </div>
         
-        {/* Advanced options - always visible */}
-        <div className="advanced-options">
+        {/* Advanced options - collapsible */}
+        {showAdvancedOptions && (
+          <div className="advanced-options">
           <div className="advanced-options-row">
             {/* Timezone selector using shared state */}
             <div className="timezone-selector">
@@ -649,6 +662,7 @@ function EventSearchInner({
             </div>
           </div>
         </div>
+        )}
       </div>
       
       {searchError && (
@@ -753,7 +767,11 @@ function EventSearchInner({
               </>
             ) : (
               (searchTerm || dateRange.start || selectedCategories.length || selectedLocations.length) &&
-              !isLoading && <div className="no-results"></div>
+              !isLoading ? (
+                <div className="no-results">No events found matching your search criteria</div>
+              ) : (
+                <div className="no-results">Enter search criteria and click "Search" to find events</div>
+              )
             )}
           </div>
         </div>

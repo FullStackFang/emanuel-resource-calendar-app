@@ -12,10 +12,10 @@ html {
     left: 50%;
     /* Fix for subpixel rendering issues */
     transform: translate(calc(-50% - 0.5px), calc(-50% - 0.5px));
-    width: 90%;
-    max-width: 1400px;
-    height: 80%;
-    max-height: 80vh;
+    width: 95%;
+    max-width: 1600px;
+    height: 92%;
+    max-height: 92vh;
     background-color: white;
     border-radius: 8px;
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
@@ -75,7 +75,7 @@ html {
   
   /* Full-width search form */
   .search-form-full {
-    padding: 16px;
+    padding: 12px 16px;
     border-bottom: 1px solid #e0e0e0;
     width: 100%;
     background-color: #f5f5f5;
@@ -86,7 +86,7 @@ html {
     display: flex;
     gap: 8px;
     width: 100%;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
   }
   
   .search-input {
@@ -127,6 +127,28 @@ html {
   .search-button:active {
     background-color: #005a9e;
   }
+
+  .advanced-toggle-button {
+    padding: 10px 16px;
+    background-color: #f8f9fa;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 120px;
+    font-size: 14px;
+    transition: background-color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+  }
+
+  .advanced-toggle-button:hover {
+    background-color: #e9ecef;
+    border-color: #bbb;
+  }
+
+  .advanced-toggle-button:active {
+    background-color: #dee2e6;
+  }
   
   .advanced-options {
     width: 100%;
@@ -134,6 +156,21 @@ html {
     border-radius: 4px;
     padding: 16px;
     border: 1px solid #e0e0e0;
+    margin-top: 8px;
+    animation: slideDown 0.3s ease-out;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+      max-height: 0;
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      max-height: 500px;
+    }
   }
   
   .advanced-options-row {
@@ -263,7 +300,7 @@ html {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 16px;
     border-bottom: 1px solid #e0e0e0;
     background-color: #f9f9f9;
     flex-shrink: 0;
@@ -377,7 +414,7 @@ html {
   
   /* FIXED: Result item spacing */
   .result-item {
-    padding: 20px 18px; /* Increased padding for better spacing */
+    padding: 14px 16px; /* Reduced padding for better space efficiency */
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
     transition: background-color 0.2s ease;
@@ -385,7 +422,7 @@ html {
     overflow-wrap: break-word;
     display: flex;
     flex-direction: column;
-    gap: 8px; /* Consistent spacing between elements */
+    gap: 6px; /* Slightly reduced gap */
   }
 
   .result-item:last-child {
@@ -624,30 +661,30 @@ html {
   .export-container {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    background-color: #f9f9f9;
-    border-radius: 6px;
-    border: 1px solid #e0e0e0;
+    gap: 8px;
+    padding: 0;
+    background-color: transparent;
+    border-radius: 0;
+    border: none;
   }
   
   .export-container select {
-    padding: 8px 12px;
+    padding: 6px 10px;
     border: 1px solid #d1d1d1;
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 13px;
     background-color: #fff;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
-    min-width: 150px;
+    min-width: 120px;
     color: #333;
     appearance: none;
     background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23007CB2%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
     background-repeat: no-repeat;
-    background-position: right 12px top 50%;
-    background-size: 10px auto;
-    padding-right: 28px;
-    height: 36px;
+    background-position: right 10px top 50%;
+    background-size: 8px auto;
+    padding-right: 24px;
+    height: 32px;
   }
   
   .export-container select:focus {
@@ -656,19 +693,20 @@ html {
   }
   
   .export-search-pdf-button {
-    padding: 8px 16px;
+    padding: 6px 12px;
     background-color: #0078d4;
     color: #fff;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     transition: background-color 0.2s;
-    height: 36px;
+    height: 32px;
+    white-space: nowrap;
   }
   
   .export-search-pdf-button:hover {
@@ -681,6 +719,12 @@ html {
   
   /* Responsive adjustments - IMPROVED */
   @media (max-width: 1200px) {
+    .event-search-container {
+      width: 97%;
+      height: 95%;
+      max-height: 95vh;
+    }
+    
     .advanced-options-row {
       flex-wrap: wrap;
     }
@@ -698,13 +742,15 @@ html {
 
   @media (max-width: 992px) {
     .event-search-container {
-      width: 95%;
-      height: 90%;
+      width: 98%;
+      height: 96%;
+      max-height: 96vh;
     }
 
     .search-content-columns {
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
+      padding: 12px;
     }
     
     .search-results-column, 
@@ -715,12 +761,22 @@ html {
     }
 
     .search-results-column {
-      height: 60%;
+      height: 65%;
     }
 
     .event-edit-column {
-      height: 40%;
+      height: 35%;
       max-width: none;
+    }
+
+    .search-input-container {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .advanced-toggle-button {
+      min-width: 100px;
+      font-size: 13px;
     }
     
     .advanced-options-row {
@@ -767,39 +823,53 @@ html {
 
   @media (max-width: 768px) {
     .event-search-container {
-      width: 98%;
-      height: 95%;
+      width: 99%;
+      height: 97%;
+      max-height: 97vh;
     }
 
     .search-form-full {
-      padding: 12px;
+      padding: 10px;
     }
 
     .search-input-container {
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
-    .search-button {
+    .search-button,
+    .advanced-toggle-button {
       width: 100%;
+      min-width: auto;
     }
 
     .search-content-columns {
-      padding: 12px;
+      padding: 10px;
     }
 
     .result-item {
-      padding: 14px 12px;
+      padding: 12px 10px;
     }
 
     .result-tags {
-      gap: 6px;
+      gap: 4px;
     }
 
     .location-tag,
     .category-tag {
-      padding: 4px 8px;
-      font-size: 11px;
-      max-width: 200px;
+      padding: 3px 6px;
+      font-size: 10px;
+      max-width: 150px;
+    }
+
+    .export-container {
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .export-container select,
+    .export-search-pdf-button {
+      width: 100%;
+      min-width: auto;
     }
   }
