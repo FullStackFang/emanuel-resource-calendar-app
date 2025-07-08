@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
+import CSVImport from './CSVImport';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
 
@@ -371,6 +372,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
               <thead>
                 <tr>
                   <th>Subject</th>
+                  <th>rsId</th>
                   <th>Start Time</th>
                   <th>Calendars</th>
                   <th>Status</th>
@@ -390,6 +392,25 @@ export default function UnifiedEventsAdmin({ apiToken }) {
                           </div>
                         )}
                       </div>
+                    </td>
+                    <td className="rsid-cell">
+                      {event.internalData?.rsId !== undefined && event.internalData?.rsId !== null ? (
+                        <span 
+                          className="rsid-value" 
+                          style={{ 
+                            fontFamily: 'monospace', 
+                            fontSize: '12px',
+                            color: '#666',
+                            backgroundColor: '#f5f5f5',
+                            padding: '2px 4px',
+                            borderRadius: '3px'
+                          }}
+                        >
+                          {event.internalData.rsId}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#ccc', fontSize: '12px' }}>—</span>
+                      )}
                     </td>
                     <td className="event-time">
                       {event.startTime ? new Date(event.startTime).toLocaleString() : 'N/A'}
@@ -500,6 +521,12 @@ export default function UnifiedEventsAdmin({ apiToken }) {
         >
           📅 Events Browser
         </button>
+        <button
+          className={`tab ${activeTab === 'csv-import' ? 'active' : ''}`}
+          onClick={() => setActiveTab('csv-import')}
+        >
+          📁 CSV Import
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -507,6 +534,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
         {loading && <div className="loading-overlay">Loading...</div>}
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'events' && renderEvents()}
+        {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} />}
       </div>
     </div>
   );

@@ -246,7 +246,12 @@ function EventForm({
                                  (event.teardownMinutes && event.teardownMinutes > 0) ||
                                  event.registrationNotes || event.assignedTo;
       
-      setCreateRegistrationEvent(hasRegistrationData || true); // Default to true even for existing events
+      // For existing events, use the actual createRegistrationEvent flag or determine from data
+      // For CSV imports, respect the setupMinutes/teardownMinutes = 0 to disable registration
+      const shouldCreateRegistration = event.createRegistrationEvent !== undefined ? 
+                                      event.createRegistrationEvent : 
+                                      hasRegistrationData;
+      setCreateRegistrationEvent(shouldCreateRegistration);
       
       // Use the registration data from the enriched event (populated during loadGraphEvents)
       const setupMins = event.setupMinutes || 30;
@@ -646,8 +651,8 @@ function EventForm({
                 });
               };
               
-              // Check if setup/teardown times exist
-              const hasSetupTeardown = (setupMinutes && setupMinutes > 0) || (teardownMinutes && teardownMinutes > 0);
+              // Check if setup/teardown is enabled
+              const hasSetupTeardown = createRegistrationEvent && ((setupMinutes && setupMinutes > 0) || (teardownMinutes && teardownMinutes > 0));
               
               return (
                 <div className="preview-content-inline">
@@ -725,101 +730,111 @@ function EventForm({
             {useTimeInputs ? (
               <div className="datetime-inputs">
                 <span className="setup-teardown-label">Setup/Teardown</span>
-                <input
-                  type="time"
-                  value={setupTime || ''}
-                  onChange={(e) => handleSetupTimeChange(e.target.value)}
-                  className="google-time-input"
-                  title="Setup time"
-                />
-                <span className="time-separator">–</span>
-                <input
-                  type="time"
-                  value={teardownTime || ''}
-                  onChange={(e) => handleTeardownTimeChange(e.target.value)}
-                  className="google-time-input"
-                  title="Teardown time"
-                />
+                {createRegistrationEvent && (
+                  <>
+                    <input
+                      type="time"
+                      value={setupTime || ''}
+                      onChange={(e) => handleSetupTimeChange(e.target.value)}
+                      className="google-time-input"
+                      title="Setup time"
+                    />
+                    <span className="time-separator">–</span>
+                    <input
+                      type="time"
+                      value={teardownTime || ''}
+                      onChange={(e) => handleTeardownTimeChange(e.target.value)}
+                      className="google-time-input"
+                      title="Teardown time"
+                    />
+                  </>
+                )}
               </div>
             ) : (
               <div className="datetime-inputs">
                 <span className="setup-teardown-label">Setup/Teardown</span>
-                <div className="minutes-input-container">
-                  <input
-                    type="number"
-                    value={setupMinutes || 0}
-                    onChange={(e) => handleSetupMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
-                    min="0"
-                    max="480"
-                    className="minutes-number-input"
-                  />
-                  <div className="minutes-spinner-buttons">
-                    <button
-                      type="button"
-                      className="minutes-spinner-btn"
-                      onClick={() => handleSetupMinutesChange(Math.min(240, (setupMinutes || 0) + 1))}
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="minutes-spinner-btn"
-                      onClick={() => handleSetupMinutesChange(Math.max(0, (setupMinutes || 0) - 1))}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                  <span className="minutes-label">min</span>
-                </div>
-                <span className="time-separator">–</span>
-                <div className="minutes-input-container">
-                  <input
-                    type="number"
-                    value={teardownMinutes || 0}
-                    onChange={(e) => handleTeardownMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
-                    min="0"
-                    max="480"
-                    className="minutes-number-input"
-                  />
-                  <div className="minutes-spinner-buttons">
-                    <button
-                      type="button"
-                      className="minutes-spinner-btn"
-                      onClick={() => handleTeardownMinutesChange(Math.min(240, (teardownMinutes || 0) + 1))}
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      className="minutes-spinner-btn"
-                      onClick={() => handleTeardownMinutesChange(Math.max(0, (teardownMinutes || 0) - 1))}
-                    >
-                      ▼
-                    </button>
-                  </div>
-                  <span className="minutes-label">min</span>
-                </div>
+                {createRegistrationEvent && (
+                  <>
+                    <div className="minutes-input-container">
+                      <input
+                        type="number"
+                        value={setupMinutes || 0}
+                        onChange={(e) => handleSetupMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
+                        min="0"
+                        max="480"
+                        className="minutes-number-input"
+                      />
+                      <div className="minutes-spinner-buttons">
+                        <button
+                          type="button"
+                          className="minutes-spinner-btn"
+                          onClick={() => handleSetupMinutesChange(Math.min(240, (setupMinutes || 0) + 1))}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          className="minutes-spinner-btn"
+                          onClick={() => handleSetupMinutesChange(Math.max(0, (setupMinutes || 0) - 1))}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                      <span className="minutes-label">min</span>
+                    </div>
+                    <span className="time-separator">–</span>
+                    <div className="minutes-input-container">
+                      <input
+                        type="number"
+                        value={teardownMinutes || 0}
+                        onChange={(e) => handleTeardownMinutesChange(Math.max(0, parseInt(e.target.value) || 0))}
+                        min="0"
+                        max="480"
+                        className="minutes-number-input"
+                      />
+                      <div className="minutes-spinner-buttons">
+                        <button
+                          type="button"
+                          className="minutes-spinner-btn"
+                          onClick={() => handleTeardownMinutesChange(Math.min(240, (teardownMinutes || 0) + 1))}
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          className="minutes-spinner-btn"
+                          onClick={() => handleTeardownMinutesChange(Math.max(0, (teardownMinutes || 0) - 1))}
+                        >
+                          ▼
+                        </button>
+                      </div>
+                      <span className="minutes-label">min</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
             <button
               type="button"
               onClick={() => {
-                if (setupMinutes === 0 && teardownMinutes === 0) {
+                if (!createRegistrationEvent) {
+                  setCreateRegistrationEvent(true);
                   handleSetupMinutesChange(30);
                   handleTeardownMinutesChange(15);
                 } else {
+                  setCreateRegistrationEvent(false);
                   handleSetupMinutesChange(0);
                   handleTeardownMinutesChange(0);
                 }
               }}
               className="setup-toggle-btn"
             >
-              {setupMinutes === 0 && teardownMinutes === 0 ? 'Enable' : 'Disable'}
+              {!createRegistrationEvent ? 'Enable' : 'Disable'}
             </button>
           </div>
 
           {/* Registration Notes Row - directly under setup/teardown */}
-          {(setupMinutes > 0 || teardownMinutes > 0) && (
+          {createRegistrationEvent && (
             <div className="form-row">
               <div className="form-icon">⚙️</div>
               <div className="form-content">
@@ -905,6 +920,35 @@ function EventForm({
           />
         </div>
       </div>
+
+      {/* rsId Row - only show for CSV imported events */}
+      {event && (event.rsId !== undefined && event.rsId !== null) && (
+        <div className="form-row">
+          <div className="form-icon">🏷️</div>
+          <div className="form-content">
+            <input
+              type="text"
+              value={event.rsId || ''}
+              readOnly
+              className="google-input-small"
+              style={{ 
+                backgroundColor: '#f5f5f5',
+                color: '#666',
+                fontFamily: 'monospace',
+                fontSize: '12px'
+              }}
+              title="Resource Scheduler ID (from CSV import)"
+            />
+            <span style={{ 
+              marginLeft: '8px', 
+              fontSize: '12px', 
+              color: '#666' 
+            }}>
+              rsId
+            </span>
+          </div>
+        </div>
+      )}
 
 
 

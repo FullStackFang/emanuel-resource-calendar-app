@@ -3850,23 +3850,45 @@
     }
   }, [userPermissions.preferredTimeZone]); 
 
-    // Update selected locations when dynamic locations change
+    // Update selected locations when dynamic locations change - smart merging
     useEffect(() => {
-      if (dynamicLocations.length > 0 && selectedLocations.length === 0) {
-        // Only select all locations by default if none are currently selected
-        setSelectedLocations(dynamicLocations);
-        logger.debug("Updated selected locations based on dynamic locations from events");
+      if (dynamicLocations.length > 0) {
+        if (selectedLocations.length === 0) {
+          // Initial selection: select all locations
+          setSelectedLocations(dynamicLocations);
+          logger.debug("🏢 Initial location selection:", dynamicLocations);
+        } else {
+          // Smart merging: add new locations to existing selection
+          const newLocations = dynamicLocations.filter(loc => !selectedLocations.includes(loc));
+          if (newLocations.length > 0) {
+            setSelectedLocations(prev => [...prev, ...newLocations]);
+            logger.debug("🏢 Added new locations to selection:", newLocations, "Total now:", [...selectedLocations, ...newLocations].length);
+          } else {
+            logger.debug("🏢 No new locations to add, current selection:", selectedLocations);
+          }
+        }
       }
-    }, [dynamicLocations, selectedLocations.length]);
+    }, [dynamicLocations]);
 
-    // Update selected categories when Outlook categories change
+    // Update selected categories when dynamic categories change - smart merging
     useEffect(() => {
-      if (dynamicCategories.length > 0 && selectedCategories.length === 0) {
-        // Only select all categories by default if none are currently selected
-        setSelectedCategories(dynamicCategories);
-        logger.debug("Updated selected categories based on dynamic categories from events");
+      if (dynamicCategories.length > 0) {
+        if (selectedCategories.length === 0) {
+          // Initial selection: select all categories
+          setSelectedCategories(dynamicCategories);
+          logger.debug("🏷️  Initial category selection:", dynamicCategories);
+        } else {
+          // Smart merging: add new categories to existing selection
+          const newCategories = dynamicCategories.filter(cat => !selectedCategories.includes(cat));
+          if (newCategories.length > 0) {
+            setSelectedCategories(prev => [...prev, ...newCategories]);
+            logger.debug("🏷️  Added new categories to selection:", newCategories, "Total now:", [...selectedCategories, ...newCategories].length);
+          } else {
+            logger.debug("🏷️  No new categories to add, current selection:", selectedCategories);
+          }
+        }
       }
-    }, [dynamicCategories, selectedCategories.length]);
+    }, [dynamicCategories]);
 
     
 

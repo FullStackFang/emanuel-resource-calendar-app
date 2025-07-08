@@ -57,6 +57,24 @@ function MultiSelect({
     );
   };
 
+  const selectAll = (event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    setLocalSelected(options);
+    onChange(options);
+  };
+
+  const selectNone = (event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    setLocalSelected([]);
+    onChange([]);
+  };
+
   const toggleDropdown = (event) => {
     if (event) {
       event.preventDefault();
@@ -163,7 +181,53 @@ function MultiSelect({
               No options available
             </div>
           ) : (
-            options.map((option) => (
+            <>
+              {/* All/None buttons */}
+              <div style={{ 
+                display: 'flex', 
+                gap: '4px', 
+                padding: '8px 12px', 
+                borderBottom: '1px solid #e0e0e0',
+                backgroundColor: '#f8f9fa'
+              }}>
+                <button
+                  onClick={selectAll}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'normal'
+                  }}
+                >
+                  All
+                </button>
+                <button
+                  onClick={selectNone}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'normal'
+                  }}
+                >
+                  None
+                </button>
+              </div>
+              
+              {/* Options list */}
+              {options.map((option) => (
               <div
                 key={option}
                 onClick={(e) => toggleOption(option, e)}
@@ -201,6 +265,8 @@ function MultiSelect({
                 </span>
               </div>
             ))
+            }
+          </>
           )}
         </div>
       )}

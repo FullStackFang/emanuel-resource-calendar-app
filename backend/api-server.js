@@ -5,7 +5,11 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+const multer = require('multer');
+const csv = require('csv-parser');
+const { Readable } = require('stream');
 const logger = require('./utils/logger');
+const csvUtils = require('./utils/csvUtils');
 
 dotenv.config();
 
@@ -36,6 +40,25 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 app.use(express.json());
+
+// Configure multer for file uploads (memory storage for CSV files)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept CSV files and plain text files
+    if (file.mimetype === 'text/csv' || 
+        file.mimetype === 'application/csv' ||
+        file.mimetype === 'text/plain' ||
+        file.originalname.toLowerCase().endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'), false);
+    }
+  }
+});
 
 // Handle preflight requests explicitly
 app.options('*', (req, res) => {
@@ -953,7 +976,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || []
       },
       
-      // Internal enrichments
+      // Internal enrichments - preserve all existing fields
       internalData: {
         mecCategories: internalData.mecCategories || [],
         setupMinutes: internalData.setupMinutes || 0,
@@ -965,7 +988,14 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         setupStatus: internalData.setupStatus || 'pending',
         estimatedCost: internalData.estimatedCost,
         actualCost: internalData.actualCost,
-        customFields: internalData.customFields || {}
+        customFields: internalData.customFields || {},
+        // Preserve CSV import specific fields
+        rsId: internalData.rsId || null,
+        createRegistrationEvent: internalData.createRegistrationEvent,
+        isCSVImport: internalData.isCSVImport || false,
+        isRegistrationEvent: internalData.isRegistrationEvent || false,
+        linkedMainEventId: internalData.linkedMainEventId,
+        importedAt: internalData.importedAt
       },
       
       // Change tracking
@@ -1448,21 +1478,35 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
     }
     
     // Transform events to frontend format
-    const transformedEvents = unifiedEvents.map(event => ({
-      // Use Graph data as base
-      ...event.graphData,
-      // Add internal enrichments
-      ...event.internalData,
-      // Add metadata
-      calendarId: event.calendarId,
-      sourceCalendars: event.sourceCalendars,
-      _hasInternalData: Object.keys(event.internalData).some(key => 
-        event.internalData[key] && 
-        (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
-      ),
-      _lastSyncedAt: event.lastSyncedAt,
-      _cached: true
-    }));
+    const transformedEvents = unifiedEvents.map(event => {
+      // Normalize category field - frontend expects a single string
+      let category = '';
+      if (event.internalData.mecCategories && event.internalData.mecCategories.length > 0) {
+        // CSV imports use mecCategories
+        category = event.internalData.mecCategories[0];
+      } else if (event.graphData.categories && event.graphData.categories.length > 0) {
+        // Graph events use categories
+        category = event.graphData.categories[0];
+      }
+      
+      return {
+        // Use Graph data as base
+        ...event.graphData,
+        // Add internal enrichments
+        ...event.internalData,
+        // Override with normalized category
+        category: category,
+        // Add metadata
+        calendarId: event.calendarId,
+        sourceCalendars: event.sourceCalendars,
+        _hasInternalData: Object.keys(event.internalData).some(key => 
+          event.internalData[key] && 
+          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+        ),
+        _lastSyncedAt: event.lastSyncedAt,
+        _cached: true
+      };
+    });
     
     logger.log(`Delta sync complete for user ${userId}: ${syncResults.changedEvents} changes across ${calendarIds.length} calendars`);
     
@@ -1527,21 +1571,35 @@ app.get('/api/events', verifyToken, async (req, res) => {
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
     
     // Transform events to frontend format
-    const transformedEvents = unifiedEvents.map(event => ({
-      // Use Graph data as base
-      ...event.graphData,
-      // Add internal enrichments
-      ...event.internalData,
-      // Add metadata
-      calendarId: event.calendarId,
-      sourceCalendars: event.sourceCalendars,
-      _hasInternalData: Object.keys(event.internalData).some(key => 
-        event.internalData[key] && 
-        (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
-      ),
-      _lastSyncedAt: event.lastSyncedAt,
-      _cached: true
-    }));
+    const transformedEvents = unifiedEvents.map(event => {
+      // Normalize category field - frontend expects a single string
+      let category = '';
+      if (event.internalData.mecCategories && event.internalData.mecCategories.length > 0) {
+        // CSV imports use mecCategories
+        category = event.internalData.mecCategories[0];
+      } else if (event.graphData.categories && event.graphData.categories.length > 0) {
+        // Graph events use categories
+        category = event.graphData.categories[0];
+      }
+      
+      return {
+        // Use Graph data as base
+        ...event.graphData,
+        // Add internal enrichments
+        ...event.internalData,
+        // Override with normalized category
+        category: category,
+        // Add metadata
+        calendarId: event.calendarId,
+        sourceCalendars: event.sourceCalendars,
+        _hasInternalData: Object.keys(event.internalData).some(key => 
+          event.internalData[key] && 
+          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+        ),
+        _lastSyncedAt: event.lastSyncedAt,
+        _cached: true
+      };
+    });
     
     res.status(200).json({
       events: transformedEvents,
@@ -2224,6 +2282,9 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     // Build query
     let query = { userId: userId };
     
+    // Debug logging
+    logger.debug('Unified events query:', { userId, status, search, page: pageNum, limit: limitNum });
+    
     // Status filter
     if (status === 'active') {
       query.isDeleted = { $ne: true };
@@ -2241,9 +2302,10 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     // Get total count first
     const total = await unifiedEventsCollection.countDocuments(query);
     
-    // Get events with simple sorting
+    logger.debug('Total events found:', total, 'with query:', JSON.stringify(query));
+    
+    // Get events without sorting to avoid Cosmos DB index issues
     const events = await unifiedEventsCollection.find(query)
-      .sort({ lastSyncedAt: -1 }) // Simple sort by last sync
       .skip(skip)
       .limit(limitNum)
       .toArray();
@@ -2341,6 +2403,375 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error cleaning deleted:', error);
     res.status(500).json({ error: 'Failed to clean deleted events' });
+  }
+});
+
+// ============================================
+// CSV IMPORT ENDPOINTS
+// ============================================
+
+/**
+ * Create a TempleRegistration event from a main event
+ */
+function createRegistrationEventFromMain(mainEvent, userId) {
+  const setupMinutes = mainEvent.internalData.setupMinutes || 0;
+  const teardownMinutes = mainEvent.internalData.teardownMinutes || 0;
+  
+  // Calculate extended start/end times
+  const mainStartTime = new Date(mainEvent.graphData.start.dateTime);
+  const mainEndTime = new Date(mainEvent.graphData.end.dateTime);
+  
+  const registrationStartTime = new Date(mainStartTime.getTime() - (setupMinutes * 60 * 1000));
+  const registrationEndTime = new Date(mainEndTime.getTime() + (teardownMinutes * 60 * 1000));
+  
+  // Create registration event subject
+  const setupTeardownInfo = [];
+  if (setupMinutes > 0) setupTeardownInfo.push(`Setup: ${setupMinutes} min`);
+  if (teardownMinutes > 0) setupTeardownInfo.push(`Teardown: ${teardownMinutes} min`);
+  const registrationSubject = `[SETUP/TEARDOWN] ${mainEvent.graphData.subject}${setupTeardownInfo.length > 0 ? ` (${setupTeardownInfo.join(', ')})` : ''}`;
+  
+  return {
+    userId: userId,
+    calendarId: 'csv_import_templeregistration',
+    eventId: `${mainEvent.eventId}_registration`,
+    
+    graphData: {
+      id: `${mainEvent.eventId}_registration`,
+      subject: registrationSubject,
+      start: {
+        dateTime: registrationStartTime.toISOString(),
+        timeZone: 'UTC'
+      },
+      end: {
+        dateTime: registrationEndTime.toISOString(),
+        timeZone: 'UTC'
+      },
+      location: mainEvent.graphData.location,
+      categories: [...(mainEvent.graphData.categories || []), 'Setup/Teardown'],
+      bodyPreview: mainEvent.internalData.registrationNotes || '',
+      body: {
+        contentType: 'text',
+        content: mainEvent.internalData.registrationNotes || ''
+      },
+      isAllDay: false,
+      importance: 'normal',
+      showAs: 'busy',
+      organizer: {
+        emailAddress: {
+          name: 'CSV Import Registration',
+          address: 'csv-import-registration@system'
+        }
+      },
+      attendees: [],
+      createdDateTime: new Date().toISOString(),
+      lastModifiedDateTime: new Date().toISOString(),
+      type: 'singleInstance'
+    },
+    
+    internalData: {
+      mecCategories: mainEvent.internalData.mecCategories,
+      setupMinutes: setupMinutes,
+      teardownMinutes: teardownMinutes,
+      createRegistrationEvent: false, // This IS the registration event
+      registrationNotes: mainEvent.internalData.registrationNotes,
+      assignedTo: mainEvent.internalData.assignedTo,
+      isCSVImport: true,
+      isRegistrationEvent: true,
+      linkedMainEventId: mainEvent.eventId,
+      rsId: mainEvent.internalData.rsId,
+      importedAt: new Date().toISOString()
+    },
+    
+    sourceCalendars: [{
+      calendarId: 'csv_import_templeregistration',
+      calendarName: 'CSV Import TempleRegistration',
+      role: 'shared'
+    }],
+    
+    lastSyncedAt: new Date(),
+    lastAccessedAt: new Date(),
+    isDeleted: false,
+    isCSVImport: true,
+    isRegistrationEvent: true
+  };
+}
+
+/**
+ * Admin endpoint - Upload and import CSV file
+ */
+app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No CSV file uploaded' });
+    }
+    
+    // Parse CSV from buffer
+    const csvData = [];
+    const csvHeaders = [];
+    let headersParsed = false;
+    
+    // Create readable stream from buffer
+    const stream = Readable.from(req.file.buffer.toString());
+    
+    // Parse CSV
+    await new Promise((resolve, reject) => {
+      stream
+        .pipe(csv())
+        .on('headers', (headers) => {
+          csvHeaders.push(...headers);
+          headersParsed = true;
+        })
+        .on('data', (row) => {
+          csvData.push(row);
+        })
+        .on('end', resolve)
+        .on('error', reject);
+    });
+    
+    logger.debug('CSV parsed:', { headerCount: csvHeaders.length, rowCount: csvData.length });
+    
+    // Validate CSV headers
+    const validation = csvUtils.validateCSVHeaders(csvHeaders);
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        error: 'Invalid CSV format',
+        missing: validation.missing,
+        missingRecommended: validation.missingRecommended,
+        headers: validation.headers
+      });
+    }
+    
+    // Transform CSV rows to unified events
+    const unifiedEvents = [];
+    const errors = [];
+    
+    for (let i = 0; i < csvData.length; i++) {
+      try {
+        const row = csvData[i];
+        
+        // DEBUG: Log processing of each row
+        logger.debug(`Processing CSV row ${i + 1}:`, {
+          subject: row.Subject,
+          rsId: row.rsId,
+          rsIdType: typeof row.rsId
+        });
+        
+        const unifiedEvent = csvUtils.csvRowToUnifiedEvent(row, userId);
+        
+        // DEBUG: Log transformed event rsId
+        logger.debug(`Transformed event ${i + 1}:`, {
+          eventId: unifiedEvent.eventId,
+          rsId: unifiedEvent.internalData.rsId,
+          rsIdType: typeof unifiedEvent.internalData.rsId
+        });
+        
+        unifiedEvents.push(unifiedEvent);
+      } catch (error) {
+        errors.push({
+          row: i + 1,
+          data: csvData[i],
+          error: error.message
+        });
+      }
+    }
+    
+    logger.debug('Events transformed:', { 
+      successful: unifiedEvents.length, 
+      errors: errors.length 
+    });
+    
+    // If there are errors and no successful transformations, return error
+    if (unifiedEvents.length === 0 && errors.length > 0) {
+      return res.status(400).json({
+        error: 'Failed to parse any events from CSV',
+        errors: errors.slice(0, 10), // Limit error details
+        totalErrors: errors.length
+      });
+    }
+    
+    // Insert events into database (with TempleRegistration support)
+    let insertedCount = 0;
+    let duplicateCount = 0;
+    let registrationEventsCreated = 0;
+    const insertErrors = [];
+    
+    if (unifiedEvents.length > 0) {
+      try {
+        // Check for existing events (by eventId)
+        const existingEventIds = await unifiedEventsCollection.find(
+          { 
+            userId: userId,
+            eventId: { $in: unifiedEvents.map(e => e.eventId) }
+          },
+          { projection: { eventId: 1 } }
+        ).toArray();
+        
+        const existingIds = new Set(existingEventIds.map(e => e.eventId));
+        
+        // Filter out duplicates
+        const newEvents = unifiedEvents.filter(event => !existingIds.has(event.eventId));
+        duplicateCount = unifiedEvents.length - newEvents.length;
+        
+        // Prepare events for insertion (main events + registration events)
+        const allEventsToInsert = [];
+        
+        for (const event of newEvents) {
+          // DEBUG: Log event before insertion
+          logger.debug(`Preparing event for insertion:`, {
+            eventId: event.eventId,
+            subject: event.graphData.subject,
+            rsId: event.internalData.rsId,
+            rsIdType: typeof event.internalData.rsId,
+            createRegistrationEvent: event.internalData.createRegistrationEvent
+          });
+          
+          // Add main event
+          allEventsToInsert.push(event);
+          
+          // Create TempleRegistration event if setup/teardown is enabled
+          if (event.internalData.createRegistrationEvent) {
+            const registrationEvent = createRegistrationEventFromMain(event, userId);
+            
+            // DEBUG: Log registration event rsId
+            logger.debug(`Registration event created:`, {
+              eventId: registrationEvent.eventId,
+              rsId: registrationEvent.internalData.rsId,
+              rsIdType: typeof registrationEvent.internalData.rsId
+            });
+            
+            allEventsToInsert.push(registrationEvent);
+            registrationEventsCreated++;
+          }
+        }
+        
+        if (allEventsToInsert.length > 0) {
+          // DEBUG: Log sample event before insertion
+          logger.debug('Sample event being inserted:', {
+            eventId: allEventsToInsert[0].eventId,
+            rsId: allEventsToInsert[0].internalData.rsId,
+            internalDataKeys: Object.keys(allEventsToInsert[0].internalData)
+          });
+          
+          const result = await unifiedEventsCollection.insertMany(allEventsToInsert, { ordered: false });
+          insertedCount = result.insertedCount;
+          
+          // DEBUG: Verify insertion by querying one event back
+          const sampleEventId = allEventsToInsert[0].eventId;
+          const insertedEvent = await unifiedEventsCollection.findOne({
+            userId: userId,
+            eventId: sampleEventId
+          });
+          
+          logger.debug('Sample event after insertion:', {
+            eventId: insertedEvent?.eventId,
+            rsId: insertedEvent?.internalData?.rsId,
+            rsIdType: typeof insertedEvent?.internalData?.rsId,
+            internalDataKeys: insertedEvent?.internalData ? Object.keys(insertedEvent.internalData) : null
+          });
+        }
+        
+      } catch (insertError) {
+        logger.error('Error inserting events:', insertError);
+        insertErrors.push(insertError.message);
+      }
+    }
+    
+    // Return import summary
+    res.status(200).json({
+      success: true,
+      summary: {
+        totalRows: csvData.length,
+        successfulTransforms: unifiedEvents.length,
+        transformErrors: errors.length,
+        inserted: insertedCount,
+        duplicates: duplicateCount,
+        registrationEventsCreated: registrationEventsCreated,
+        insertErrors: insertErrors.length
+      },
+      errors: errors.slice(0, 5), // Include first 5 transform errors
+      insertErrors: insertErrors.slice(0, 5) // Include first 5 insert errors
+    });
+    
+  } catch (error) {
+    logger.error('Error in CSV import:', error);
+    res.status(500).json({ error: 'Failed to process CSV import' });
+  }
+});
+
+/**
+ * Admin endpoint - Clear all CSV imported events
+ */
+app.post('/api/admin/csv-import/clear', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Delete all CSV imported events for this user (including registration events)
+    const result = await unifiedEventsCollection.deleteMany({
+      userId: userId,
+      isCSVImport: true
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'CSV imported events cleared',
+      deletedCount: result.deletedCount
+    });
+    
+  } catch (error) {
+    logger.error('Error clearing CSV imports:', error);
+    res.status(500).json({ error: 'Failed to clear CSV imports' });
+  }
+});
+
+/**
+ * Admin endpoint - Get CSV import statistics
+ */
+app.get('/api/admin/csv-import/stats', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Get statistics about CSV imported events
+    const stats = await unifiedEventsCollection.aggregate([
+      { $match: { userId: userId, isCSVImport: true } },
+      {
+        $group: {
+          _id: null,
+          totalEvents: { $sum: 1 },
+          activeEvents: { $sum: { $cond: [{ $ne: ['$isDeleted', true] }, 1, 0] } },
+          deletedEvents: { $sum: { $cond: ['$isDeleted', 1, 0] } },
+          oldestImport: { $min: '$internalData.importedAt' },
+          newestImport: { $max: '$internalData.importedAt' }
+        }
+      }
+    ]).toArray();
+    
+    const result = stats.length > 0 ? stats[0] : {
+      totalEvents: 0,
+      activeEvents: 0,
+      deletedEvents: 0,
+      oldestImport: null,
+      newestImport: null
+    };
+    
+    res.status(200).json(result);
+    
+  } catch (error) {
+    logger.error('Error getting CSV import stats:', error);
+    res.status(500).json({ error: 'Failed to get CSV import statistics' });
   }
 });
 

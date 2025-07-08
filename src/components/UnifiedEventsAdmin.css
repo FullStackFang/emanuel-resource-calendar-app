@@ -77,6 +77,8 @@
 .unified-events-admin .tab-content {
   position: relative;
   min-height: 300px;
+  height: calc(100vh - 200px); /* Constrain to fit within main element */
+  overflow: hidden; /* Ensure content stays within bounds */
 }
 
 .unified-events-admin .loading-overlay {
