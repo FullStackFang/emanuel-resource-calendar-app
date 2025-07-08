@@ -167,7 +167,24 @@ const ExportToPdfButton = ({ events, dateRange }) => {
           const eventTitle = event.subject || 'Untitled Event';
           const wrappedTitle = doc.splitTextToSize(eventTitle, colWidths[5] - 2);
           doc.text(wrappedTitle, colPositions[5], y);
-          maxHeight = Math.max(maxHeight, wrappedTitle.length * 5);
+          let titleHeight = wrappedTitle.length * 5;
+          
+          // Add body preview/description in smaller font below title
+          const bodyText = event.bodyPreview || event.body?.content || '';
+          if (bodyText && bodyText.trim() !== '') {
+            doc.setFontSize(8); // Smaller font for description
+            doc.setTextColor(100, 100, 100); // Gray color for description
+            const wrappedBody = doc.splitTextToSize(bodyText, colWidths[5] - 2);
+            const bodyY = y + titleHeight + 2; // Position below title with small gap
+            doc.text(wrappedBody, colPositions[5], bodyY);
+            const bodyHeight = wrappedBody.length * 4; // Smaller line height for smaller font
+            maxHeight = Math.max(maxHeight, titleHeight + bodyHeight + 2);
+            // Reset font settings
+            doc.setFontSize(10);
+            doc.setTextColor(0, 0, 0);
+          } else {
+            maxHeight = Math.max(maxHeight, titleHeight);
+          }
           
           // Adjust y position for next row based on the tallest content
           const rowHeight = Math.max(7, maxHeight);

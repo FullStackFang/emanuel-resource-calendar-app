@@ -449,8 +449,8 @@ const EventSearchExport = ({
       // Sort events based on the selected sort option
       const sortedEvents = [...searchResults].sort((a, b) => {
         if (sortBy === 'date') {
-          // Sort by date (default)
-          return new Date(b.start.dateTime) - new Date(a.start.dateTime);
+          // Sort by date ascending (oldest to newest)
+          return new Date(a.start.dateTime) - new Date(b.start.dateTime);
         } else if (sortBy === 'category') {
           // Sort by category
           const catA = a.categories && a.categories.length > 0 ? a.categories[0].toLowerCase() : 'uncategorized';
@@ -478,6 +478,7 @@ const EventSearchExport = ({
       // Group events by category or location if sorting by those fields
       let currentGroup = '';
       let isFirstInGroup = true;
+      let previousDateStr = ''; // Track previous date for adding separators
       
       // Draw events
       for (let i = 0; i < sortedEvents.length; i++) {
@@ -488,6 +489,18 @@ const EventSearchExport = ({
           timeZone: timezone,
           weekday: 'short' 
         });
+        
+        // Add separator line when date changes (for date sorting)
+        if (sortBy === 'date' && previousDateStr && dateStr !== previousDateStr) {
+          // Add a black separator line between different days
+          doc.setDrawColor(0, 0, 0); // Black color
+          doc.setLineWidth(0.5); // Slightly thicker line
+          doc.line(10, y - 5, 200, y - 5);
+          doc.setLineWidth(0.2); // Reset line width
+          doc.setDrawColor(200, 200, 200); // Reset to light gray for normal row lines
+          y += 10; // Add some extra space after the separator
+        }
+        previousDateStr = dateStr;
         
         // Check if we're starting a new group (for category or location sort)
         if (sortBy === 'category') {
@@ -647,18 +660,34 @@ const EventSearchExport = ({
         
         // Handle multiline event subject
         const eventTitle = event.subject || 'Untitled Event';
+        doc.setFont('helvetica', 'bold'); // Make title bold
         const wrappedTitle = doc.splitTextToSize(eventTitle, colWidths[6] - 2);
         doc.text(wrappedTitle, colPositions[6], y);
-        maxHeight = Math.max(maxHeight, wrappedTitle.length * 5);
+        doc.setFont('helvetica', 'normal'); // Reset to normal
+        let titleHeight = wrappedTitle.length * 5;
+        
+        // Add body preview/description in smaller font below title
+        const bodyText = event.bodyPreview || event.body?.content || '';
+        if (bodyText && bodyText.trim() !== '') {
+          doc.setFontSize(8); // Smaller font for description
+          doc.setTextColor(100, 100, 100); // Gray color for description
+          const wrappedBody = doc.splitTextToSize(bodyText, colWidths[6] - 2);
+          const bodyY = y + titleHeight + 2; // Position below title with small gap
+          doc.text(wrappedBody, colPositions[6], bodyY);
+          const bodyHeight = wrappedBody.length * 4; // Smaller line height for smaller font
+          maxHeight = Math.max(maxHeight, titleHeight + bodyHeight + 2);
+          // Reset font settings
+          doc.setFontSize(10);
+          doc.setTextColor(0, 0, 0);
+        } else {
+          maxHeight = Math.max(maxHeight, titleHeight);
+        }
         
         // Adjust y position for next row based on the tallest content
         const rowHeight = Math.max(7, maxHeight);
         
-        // Draw line between rows
-        y += rowHeight + 3;
-        doc.setDrawColor(200, 200, 200);
-        doc.line(10, y - 2, 200, y - 2);
-        y += 5;
+        // Just add space for next row (no line)
+        y += rowHeight + 8; // Add consistent spacing between rows
       }
       
       // Add search results count
@@ -768,7 +797,7 @@ const EventSearchExport = ({
         {isExporting ? 'Exporting...' : 'Export to CSV'}
       </button>
       
-      {/* Timezone info for user reference */}
+      {/* Timezone info for user reference 
       <div style={{
         fontSize: '0.8rem',
         color: '#666',
@@ -776,6 +805,7 @@ const EventSearchExport = ({
       }}>
         Display: {timezone} | Export: UTC
       </div>
+      */}
     </div>
   );
 };
