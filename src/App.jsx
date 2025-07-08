@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest, apiRequest } from './config/authConfig';
-import Authentication from './components/Authentication';
 import Calendar from './components/Calendar';
 import Settings from './components/Settings';
 import MySettings from './components/MySettings';
@@ -160,7 +159,6 @@ function App() {
       <div className="app-container">
         <header>
           <h1>Temple Events Scheduler</h1>
-          <Authentication onSignIn={handleSignIn} onSignOut={handleSignOut} />
         </header>
         <main>
           {apiToken && graphToken ? (

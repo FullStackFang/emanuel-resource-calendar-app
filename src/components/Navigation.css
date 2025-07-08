@@ -6,6 +6,13 @@
     flex-shrink: 0;
     height: 48px;
   }
+
+  .nav-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 100%;
+  }
   
   .nav-list {
     display: flex;
@@ -139,6 +146,89 @@
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ============================================================================
+   AUTHENTICATION STYLES
+   ============================================================================ */
+
+.nav-authentication {
+  display: flex;
+  align-items: center;
+  padding-right: 16px;
+}
+
+.authentication-container {
+  display: flex;
+  align-items: center;
+}
+
+.authenticated-user {
+  display: flex;
+  align-items: center;
+  background-color: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 6px 12px;
+  margin: 0;
+}
+
+.authenticated-user span {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+.login-button {
+  background-color: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+}
+
+.login-button:hover {
+  background-color: #106ebe;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 120, 212, 0.2);
+}
+
+.logout-button {
+  background-color: transparent;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.logout-button:hover {
+  background-color: #f3f4f6;
+  color: #374151;
+  border-color: #9ca3af;
+}
+
+/* Responsive design for authentication */
+@media (max-width: 768px) {
+  .authenticated-user span {
+    font-size: 12px;
+    margin-right: 8px;
+  }
+  
+  .nav-authentication {
+    padding-right: 8px;
+  }
 }
 
 .nav-calendar-selector option {

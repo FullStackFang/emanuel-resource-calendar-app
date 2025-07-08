@@ -39,7 +39,7 @@ function Authentication({ onSignIn, onSignOut }) {
         </button>
       ) : (
         <div className="authenticated-user">
-          <span style={{ marginRight: '5px' }}>Signed in as: {accounts[0].username}</span>
+          <span>{accounts[0].username}</span>
           <button onClick={handleLogout} className="logout-button">
             Sign Out
           </button>
