@@ -115,8 +115,41 @@ function csvRowToUnifiedEvent(csvRow, userId) {
   logger.debug('Raw csvRow.rsId:', csvRow.rsId, '(type:', typeof csvRow.rsId, ')');
   logger.debug('Raw csvRow values:', JSON.stringify(csvRow, null, 2));
   
+  // Enhanced rsId column detection - check multiple possible column names
+  const possibleRsIdColumns = ['rsId', 'RS_ID', 'RsId', 'RSID', 'rs_id', 'ResourceScheduleId', 'resourcescheduleid'];
+  let rawRsId = null;
+  let foundRsIdColumn = null;
+  
+  // Find the actual rsId column name (exact match first)
+  for (const colName of possibleRsIdColumns) {
+    if (csvRow[colName] !== undefined) {
+      rawRsId = csvRow[colName];
+      foundRsIdColumn = colName;
+      logger.debug(`Found rsId column: "${colName}" with value:`, rawRsId);
+      break;
+    }
+  }
+  
+  // If not found by exact match, try case-insensitive and pattern matching
+  if (rawRsId === null) {
+    const csvKeys = Object.keys(csvRow);
+    for (const key of csvKeys) {
+      const lowerKey = key.toLowerCase().replace(/\s+/g, ''); // Remove spaces for comparison
+      if (lowerKey.includes('rsid') || lowerKey.includes('rs_id') || lowerKey.includes('resourceschedule') || 
+          lowerKey === 'rsid' || lowerKey === 'resourcescheduleid') {
+        rawRsId = csvRow[key];
+        foundRsIdColumn = key;
+        logger.debug(`Found rsId column (pattern match): "${key}" with value:`, rawRsId);
+        break;
+      }
+    }
+  }
+  
+  if (foundRsIdColumn === null) {
+    logger.debug('No rsId column found in CSV. Available columns:', Object.keys(csvRow));
+  }
+  
   const {
-    rsId: rawRsId,
     Subject,
     StartDate,
     StartTime,
@@ -136,22 +169,59 @@ function csvRowToUnifiedEvent(csvRow, userId) {
     TeardownTime
   } = csvRow;
   
-  // Clean and process rsId - trim whitespace and convert to integer
-  const trimmedRsId = typeof rawRsId === 'string' ? rawRsId.trim() : rawRsId;
-  logger.debug('Trimmed rsId:', trimmedRsId, '(type:', typeof trimmedRsId, ')');
+  // Clean and process rsId - enhanced processing for negative numbers
+  logger.debug('Raw rsId before processing:', rawRsId, '(type:', typeof rawRsId, ')');
+  
+  let trimmedRsId = rawRsId;
+  if (typeof rawRsId === 'string') {
+    trimmedRsId = rawRsId.trim();
+    logger.debug('Trimmed string rsId:', trimmedRsId);
+  }
   
   let rsId = null;
+  
+  // Check if we have a valid value to process
   if (trimmedRsId !== undefined && trimmedRsId !== '' && trimmedRsId !== null) {
-    const parsedRsId = parseInt(trimmedRsId, 10);
-    if (!isNaN(parsedRsId)) {
-      rsId = parsedRsId;
-      logger.debug('Successfully parsed rsId as integer:', rsId);
+    logger.debug('Processing rsId value:', trimmedRsId, '(type:', typeof trimmedRsId, ')');
+    
+    // Handle different data types
+    if (typeof trimmedRsId === 'number') {
+      // Already a number, use directly
+      rsId = trimmedRsId;
+      logger.debug('rsId is already a number:', rsId);
+    } else if (typeof trimmedRsId === 'string') {
+      // String - parse as integer
+      
+      // Remove any non-numeric characters except minus sign and digits
+      const cleanedRsId = trimmedRsId.replace(/[^\d-]/g, '');
+      logger.debug('Cleaned rsId string:', cleanedRsId);
+      
+      if (cleanedRsId !== '') {
+        const parsedRsId = parseInt(cleanedRsId, 10);
+        if (!isNaN(parsedRsId)) {
+          rsId = parsedRsId;
+          logger.debug('Successfully parsed rsId as integer:', rsId);
+        } else {
+          logger.error('Failed to parse cleaned rsId as integer:', cleanedRsId, 'from original:', trimmedRsId);
+        }
+      } else {
+        logger.debug('Cleaned rsId is empty after removing non-numeric characters');
+      }
     } else {
-      logger.error('Failed to parse rsId as integer:', trimmedRsId);
+      // Other types - try to convert to number
+      const numberValue = Number(trimmedRsId);
+      if (!isNaN(numberValue) && isFinite(numberValue)) {
+        rsId = Math.floor(numberValue); // Ensure it's an integer
+        logger.debug('Converted rsId to number:', rsId);
+      } else {
+        logger.error('Failed to convert rsId to number:', trimmedRsId);
+      }
     }
   } else {
     logger.debug('rsId is empty, null, or undefined:', trimmedRsId);
   }
+  
+  logger.debug('Final processed rsId:', rsId, '(type:', typeof rsId, ')');
 
   // Handle different date/time formats
   let startISO, endISO;

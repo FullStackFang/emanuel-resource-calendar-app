@@ -2535,6 +2535,11 @@ app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (
     });
     
     logger.debug('CSV parsed:', { headerCount: csvHeaders.length, rowCount: csvData.length });
+    logger.debug('CSV headers:', csvHeaders);
+    
+    // Check for rsId column specifically
+    const rsIdHeaders = csvHeaders.filter(h => h.toLowerCase().includes('rsid') || h.toLowerCase().includes('rs_id') || h.toLowerCase().includes('resourceschedule'));
+    logger.debug('Potential rsId headers found:', rsIdHeaders);
     
     // Validate CSV headers
     const validation = csvUtils.validateCSVHeaders(csvHeaders);

@@ -156,6 +156,7 @@ function MultiSelect({
       
       {isOpen && (
         <div
+          className="multiselect-dropdown"
           style={{
             position: 'absolute',
             top: '100%',
@@ -166,7 +167,7 @@ function MultiSelect({
             borderRadius: '4px',
             maxHeight: '200px',
             overflowY: 'auto',
-            zIndex: 1000,
+            zIndex: 9999,
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
             marginTop: '2px',
             minWidth: '100%',
