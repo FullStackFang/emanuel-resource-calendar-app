@@ -68,6 +68,18 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 
     // Get results from unified search
     let results = data.events || [];
+    
+    // Debug: Log category data for first few events
+    if (results.length > 0) {
+      console.log("Category debugging - first 3 events:");
+      results.slice(0, 3).forEach((event, index) => {
+        console.log(`Event ${index + 1}:`, {
+          subject: event.graphData?.subject || event.subject,
+          graphCategories: event.graphData?.categories,
+          mecCategories: event.internalData?.mecCategories
+        });
+      });
+    }
 
     // Apply date range filtering (the backend doesn't support this yet)
     if (dateRange.start || dateRange.end) {
@@ -85,22 +97,20 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       });
     }
 
-    // Apply category filtering
+    // Apply category filtering (Graph categories only)
     if (categories && categories.length > 0) {
       results = results.filter(event => {
         const eventCategories = event.graphData?.categories || [];
-        const mecCategories = event.internalData?.mecCategories || [];
         
         // Handle "Uncategorized" special case
         if (categories.includes('Uncategorized')) {
-          if (eventCategories.length === 0 && mecCategories.length === 0) {
+          if (eventCategories.length === 0) {
             return true;
           }
         }
         
-        // Check if any of the event's categories match our filter
-        return eventCategories.some(cat => categories.includes(cat)) ||
-               mecCategories.some(cat => categories.includes(cat));
+        // Check if any of the event's Graph categories match our filter
+        return eventCategories.some(cat => categories.includes(cat));
       });
     }
 

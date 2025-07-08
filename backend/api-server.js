@@ -3024,10 +3024,15 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
         _id: event._id,
         eventId: event.eventId,
         calendarId: event.calendarId,
+        calendarName: event.calendarName,
         subject: event.graphData?.subject || 'Unknown',
         startTime: event.graphData?.start?.dateTime,
         endTime: event.graphData?.end?.dateTime,
         location: event.graphData?.location?.displayName,
+        // Include full graphData and internalData for compatibility
+        graphData: event.graphData,
+        internalData: event.internalData,
+        // Also include flattened fields for backward compatibility
         categories: event.graphData?.categories || [],
         lastSyncedAt: event.lastSyncedAt,
         lastAccessedAt: event.lastAccessedAt,
@@ -3035,23 +3040,10 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
         etag: event.etag,
         changeKey: event.changeKey,
         sourceCalendars: event.sourceCalendars || [],
-        // Internal enrichment data
         hasInternalData: Object.keys(event.internalData || {}).some(key => 
           event.internalData[key] && 
           (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
-        ),
-        mecCategories: event.internalData?.mecCategories || [],
-        setupMinutes: event.internalData?.setupMinutes || 0,
-        teardownMinutes: event.internalData?.teardownMinutes || 0,
-        registrationNotes: event.internalData?.registrationNotes || '',
-        assignedTo: event.internalData?.assignedTo || '',
-        internalNotes: event.internalData?.internalNotes || '',
-        setupStatus: event.internalData?.setupStatus || 'pending',
-        estimatedCost: event.internalData?.estimatedCost,
-        actualCost: event.internalData?.actualCost,
-        // Graph extension data
-        extensions: event.graphData?.extensions || [],
-        singleValueExtendedProperties: event.graphData?.singleValueExtendedProperties || []
+        )
       })),
       pagination: {
         page: pageNum,
