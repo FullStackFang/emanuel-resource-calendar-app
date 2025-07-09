@@ -24,15 +24,19 @@ const queryClient = new QueryClient();
 
 
 // Search function implementation using unified backend search (includes CSV events)
-async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = 250, calendarId = null, timezone = 'UTC') {
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarId = null, timezone = 'UTC') {
   try {
     // Build search parameters
     const params = new URLSearchParams({
       page: page.toString(),
-      limit: limit.toString(),
       sortBy: 'startTime',
-      sortOrder: 'desc'
+      sortOrder: 'asc'
     });
+    
+    // Add limit only if specified (no arbitrary limit)
+    if (limit) {
+      params.append('limit', limit.toString());
+    }
 
     // Add search term if provided
     if (searchTerm) {
@@ -44,9 +48,38 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       params.append('calendarId', calendarId);
     }
 
+    // Add category filters
+    if (categories && categories.length > 0) {
+      params.append('categories', categories.join(','));
+    }
+
+    // Add location filters
+    if (locations && locations.length > 0) {
+      params.append('locations', locations.join(','));
+    }
+
+    // Add date range filters
+    if (dateRange.start) {
+      params.append('startDate', dateRange.start);
+    }
+    if (dateRange.end) {
+      params.append('endDate', dateRange.end);
+    }
+
     // Filter by active events only
     params.append('status', 'active');
 
+    console.log("=== EventSearch Debug ===");
+    console.log("Search parameters sent to backend:", {
+      searchTerm,
+      dateRange,
+      categories,
+      locations,
+      page,
+      limit,
+      calendarId,
+      timezone
+    });
     console.log("Unified search params:", params.toString());
     console.log("Display timezone:", timezone);
 
@@ -65,6 +98,13 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 
     const data = await response.json();
     console.log("Unified search response:", data);
+    console.log("Backend filters applied:", data.filters);
+    console.log("Result summary:", {
+      totalCount: data.pagination?.totalCount,
+      returnedCount: data.events?.length,
+      totalPages: data.pagination?.totalPages,
+      currentPage: data.pagination?.page
+    });
 
     // Get results from unified search
     let results = data.events || [];
@@ -81,48 +121,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       });
     }
 
-    // Apply date range filtering (the backend doesn't support this yet)
-    if (dateRange.start || dateRange.end) {
-      results = results.filter(event => {
-        const eventStartTime = new Date(event.graphData?.start?.dateTime || event.startTime);
-        const eventEndTime = new Date(event.graphData?.end?.dateTime || event.endTime);
-        
-        if (dateRange.start && eventStartTime < new Date(dateRange.start)) {
-          return false;
-        }
-        if (dateRange.end && eventEndTime > new Date(dateRange.end)) {
-          return false;
-        }
-        return true;
-      });
-    }
-
-    // Apply category filtering (Graph categories only)
-    if (categories && categories.length > 0) {
-      results = results.filter(event => {
-        const eventCategories = event.graphData?.categories || [];
-        
-        // Handle "Uncategorized" special case
-        if (categories.includes('Uncategorized')) {
-          if (eventCategories.length === 0) {
-            return true;
-          }
-        }
-        
-        // Check if any of the event's Graph categories match our filter
-        return eventCategories.some(cat => categories.includes(cat));
-      });
-    }
-
-    // Apply location filtering
-    if (locations && locations.length > 0) {
-      results = results.filter(event => {
-        const eventLocation = event.graphData?.location?.displayName || '';
-        
-        // Check if any of our location filters match
-        return locations.some(loc => eventLocation.toLowerCase().includes(loc.toLowerCase()));
-      });
-    }
+    // Backend now handles all filtering - no client-side filtering needed!
 
     // Convert unified event format to Graph-like format for compatibility
     const convertedResults = results.map(event => ({
@@ -137,7 +136,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
         timeZone: event.graphData?.end?.timeZone || timezone
       },
       location: event.graphData?.location || { displayName: event.location || '' },
-      categories: event.graphData?.categories || [],
+      categories: [...(event.graphData?.categories || []), ...(event.internalData?.mecCategories || [])].filter((cat, index, arr) => arr.indexOf(cat) === index), // Merge and deduplicate categories
       bodyPreview: event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
@@ -238,7 +237,7 @@ function EventSearchInner({
           selectedCategories, 
           selectedLocations,
           1, // Start with page 1
-          250, // Limit
+          null, // No limit - let backend return all matching results
           selectedCalendarId,
           userTimezone // Use shared timezone
         );
@@ -252,13 +251,18 @@ function EventSearchInner({
         setHasNextPage(result.nextLink !== null);
         setCurrentPage(1); // Reset to page 1 for new search
 
-        // Sort results by start date (latest first)
+        // Sort results by start date (earliest first)
         const sortedResults = [...result.results].sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
           
-          // For descending order: most recent first (b - a)
-          return bStartTime - aStartTime;
+          // For ascending order: earliest first (a - b)
+          return aStartTime - bStartTime;
+        });
+        
+        console.log("Query function returning:", {
+          resultsCount: sortedResults.length,
+          sampleTitles: sortedResults.slice(0, 3).map(r => r.subject)
         });
         
         return sortedResults;
@@ -268,7 +272,7 @@ function EventSearchInner({
         }
       }
     },
-    enabled: shouldRunSearch,
+    enabled: shouldRunSearch && !!apiToken,
     keepPreviousData: true,
     staleTime: 5 * 60 * 1000,
     retry: (failureCount, error) => {
@@ -290,7 +294,8 @@ function EventSearchInner({
       setShouldRunSearch(false);
     },
     onSuccess: (data) => {
-      setShouldRunSearch(false);
+      // Don't immediately set shouldRunSearch to false - let the query stay enabled
+      // setShouldRunSearch(false);
       // Don't clear loading status immediately to maintain smooth transitions
       if (!autoLoadMore && !nextLink) {
         setTimeout(() => setLoadingStatus(''), 2000);
@@ -317,6 +322,14 @@ function EventSearchInner({
   
   // Calculate total results
   const searchResults = searchData || [];
+  
+  console.log("React Query Result:", {
+    searchData: searchData,
+    searchResultsLength: searchResults.length,
+    isLoading,
+    isFetching,
+    shouldRunSearch
+  });
 
   // Load more results function (updated to use page-based pagination)
   const loadMoreResults = useCallback(async () => {
@@ -342,7 +355,7 @@ function EventSearchInner({
         selectedCategories, 
         selectedLocations, 
         nextPage,
-        250, // Limit
+        null, // No limit - let backend return all matching results
         selectedCalendarId,
         userTimezone // Use shared timezone
       );
@@ -358,7 +371,7 @@ function EventSearchInner({
         const sortedResults = combinedResults.sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          return bStartTime - aStartTime;
+          return aStartTime - bStartTime;
         });
         
         if (totalAvailableEvents) {

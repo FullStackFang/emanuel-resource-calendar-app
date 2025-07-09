@@ -2780,6 +2780,382 @@ app.get('/api/admin/csv-import/stats', verifyToken, async (req, res) => {
   }
 });
 
+/**
+ * Admin endpoint - Stream CSV clear with Server-Sent Events for large datasets
+ */
+app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    // Set headers for Server-Sent Events
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial status
+    res.write('data: ' + JSON.stringify({
+      type: 'start',
+      message: 'Starting CSV clear operation...',
+      timestamp: new Date().toISOString()
+    }) + '\n\n');
+    
+    // Configuration for chunked deletion
+    const BATCH_SIZE = 50; // Delete 50 events at a time
+    let totalDeleted = 0;
+    
+    try {
+      // First, count total events to delete
+      const totalCount = await unifiedEventsCollection.countDocuments({
+        userId: userId,
+        isCSVImport: true
+      });
+      
+      res.write('data: ' + JSON.stringify({
+        type: 'count',
+        message: `Found ${totalCount} CSV events to delete`,
+        totalCount: totalCount,
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+      
+      if (totalCount === 0) {
+        res.write('data: ' + JSON.stringify({
+          type: 'complete',
+          message: 'No CSV events found to delete',
+          totalDeleted: 0,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        res.end();
+        return;
+      }
+      
+      // Delete in batches
+      let processed = 0;
+      while (processed < totalCount) {
+        // Get a batch of event IDs
+        const batchEvents = await unifiedEventsCollection.find(
+          { userId: userId, isCSVImport: true },
+          { projection: { _id: 1 } }
+        ).limit(BATCH_SIZE).toArray();
+        
+        if (batchEvents.length === 0) {
+          break; // No more events to delete
+        }
+        
+        // Delete this batch
+        const batchIds = batchEvents.map(event => event._id);
+        const deleteResult = await unifiedEventsCollection.deleteMany({
+          _id: { $in: batchIds }
+        });
+        
+        totalDeleted += deleteResult.deletedCount;
+        processed += batchEvents.length;
+        
+        // Send progress update
+        const progress = Math.round((processed / totalCount) * 100);
+        res.write('data: ' + JSON.stringify({
+          type: 'progress',
+          message: `Deleted ${deleteResult.deletedCount} events (${totalDeleted} total)`,
+          processed: processed,
+          totalCount: totalCount,
+          progress: progress,
+          deleted: totalDeleted,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        // Small delay to prevent overwhelming the database
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Send final completion status
+      res.write('data: ' + JSON.stringify({
+        type: 'complete',
+        message: `CSV clear completed successfully. Deleted ${totalDeleted} events.`,
+        totalDeleted: totalDeleted,
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+      
+      logger.log('Streaming CSV clear completed:', {
+        userId,
+        totalDeleted
+      });
+      
+    } catch (error) {
+      logger.error('Error in streaming CSV clear:', error);
+      res.write('data: ' + JSON.stringify({
+        type: 'error',
+        message: 'Clear operation failed',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+    }
+    
+    res.end();
+    
+  } catch (error) {
+    logger.error('Error in streaming CSV clear endpoint:', error);
+    res.status(500).json({ error: 'Failed to clear CSV events' });
+  }
+});
+
+/**
+ * Admin endpoint - Stream CSV import with Server-Sent Events for large files
+ */
+app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No CSV file uploaded' });
+    }
+    
+    // Set headers for Server-Sent Events
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial status
+    res.write('data: ' + JSON.stringify({
+      type: 'start',
+      message: 'Starting CSV import...',
+      timestamp: new Date().toISOString()
+    }) + '\n\n');
+    
+    // Configuration for chunked processing
+    const CHUNK_SIZE = 50; // Process 50 rows at a time
+    let totalRows = 0;
+    let processedRows = 0;
+    let successfulInserts = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
+    let registrationEventsCreated = 0;
+    const errors = [];
+    
+    try {
+      // Parse CSV headers first
+      const csvData = [];
+      const csvHeaders = [];
+      
+      // Create readable stream from buffer
+      const stream = Readable.from(req.file.buffer.toString());
+      
+      // Parse CSV
+      await new Promise((resolve, reject) => {
+        stream
+          .pipe(csv())
+          .on('headers', (headers) => {
+            csvHeaders.push(...headers);
+          })
+          .on('data', (row) => {
+            csvData.push(row);
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
+      
+      totalRows = csvData.length;
+      
+      // Send header validation status
+      res.write('data: ' + JSON.stringify({
+        type: 'headers',
+        message: `CSV parsed: ${totalRows} rows found`,
+        headers: csvHeaders,
+        totalRows: totalRows,
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+      
+      // Validate CSV headers
+      const validation = csvUtils.validateCSVHeaders(csvHeaders);
+      if (!validation.isValid) {
+        res.write('data: ' + JSON.stringify({
+          type: 'error',
+          message: 'Invalid CSV format',
+          error: {
+            missing: validation.missing,
+            missingRecommended: validation.missingRecommended,
+            headers: validation.headers
+          },
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        res.end();
+        return;
+      }
+      
+      // Process CSV in chunks
+      for (let i = 0; i < csvData.length; i += CHUNK_SIZE) {
+        const chunk = csvData.slice(i, i + CHUNK_SIZE);
+        const chunkStart = i + 1;
+        const chunkEnd = Math.min(i + CHUNK_SIZE, csvData.length);
+        
+        // Send chunk processing status
+        res.write('data: ' + JSON.stringify({
+          type: 'progress',
+          message: `Processing rows ${chunkStart} to ${chunkEnd}...`,
+          processed: processedRows,
+          total: totalRows,
+          progress: Math.round((processedRows / totalRows) * 100),
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        // Transform chunk rows to unified events
+        const chunkEvents = [];
+        const chunkErrors = [];
+        
+        for (let j = 0; j < chunk.length; j++) {
+          const rowIndex = i + j;
+          try {
+            const row = chunk[j];
+            const unifiedEvent = csvUtils.csvRowToUnifiedEvent(row, userId);
+            chunkEvents.push(unifiedEvent);
+          } catch (error) {
+            chunkErrors.push({
+              row: rowIndex + 1,
+              data: chunk[j],
+              error: error.message
+            });
+            errorCount++;
+          }
+        }
+        
+        // Insert chunk events into database
+        if (chunkEvents.length > 0) {
+          try {
+            // Check for existing events
+            const existingEventIds = await unifiedEventsCollection.find(
+              { 
+                userId: userId,
+                eventId: { $in: chunkEvents.map(e => e.eventId) }
+              },
+              { projection: { eventId: 1 } }
+            ).toArray();
+            
+            const existingIds = new Set(existingEventIds.map(e => e.eventId));
+            
+            // Filter out duplicates
+            const newEvents = chunkEvents.filter(event => !existingIds.has(event.eventId));
+            const chunkDuplicates = chunkEvents.length - newEvents.length;
+            duplicateCount += chunkDuplicates;
+            
+            // Prepare events for insertion (main events + registration events)
+            const allEventsToInsert = [];
+            
+            for (const event of newEvents) {
+              // Add main event
+              allEventsToInsert.push(event);
+              
+              // Create TempleRegistration event if setup/teardown is enabled
+              if (event.internalData.createRegistrationEvent) {
+                const registrationEvent = createRegistrationEventFromMain(event, userId);
+                allEventsToInsert.push(registrationEvent);
+                registrationEventsCreated++;
+              }
+            }
+            
+            if (allEventsToInsert.length > 0) {
+              const result = await unifiedEventsCollection.insertMany(allEventsToInsert, { ordered: false });
+              successfulInserts += result.insertedCount;
+            }
+            
+            // Send chunk completion status
+            res.write('data: ' + JSON.stringify({
+              type: 'chunk',
+              message: `Chunk completed: ${newEvents.length} new events, ${chunkDuplicates} duplicates, ${chunkErrors.length} errors`,
+              chunkStart: chunkStart,
+              chunkEnd: chunkEnd,
+              newEvents: newEvents.length,
+              duplicates: chunkDuplicates,
+              errors: chunkErrors.length,
+              timestamp: new Date().toISOString()
+            }) + '\n\n');
+            
+          } catch (insertError) {
+            logger.error('Error inserting chunk:', insertError);
+            chunkErrors.push({
+              row: 'chunk',
+              error: `Insert error: ${insertError.message}`
+            });
+            errorCount++;
+          }
+        }
+        
+        // Store errors for final report
+        errors.push(...chunkErrors);
+        processedRows += chunk.length;
+        
+        // Send progress update
+        res.write('data: ' + JSON.stringify({
+          type: 'progress',
+          message: `Processed ${processedRows} of ${totalRows} rows`,
+          processed: processedRows,
+          total: totalRows,
+          progress: Math.round((processedRows / totalRows) * 100),
+          successful: successfulInserts,
+          duplicates: duplicateCount,
+          errors: errorCount,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        // Small delay to prevent overwhelming the client
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Send final completion status
+      res.write('data: ' + JSON.stringify({
+        type: 'complete',
+        message: 'CSV import completed successfully',
+        summary: {
+          totalRows: totalRows,
+          successfulInserts: successfulInserts,
+          duplicates: duplicateCount,
+          errors: errorCount,
+          registrationEventsCreated: registrationEventsCreated
+        },
+        errors: errors.slice(0, 10), // First 10 errors
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+      
+      logger.log('Streaming CSV import completed:', {
+        userId,
+        totalRows,
+        successfulInserts,
+        duplicates: duplicateCount,
+        errors: errorCount,
+        registrationEventsCreated
+      });
+      
+    } catch (error) {
+      logger.error('Error in streaming CSV import:', error);
+      res.write('data: ' + JSON.stringify({
+        type: 'error',
+        message: 'Import failed',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }) + '\n\n');
+    }
+    
+    res.end();
+    
+  } catch (error) {
+    logger.error('Error in streaming CSV import endpoint:', error);
+    res.status(500).json({ error: 'Failed to process CSV file' });
+  }
+});
+
 // ============================================
 // ADMIN CACHE MANAGEMENT ENDPOINTS
 // ============================================
@@ -2941,17 +3317,28 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     
     const { 
       page = 1, 
-      limit = 20, 
+      limit, 
       calendarId, 
       status, 
       search,
       sortBy = 'lastSyncedAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      categories,
+      locations,
+      startDate,
+      endDate
     } = req.query;
     
     // Parse numeric parameters
     const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    // Handle null limit (return all results)
+    const limitNum = (limit === null || limit === 'null' || limit === undefined || limit === '') ? null : parseInt(limit);
+    
+    logger.debug('=== PAGINATION DEBUG ===');
+    logger.debug('Raw limit parameter:', limit, '(type:', typeof limit, ')');
+    logger.debug('Parsed limitNum:', limitNum, '(type:', typeof limitNum, ')');
+    logger.debug('Will apply pagination:', limitNum !== null);
+    logger.debug('=== END PAGINATION DEBUG ===');
     
     // Build query for unified events
     const query = { userId: userId };
@@ -2979,9 +3366,135 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
       query.isDeleted = { $ne: true };
     }
     
+    // Apply category filter
+    if (categories) {
+      const categoryList = categories.split(',').map(cat => cat.trim());
+      
+      // Handle "Uncategorized" special case
+      if (categoryList.includes('Uncategorized')) {
+        const otherCategories = categoryList.filter(cat => cat !== 'Uncategorized');
+        
+        if (otherCategories.length > 0) {
+          // Include both uncategorized events AND events with specified categories
+          query.$or = [
+            // Uncategorized events (no categories in either location)
+            {
+              $and: [
+                { $or: [
+                  { "graphData.categories": { $exists: false } },
+                  { "graphData.categories": { $size: 0 } }
+                ]},
+                { $or: [
+                  { "internalData.mecCategories": { $exists: false } },
+                  { "internalData.mecCategories": { $size: 0 } }
+                ]}
+              ]
+            },
+            // Events with specified categories
+            {
+              $or: [
+                { "graphData.categories": { $in: otherCategories } },
+                { "internalData.mecCategories": { $in: otherCategories } }
+              ]
+            }
+          ];
+        } else {
+          // Only uncategorized events
+          query.$and = [
+            { $or: [
+              { "graphData.categories": { $exists: false } },
+              { "graphData.categories": { $size: 0 } }
+            ]},
+            { $or: [
+              { "internalData.mecCategories": { $exists: false } },
+              { "internalData.mecCategories": { $size: 0 } }
+            ]}
+          ];
+        }
+      } else {
+        // Regular category filtering - check both graphData and internalData
+        query.$or = [
+          { "graphData.categories": { $in: categoryList } },
+          { "internalData.mecCategories": { $in: categoryList } }
+        ];
+      }
+    }
+    
+    // Apply location filter
+    if (locations) {
+      const locationList = locations.split(',').map(loc => loc.trim());
+      // Use regex for partial matching (case-insensitive)
+      const locationRegexes = locationList.map(loc => new RegExp(loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+      query["graphData.location.displayName"] = { $in: locationRegexes };
+    }
+    
+    // Apply date range filter
+    logger.debug('=== DATE FILTERING DEBUG ===');
+    logger.debug('Raw startDate parameter:', startDate, '(type:', typeof startDate, ')');
+    logger.debug('Raw endDate parameter:', endDate, '(type:', typeof endDate, ')');
+    logger.debug('Query state before date filtering:', JSON.stringify(query, null, 2));
+    
+    if (startDate || endDate) {
+      const dateConditions = [];
+      
+      if (startDate) {
+        const startDateTime = new Date(startDate);
+        logger.debug('Parsed startDateTime:', startDateTime, '(valid:', !isNaN(startDateTime.getTime()), ')');
+        // Event must end after the start date (event doesn't end before range starts)
+        // Use ISO string since that's how dates are stored in CSV import
+        const startCondition = { "graphData.end.dateTime": { $gt: startDateTime.toISOString() } };
+        dateConditions.push(startCondition);
+        logger.debug('Added start condition (overlap):', JSON.stringify(startCondition));
+      }
+      
+      if (endDate) {
+        // Event must start before the end date (event doesn't start after range ends)
+        const endDateTime = new Date(endDate);
+        endDateTime.setDate(endDateTime.getDate() + 1); // Include events ending on the end date
+        logger.debug('Parsed endDateTime (with +1 day):', endDateTime, '(valid:', !isNaN(endDateTime.getTime()), ')');
+        // Use ISO string since that's how dates are stored in CSV import
+        const endCondition = { "graphData.start.dateTime": { $lt: endDateTime.toISOString() } };
+        dateConditions.push(endCondition);
+        logger.debug('Added end condition (overlap):', JSON.stringify(endCondition));
+      }
+      
+      // Add date conditions to the query using $and
+      if (dateConditions.length > 0) {
+        if (query.$and) {
+          query.$and.push(...dateConditions);
+        } else {
+          query.$and = dateConditions;
+        }
+        logger.debug('Applied date conditions to query. Total $and conditions:', query.$and.length);
+      }
+    } else {
+      logger.debug('No date filtering applied - startDate and endDate are both falsy');
+    }
+    logger.debug('Query state after date filtering:', JSON.stringify(query, null, 2));
+    logger.debug('=== END DATE FILTERING DEBUG ===');
+    
     logger.debug('Executing query for unified events');
+    logger.debug('MongoDB query:', JSON.stringify(query, null, 2));
+    logger.debug('Query parameters:', { categories, locations, startDate, endDate, search, sortBy, sortOrder });
+    
     const allEvents = await unifiedEventsCollection.find(query).toArray();
     logger.debug('Found total events for user:', allEvents.length);
+    
+    // Debug: Show sample event dates to understand format
+    if (allEvents.length > 0) {
+      logger.debug('=== SAMPLE EVENT DATES DEBUG ===');
+      const sampleEvents = allEvents.slice(0, 3);
+      sampleEvents.forEach((event, index) => {
+        logger.debug(`Event ${index + 1}:`, {
+          subject: event.graphData?.subject,
+          startTime: event.graphData?.start?.dateTime,
+          endTime: event.graphData?.end?.dateTime,
+          startType: typeof event.graphData?.start?.dateTime,
+          endType: typeof event.graphData?.end?.dateTime
+        });
+      });
+      logger.debug('=== END SAMPLE EVENT DATES DEBUG ===');
+    }
     
     // Apply search filter in memory (easier than complex MongoDB text search)
     let filteredEvents = allEvents;
@@ -3016,8 +3529,16 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     
     // Apply pagination in memory
     const totalCount = filteredEvents.length;
-    const startIdx = (pageNum - 1) * limitNum;
-    const paginatedEvents = filteredEvents.slice(startIdx, startIdx + limitNum);
+    let paginatedEvents;
+    
+    if (limitNum === null) {
+      // Return all results when no limit is specified
+      paginatedEvents = filteredEvents;
+    } else {
+      // Apply pagination when limit is specified
+      const startIdx = (pageNum - 1) * limitNum;
+      paginatedEvents = filteredEvents.slice(startIdx, startIdx + limitNum);
+    }
     
     res.status(200).json({
       events: paginatedEvents.map(event => ({
@@ -3049,14 +3570,18 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
         page: pageNum,
         limit: limitNum,
         totalCount: totalCount,
-        totalPages: Math.ceil(totalCount / limitNum)
+        totalPages: limitNum === null ? 1 : Math.ceil(totalCount / limitNum)
       },
       filters: {
         calendarId,
         status,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
+        categories,
+        locations,
+        startDate,
+        endDate
       }
     });
   } catch (error) {

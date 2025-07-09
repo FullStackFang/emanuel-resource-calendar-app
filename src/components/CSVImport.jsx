@@ -14,6 +14,30 @@ export default function CSVImport({ apiToken }) {
   const [error, setError] = useState(null);
   const [stats, setStats] = useState(null);
   const [showDetailedResults, setShowDetailedResults] = useState(false);
+  
+  // Streaming import states
+  const [streamingImport, setStreamingImport] = useState(false);
+  const [streamProgress, setStreamProgress] = useState({
+    processed: 0,
+    total: 0,
+    progress: 0,
+    successful: 0,
+    duplicates: 0,
+    errors: 0,
+    currentMessage: ''
+  });
+  const [streamMessages, setStreamMessages] = useState([]);
+  
+  // Streaming clear states
+  const [streamingClear, setStreamingClear] = useState(false);
+  const [clearProgress, setClearProgress] = useState({
+    processed: 0,
+    totalCount: 0,
+    progress: 0,
+    deleted: 0,
+    currentMessage: ''
+  });
+  const [clearMessages, setClearMessages] = useState([]);
 
   // Auth headers
   const getAuthHeaders = () => {
@@ -58,42 +82,88 @@ export default function CSVImport({ apiToken }) {
       return;
     }
 
-    uploadCSV(file);
+    // Always use streaming for better user experience
+    uploadCSVWithStreaming(file);
   };
 
-  // Upload and process CSV file
-  const uploadCSV = async (file) => {
+
+  // Upload and process CSV file with streaming
+  const uploadCSVWithStreaming = async (file) => {
     try {
+      setStreamingImport(true);
       setImporting(true);
       setError(null);
       setImportResult(null);
+      setStreamMessages([]);
+      setStreamProgress({
+        processed: 0,
+        total: 0,
+        progress: 0,
+        successful: 0,
+        duplicates: 0,
+        errors: 0,
+        currentMessage: 'Initializing...'
+      });
 
       const formData = new FormData();
       formData.append('csvFile', file);
 
-      const response = await fetch(`${API_BASE_URL}/admin/csv-import`, {
+      // Create EventSource for streaming
+      const eventSource = new EventSource(`${API_BASE_URL}/admin/csv-import/stream`);
+      
+      // First, send the file to trigger the streaming import
+      const response = await fetch(`${API_BASE_URL}/admin/csv-import/stream`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: formData
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || `Upload failed: ${response.status}`);
+        throw new Error(`Upload failed: ${response.status}`);
       }
 
-      setImportResult(result);
-      
-      // Reload stats after successful import
+      // Read the streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      const processStream = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const eventData = JSON.parse(line.substring(6));
+                  handleStreamEvent(eventData);
+                } catch (e) {
+                  console.warn('Failed to parse stream event:', line);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          logger.error('Error reading stream:', err);
+          setError(`Stream error: ${err.message}`);
+        }
+      };
+
+      await processStream();
+
+      // Reload stats after completion
       await loadStats();
 
-      logger.log('CSV import completed:', result);
+      logger.log('Streaming CSV import completed');
 
     } catch (err) {
-      logger.error('Error uploading CSV:', err);
+      logger.error('Error in streaming CSV upload:', err);
       setError(err.message);
     } finally {
+      setStreamingImport(false);
       setImporting(false);
       // Reset file input
       if (fileInputRef.current) {
@@ -102,44 +172,201 @@ export default function CSVImport({ apiToken }) {
     }
   };
 
-  // Clear all CSV imported events
+  // Handle streaming events
+  const handleStreamEvent = (eventData) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const message = `${timestamp}: ${eventData.message}`;
+    
+    setStreamMessages(prev => [...prev, { ...eventData, displayMessage: message }]);
+
+    switch (eventData.type) {
+      case 'start':
+        setStreamProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'headers':
+        setStreamProgress(prev => ({
+          ...prev,
+          total: eventData.totalRows || 0,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'progress':
+        setStreamProgress(prev => ({
+          ...prev,
+          processed: eventData.processed || 0,
+          total: eventData.total || prev.total,
+          progress: eventData.progress || 0,
+          successful: eventData.successful || 0,
+          duplicates: eventData.duplicates || 0,
+          errors: eventData.errors || 0,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'chunk':
+        setStreamProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'complete':
+        setStreamProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message
+        }));
+        setImportResult({
+          success: true,
+          summary: eventData.summary,
+          errors: eventData.errors || []
+        });
+        break;
+        
+      case 'error':
+        setError(eventData.message);
+        setImportResult({
+          success: false,
+          error: eventData.error
+        });
+        break;
+    }
+  };
+
+  // Clear all CSV imported events with streaming
   const clearImportedEvents = async () => {
     if (!confirm('Are you sure you want to delete all CSV imported events? This cannot be undone.')) {
       return;
     }
 
     try {
+      setStreamingClear(true);
       setImporting(true);
       setError(null);
+      setImportResult(null);
+      setClearMessages([]);
+      setClearProgress({
+        processed: 0,
+        totalCount: 0,
+        progress: 0,
+        deleted: 0,
+        currentMessage: 'Initializing clear operation...'
+      });
 
-      const response = await fetch(`${API_BASE_URL}/admin/csv-import/clear`, {
+      // Use streaming clear endpoint
+      const response = await fetch(`${API_BASE_URL}/admin/csv-import/clear-stream`, {
         method: 'POST',
         headers: getAuthHeaders()
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || `Clear failed: ${response.status}`);
+        throw new Error(`Clear failed: ${response.status}`);
       }
 
-      setImportResult({
-        success: true,
-        summary: {
-          cleared: result.deletedCount
-        }
-      });
+      // Read the streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      // Reload stats
+      const processStream = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const eventData = JSON.parse(line.substring(6));
+                  handleClearStreamEvent(eventData);
+                } catch (e) {
+                  console.warn('Failed to parse clear stream event:', line);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          logger.error('Error reading clear stream:', err);
+          setError(`Clear stream error: ${err.message}`);
+        }
+      };
+
+      await processStream();
+
+      // Reload stats after completion
       await loadStats();
 
-      logger.log('CSV events cleared:', result);
+      logger.log('Streaming CSV clear completed');
 
     } catch (err) {
-      logger.error('Error clearing CSV events:', err);
+      logger.error('Error in streaming CSV clear:', err);
       setError(err.message);
     } finally {
+      setStreamingClear(false);
       setImporting(false);
+    }
+  };
+
+  // Handle clear streaming events
+  const handleClearStreamEvent = (eventData) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const message = `${timestamp}: ${eventData.message}`;
+    
+    setClearMessages(prev => [...prev, { ...eventData, displayMessage: message }]);
+
+    switch (eventData.type) {
+      case 'start':
+        setClearProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'count':
+        setClearProgress(prev => ({
+          ...prev,
+          totalCount: eventData.totalCount || 0,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'progress':
+        setClearProgress(prev => ({
+          ...prev,
+          processed: eventData.processed || 0,
+          totalCount: eventData.totalCount || prev.totalCount,
+          progress: eventData.progress || 0,
+          deleted: eventData.deleted || 0,
+          currentMessage: eventData.message
+        }));
+        break;
+        
+      case 'complete':
+        setClearProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message
+        }));
+        setImportResult({
+          success: true,
+          summary: {
+            cleared: eventData.totalDeleted
+          }
+        });
+        break;
+        
+      case 'error':
+        setError(eventData.message);
+        setImportResult({
+          success: false,
+          error: eventData.error
+        });
+        break;
     }
   };
 
@@ -235,6 +462,7 @@ export default function CSVImport({ apiToken }) {
         </div>
       )}
 
+
       {/* Upload Area */}
       <div 
         className={`csv-upload-area ${dragOver ? 'drag-over' : ''} ${importing ? 'uploading' : ''}`}
@@ -256,7 +484,7 @@ export default function CSVImport({ apiToken }) {
           {importing ? (
             <>
               <div className="upload-spinner">⏳</div>
-              <div className="upload-text">Processing CSV file...</div>
+              <div className="upload-text">Streaming CSV import...</div>
             </>
           ) : (
             <>
@@ -265,11 +493,167 @@ export default function CSVImport({ apiToken }) {
                 <strong>Click to select or drag & drop a CSV file</strong>
                 <br />
                 <small>Supported format: .csv files up to 10MB</small>
+                <br />
+                <small>Streaming mode with real-time progress</small>
               </div>
             </>
           )}
         </div>
       </div>
+
+      {/* Streaming Progress */}
+      {streamingImport && (
+        <div className="streaming-progress" style={{
+          backgroundColor: '#f8f9fa',
+          border: '1px solid #dee2e6',
+          borderRadius: '6px',
+          padding: '15px',
+          marginTop: '15px'
+        }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#495057' }}>📊 Import Progress</h4>
+          
+          {/* Progress Bar */}
+          <div style={{
+            backgroundColor: '#e9ecef',
+            borderRadius: '4px',
+            height: '20px',
+            marginBottom: '10px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              backgroundColor: '#007bff',
+              height: '100%',
+              width: `${streamProgress.progress}%`,
+              transition: 'width 0.3s ease',
+              borderRadius: '4px'
+            }}></div>
+          </div>
+          
+          {/* Progress Stats */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '10px',
+            marginBottom: '10px',
+            fontSize: '14px'
+          }}>
+            <div><strong>Progress:</strong> {streamProgress.progress}%</div>
+            <div><strong>Processed:</strong> {streamProgress.processed} / {streamProgress.total}</div>
+            <div><strong>Successful:</strong> {streamProgress.successful}</div>
+            <div><strong>Duplicates:</strong> {streamProgress.duplicates}</div>
+            <div><strong>Errors:</strong> {streamProgress.errors}</div>
+          </div>
+          
+          {/* Current Message */}
+          <div style={{
+            fontSize: '13px',
+            color: '#6c757d',
+            fontStyle: 'italic',
+            marginBottom: '10px'
+          }}>
+            {streamProgress.currentMessage}
+          </div>
+          
+          {/* Message Log */}
+          <div style={{
+            maxHeight: '150px',
+            overflowY: 'auto',
+            backgroundColor: '#fff',
+            border: '1px solid #ced4da',
+            borderRadius: '4px',
+            padding: '8px',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            {streamMessages.map((msg, index) => (
+              <div key={index} style={{
+                color: msg.type === 'error' ? '#dc3545' : 
+                       msg.type === 'complete' ? '#28a745' : 
+                       msg.type === 'progress' ? '#007bff' : '#6c757d',
+                marginBottom: '2px'
+              }}>
+                {msg.displayMessage}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Streaming Clear Progress */}
+      {streamingClear && (
+        <div className="streaming-progress" style={{
+          backgroundColor: '#fff3cd',
+          border: '1px solid #ffeaa7',
+          borderRadius: '6px',
+          padding: '15px',
+          marginTop: '15px'
+        }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#856404' }}>🗑️ Clear Progress</h4>
+          
+          {/* Progress Bar */}
+          <div style={{
+            backgroundColor: '#ffeaa7',
+            borderRadius: '4px',
+            height: '20px',
+            marginBottom: '10px',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              backgroundColor: '#e17055',
+              height: '100%',
+              width: `${clearProgress.progress}%`,
+              transition: 'width 0.3s ease',
+              borderRadius: '4px'
+            }}></div>
+          </div>
+          
+          {/* Clear Stats */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '10px',
+            marginBottom: '10px',
+            fontSize: '14px'
+          }}>
+            <div><strong>Progress:</strong> {clearProgress.progress}%</div>
+            <div><strong>Processed:</strong> {clearProgress.processed} / {clearProgress.totalCount}</div>
+            <div><strong>Deleted:</strong> {clearProgress.deleted}</div>
+          </div>
+          
+          {/* Current Message */}
+          <div style={{
+            fontSize: '13px',
+            color: '#856404',
+            fontStyle: 'italic',
+            marginBottom: '10px'
+          }}>
+            {clearProgress.currentMessage}
+          </div>
+          
+          {/* Message Log */}
+          <div style={{
+            maxHeight: '150px',
+            overflowY: 'auto',
+            backgroundColor: '#fff',
+            border: '1px solid #ffeaa7',
+            borderRadius: '4px',
+            padding: '8px',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}>
+            {clearMessages.map((msg, index) => (
+              <div key={index} style={{
+                color: msg.type === 'error' ? '#dc3545' : 
+                       msg.type === 'complete' ? '#28a745' : 
+                       msg.type === 'progress' ? '#e17055' : '#856404',
+                marginBottom: '2px'
+              }}>
+                {msg.displayMessage}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Expected CSV Format */}
       <div className="csv-format-info">
