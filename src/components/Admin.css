@@ -16,8 +16,6 @@
 
    .admin-container {
     width: 100%;
-    max-width: 1600px; /* Increased from 1200px for better screen utilization */
-    margin: 0 auto;
     padding: 20px;
     box-sizing: border-box; /* Ensures padding doesn't increase width */
   }
@@ -393,6 +391,19 @@
     font-size: 13px;
   }
 
+  /* Two column layout for stats and format info */
+  .csv-info-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  /* Make the cards equal height */
+  .csv-info-columns > * {
+    height: 100%;
+  }
+
   .csv-stats-card {
     background: #f8f9fa;
     border: 1px solid #dee2e6;
@@ -662,6 +673,11 @@
     .csv-import-content {
       padding: 8px;
       padding-bottom: 15px;
+    }
+
+    /* Stack columns on mobile */
+    .csv-info-columns {
+      grid-template-columns: 1fr;
     }
 
     .csv-import-header h2 {

@@ -4,7 +4,7 @@ import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './Admin.css';
 
-export default function CSVImport({ apiToken }) {
+export default function CSVImport({ apiToken, availableCalendars = [] }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const fileInputRef = useRef(null);
   
@@ -14,6 +14,7 @@ export default function CSVImport({ apiToken }) {
   const [error, setError] = useState(null);
   const [stats, setStats] = useState(null);
   const [showDetailedResults, setShowDetailedResults] = useState(false);
+  const [targetCalendarId, setTargetCalendarId] = useState('');
   
   // Streaming import states
   const [streamingImport, setStreamingImport] = useState(false);
@@ -35,7 +36,11 @@ export default function CSVImport({ apiToken }) {
     totalCount: 0,
     progress: 0,
     deleted: 0,
-    currentMessage: ''
+    currentMessage: '',
+    collections: {},
+    currentCollection: '',
+    collectionProgress: {},
+    collectionResults: {}
   });
   const [clearMessages, setClearMessages] = useState([]);
 
@@ -89,6 +94,12 @@ export default function CSVImport({ apiToken }) {
 
   // Upload and process CSV file with streaming
   const uploadCSVWithStreaming = async (file) => {
+    // Validate calendar selection
+    if (!targetCalendarId) {
+      setError('Please select a target calendar before importing');
+      return;
+    }
+
     try {
       setStreamingImport(true);
       setImporting(true);
@@ -107,6 +118,9 @@ export default function CSVImport({ apiToken }) {
 
       const formData = new FormData();
       formData.append('csvFile', file);
+      if (targetCalendarId) {
+        formData.append('targetCalendarId', targetCalendarId);
+      }
 
       // Create EventSource for streaming
       const eventSource = new EventSource(`${API_BASE_URL}/admin/csv-import/stream`);
@@ -254,7 +268,11 @@ export default function CSVImport({ apiToken }) {
         totalCount: 0,
         progress: 0,
         deleted: 0,
-        currentMessage: 'Initializing clear operation...'
+        currentMessage: 'Initializing clear operation...',
+        collections: {},
+        currentCollection: '',
+        collectionProgress: {},
+        collectionResults: {}
       });
 
       // Use streaming clear endpoint
@@ -324,7 +342,43 @@ export default function CSVImport({ apiToken }) {
       case 'start':
         setClearProgress(prev => ({
           ...prev,
-          currentMessage: eventData.message
+          currentMessage: eventData.message,
+          collections: {}
+        }));
+        break;
+        
+      case 'collection_start':
+        setClearProgress(prev => ({
+          ...prev,
+          currentMessage: `Starting ${eventData.collection}...`,
+          currentCollection: eventData.collection
+        }));
+        break;
+
+      case 'collection_progress':
+        setClearProgress(prev => ({
+          ...prev,
+          currentMessage: eventData.message,
+          currentCollection: eventData.collection,
+          collectionProgress: {
+            ...prev.collectionProgress,
+            [eventData.collection]: {
+              processed: eventData.processed || 0,
+              total: eventData.total || 0,
+              deleted: eventData.deleted || 0
+            }
+          }
+        }));
+        break;
+
+      case 'collection_complete':
+        setClearProgress(prev => ({
+          ...prev,
+          currentMessage: `Completed ${eventData.collection}: ${eventData.deleted} deleted`,
+          collectionResults: {
+            ...prev.collectionResults,
+            [eventData.collection]: eventData.deleted || 0
+          }
         }));
         break;
         
@@ -332,7 +386,8 @@ export default function CSVImport({ apiToken }) {
         setClearProgress(prev => ({
           ...prev,
           totalCount: eventData.totalCount || 0,
-          currentMessage: eventData.message
+          currentMessage: eventData.message,
+          collections: eventData.counts || {}
         }));
         break;
         
@@ -355,7 +410,8 @@ export default function CSVImport({ apiToken }) {
         setImportResult({
           success: true,
           summary: {
-            cleared: eventData.totalDeleted
+            cleared: eventData.totalDeleted,
+            details: eventData.summary || {}
           }
         });
         break;
@@ -422,45 +478,111 @@ export default function CSVImport({ apiToken }) {
           <p>Import events from CSV files into the unified events system</p>
         </div>
 
-      {/* Current Statistics */}
-      {stats && (
-        <div className="csv-stats-card">
-          <h3>📊 Current CSV Import Statistics</h3>
-          <div className="stats-grid">
-            <div className="stat-item">
-              <span className="stat-label">Total Imported:</span>
-              <span className="stat-value">{stats.totalEvents || 0}</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Active Events:</span>
-              <span className="stat-value">{stats.activeEvents || 0}</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Deleted Events:</span>
-              <span className="stat-value">{stats.deletedEvents || 0}</span>
-            </div>
-            {stats.newestImport && (
+        {/* Calendar Selector */}
+        <div className="csv-import-section">
+          <h3>Target Calendar</h3>
+          <select 
+            value={targetCalendarId} 
+            onChange={(e) => setTargetCalendarId(e.target.value)}
+            className="calendar-selector"
+            style={{ width: '100%', padding: '8px', marginBottom: '20px' }}
+          >
+            <option value="">
+              {availableCalendars.length === 0 ? 'Loading calendars...' : 'Select a calendar...'}
+            </option>
+            {availableCalendars.map(calendar => {
+              let displayName = calendar.name || 'Unnamed Calendar';
+              
+              // Add owner email if available and different from calendar name
+              if (calendar.owner?.emailAddress?.address && calendar.owner.emailAddress.address !== displayName) {
+                displayName += ` (${calendar.owner.emailAddress.address})`;
+              } else if (calendar.owner?.name && calendar.owner.name !== displayName) {
+                displayName += ` (${calendar.owner.name})`;
+              }
+              
+              // Add default indicator if available
+              if (calendar.isDefaultCalendar) {
+                displayName += ' ⭐';
+              }
+              
+              return (
+                <option key={calendar.id} value={calendar.id}>
+                  {displayName}
+                </option>
+              );
+            })}
+          </select>
+          {availableCalendars.length === 0 && (
+            <p style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>
+              📡 Loading your available calendars...
+            </p>
+          )}
+        </div>
+
+      {/* Two Column Layout for Stats and Format Info */}
+      <div className="csv-info-columns">
+        {/* Current Statistics */}
+        {stats && (
+          <div className="csv-stats-card">
+            <h3>📊 Current CSV Import Statistics</h3>
+            <div className="stats-grid">
               <div className="stat-item">
-                <span className="stat-label">Last Import:</span>
-                <span className="stat-value">
-                  {new Date(stats.newestImport).toLocaleString()}
-                </span>
+                <span className="stat-label">Total Imported:</span>
+                <span className="stat-value">{stats.totalEvents || 0}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Active Events:</span>
+                <span className="stat-value">{stats.activeEvents || 0}</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-label">Deleted Events:</span>
+                <span className="stat-value">{stats.deletedEvents || 0}</span>
+              </div>
+              {stats.newestImport && (
+                <div className="stat-item">
+                  <span className="stat-label">Last Import:</span>
+                  <span className="stat-value">
+                    {new Date(stats.newestImport).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+            {stats.totalEvents > 0 && (
+              <div className="csv-actions">
+                <button
+                  onClick={clearImportedEvents}
+                  className="action-btn danger"
+                  disabled={importing}
+                >
+                  🗑️ Clear All Imported Events
+                </button>
               </div>
             )}
           </div>
-          {stats.totalEvents > 0 && (
-            <div className="csv-actions">
-              <button
-                onClick={clearImportedEvents}
-                className="action-btn danger"
-                disabled={importing}
-              >
-                🗑️ Clear All Imported Events
-              </button>
-            </div>
-          )}
+        )}
+
+        {/* Expected CSV Format */}
+        <div className="csv-format-info">
+          <h3>📋 Expected CSV Format</h3>
+          <p>Your CSV file should contain the following columns:</p>
+          <div className="format-example">
+            <strong>Required:</strong> Subject
+            <br />
+            <strong>Recommended:</strong> StartDate, EndDate, StartTime, EndTime, Location, Categories
+            <br />
+            <strong>Optional:</strong> StartDateTime, EndDateTime, AllDayEvent, Description, Deleted, rsId
+          </div>
+          <div className="format-notes">
+            <h4>Notes:</h4>
+            <ul>
+              <li>Date formats: Excel serial numbers (e.g., 49966) or ISO strings (e.g., 2036-10-18T10:30:00)</li>
+              <li>Time formats: Decimal fractions (e.g., 0.4375 = 10:30 AM) or included in DateTime</li>
+              <li>Categories: Comma-separated values (e.g., "Staff Meeting, Important")</li>
+              <li>Boolean fields: 0/1, true/false, yes/no</li>
+            </ul>
+          </div>
         </div>
-      )}
+      </div>
 
 
       {/* Upload Area */}
@@ -615,10 +737,47 @@ export default function CSVImport({ apiToken }) {
             marginBottom: '10px',
             fontSize: '14px'
           }}>
-            <div><strong>Progress:</strong> {clearProgress.progress}%</div>
-            <div><strong>Processed:</strong> {clearProgress.processed} / {clearProgress.totalCount}</div>
-            <div><strong>Deleted:</strong> {clearProgress.deleted}</div>
+            <div><strong>Progress:</strong> {clearProgress.progress || 0}%</div>
+            <div><strong>Total Count:</strong> {typeof clearProgress.totalCount === 'number' ? clearProgress.totalCount : 0}</div>
+            <div><strong>Total Deleted:</strong> {clearProgress.deleted || 0}</div>
+            {clearProgress.currentCollection && (
+              <div><strong>Current:</strong> {clearProgress.currentCollection}</div>
+            )}
           </div>
+
+          {/* Collection Progress */}
+          {Object.keys(clearProgress.collections || {}).length > 0 && (
+            <div style={{
+              backgroundColor: '#f8f9fa',
+              border: '1px solid #dee2e6',
+              borderRadius: '4px',
+              padding: '10px',
+              marginBottom: '10px',
+              fontSize: '13px'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Collections to Clear:</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '5px' }}>
+                {Object.entries(clearProgress.collections).map(([collection, count]) => (
+                  <div key={collection} style={{
+                    padding: '4px 8px',
+                    backgroundColor: clearProgress.collectionResults?.[collection] !== undefined ? '#d4edda' : '#fff',
+                    border: '1px solid #ced4da',
+                    borderRadius: '3px',
+                    display: 'flex',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span>{collection}:</span>
+                    <span>
+                      {clearProgress.collectionResults?.[collection] !== undefined 
+                        ? `${clearProgress.collectionResults[collection]} deleted`
+                        : `${count} found`
+                      }
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           
           {/* Current Message */}
           <div style={{
@@ -655,27 +814,6 @@ export default function CSVImport({ apiToken }) {
         </div>
       )}
 
-      {/* Expected CSV Format */}
-      <div className="csv-format-info">
-        <h3>📋 Expected CSV Format</h3>
-        <p>Your CSV file should contain the following columns:</p>
-        <div className="format-example">
-          <strong>Required:</strong> Subject
-          <br />
-          <strong>Recommended:</strong> StartDate, EndDate, StartTime, EndTime, Location, Categories
-          <br />
-          <strong>Optional:</strong> StartDateTime, EndDateTime, AllDayEvent, Description, Deleted, rsId
-        </div>
-        <div className="format-notes">
-          <h4>Notes:</h4>
-          <ul>
-            <li>Date formats: Excel serial numbers (e.g., 49966) or ISO strings (e.g., 2036-10-18T10:30:00)</li>
-            <li>Time formats: Decimal fractions (e.g., 0.4375 = 10:30 AM) or included in DateTime</li>
-            <li>Categories: Comma-separated values (e.g., "Staff Meeting, Important")</li>
-            <li>Boolean fields: 0/1, true/false, yes/no</li>
-          </ul>
-        </div>
-      </div>
 
       {/* Error Display */}
       {error && (
@@ -694,7 +832,35 @@ export default function CSVImport({ apiToken }) {
           {importResult.summary && (
             <div className="result-summary">
               {importResult.summary.cleared !== undefined ? (
-                <p><strong>Cleared:</strong> {importResult.summary.cleared} events</p>
+                <>
+                  <p><strong>Total Cleared:</strong> {importResult.summary.cleared} events</p>
+                  {importResult.summary.details && Object.keys(importResult.summary.details).length > 0 && (
+                    <div style={{ marginTop: '10px' }}>
+                      <strong>Breakdown by Collection:</strong>
+                      <div style={{ 
+                        marginTop: '5px', 
+                        fontSize: '14px',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        gap: '5px'
+                      }}>
+                        {Object.entries(importResult.summary.details).map(([collection, count]) => (
+                          <div key={collection} style={{
+                            padding: '4px 8px',
+                            backgroundColor: '#f8f9fa',
+                            border: '1px solid #dee2e6',
+                            borderRadius: '3px',
+                            display: 'flex',
+                            justifyContent: 'space-between'
+                          }}>
+                            <span>{collection}:</span>
+                            <span><strong>{count}</strong></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <p><strong>Total Rows:</strong> {importResult.summary.totalRows}</p>

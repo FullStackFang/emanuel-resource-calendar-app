@@ -28,7 +28,8 @@
       "Bash(npm start)",
       "Bash(timeout:*)",
       "Bash(find:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "WebFetch(domain:learn.microsoft.com)"
     ],
     "deny": []
   }

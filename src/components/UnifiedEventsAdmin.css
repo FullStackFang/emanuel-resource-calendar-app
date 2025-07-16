@@ -1,8 +1,8 @@
 /* UnifiedEventsAdmin.css */
 .unified-events-admin {
   padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .unified-events-admin .admin-header {
@@ -79,6 +79,13 @@
   min-height: 300px;
   height: calc(100vh - 200px); /* Constrain to fit within main element */
   overflow: hidden; /* Ensure content stays within bounds */
+  width: 100%; /* Ensure full width */
+}
+
+/* Ensure all direct children of tab-content use full width */
+.unified-events-admin .tab-content > * {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .unified-events-admin .loading-overlay {
@@ -97,6 +104,11 @@
 }
 
 /* Overview Tab */
+.unified-overview {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .unified-overview .overview-actions {
   display: flex;
   gap: 10px;
@@ -108,6 +120,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 20px;
+  width: 100%;
 }
 
 .unified-overview .stats-card {
@@ -212,6 +225,11 @@
 }
 
 /* Events Tab */
+.unified-events {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .unified-events .events-filters {
   display: flex;
   gap: 10px;
@@ -225,6 +243,8 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 1rem;
+  background: white;
+  color: #333;
 }
 
 .unified-events .filter-select {
@@ -236,7 +256,7 @@
 }
 
 /* Events Table */
-.events-table-container {
+.unified-events .unified-events-table-container {
   background: white;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
@@ -244,12 +264,13 @@
   margin-bottom: 20px;
 }
 
-.events-table {
+.unified-events .unified-events-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
-.events-table th {
+.unified-events .unified-events-table th {
   background: #f5f5f5;
   padding: 12px;
   text-align: left;
@@ -258,30 +279,70 @@
   border-bottom: 2px solid #e0e0e0;
 }
 
-.events-table td {
+/* Column width distribution */
+.unified-events .unified-events-table th:nth-child(1) { width: 22%; } /* Subject - good space */
+.unified-events .unified-events-table th:nth-child(2) { width: 5%; }  /* rsId - very small */
+.unified-events .unified-events-table th:nth-child(3) { width: 14%; } /* Start Time - medium */
+.unified-events .unified-events-table th:nth-child(4) { width: 28%; } /* Calendars - much larger */
+.unified-events .unified-events-table th:nth-child(5) { width: 9%; }  /* Status - small */
+.unified-events .unified-events-table th:nth-child(6) { width: 12%; } /* Last Synced - medium */
+.unified-events .unified-events-table th:nth-child(7) { width: 10%; } /* Actions - small */
+
+.unified-events .unified-events-table td {
   padding: 12px;
   border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.events-table tr:hover {
+.unified-events .unified-events-table tr:hover {
   background: #f8f8f8;
+}
+
+.event-subject {
+  max-width: 100%;
 }
 
 .event-subject .subject-title {
   font-weight: 500;
   color: #333;
   margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .event-subject .mec-categories {
   font-size: 0.85rem;
   color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Specific cell styling */
+.rsid-cell {
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+/* Make rsId header smaller */
+.unified-events .unified-events-table th:nth-child(2) {
+  font-size: 0.85rem;
+  padding: 12px 6px;
+}
+
+.event-time {
+  white-space: nowrap;
+  font-size: 0.95rem;
 }
 
 .calendars-info {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .calendar-badge {
@@ -291,6 +352,11 @@
   border-radius: 4px;
   font-size: 0.85rem;
   white-space: nowrap;
+  line-height: 1.4;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
 }
 
 /* Status Badges */
@@ -326,6 +392,13 @@
   font-size: 0.95rem;
   font-weight: 500;
   transition: all 0.2s ease;
+}
+
+/* Table action buttons - more compact */
+.unified-events .unified-events-table .action-btn {
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  margin: 2px;
 }
 
 .action-btn:hover {
@@ -390,6 +463,7 @@
   padding: 6px 12px;
   border: 1px solid #ddd;
   background: white;
+  color: #333;
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.95rem;
@@ -436,5 +510,16 @@
   to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+/* Responsive adjustments for narrower screens */
+@media (max-width: 1400px) {
+  .unified-events .unified-events-table th:nth-child(1) { width: 20%; } /* Subject - compact */
+  .unified-events .unified-events-table th:nth-child(2) { width: 4%; }  /* rsId - minimal */
+  .unified-events .unified-events-table th:nth-child(4) { width: 30%; } /* Calendars - maintain space */
+  
+  .calendar-badge {
+    font-size: 0.8rem;
+    padding: 3px 6px;
   }
 }

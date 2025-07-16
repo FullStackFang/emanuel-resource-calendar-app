@@ -230,6 +230,12 @@ export const findLinkedEvent = async (accessToken, eventId, calendarId = null) =
     return null;
     
   } catch (error) {
+    // Handle 404 errors gracefully - it means the source event was already deleted
+    if (error.statusCode === 404 || error.code === 'ItemNotFound') {
+      console.log('Source event already deleted (404 - Not Found):', eventId);
+      return null; // Return null since we can't find the source event
+    }
+    
     console.error("Error finding linked event:", error);
     return null;
   }
@@ -354,6 +360,12 @@ export const deleteLinkedEvent = async (accessToken, eventId, calendarId = null)
     return true;
     
   } catch (error) {
+    // Handle 404 errors gracefully - it means the linked event was already deleted
+    if (error.statusCode === 404 || error.code === 'ItemNotFound') {
+      console.log('Linked event already deleted (404 - Not Found):', eventId);
+      return true; // Treat as success since the event is already gone
+    }
+    
     console.error("Error deleting linked event:", error);
     return false;
   }

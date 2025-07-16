@@ -607,6 +607,85 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
   }
 });
 
+// Delete event from MongoDB collections
+app.delete('/api/internal-events/:eventId', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const userId = req.user.userId;
+    
+    logger.debug(`Deleting MongoDB records for event ${eventId} for user ${userId}`);
+    
+    // Track deletion results
+    const deletionResults = {
+      unifiedEventsDeleted: 0,
+      internalEventsDeleted: 0,
+      cacheEventsDeleted: 0
+    };
+    
+    // 1. Delete from unified events collection (templeEvents__Events)
+    const unifiedResult = await unifiedEventsCollection.deleteOne({
+      userId: userId,
+      eventId: eventId
+    });
+    deletionResults.unifiedEventsDeleted = unifiedResult.deletedCount;
+    logger.debug(`Deleted ${unifiedResult.deletedCount} records from unified events collection`);
+    
+    // 2. Delete from legacy internal events collection if it exists (templeEvents__InternalEvents)
+    // Note: This is for backward compatibility with older data
+    try {
+      const internalEventsCollection = db.collection('templeEvents__InternalEvents');
+      const internalResult = await internalEventsCollection.deleteOne({
+        userId: userId,
+        eventId: eventId
+      });
+      deletionResults.internalEventsDeleted = internalResult.deletedCount;
+      logger.debug(`Deleted ${internalResult.deletedCount} records from internal events collection`);
+    } catch (internalError) {
+      // This is expected if the collection doesn't exist - just log and continue
+      logger.debug('Internal events collection not found or error accessing it:', internalError.message);
+    }
+    
+    // 3. Delete from event cache collection
+    const cacheResult = await eventCacheCollection.deleteMany({
+      userId: userId,
+      eventId: eventId
+    });
+    deletionResults.cacheEventsDeleted = cacheResult.deletedCount;
+    logger.debug(`Deleted ${cacheResult.deletedCount} records from event cache collection`);
+    
+    // Check if any deletion occurred
+    const totalDeleted = deletionResults.unifiedEventsDeleted + 
+                        deletionResults.internalEventsDeleted + 
+                        deletionResults.cacheEventsDeleted;
+    
+    if (totalDeleted === 0) {
+      logger.warn(`No MongoDB records found for event ${eventId} for user ${userId}`);
+      return res.status(404).json({ 
+        error: 'Event not found in MongoDB',
+        message: `No records found for event ${eventId}`,
+        deletionResults
+      });
+    }
+    
+    logger.debug(`Successfully deleted MongoDB records for event ${eventId}:`, deletionResults);
+    
+    res.status(200).json({
+      success: true,
+      message: `Successfully deleted event ${eventId} from MongoDB`,
+      eventId: eventId,
+      deletionResults
+    });
+    
+  } catch (error) {
+    logger.error(`Error deleting MongoDB records for event ${req.params.eventId}:`, error);
+    res.status(500).json({ 
+      error: 'Failed to delete event from MongoDB',
+      message: error.message,
+      eventId: req.params.eventId
+    });
+  }
+});
+
 // Legacy sync endpoint removed - now using unified manual sync endpoint
 
 // Get available MEC categories
@@ -2299,6 +2378,29 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       ];
     }
     
+    // Search filter - add to database query
+    if (search) {
+      const searchRegex = new RegExp(search, 'i'); // case-insensitive regex
+      const searchConditions = [
+        { subject: searchRegex },
+        { location: searchRegex },
+        { 'graphData.subject': searchRegex },
+        { 'graphData.location.displayName': searchRegex },
+        { 'graphData.bodyPreview': searchRegex }
+      ];
+      
+      // If there's already an $or condition (for enriched status), combine them
+      if (query.$or) {
+        query.$and = [
+          { $or: query.$or }, // existing status filter
+          { $or: searchConditions } // search filter
+        ];
+        delete query.$or;
+      } else {
+        query.$or = searchConditions;
+      }
+    }
+    
     // Get total count first
     const total = await unifiedEventsCollection.countDocuments(query);
     
@@ -2310,18 +2412,8 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       .limit(limitNum)
       .toArray();
     
-    // If search is provided, filter in memory (simpler than text search)
-    let filteredEvents = events;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredEvents = events.filter(event => 
-        (event.subject || '').toLowerCase().includes(searchLower) ||
-        (event.location || '').toLowerCase().includes(searchLower)
-      );
-    }
-    
     // Format events for response
-    const formattedEvents = filteredEvents.map(event => ({
+    const formattedEvents = events.map(event => ({
       _id: event._id,
       eventId: event.eventId,
       subject: event.subject || event.graphData?.subject || 'No Subject',
@@ -2336,7 +2428,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     
     res.status(200).json({
       events: formattedEvents,
-      total: search ? filteredEvents.length : total,
+      total: total,
       page: pageNum,
       limit: limitNum
     });
@@ -2787,7 +2879,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
   try {
     const userId = req.user.userId;
     
-    if (!unifiedEventsCollection) {
+    if (!unifiedEventsCollection || !internalEventsCollection || !db) {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
     
@@ -2803,88 +2895,270 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
     // Send initial status
     res.write('data: ' + JSON.stringify({
       type: 'start',
-      message: 'Starting CSV clear operation...',
+      message: 'Starting comprehensive CSV clear operation...',
       timestamp: new Date().toISOString()
     }) + '\n\n');
     
     // Configuration for chunked deletion
-    const BATCH_SIZE = 50; // Delete 50 events at a time
-    let totalDeleted = 0;
+    const BATCH_SIZE = 100; // Increased for better performance
+    let totalDeleted = {
+      unifiedEvents: 0,
+      registrationEvents: 0,
+      internalEvents: 0,
+      cacheEvents: 0,
+      total: 0
+    };
+    const startTime = Date.now();
     
     try {
-      // First, count total events to delete
-      const totalCount = await unifiedEventsCollection.countDocuments({
+      // Count events across all collections
+      const counts = {
+        unifiedEvents: await unifiedEventsCollection.countDocuments({
+          userId: userId,
+          isCSVImport: true
+        }),
+        registrationEvents: await unifiedEventsCollection.countDocuments({
+          userId: userId,
+          calendarId: 'csv_import_templeregistration'
+        }),
+        internalEvents: 0, // Will be counted based on eventIds
+        cacheEvents: 0 // Will be counted if cache collection exists
+      };
+      
+      // Get event IDs for internal events count
+      const csvEventIds = await unifiedEventsCollection.distinct('eventId', {
         userId: userId,
         isCSVImport: true
       });
       
+      if (csvEventIds.length > 0) {
+        counts.internalEvents = await internalEventsCollection.countDocuments({
+          eventId: { $in: csvEventIds }
+        });
+      }
+      
+      // Check if cache collection exists
+      const eventCacheCollection = db.collection('eventCache');
+      if (eventCacheCollection) {
+        counts.cacheEvents = await eventCacheCollection.countDocuments({
+          userId: userId,
+          eventId: { $in: csvEventIds }
+        });
+      }
+      
+      counts.total = counts.unifiedEvents + counts.registrationEvents + counts.internalEvents + counts.cacheEvents;
+      
       res.write('data: ' + JSON.stringify({
         type: 'count',
-        message: `Found ${totalCount} CSV events to delete`,
-        totalCount: totalCount,
+        message: `Found ${counts.total} CSV-related records to delete across all collections`,
+        counts: counts,
+        totalCount: counts.total,
         timestamp: new Date().toISOString()
       }) + '\n\n');
       
-      if (totalCount === 0) {
+      if (counts.total === 0) {
         res.write('data: ' + JSON.stringify({
           type: 'complete',
           message: 'No CSV events found to delete',
-          totalDeleted: 0,
+          totalDeleted: totalDeleted,
           timestamp: new Date().toISOString()
         }) + '\n\n');
         res.end();
         return;
       }
       
-      // Delete in batches
-      let processed = 0;
-      while (processed < totalCount) {
-        // Get a batch of event IDs
-        const batchEvents = await unifiedEventsCollection.find(
-          { userId: userId, isCSVImport: true },
-          { projection: { _id: 1 } }
-        ).limit(BATCH_SIZE).toArray();
-        
-        if (batchEvents.length === 0) {
-          break; // No more events to delete
-        }
-        
-        // Delete this batch
-        const batchIds = batchEvents.map(event => event._id);
-        const deleteResult = await unifiedEventsCollection.deleteMany({
-          _id: { $in: batchIds }
-        });
-        
-        totalDeleted += deleteResult.deletedCount;
-        processed += batchEvents.length;
-        
-        // Send progress update
-        const progress = Math.round((processed / totalCount) * 100);
+      let processedTotal = 0;
+      const errors = [];
+      
+      // 1. Delete main CSV imported events
+      if (counts.unifiedEvents > 0) {
         res.write('data: ' + JSON.stringify({
-          type: 'progress',
-          message: `Deleted ${deleteResult.deletedCount} events (${totalDeleted} total)`,
-          processed: processed,
-          totalCount: totalCount,
-          progress: progress,
-          deleted: totalDeleted,
+          type: 'collection_start',
+          collection: 'unifiedEvents',
+          message: `Deleting ${counts.unifiedEvents} main CSV events...`,
           timestamp: new Date().toISOString()
         }) + '\n\n');
         
-        // Small delay to prevent overwhelming the database
-        await new Promise(resolve => setTimeout(resolve, 100));
+        let processed = 0;
+        while (processed < counts.unifiedEvents) {
+          try {
+            const batchEvents = await unifiedEventsCollection.find(
+              { userId: userId, isCSVImport: true },
+              { projection: { _id: 1, eventId: 1 } }
+            ).limit(BATCH_SIZE).toArray();
+            
+            if (batchEvents.length === 0) break;
+            
+            const batchIds = batchEvents.map(event => event._id);
+            const deleteResult = await unifiedEventsCollection.deleteMany({
+              _id: { $in: batchIds }
+            });
+            
+            totalDeleted.unifiedEvents += deleteResult.deletedCount;
+            totalDeleted.total += deleteResult.deletedCount;
+            processed += batchEvents.length;
+            processedTotal += batchEvents.length;
+            
+            const progress = Math.round((processedTotal / counts.total) * 100);
+            res.write('data: ' + JSON.stringify({
+              type: 'progress',
+              collection: 'unifiedEvents',
+              message: `Deleted ${deleteResult.deletedCount} main events`,
+              processed: processedTotal,
+              totalCount: counts.total,
+              progress: progress,
+              deleted: totalDeleted,
+              timestamp: new Date().toISOString()
+            }) + '\n\n');
+            
+            await new Promise(resolve => setTimeout(resolve, 50));
+          } catch (error) {
+            errors.push({ collection: 'unifiedEvents', error: error.message });
+            logger.error('Error deleting unified events batch:', error);
+          }
+        }
       }
+      
+      // 2. Delete registration events
+      if (counts.registrationEvents > 0) {
+        res.write('data: ' + JSON.stringify({
+          type: 'collection_start',
+          collection: 'registrationEvents',
+          message: `Deleting ${counts.registrationEvents} registration events...`,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        let processed = 0;
+        while (processed < counts.registrationEvents) {
+          try {
+            const batchEvents = await unifiedEventsCollection.find(
+              { userId: userId, calendarId: 'csv_import_templeregistration' },
+              { projection: { _id: 1 } }
+            ).limit(BATCH_SIZE).toArray();
+            
+            if (batchEvents.length === 0) break;
+            
+            const batchIds = batchEvents.map(event => event._id);
+            const deleteResult = await unifiedEventsCollection.deleteMany({
+              _id: { $in: batchIds }
+            });
+            
+            totalDeleted.registrationEvents += deleteResult.deletedCount;
+            totalDeleted.total += deleteResult.deletedCount;
+            processed += batchEvents.length;
+            processedTotal += batchEvents.length;
+            
+            const progress = Math.round((processedTotal / counts.total) * 100);
+            res.write('data: ' + JSON.stringify({
+              type: 'progress',
+              collection: 'registrationEvents',
+              message: `Deleted ${deleteResult.deletedCount} registration events`,
+              processed: processedTotal,
+              totalCount: counts.total,
+              progress: progress,
+              deleted: totalDeleted,
+              timestamp: new Date().toISOString()
+            }) + '\n\n');
+            
+            await new Promise(resolve => setTimeout(resolve, 50));
+          } catch (error) {
+            errors.push({ collection: 'registrationEvents', error: error.message });
+            logger.error('Error deleting registration events batch:', error);
+          }
+        }
+      }
+      
+      // 3. Delete internal events
+      if (counts.internalEvents > 0 && csvEventIds.length > 0) {
+        res.write('data: ' + JSON.stringify({
+          type: 'collection_start',
+          collection: 'internalEvents',
+          message: `Deleting ${counts.internalEvents} internal event records...`,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        try {
+          const deleteResult = await internalEventsCollection.deleteMany({
+            eventId: { $in: csvEventIds }
+          });
+          
+          totalDeleted.internalEvents += deleteResult.deletedCount;
+          totalDeleted.total += deleteResult.deletedCount;
+          processedTotal += deleteResult.deletedCount;
+          
+          const progress = Math.round((processedTotal / counts.total) * 100);
+          res.write('data: ' + JSON.stringify({
+            type: 'progress',
+            collection: 'internalEvents',
+            message: `Deleted ${deleteResult.deletedCount} internal records`,
+            processed: processedTotal,
+            totalCount: counts.total,
+            progress: progress,
+            deleted: totalDeleted,
+            timestamp: new Date().toISOString()
+          }) + '\n\n');
+        } catch (error) {
+          errors.push({ collection: 'internalEvents', error: error.message });
+          logger.error('Error deleting internal events:', error);
+        }
+      }
+      
+      // 4. Delete cache entries
+      if (counts.cacheEvents > 0 && csvEventIds.length > 0) {
+        res.write('data: ' + JSON.stringify({
+          type: 'collection_start',
+          collection: 'cacheEvents',
+          message: `Deleting ${counts.cacheEvents} cache entries...`,
+          timestamp: new Date().toISOString()
+        }) + '\n\n');
+        
+        try {
+          const deleteResult = await eventCacheCollection.deleteMany({
+            userId: userId,
+            eventId: { $in: csvEventIds }
+          });
+          
+          totalDeleted.cacheEvents += deleteResult.deletedCount;
+          totalDeleted.total += deleteResult.deletedCount;
+          processedTotal += deleteResult.deletedCount;
+          
+          const progress = Math.round((processedTotal / counts.total) * 100);
+          res.write('data: ' + JSON.stringify({
+            type: 'progress',
+            collection: 'cacheEvents',
+            message: `Deleted ${deleteResult.deletedCount} cache entries`,
+            processed: processedTotal,
+            totalCount: counts.total,
+            progress: progress,
+            deleted: totalDeleted,
+            timestamp: new Date().toISOString()
+          }) + '\n\n');
+        } catch (error) {
+          errors.push({ collection: 'cacheEvents', error: error.message });
+          logger.error('Error deleting cache events:', error);
+        }
+      }
+      
+      // Calculate elapsed time
+      const elapsedTime = Date.now() - startTime;
+      const elapsedSeconds = Math.round(elapsedTime / 1000);
       
       // Send final completion status
       res.write('data: ' + JSON.stringify({
         type: 'complete',
-        message: `CSV clear completed successfully. Deleted ${totalDeleted} events.`,
+        message: `CSV clear completed. Deleted ${totalDeleted.total} records across all collections in ${elapsedSeconds} seconds.`,
         totalDeleted: totalDeleted,
+        errors: errors,
+        elapsedTime: elapsedSeconds,
         timestamp: new Date().toISOString()
       }) + '\n\n');
       
       logger.log('Streaming CSV clear completed:', {
         userId,
-        totalDeleted
+        totalDeleted: totalDeleted.total,
+        breakdown: totalDeleted,
+        errors: errors.length,
+        elapsedSeconds
       });
       
     } catch (error) {
@@ -2911,6 +3185,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
 app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), async (req, res) => {
   try {
     const userId = req.user.userId;
+    const targetCalendarId = req.body.targetCalendarId;
     
     if (!unifiedEventsCollection) {
       return res.status(500).json({ error: 'Database collections not initialized' });
@@ -2918,6 +3193,10 @@ app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), 
     
     if (!req.file) {
       return res.status(400).json({ error: 'No CSV file uploaded' });
+    }
+    
+    if (!targetCalendarId) {
+      return res.status(400).json({ error: 'Target calendar ID is required' });
     }
     
     // Set headers for Server-Sent Events
@@ -3020,7 +3299,7 @@ app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), 
           const rowIndex = i + j;
           try {
             const row = chunk[j];
-            const unifiedEvent = csvUtils.csvRowToUnifiedEvent(row, userId);
+            const unifiedEvent = csvUtils.csvRowToUnifiedEvent(row, userId, targetCalendarId);
             chunkEvents.push(unifiedEvent);
           } catch (error) {
             chunkErrors.push({

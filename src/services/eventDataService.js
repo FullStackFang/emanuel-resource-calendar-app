@@ -166,6 +166,30 @@ class EventDataService {
   }
 
   /**
+   * Delete event from MongoDB collections
+   * @param {string} eventId - Microsoft Graph event ID
+   * @returns {Object} Deletion results
+   */
+  async deleteEvent(eventId) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/internal-events/${eventId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(`Delete failed: ${response.status} - ${error.message || 'Unknown error'}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting event from MongoDB:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get sync status for admin panel
    * @returns {Object} Sync status information
    */

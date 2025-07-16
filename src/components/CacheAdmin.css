@@ -388,15 +388,15 @@
   box-sizing: border-box;
 }
 
-.events-table {
+.cache-events-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   min-width: 1000px;
 }
 
-.events-table th,
-.events-table td {
+.cache-events-table th,
+.cache-events-table td {
   padding: 12px 8px;
   text-align: left;
   border-bottom: 1px solid #e5e7eb;
@@ -406,43 +406,43 @@
 }
 
 /* Column width distribution */
-.events-table th:nth-child(1), /* Subject */
-.events-table td:nth-child(1) {
+.cache-events-table th:nth-child(1), /* Subject */
+.cache-events-table td:nth-child(1) {
   width: 25%;
 }
 
-.events-table th:nth-child(2), /* Start Time */
-.events-table td:nth-child(2) {
+.cache-events-table th:nth-child(2), /* Start Time */
+.cache-events-table td:nth-child(2) {
   width: 18%;
 }
 
-.events-table th:nth-child(3), /* Location */
-.events-table td:nth-child(3) {
+.cache-events-table th:nth-child(3), /* Location */
+.cache-events-table td:nth-child(3) {
   width: 15%;
 }
 
-.events-table th:nth-child(4), /* Enhanced */
-.events-table td:nth-child(4) {
+.cache-events-table th:nth-child(4), /* Enhanced */
+.cache-events-table td:nth-child(4) {
   width: 12%;
 }
 
-.events-table th:nth-child(5), /* Setup/Teardown */
-.events-table td:nth-child(5) {
+.cache-events-table th:nth-child(5), /* Setup/Teardown */
+.cache-events-table td:nth-child(5) {
   width: 10%;
 }
 
-.events-table th:nth-child(6), /* Cached At */
-.events-table td:nth-child(6) {
+.cache-events-table th:nth-child(6), /* Cached At */
+.cache-events-table td:nth-child(6) {
   width: 12%;
 }
 
-.events-table th:nth-child(7), /* Status */
-.events-table td:nth-child(7) {
+.cache-events-table th:nth-child(7), /* Status */
+.cache-events-table td:nth-child(7) {
   width: 8%;
 }
 
-.events-table th:nth-child(8), /* Actions */
-.events-table td:nth-child(8) {
+.cache-events-table th:nth-child(8), /* Actions */
+.cache-events-table td:nth-child(8) {
   width: 10%;
 }
 
@@ -456,7 +456,7 @@
   color: #6b7280;
 }
 
-.events-table tr:hover {
+.cache-events-table tr:hover {
   background: #f9fafb;
 }
 
@@ -816,7 +816,7 @@
     overflow-x: auto;
   }
   
-  .events-table {
+  .cache-events-table {
     min-width: 800px;
   }
   

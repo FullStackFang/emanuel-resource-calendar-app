@@ -223,7 +223,7 @@ function EventForm({
       const isAllDayEvent = event.isAllDay || (
         event.start?.dateTime && event.end?.dateTime &&
         event.start.dateTime.includes('T00:00:00') && 
-        event.end.dateTime.includes('T00:00:00')
+        (event.end.dateTime.includes('T00:00:00') || event.end.dateTime.includes('T23:59:59'))
       );
 
       setIsAllDay(isAllDayEvent);
@@ -540,18 +540,15 @@ function EventForm({
     
     const endUtc = displayToUtcTime(
       formData.endDate, 
-      isAllDay ? '00:00' : formData.endTime
+      isAllDay ? '23:59:59' : formData.endTime
     );
     
     logger.debug(`  Converted to UTC: start=${startUtc}, end=${endUtc}`);
     
-    // For all-day events spanning a single day, end date should be next day
-    let adjustedEndUtc = endUtc;
-    if (isAllDay && formData.startDate === formData.endDate) {
-      const endDate = new Date(endUtc);
-      endDate.setDate(endDate.getDate() + 1);
-      adjustedEndUtc = endDate.toISOString();
-      logger.debug(`  Adjusted all-day end: ${adjustedEndUtc}`);
+    // For all-day events, end time is set to 23:59:59 on the same day
+    const adjustedEndUtc = endUtc;
+    if (isAllDay) {
+      logger.debug(`  All-day event: ${formData.startDate} 00:00:00 to ${formData.endDate} 23:59:59`);
     }
     
     // Build the payload for Graph API
@@ -587,6 +584,10 @@ function EventForm({
     };
     
     logger.debug("Final event data prepared for preview:", eventData);
+    logger.debug("EventForm category debugging:", {
+      'formData.category': formData.category,
+      'eventData.categories': eventData.categories
+    });
     
     // Show preview modal instead of directly saving
     setPendingEventData(eventData);

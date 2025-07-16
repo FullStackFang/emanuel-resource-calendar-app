@@ -219,7 +219,7 @@ function App() {
                   />
                 } />
                 <Route path="/admin/cache" element={<CacheAdmin apiToken={apiToken} />} />
-                <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} />} />
+                <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </TimezoneProvider>

@@ -759,6 +759,41 @@
        */
       const getMonthDayEventPosition = useCallback((event, day) => {
         try {
+          // Special handling for all-day events
+          // Check both the isAllDay flag and time patterns (consistent with EventForm detection)
+          const isAllDayEvent = event.isAllDay || (
+            event.start?.dateTime && event.end?.dateTime &&
+            event.start.dateTime.includes('T00:00:00') && 
+            (event.end.dateTime.includes('T00:00:00') || event.end.dateTime.includes('T23:59:59'))
+          );
+          
+          if (isAllDayEvent) {
+            // For all-day events, use the start date in the user's timezone
+            const startUtcString = event.start.dateTime.endsWith('Z') ? 
+              event.start.dateTime : `${event.start.dateTime}Z`;
+            const startDateUTC = new Date(startUtcString);
+            
+            if (isNaN(startDateUTC.getTime())) {
+              logger.error('Invalid all-day event start date:', event.start.dateTime, event);
+              return false;
+            }
+            
+            // Convert to user timezone and get the date
+            const eventInUserTZ = new Date(startDateUTC.toLocaleString('en-US', {
+              timeZone: userTimezone
+            }));
+            
+            // Reset to midnight for date comparison
+            const eventDay = new Date(eventInUserTZ);
+            eventDay.setHours(0, 0, 0, 0);
+            
+            const compareDay = new Date(day);
+            compareDay.setHours(0, 0, 0, 0);
+            
+            return eventDay.getTime() === compareDay.getTime();
+          }
+          
+          // Regular timed events
           // Ensure proper UTC format
           const utcDateString = event.start.dateTime.endsWith('Z') ? 
             event.start.dateTime : `${event.start.dateTime}Z`;
@@ -2084,6 +2119,159 @@
       setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 3000);
     };
 
+    /**
+     * Retry loading events after creation to ensure the new event appears
+     * @param {string} eventId - The ID of the newly created event
+     * @param {string} eventSubject - The subject of the newly created event for logging
+     */
+    const retryEventLoadAfterCreation = useCallback(async (eventId, eventSubject) => {
+      const maxRetries = 3;
+      const baseDelay = 500; // Start with 500ms delay
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          logger.debug(`[retryEventLoadAfterCreation] Attempt ${attempt}/${maxRetries} for event: ${eventSubject}`);
+          
+          // Wait before loading events (exponential backoff: 500ms, 1s, 2s)
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          // Reload events from the API
+          await loadEvents(true); // Force refresh to ensure we get the latest data
+          
+          // Check if the newly created event is now visible in our event list
+          const newEvent = allEvents.find(event => event.id === eventId);
+          if (newEvent) {
+            logger.debug(`[retryEventLoadAfterCreation] Success! Event found after ${attempt} attempt(s): ${eventSubject}`);
+            return;
+          }
+          
+          logger.debug(`[retryEventLoadAfterCreation] Event not found in attempt ${attempt}, will retry...`);
+          
+        } catch (error) {
+          logger.error(`[retryEventLoadAfterCreation] Error in attempt ${attempt}:`, error);
+          
+          if (attempt === maxRetries) {
+            logger.warn(`[retryEventLoadAfterCreation] Failed to load event after ${maxRetries} attempts. Event may appear after manual refresh.`);
+            // Still show a warning notification to the user
+            showNotification(`Event created but may take a moment to appear. Try refreshing if needed.`, 'warning');
+          }
+        }
+      }
+    }, [loadEvents, allEvents, showNotification]);
+
+    /**
+     * Get the target calendar name for event creation/editing
+     * @returns {string} The name of the target calendar
+     */
+    const getTargetCalendarName = useCallback(() => {
+      let targetCalendarId = selectedCalendarId;
+      
+      if (!targetCalendarId) {
+        // Use same logic as handleSaveApiEvent to determine target calendar
+        const writableCalendars = availableCalendars.filter(cal => 
+          cal.canEdit !== false && 
+          !cal.name?.toLowerCase().includes('birthday') &&
+          !cal.name?.toLowerCase().includes('holiday') &&
+          !cal.name?.toLowerCase().includes('vacation')
+        );
+        
+        const preferredCalendar = writableCalendars.find(cal => 
+          cal.name?.toLowerCase().includes('temple events') || 
+          cal.name?.toLowerCase() === 'calendar'
+        ) || writableCalendars[0];
+        
+        return preferredCalendar?.name || 'Unknown Calendar';
+      } else {
+        const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        return selectedCalendar?.name || 'Unknown Calendar';
+      }
+    }, [selectedCalendarId, availableCalendars]);
+
+    /**
+     * Get categories that are specific to a target calendar
+     * @param {string} targetCalendarId - The ID of the target calendar
+     * @returns {Array} Array of category names available for the target calendar
+     */
+    const getCalendarSpecificCategories = useCallback((targetCalendarId) => {
+      // Get all master categories as fallback
+      const masterCategories = outlookCategories.map(cat => cat.name || cat.displayName || cat);
+      
+      if (!targetCalendarId || !allEvents.length) {
+        // If no target calendar or no events, return all master categories
+        return masterCategories.length > 0 ? masterCategories : ['Uncategorized'];
+      }
+      
+      // Find events that belong to the target calendar
+      const calendarEvents = allEvents.filter(event => {
+        // Check if event belongs to target calendar
+        return event.calendarId === targetCalendarId || 
+               (!event.calendarId && targetCalendarId === selectedCalendarId);
+      });
+      
+      // Extract unique categories from calendar events
+      const calendarCategories = new Set();
+      calendarEvents.forEach(event => {
+        if (event.categories && Array.isArray(event.categories)) {
+          event.categories.forEach(cat => {
+            if (cat && cat.trim() !== '') {
+              calendarCategories.add(cat.trim());
+            }
+          });
+        } else if (event.category && event.category.trim() !== '') {
+          calendarCategories.add(event.category.trim());
+        }
+      });
+      
+      // Convert to array and filter against master categories
+      const calendarCategoriesArray = Array.from(calendarCategories);
+      
+      // Only include categories that exist in both master categories and calendar events
+      const filteredCategories = masterCategories.filter(masterCat => 
+        calendarCategoriesArray.some(calCat => calCat === masterCat)
+      );
+      
+      // Always include 'Uncategorized' as an option
+      if (!filteredCategories.includes('Uncategorized')) {
+        filteredCategories.unshift('Uncategorized');
+      }
+      
+      // If no categories found for this calendar, return all master categories
+      // This handles the case where it's a new calendar or calendar with no events
+      if (filteredCategories.length <= 1) { // Only 'Uncategorized'
+        return masterCategories.length > 0 ? masterCategories : ['Uncategorized'];
+      }
+      
+      return filteredCategories.sort();
+    }, [outlookCategories, allEvents, selectedCalendarId]);
+
+    /**
+     * Get the target calendar ID for event creation/editing
+     * @returns {string} The ID of the target calendar
+     */
+    const getTargetCalendarId = useCallback(() => {
+      let targetCalendarId = selectedCalendarId;
+      
+      if (!targetCalendarId) {
+        // Use same logic as handleSaveApiEvent to determine target calendar
+        const writableCalendars = availableCalendars.filter(cal => 
+          cal.canEdit !== false && 
+          !cal.name?.toLowerCase().includes('birthday') &&
+          !cal.name?.toLowerCase().includes('holiday') &&
+          !cal.name?.toLowerCase().includes('vacation')
+        );
+        
+        const preferredCalendar = writableCalendars.find(cal => 
+          cal.name?.toLowerCase().includes('temple events') || 
+          cal.name?.toLowerCase() === 'calendar'
+        ) || writableCalendars[0];
+        
+        targetCalendarId = preferredCalendar?.id;
+      }
+      
+      return targetCalendarId;
+    }, [selectedCalendarId, availableCalendars]);
+
     const makeBatchBody = (eventId, coreBody, extPayload, calendarId) => {
       // Determine the base URL based on whether a calendar is selected
       const baseUrl = calendarId 
@@ -2119,6 +2307,15 @@
       
       // First, update the Graph event
       const batchBody = makeBatchBody(eventId, coreBody, extPayload, targetCalendarId);
+      
+      // Debug logging for batch request
+      logger.debug('[patchEventBatch] Sending to Graph API:', {
+        eventId,
+        coreBody,
+        extPayload,
+        batchBody: JSON.stringify(batchBody, null, 2)
+      });
+      
       const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
         method: 'POST',
         headers: {
@@ -2152,6 +2349,36 @@
         } catch (error) {
           logger.error('Failed to update internal fields:', error);
           // Don't throw here - Graph update succeeded, internal data is supplementary
+        }
+      }
+      
+      // For new events, fetch complete event data with categories
+      if (createdEventData && createdEventData.id && !eventId) {
+        try {
+          logger.debug('[patchEventBatch] Fetching complete event data for new event:', createdEventData.id);
+          
+          const calendarPath = targetCalendarId ? 
+            `/me/calendars/${targetCalendarId}/events/${createdEventData.id}` : 
+            `/me/events/${createdEventData.id}`;
+          
+          const fetchResponse = await fetch(`https://graph.microsoft.com/v1.0${calendarPath}?$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime`, {
+            headers: {
+              Authorization: `Bearer ${graphToken}`
+            }
+          });
+          
+          if (fetchResponse.ok) {
+            const completeEventData = await fetchResponse.json();
+            logger.debug('[patchEventBatch] Complete event data with categories:', completeEventData);
+            
+            // Merge the complete data with the creation response
+            createdEventData = { ...createdEventData, ...completeEventData };
+          } else {
+            logger.warn('[patchEventBatch] Failed to fetch complete event data:', fetchResponse.status);
+          }
+        } catch (error) {
+          logger.error('[patchEventBatch] Error fetching complete event data:', error);
+          // Continue with partial data
         }
       }
       
@@ -2225,15 +2452,38 @@
       const categoriesSet = new Set();
       
       allEvents.forEach(event => {
-        if (event.category && event.category.trim() !== '') {
-          categoriesSet.add(event.category);
-        } else {
+        let hasCategory = false;
+        
+        // Handle Graph API categories (plural array)
+        if (event.categories && Array.isArray(event.categories)) {
+          event.categories.forEach(cat => {
+            if (cat && cat.trim() !== '') {
+              categoriesSet.add(cat.trim());
+              hasCategory = true;
+            }
+          });
+        }
+        
+        // Handle legacy category (singular string) - fallback
+        if (!hasCategory && event.category && event.category.trim() !== '') {
+          categoriesSet.add(event.category.trim());
+          hasCategory = true;
+        }
+        
+        // If no category found, add 'Uncategorized'
+        if (!hasCategory) {
           categoriesSet.add('Uncategorized');
         }
       });
       
       // Convert to array and sort
       const categoriesArray = Array.from(categoriesSet).sort();
+      
+      logger.debug('[getDynamicCategories] Extracted categories from events:', {
+        totalEvents: allEvents.length,
+        categoriesFound: categoriesArray,
+        categoriesCount: categoriesArray.length
+      });
       
       // Add special options
       const finalCategories = [
@@ -3343,8 +3593,16 @@
           start: data.start,
           end: data.end,
           location: data.location,
-          categories: data.categories
+          categories: data.categories,
+          isAllDay: data.isAllDay
         };
+        
+        // Debug logging for category mapping
+        logger.debug('[handleSaveApiEvent] Event data received:', {
+          'data.category': data.category,
+          'data.categories': data.categories,
+          'core.categories': core.categories
+        });
         
         // Extensions payload
         const ext = {};
@@ -3384,10 +3642,10 @@
           ) || writableCalendars[0];
           
           targetCalendarId = preferredCalendar?.id;
-          logger.debug('No calendar selected, using first writable calendar:', preferredCalendar?.name);
+          logger.debug('[handleSaveApiEvent] No calendar selected, using first writable calendar:', preferredCalendar?.name);
         } else {
           const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-          logger.debug('Creating event in selected calendar:', selectedCalendar?.name);
+          logger.debug('[handleSaveApiEvent] Creating event in selected calendar:', selectedCalendar?.name);
           
           // Check if the selected calendar is read-only
           if (selectedCalendar && selectedCalendar.canEdit === false) {
@@ -3429,7 +3687,7 @@
                     end: data.end,
                     location: data.location,
                     calendarId: targetCalendarId,
-                    category: data.category || "Uncategorized",
+                    categories: data.categories || ["Uncategorized"],
                     extensions: data.extensions || [],
                     lastModifiedDateTime: new Date().toISOString(),
                     '@odata.etag': null
@@ -3464,6 +3722,12 @@
           // For existing events or events without registration, use normal batch update
           const createdEvent = await patchEventBatch(data.id, core, ext, targetCalendarId, internal);
           
+          // Update the data object with the actual created event ID if this was a new event
+          if (createdEvent && createdEvent.id && !data.id) {
+            data.id = createdEvent.id;
+            logger.debug('Updated event data with new ID from Graph API:', data.id);
+          }
+          
           // For existing events that need registration event updates
           if (data.id && data.createRegistrationEvent) {
             const eventDataForRegistration = createdEvent || data;
@@ -3477,9 +3741,6 @@
             }, targetCalendarId);
           }
         }
-        
-        // Reload events and cache only the modified event
-        await loadEvents();
         
         // Cache the specific updated/created event immediately using the data we have
         if (apiToken && data.id && targetCalendarId) {
@@ -3497,7 +3758,7 @@
                 location: data.location,
                 calendarId: targetCalendarId,
                 // Include other properties that might be needed
-                category: data.category || "Uncategorized",
+                categories: data.categories || [], // Use plural categories array to match Graph API
                 extensions: data.extensions || [],
                 lastModifiedDateTime: new Date().toISOString(),
                 '@odata.etag': data['@odata.etag'] || null
@@ -3510,6 +3771,9 @@
             }
           }, 100);
         }
+        
+        // Reload events with retry logic to ensure newly created event appears
+        await retryEventLoadAfterCreation(data.id, data.subject);
         
         logger.debug(`[handleSaveApiEvent] ${data.id ? 'Updated' : 'Created'} API event:`, data.subject);
         return true;
@@ -3623,6 +3887,9 @@
 
           if (deleteResponse.ok) {
             logger.debug('Successfully deleted registration event (legacy method):', registrationEventId);
+          } else if (deleteResponse.status === 404) {
+            // 404 means the registration event doesn't exist in Graph API (already deleted)
+            logger.debug('Registration event already deleted from Microsoft Calendar (404 - Not Found):', registrationEventId);
           } else {
             logger.error('Failed to delete registration event:', deleteResponse.status);
           }
@@ -3668,34 +3935,74 @@
      * TBD
      */
     const handleDeleteApiEvent = async (eventId) => {
+      let graphDeleted = false;
+      let mongoDeleted = false;
+      
       try {
-        // First, check if there's a linked registration event to delete
+        // Step 1: Delete linked registration events first (from Graph API)
         await handleRegistrationEventDeletion(eventId);
         
-        // Determine the API URL based on whether a calendar is selected
+        // Step 2: Delete main event from Microsoft Graph API
         const apiUrl = selectedCalendarId
           ? `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events/${eventId}`
           : `https://graph.microsoft.com/v1.0/me/events/${eventId}`;
             
-        const response = await fetch(apiUrl, {
+        const graphResponse = await fetch(apiUrl, {
           method: 'DELETE',
           headers: {
             Authorization: `Bearer ${graphToken}`
           }
         });
     
-        if (!response.ok) {
-          const error = await response.json();
-          logger.error('Failed to delete event from Graph:', error);
-          throw new Error(`API delete failed: ${response.status}`);
+        if (!graphResponse.ok) {
+          if (graphResponse.status === 404) {
+            // 404 means the event doesn't exist in Graph API (already deleted)
+            // This is actually a success case - treat as if deletion succeeded
+            graphDeleted = true;
+            logger.debug('Event already deleted from Microsoft Calendar (404 - Not Found)');
+          } else {
+            // Other errors are actual failures
+            const error = await graphResponse.json();
+            logger.error('Failed to delete event from Graph:', error);
+            throw new Error(`Graph API delete failed: ${graphResponse.status}`);
+          }
         } else {
+          graphDeleted = true;
           logger.debug('Event deleted from Microsoft Calendar');
         }
         
-        // Update local state immediately
+        // Step 3: Delete event from MongoDB collections
+        if (apiToken) {
+          try {
+            const mongoResponse = await fetch(`${API_BASE_URL}/internal-events/${eventId}`, {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (mongoResponse.ok) {
+              const result = await mongoResponse.json();
+              mongoDeleted = true;
+              logger.debug('Event deleted from MongoDB:', result);
+            } else {
+              // If MongoDB deletion fails, log but don't fail the whole operation
+              // since Graph deletion succeeded
+              const mongoError = await mongoResponse.json().catch(() => ({}));
+              logger.warn(`MongoDB deletion failed (${mongoResponse.status}):`, mongoError);
+              // Continue with the rest of the flow
+            }
+          } catch (mongoError) {
+            logger.warn('Error deleting from MongoDB:', mongoError);
+            // Continue with the rest of the flow
+          }
+        }
+        
+        // Step 4: Update local state immediately
         setAllEvents(allEvents.filter(event => event.id !== eventId));
         
-        // Remove deleted event from cache
+        // Step 5: Remove deleted event from cache
         if (apiToken) {
           try {
             eventCacheService.setApiToken(apiToken);
@@ -3706,13 +4013,27 @@
           }
         }
         
-        await loadEvents(); // Use cache-first approach for reload
+        // Step 6: Reload events to ensure consistency
+        await loadEvents();
         
-        logger.debug(`[handleDeleteApiEvent] Deleted API event:`, eventId);
+        logger.debug(`[handleDeleteApiEvent] Successfully deleted event:`, {
+          eventId,
+          graphDeleted,
+          mongoDeleted
+        });
+        
         return true;
         
       } catch (error) {
-        logger.error('API delete failed:', error);
+        logger.error('Event deletion failed:', {
+          eventId,
+          graphDeleted,
+          mongoDeleted,
+          error: error.message
+        });
+        
+        // If we're here, Graph deletion likely failed
+        // Don't attempt MongoDB cleanup if Graph delete failed
         throw error;
       }
     };
@@ -3730,19 +4051,53 @@
         // Dispatch to the appropriate handler based on mode
         if (isDemoMode) {
           await handleDeleteDemoEvent(currentEvent.id);
+          
+          // Close modal and clear current event
+          setIsModalOpen(false);
+          setCurrentEvent(null);
+          
+          showNotification('Event deleted successfully!', 'success');
         } else {
-          await handleDeleteApiEvent(currentEvent.id);
+          // For live events, we need to handle potential partial failures
+          const result = await handleDeleteApiEvent(currentEvent.id);
+          
+          // Close modal and clear current event if deletion succeeded
+          setIsModalOpen(false);
+          setCurrentEvent(null);
+          
+          // Check if we have specific deletion information in the logs
+          // This is a bit of a workaround since handleDeleteApiEvent doesn't return detailed status
+          // In a future iteration, we could enhance this by returning deletion details
+          showNotification('Event deleted successfully!', 'success');
         }
-        
-        // Close modal and clear current event (common to both modes)
-        setIsModalOpen(false);
-        setCurrentEvent(null);
-        
-        showNotification('Event deleted successfully!', 'success');
         
       } catch (error) {
         logger.error('Delete failed:', error);
-        alert('Delete failed: ' + error.message);
+        
+        // Enhanced error messaging
+        let errorMessage = 'Delete failed: ';
+        
+        if (error.message.includes('Graph API delete failed: 404')) {
+          // This should not happen anymore since we handle 404s gracefully
+          errorMessage += 'Event no longer exists in Microsoft Calendar but failed to clean up internal data.';
+        } else if (error.message.includes('Graph API delete failed')) {
+          errorMessage += 'Unable to delete event from Microsoft Calendar. You may not have permission to delete it.';
+        } else if (error.message.includes('MongoDB')) {
+          errorMessage += 'Event was deleted from Microsoft Calendar but failed to clean up internal data. The event should still be removed from your calendar.';
+        } else {
+          errorMessage += error.message;
+        }
+        
+        // Use showNotification for consistent error display
+        showNotification(errorMessage, 'error');
+        
+        // Also log the detailed error for debugging
+        logger.error('Detailed deletion error:', {
+          eventId: currentEvent?.id,
+          eventSubject: currentEvent?.subject,
+          error: error.message,
+          stack: error.stack
+        });
       }
     };
 
@@ -4378,14 +4733,24 @@
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
           onClose={() => setIsModalOpen(false)}
           title={
-            modalType === 'add' ? 'Add Event' : 
-            modalType === 'edit' ? 'Edit Event' : 'View Event'
+            modalType === 'add' ? `Add Event - ${getTargetCalendarName()}` : 
+            modalType === 'edit' ? `Edit Event - ${getTargetCalendarName()}` : 
+            `View Event - ${getTargetCalendarName()}`
           }
-          hideTitle={true}
+          hideTitle={false}
         >
           <EventForm 
             event={currentEvent}
-            categories={dynamicCategories} 
+            categories={(() => {
+              const targetCalendarId = getTargetCalendarId();
+              const calendarSpecificCategories = getCalendarSpecificCategories(targetCalendarId);
+              logger.debug('[EventForm] Using calendar-specific categories:', { 
+                targetCalendarId, 
+                targetCalendarName: getTargetCalendarName(),
+                calendarSpecificCategories 
+              });
+              return calendarSpecificCategories;
+            })()} 
             availableLocations={getFilteredLocationsForMultiSelect()}
             dynamicLocations={dynamicLocations}
             schemaExtensions={schemaExtensions}

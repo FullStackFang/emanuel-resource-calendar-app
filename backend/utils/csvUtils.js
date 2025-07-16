@@ -105,7 +105,7 @@ function parseCSVCategories(categoriesText) {
  * @param {string} userId - User ID for the event
  * @returns {object} Unified event object
  */
-function csvRowToUnifiedEvent(csvRow, userId) {
+function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
   // Import logger for proper debug output
   const logger = require('./logger');
   
@@ -262,7 +262,7 @@ function csvRowToUnifiedEvent(csvRow, userId) {
   // Create unified event structure
   const unifiedEvent = {
     userId: userId,
-    calendarId: 'csv_import_calendar',
+    calendarId: targetCalendarId || 'csv_import_calendar',
     eventId: eventId,
     
     // Store original data in graphData format (mimicking Microsoft Graph structure)
@@ -316,8 +316,8 @@ function csvRowToUnifiedEvent(csvRow, userId) {
     
     // Metadata
     sourceCalendars: [{
-      calendarId: 'csv_import_calendar',
-      calendarName: 'CSV Import',
+      calendarId: targetCalendarId || 'csv_import_calendar',
+      calendarName: targetCalendarId ? 'Imported Calendar' : 'CSV Import',
       role: 'import'
     }],
     

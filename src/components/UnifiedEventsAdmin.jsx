@@ -6,7 +6,7 @@ import CSVImport from './CSVImport';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
 
-export default function UnifiedEventsAdmin({ apiToken }) {
+export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   
   // Main state
@@ -14,6 +14,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
+  const [availableCalendars, setAvailableCalendars] = useState([]);
 
   // Overview state
   const [overview, setOverview] = useState(null);
@@ -133,6 +134,36 @@ export default function UnifiedEventsAdmin({ apiToken }) {
     }
   }, [API_BASE_URL, getAuthHeaders, filters]);
 
+  // Load available calendars for CSV import
+  const loadAvailableCalendars = useCallback(async () => {
+    try {
+      if (!graphToken) {
+        logger.warn('No graph token available for calendar loading');
+        return;
+      }
+
+      const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,owner,isDefaultCalendar&$orderby=name', {
+        headers: {
+          Authorization: `Bearer ${graphToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('Graph API error response:', errorText);
+        throw new Error(`Failed to fetch calendars: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      logger.log('Calendar data received:', data.value);
+      setAvailableCalendars(data.value || []);
+      
+    } catch (err) {
+      logger.error('Error loading calendars:', err);
+      // Don't show error to user, just log it
+    }
+  }, [graphToken]);
+
   // Force sync
   const forceSync = async (calendarId = null) => {
     if (!confirm('Are you sure you want to force a full sync? This will reset delta tokens.')) {
@@ -217,7 +248,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
     loadEvents(1);
   };
 
-  // Load initial data
+  // Load initial data when tab changes (but not when search filters change)
   useEffect(() => {
     if (!apiToken) {
       showError('API token not available');
@@ -227,9 +258,29 @@ export default function UnifiedEventsAdmin({ apiToken }) {
     if (activeTab === 'overview') {
       loadOverview();
     } else if (activeTab === 'events') {
-      loadEvents(currentPage);
+      // Only load on initial tab switch, not on filter changes
+      loadEvents(1);
+      setCurrentPage(1);
+    } else if (activeTab === 'csv-import') {
+      loadAvailableCalendars();
     }
-  }, [activeTab, apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Removed loadEvents from dependencies to prevent double-firing
+  }, [activeTab, apiToken, loadAvailableCalendars, loadOverview]);
+
+  // Debounced search effect for filter changes
+  useEffect(() => {
+    if (activeTab !== 'events') return;
+    
+    const delayedSearch = setTimeout(() => {
+      if (apiToken) {
+        setCurrentPage(1);
+        loadEvents(1);
+      }
+    }, 500); // 500ms delay
+
+    return () => clearTimeout(delayedSearch);
+    // Only trigger on filter changes, not on loadEvents function changes
+  }, [filters.search, filters.status, filters.calendarId, activeTab, apiToken]);
 
   // Render overview tab
   const renderOverview = () => {
@@ -338,10 +389,9 @@ export default function UnifiedEventsAdmin({ apiToken }) {
         <div className="events-filters">
           <input
             type="text"
-            placeholder="Search events..."
+            placeholder="🔍 Search events by subject, location, or content..."
             value={filters.search}
             onChange={(e) => handleFilterChange('search', e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
             className="search-input"
           />
           <select
@@ -354,13 +404,6 @@ export default function UnifiedEventsAdmin({ apiToken }) {
             <option value="deleted">Deleted Only</option>
             <option value="enriched">Enriched Only</option>
           </select>
-          <button 
-            onClick={applyFilters}
-            className="action-btn"
-            disabled={loading}
-          >
-            🔍 Search
-          </button>
         </div>
 
         {/* Events Table */}
@@ -368,7 +411,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
           {loading ? (
             <div className="loading">Loading events...</div>
           ) : events.length > 0 ? (
-            <table className="events-table">
+            <table className="unified-events-table">
               <thead>
                 <tr>
                   <th>Subject</th>
@@ -416,11 +459,76 @@ export default function UnifiedEventsAdmin({ apiToken }) {
                       {event.startTime ? new Date(event.startTime).toLocaleString() : 'N/A'}
                     </td>
                     <td className="calendars-info">
-                      {event.sourceCalendars?.map((cal, idx) => (
-                        <span key={idx} className="calendar-badge">
-                          {cal.role === 'shared' ? '👥' : '👤'} {cal.calendarName}
-                        </span>
-                      ))}
+                      {(() => {
+                        // Function to get meaningful calendar display name
+                        const getCalendarDisplayName = (cal) => {
+                          // First priority: Use calendarName if it exists and is meaningful
+                          if (cal.calendarName && 
+                              cal.calendarName !== 'Primary Calendar' && 
+                              cal.calendarName !== 'Shared Calendar' &&
+                              cal.calendarName !== 'Unknown Calendar') {
+                            return cal.calendarName;
+                          }
+                          
+                          // Second priority: If calendarId looks like an email, use it
+                          if (cal.calendarId && cal.calendarId.includes('@')) {
+                            return cal.calendarId;
+                          }
+                          
+                          // Third priority: If calendar has owner email information, use it
+                          if (cal.owner?.address) {
+                            return cal.owner.address;
+                          }
+                          
+                          // Fourth priority: Use calendarName even if it's generic
+                          if (cal.calendarName) {
+                            return cal.calendarName;
+                          }
+                          
+                          // Last resort: Use calendarId (but truncate if it's very long)
+                          if (cal.calendarId) {
+                            return cal.calendarId.length > 20 ? 
+                              cal.calendarId.substring(0, 20) + '...' : 
+                              cal.calendarId;
+                          }
+                          
+                          return 'Unknown Calendar';
+                        };
+
+                        // Deduplicate calendars using meaningful display name
+                        const seen = new Set();
+                        const uniqueCalendars = event.sourceCalendars?.filter(cal => {
+                          const displayName = getCalendarDisplayName(cal);
+                          if (seen.has(displayName)) {
+                            return false;
+                          }
+                          seen.add(displayName);
+                          return true;
+                        }) || [];
+                        
+                        // Only log if we actually found and removed duplicates
+                        if (event.sourceCalendars?.length > uniqueCalendars.length) {
+                          logger.debug('Removed duplicate calendars for event:', {
+                            eventSubject: event.subject,
+                            originalCount: event.sourceCalendars.length,
+                            uniqueCount: uniqueCalendars.length,
+                            displayNames: uniqueCalendars.map(cal => getCalendarDisplayName(cal))
+                          });
+                        }
+                        
+                        if (uniqueCalendars.length === 0) {
+                          return <span style={{ color: '#999', fontSize: '0.85rem' }}>No calendar info</span>;
+                        }
+                        
+                        return uniqueCalendars.map((cal, idx) => {
+                          const displayName = getCalendarDisplayName(cal);
+                          return (
+                            <span key={`${displayName}-${idx}`} className="calendar-badge">
+                              {cal.role === 'shared' ? '👥' : '👤'} {displayName}
+                            </span>
+                          );
+                        });
+                      })()}
                     </td>
                     <td className="event-status">
                       {event.isDeleted ? (
@@ -534,7 +642,7 @@ export default function UnifiedEventsAdmin({ apiToken }) {
         {loading && <div className="loading-overlay">Loading...</div>}
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'events' && renderEvents()}
-        {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} />}
+        {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} availableCalendars={availableCalendars} />}
       </div>
     </div>
   );

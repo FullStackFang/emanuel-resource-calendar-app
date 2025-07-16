@@ -593,7 +593,7 @@ export default function CacheAdmin({ apiToken }) {
           {loading ? (
             <div className="loading">Loading unified events...</div>
           ) : unifiedEvents.length > 0 ? (
-            <table className="events-table">
+            <table className="cache-events-table">
               <thead>
                 <tr>
                   <th>Subject</th>
@@ -637,11 +637,63 @@ export default function CacheAdmin({ apiToken }) {
                     <td className="event-location">{event.location || 'N/A'}</td>
                     <td className="calendars-info">
                       <div className="source-calendars">
-                        {event.sourceCalendars && event.sourceCalendars.map((cal, idx) => (
-                          <span key={idx} className={`calendar-badge ${cal.includes('TempleRegistration') ? 'shared' : 'primary'}`}>
-                            {cal.includes('TempleRegistration') ? '👥 Temple' : '👤 Personal'}
-                          </span>
-                        ))}
+                        {event.sourceCalendars && event.sourceCalendars.map((cal, idx) => {
+                          // Handle both string and object formats for sourceCalendars
+                          let displayName, isShared, calendarId;
+                          
+                          if (typeof cal === 'string') {
+                            // Legacy format - cal is a string
+                            displayName = cal;
+                            isShared = cal.includes('TempleRegistration');
+                            calendarId = cal;
+                          } else {
+                            // New format - cal is an object
+                            // Function to get meaningful calendar display name
+                            const getCalendarDisplayName = (calObj) => {
+                              // First priority: Use calendarName if it exists and is meaningful
+                              if (calObj.calendarName && 
+                                  calObj.calendarName !== 'Primary Calendar' && 
+                                  calObj.calendarName !== 'Shared Calendar' &&
+                                  calObj.calendarName !== 'Unknown Calendar') {
+                                return calObj.calendarName;
+                              }
+                              
+                              // Second priority: If calendarId looks like an email, use it
+                              if (calObj.calendarId && calObj.calendarId.includes('@')) {
+                                return calObj.calendarId;
+                              }
+                              
+                              // Third priority: If calendar has owner email information, use it
+                              if (calObj.owner?.address) {
+                                return calObj.owner.address;
+                              }
+                              
+                              // Fourth priority: Use calendarName even if it's generic
+                              if (calObj.calendarName) {
+                                return calObj.calendarName;
+                              }
+                              
+                              // Last resort: Use calendarId (but truncate if it's very long)
+                              if (calObj.calendarId) {
+                                return calObj.calendarId.length > 20 ? 
+                                  calObj.calendarId.substring(0, 20) + '...' : 
+                                  calObj.calendarId;
+                              }
+                              
+                              return 'Unknown Calendar';
+                            };
+                            
+                            displayName = getCalendarDisplayName(cal);
+                            isShared = cal.role === 'shared' || cal.calendarId?.includes('TempleRegistration');
+                            calendarId = cal.calendarId || displayName;
+                          }
+                          
+                          return (
+                            <span key={`${calendarId}-${idx}`} className={`calendar-badge ${isShared ? 'shared' : 'primary'}`}>
+                              {isShared ? '👥' : '👤'} {displayName}
+                            </span>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="enhancement-info">
