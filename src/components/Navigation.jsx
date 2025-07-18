@@ -67,6 +67,11 @@ export default function Navigation({
           </li>
         )}
         
+        <li>
+          <NavLink to="/room-reservation" className={({ isActive }) => isActive ? 'active' : ''}>
+            Room Reservation
+          </NavLink>
+        </li>
 
         <li>
           <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
@@ -126,6 +131,24 @@ export default function Navigation({
                   onClick={handleDropdownLinkClick}
                 >
                   Unified Events Admin
+                </NavLink>
+              </li>
+              <li>
+                <NavLink 
+                  to="/admin/rooms" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Room Management
+                </NavLink>
+              </li>
+              <li>
+                <NavLink 
+                  to="/admin/reservation-requests" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Reservation Requests
                 </NavLink>
               </li>
             </ul>

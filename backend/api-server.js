@@ -104,6 +104,9 @@ let internalEventsCollection; // TODO: Remove after migration
 let eventCacheCollection; // TODO: Remove after migration
 let unifiedEventsCollection; // New unified collection
 let calendarDeltasCollection; // Delta token storage
+let roomsCollection; // Room information and features
+let roomReservationsCollection; // Room reservation requests
+let reservationTokensCollection; // Guest access tokens
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -307,6 +310,203 @@ async function createCalendarDeltaIndexes() {
   }
 }
 
+/**
+ * Create indexes for the rooms collection
+ */
+async function createRoomIndexes() {
+  try {
+    console.log('Creating room indexes...');
+    
+    // Index for active rooms
+    await roomsCollection.createIndex(
+      { active: 1 },
+      { name: "active_rooms", background: true }
+    );
+    
+    // Index for searching by features
+    await roomsCollection.createIndex(
+      { features: 1 },
+      { name: "room_features", background: true }
+    );
+    
+    // Index for capacity searches
+    await roomsCollection.createIndex(
+      { capacity: 1 },
+      { name: "room_capacity", background: true }
+    );
+    
+    console.log('Room indexes created successfully');
+  } catch (error) {
+    console.error('Error creating room indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the room reservations collection
+ */
+async function createRoomReservationIndexes() {
+  try {
+    console.log('Creating room reservation indexes...');
+    
+    // Index for finding reservations by requester
+    await roomReservationsCollection.createIndex(
+      { requesterId: 1, submittedAt: -1 },
+      { name: "requester_submissions", background: true }
+    );
+    
+    // Index for finding reservations by status
+    await roomReservationsCollection.createIndex(
+      { status: 1, submittedAt: -1 },
+      { name: "status_date", background: true }
+    );
+    
+    // Index for finding reservations by date range
+    await roomReservationsCollection.createIndex(
+      { startDateTime: 1, endDateTime: 1 },
+      { name: "datetime_range", background: true }
+    );
+    
+    // Index for finding reservations by room
+    await roomReservationsCollection.createIndex(
+      { requestedRooms: 1, startDateTime: 1 },
+      { name: "rooms_datetime", background: true }
+    );
+    
+    console.log('Room reservation indexes created successfully');
+  } catch (error) {
+    console.error('Error creating room reservation indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the reservation tokens collection
+ */
+async function createReservationTokenIndexes() {
+  try {
+    console.log('Creating reservation token indexes...');
+    
+    // Unique index for tokens
+    await reservationTokensCollection.createIndex(
+      { token: 1 },
+      { name: "unique_token", unique: true, background: true }
+    );
+    
+    // Index for finding tokens by creator
+    await reservationTokensCollection.createIndex(
+      { createdBy: 1, createdAt: -1 },
+      { name: "creator_date", background: true }
+    );
+    
+    // Index for automatic cleanup of expired tokens
+    await reservationTokensCollection.createIndex(
+      { expiresAt: 1 },
+      { name: "expiry_cleanup", background: true, expireAfterSeconds: 0 }
+    );
+    
+    console.log('Reservation token indexes created successfully');
+  } catch (error) {
+    console.error('Error creating reservation token indexes:', error);
+  }
+}
+
+/**
+ * Seed initial room data if the collection is empty
+ */
+async function seedInitialRooms() {
+  try {
+    const roomCount = await roomsCollection.countDocuments();
+    if (roomCount === 0) {
+      console.log('Seeding initial room data...');
+      
+      const initialRooms = [
+        {
+          name: "Chapel",
+          building: "Main Building",
+          floor: "1st Floor",
+          capacity: 200,
+          features: ["piano", "stage", "microphone", "projector"],
+          accessibility: ["wheelchair-accessible", "hearing-loop"],
+          active: true,
+          description: "Main worship space with traditional setup",
+          notes: "Reserved for services on Sabbath",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Social Hall",
+          building: "Main Building", 
+          floor: "1st Floor",
+          capacity: 150,
+          features: ["kitchen", "stage", "tables", "chairs"],
+          accessibility: ["wheelchair-accessible"],
+          active: true,
+          description: "Large multipurpose room with kitchen access",
+          notes: "Can be divided with partition",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Conference Room A",
+          building: "Main Building",
+          floor: "2nd Floor", 
+          capacity: 12,
+          features: ["av-equipment", "projector", "whiteboard", "conference-table"],
+          accessibility: ["elevator"],
+          active: true,
+          description: "Executive conference room with video conferencing",
+          notes: "Requires advance booking for setup",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Conference Room B",
+          building: "Main Building",
+          floor: "2nd Floor",
+          capacity: 8,
+          features: ["whiteboard", "conference-table"],
+          accessibility: ["elevator"],
+          active: true,
+          description: "Small meeting room for intimate discussions",
+          notes: "No A/V equipment available",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Library",
+          building: "Main Building",
+          floor: "2nd Floor",
+          capacity: 20,
+          features: ["quiet-zone", "books", "study-tables"],
+          accessibility: ["wheelchair-accessible", "elevator"],
+          active: true,
+          description: "Quiet study and small group space",
+          notes: "No food or drinks allowed",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Youth Room",
+          building: "Education Wing",
+          floor: "1st Floor",
+          capacity: 30,
+          features: ["games", "comfortable-seating", "tv", "kitchenette"],
+          accessibility: ["wheelchair-accessible"],
+          active: true,
+          description: "Casual space designed for youth activities",
+          notes: "Snacks and beverages allowed",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+      
+      await roomsCollection.insertMany(initialRooms);
+      console.log(`Seeded ${initialRooms.length} initial rooms`);
+    }
+  } catch (error) {
+    console.error('Error seeding initial rooms:', error);
+  }
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
@@ -319,13 +519,24 @@ async function connectToDatabase() {
     eventCacheCollection = db.collection('templeEvents__EventCache'); // TODO: Remove after migration
     unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
+    roomsCollection = db.collection('templeEvents__Rooms'); // Room information and features
+    roomReservationsCollection = db.collection('templeEvents__RoomReservations'); // Room reservation requests
+    reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
     
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
     await createCalendarDeltaIndexes();
     
+    // Create indexes for room reservation system
+    await createRoomIndexes();
+    await createRoomReservationIndexes();
+    await createReservationTokenIndexes();
+    
     // Keep old indexes for now during migration
     await createEventCacheIndexes();
+    
+    // Seed initial room data if none exists
+    await seedInitialRooms();
     
     console.log('Database and collections initialized');
   } catch (error) {
@@ -4646,6 +4857,724 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
       error: 'Failed to sync events to database',
       details: error.message 
     });
+  }
+});
+
+// ==========================================
+// ROOM RESERVATION ENDPOINTS
+// ==========================================
+
+/**
+ * Get all available rooms
+ */
+app.get('/api/rooms', async (req, res) => {
+  try {
+    console.log('Getting rooms from collection:', roomsCollection ? 'exists' : 'null');
+    
+    // TEMPORARY WORKAROUND: Azure Cosmos DB indexing issue
+    // Return hardcoded rooms until indexing is fixed
+    const hardcodedRooms = [
+      {
+        _id: "temp1",
+        name: "Chapel",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 200,
+        features: ["piano", "stage", "microphone", "projector"],
+        accessibility: ["wheelchair-accessible", "hearing-loop"],
+        active: true,
+        description: "Main worship space with traditional setup",
+        notes: "Reserved for services on Sabbath"
+      },
+      {
+        _id: "temp2",
+        name: "Social Hall",
+        building: "Main Building", 
+        floor: "1st Floor",
+        capacity: 150,
+        features: ["kitchen", "stage", "tables", "chairs"],
+        accessibility: ["wheelchair-accessible"],
+        active: true,
+        description: "Large multipurpose room with kitchen access",
+        notes: "Can be divided with partition"
+      },
+      {
+        _id: "temp3",
+        name: "Conference Room A",
+        building: "Main Building",
+        floor: "2nd Floor", 
+        capacity: 12,
+        features: ["av-equipment", "projector", "whiteboard", "conference-table"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Executive conference room with video conferencing",
+        notes: "Requires advance booking for setup"
+      },
+      {
+        _id: "temp4",
+        name: "Conference Room B",
+        building: "Main Building",
+        floor: "2nd Floor",
+        capacity: 8,
+        features: ["whiteboard", "conference-table"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Small meeting room for intimate discussions",
+        notes: "No AV equipment available"
+      },
+      {
+        _id: "temp5",
+        name: "Youth Room",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 30,
+        features: ["games", "comfortable-seating", "tv", "kitchenette"],
+        accessibility: ["wheelchair-accessible"],
+        active: true,
+        description: "Casual space designed for youth activities",
+        notes: "Snacks and beverages allowed"
+      }
+    ];
+    
+    console.log('Returning hardcoded rooms due to indexing issue:', hardcodedRooms.length);
+    res.json(hardcodedRooms);
+    
+    // TODO: Fix Azure Cosmos DB indexing policy to remove this workaround
+    
+  } catch (error) {
+    console.error('Error in rooms endpoint:', error);
+    logger.error('Error in rooms endpoint:', error);
+    res.status(500).json({ error: 'Failed to fetch rooms' });
+  }
+});
+
+/**
+ * Get room availability for a specific date range
+ */
+app.get('/api/rooms/availability', async (req, res) => {
+  try {
+    const { startDateTime, endDateTime, roomIds } = req.query;
+    
+    if (!startDateTime || !endDateTime) {
+      return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
+    }
+    
+    const start = new Date(startDateTime);
+    const end = new Date(endDateTime);
+    
+    // Build room filter
+    const roomFilter = roomIds ? { _id: { $in: roomIds.split(',').map(id => new ObjectId(id)) } } : { active: true };
+    
+    // Get all active rooms (or specified rooms)
+    const rooms = await roomsCollection.find(roomFilter).toArray();
+    
+    // Check for overlapping reservations
+    const overlappingReservations = await roomReservationsCollection.find({
+      status: { $in: ['pending', 'approved'] },
+      startDateTime: { $lt: end },
+      endDateTime: { $gt: start }
+    }).toArray();
+    
+    // Check for overlapping calendar events (in location field)
+    const roomNames = rooms.map(room => room.name);
+    const overlappingEvents = await unifiedEventsCollection.find({
+      isDeleted: false,
+      startTime: { $lt: end },
+      endTime: { $gt: start },
+      $or: roomNames.map(name => ({ location: { $regex: name, $options: 'i' } }))
+    }).toArray();
+    
+    // Build availability response
+    const availability = rooms.map(room => {
+      const roomReservationConflicts = overlappingReservations.filter(res => 
+        res.requestedRooms.includes(room._id.toString())
+      );
+      
+      const roomEventConflicts = overlappingEvents.filter(event => 
+        event.location && event.location.toLowerCase().includes(room.name.toLowerCase())
+      );
+      
+      return {
+        room,
+        available: roomReservationConflicts.length === 0 && roomEventConflicts.length === 0,
+        conflicts: {
+          reservations: roomReservationConflicts,
+          events: roomEventConflicts
+        }
+      };
+    });
+    
+    res.json(availability);
+  } catch (error) {
+    logger.error('Error checking room availability:', error);
+    res.status(500).json({ error: 'Failed to check room availability' });
+  }
+});
+
+/**
+ * Submit a room reservation request (authenticated users)
+ */
+app.post('/api/room-reservations', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      priority = 'medium'
+    } = req.body;
+    
+    // Validation
+    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms' 
+      });
+    }
+    
+    // Create reservation record
+    const reservation = {
+      requesterId: userId,
+      requesterName: req.user.name || userEmail,
+      requesterEmail: userEmail,
+      department: department || '',
+      phone: phone || '',
+      
+      eventTitle,
+      eventDescription: eventDescription || '',
+      startDateTime: new Date(startDateTime),
+      endDateTime: new Date(endDateTime),
+      attendeeCount: attendeeCount || 0,
+      
+      requestedRooms,
+      requiredFeatures: requiredFeatures || [],
+      specialRequirements: specialRequirements || '',
+      
+      status: 'pending',
+      priority,
+      
+      assignedTo: null,
+      reviewNotes: '',
+      approvedBy: null,
+      actionDate: null,
+      rejectionReason: '',
+      createdEventIds: [],
+      
+      submittedAt: new Date(),
+      lastModified: new Date(),
+      attachments: []
+    };
+    
+    const result = await roomReservationsCollection.insertOne(reservation);
+    const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
+    
+    logger.log('Room reservation submitted:', {
+      reservationId: result.insertedId,
+      requester: userEmail,
+      eventTitle,
+      rooms: requestedRooms
+    });
+    
+    res.status(201).json(createdReservation);
+  } catch (error) {
+    logger.error('Error submitting room reservation:', error);
+    res.status(500).json({ error: 'Failed to submit room reservation' });
+  }
+});
+
+/**
+ * Submit a room reservation request using a token (guest users)
+ */
+app.post('/api/room-reservations/public/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    // Validate token
+    const tokenDoc = await reservationTokensCollection.findOne({
+      token,
+      expiresAt: { $gt: new Date() },
+      currentUses: { $lt: 1 }
+    });
+    
+    if (!tokenDoc) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    
+    const {
+      requesterName,
+      requesterEmail,
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      priority = 'medium'
+    } = req.body;
+    
+    // Validation
+    if (!requesterName || !requesterEmail || !eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: requesterName, requesterEmail, eventTitle, startDateTime, endDateTime, requestedRooms' 
+      });
+    }
+    
+    // Mark token as used
+    await reservationTokensCollection.updateOne(
+      { _id: tokenDoc._id },
+      { 
+        $inc: { currentUses: 1 },
+        $set: { 
+          usedAt: new Date(),
+          usedBy: requesterEmail 
+        }
+      }
+    );
+    
+    // Create reservation record
+    const reservation = {
+      requesterId: `guest-${tokenDoc._id}`,
+      requesterName,
+      requesterEmail,
+      department: department || '',
+      phone: phone || '',
+      
+      eventTitle,
+      eventDescription: eventDescription || '',
+      startDateTime: new Date(startDateTime),
+      endDateTime: new Date(endDateTime),
+      attendeeCount: attendeeCount || 0,
+      
+      requestedRooms,
+      requiredFeatures: requiredFeatures || [],
+      specialRequirements: specialRequirements || '',
+      
+      status: 'pending',
+      priority,
+      
+      assignedTo: null,
+      reviewNotes: '',
+      approvedBy: null,
+      actionDate: null,
+      rejectionReason: '',
+      createdEventIds: [],
+      
+      submittedAt: new Date(),
+      lastModified: new Date(),
+      attachments: [],
+      
+      // Token metadata
+      tokenUsed: tokenDoc._id,
+      sponsoredBy: tokenDoc.createdByEmail
+    };
+    
+    const result = await roomReservationsCollection.insertOne(reservation);
+    const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
+    
+    logger.log('Guest room reservation submitted:', {
+      reservationId: result.insertedId,
+      requester: requesterEmail,
+      sponsor: tokenDoc.createdByEmail,
+      eventTitle,
+      rooms: requestedRooms
+    });
+    
+    res.status(201).json(createdReservation);
+  } catch (error) {
+    logger.error('Error submitting guest room reservation:', error);
+    res.status(500).json({ error: 'Failed to submit room reservation' });
+  }
+});
+
+/**
+ * Get room reservations (filtered by permissions)
+ */
+app.get('/api/room-reservations', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { status, page = 1, limit = 20 } = req.query;
+    
+    // Build filter based on user permissions
+    let filter = {};
+    
+    // Check if user can view all reservations or just their own
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    
+    if (!canViewAll) {
+      filter.requesterId = userId;
+    }
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const reservations = await roomReservationsCollection
+      .find(filter)
+      .sort({ submittedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+    
+    const total = await roomReservationsCollection.countDocuments(filter);
+    
+    res.json({
+      reservations,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching room reservations:', error);
+    res.status(500).json({ error: 'Failed to fetch room reservations' });
+  }
+});
+
+/**
+ * Get a specific room reservation
+ */
+app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
+    
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Check permissions
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    
+    if (!canViewAll && reservation.requesterId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    res.json(reservation);
+  } catch (error) {
+    logger.error('Error fetching room reservation:', error);
+    res.status(500).json({ error: 'Failed to fetch room reservation' });
+  }
+});
+
+/**
+ * Generate a reservation token for guest access (authenticated users only)
+ */
+app.post('/api/room-reservations/generate-token', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { purpose, recipientEmail, expiresInHours = 24 } = req.body;
+    
+    // Check permissions
+    const user = await usersCollection.findOne({ userId });
+    const canGenerate = user?.permissions?.canGenerateReservationTokens || userEmail.includes('admin');
+    
+    if (!canGenerate) {
+      return res.status(403).json({ error: 'Insufficient permissions to generate tokens' });
+    }
+    
+    const token = require('crypto').randomUUID();
+    const expiresAt = new Date(Date.now() + (expiresInHours * 60 * 60 * 1000));
+    
+    const tokenDoc = {
+      token,
+      createdBy: userId,
+      createdByEmail: userEmail,
+      purpose: purpose || 'Room reservation request',
+      recipientEmail: recipientEmail || '',
+      expiresAt,
+      maxUses: 1,
+      currentUses: 0,
+      createdAt: new Date()
+    };
+    
+    await reservationTokensCollection.insertOne(tokenDoc);
+    
+    const frontendUrl = process.env.NODE_ENV === 'production' ? webAppURL : 'https://localhost:5173';
+    const link = `${frontendUrl}/room-reservation/public/${token}`;
+    
+    logger.log('Reservation token generated:', {
+      token,
+      createdBy: userEmail,
+      purpose,
+      expiresAt
+    });
+    
+    res.json({
+      token,
+      link,
+      expiresAt,
+      purpose
+    });
+  } catch (error) {
+    logger.error('Error generating reservation token:', error);
+    res.status(500).json({ error: 'Failed to generate reservation token' });
+  }
+});
+
+// ==========================================
+// ROOM MANAGEMENT ADMIN ENDPOINTS
+// ==========================================
+
+/**
+ * Create a new room (Admin only)
+ */
+app.post('/api/admin/rooms', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { name, building, floor, capacity, features, accessibility, active, description, notes } = req.body;
+    
+    if (!name || !building || !floor || capacity === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: name, building, floor, capacity' });
+    }
+    
+    const roomDoc = {
+      name: name.trim(),
+      building: building.trim(),
+      floor: floor.trim(),
+      capacity: parseInt(capacity) || 0,
+      features: features || [],
+      accessibility: accessibility || [],
+      active: active !== false,
+      description: description?.trim() || '',
+      notes: notes?.trim() || '',
+      createdAt: new Date(),
+      createdBy: userId,
+      updatedAt: new Date()
+    };
+    
+    const result = await roomsCollection.insertOne(roomDoc);
+    const savedRoom = await roomsCollection.findOne({ _id: result.insertedId });
+    
+    logger.log('Room created:', { roomId: result.insertedId, name, createdBy: userEmail });
+    res.json(savedRoom);
+  } catch (error) {
+    logger.error('Error creating room:', error);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+/**
+ * Update a room (Admin only)
+ */
+app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { name, building, floor, capacity, features, accessibility, active, description, notes } = req.body;
+    
+    const updateDoc = {
+      $set: {
+        ...(name && { name: name.trim() }),
+        ...(building && { building: building.trim() }),
+        ...(floor && { floor: floor.trim() }),
+        ...(capacity !== undefined && { capacity: parseInt(capacity) || 0 }),
+        ...(features && { features }),
+        ...(accessibility && { accessibility }),
+        ...(active !== undefined && { active }),
+        ...(description !== undefined && { description: description?.trim() || '' }),
+        ...(notes !== undefined && { notes: notes?.trim() || '' }),
+        updatedAt: new Date()
+      }
+    };
+    
+    const result = await roomsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      updateDoc,
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    logger.log('Room updated:', { roomId: id, updatedBy: userEmail });
+    res.json(result.value);
+  } catch (error) {
+    logger.error('Error updating room:', error);
+    res.status(500).json({ error: 'Failed to update room' });
+  }
+});
+
+/**
+ * Delete a room (Admin only)
+ */
+app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Check if room has active reservations
+    const activeReservations = await roomReservationsCollection.countDocuments({
+      requestedRooms: { $in: [id] },
+      status: { $in: ['pending', 'approved'] },
+      endDateTime: { $gte: new Date() }
+    });
+    
+    if (activeReservations > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete room with ${activeReservations} active reservations. Please cancel or complete them first.` 
+      });
+    }
+    
+    const result = await roomsCollection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    logger.log('Room deleted:', { roomId: id, deletedBy: userEmail });
+    res.json({ message: 'Room deleted successfully' });
+  } catch (error) {
+    logger.error('Error deleting room:', error);
+    res.status(500).json({ error: 'Failed to delete room' });
+  }
+});
+
+/**
+ * Approve a room reservation (Admin only)
+ */
+app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const { notes } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const updateDoc = {
+      $set: {
+        status: 'approved',
+        actionDate: new Date(),
+        actionBy: userId,
+        actionByEmail: userEmail,
+        ...(notes && { actionNotes: notes.trim() })
+      }
+    };
+    
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id), status: 'pending' },
+      updateDoc,
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Pending reservation not found' });
+    }
+    
+    logger.log('Room reservation approved:', { reservationId: id, approvedBy: userEmail });
+    res.json(result.value);
+  } catch (error) {
+    logger.error('Error approving reservation:', error);
+    res.status(500).json({ error: 'Failed to approve reservation' });
+  }
+});
+
+/**
+ * Reject a room reservation (Admin only)
+ */
+app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+    
+    const updateDoc = {
+      $set: {
+        status: 'rejected',
+        actionDate: new Date(),
+        actionBy: userId,
+        actionByEmail: userEmail,
+        rejectionReason: reason.trim()
+      }
+    };
+    
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id), status: 'pending' },
+      updateDoc,
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Pending reservation not found' });
+    }
+    
+    logger.log('Room reservation rejected:', { reservationId: id, rejectedBy: userEmail, reason });
+    res.json(result.value);
+  } catch (error) {
+    logger.error('Error rejecting reservation:', error);
+    res.status(500).json({ error: 'Failed to reject reservation' });
   }
 });
 

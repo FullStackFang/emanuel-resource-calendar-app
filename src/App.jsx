@@ -11,6 +11,9 @@ import UserAdmin from './components/UserAdmin';
 import EventSyncAdmin from './components/EventSyncAdmin';
 import CacheAdmin from './components/CacheAdmin';
 import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
+import RoomReservationForm from './components/RoomReservationForm';
+import RoomManagement from './components/RoomManagement';
+import ReservationRequests from './components/ReservationRequests';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
@@ -220,6 +223,10 @@ function App() {
                 } />
                 <Route path="/admin/cache" element={<CacheAdmin apiToken={apiToken} />} />
                 <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />
+                <Route path="/room-reservation" element={<RoomReservationForm apiToken={apiToken} />} />
+                <Route path="/room-reservation/public/:token" element={<RoomReservationForm isPublic={true} />} />
+                <Route path="/admin/rooms" element={<RoomManagement apiToken={apiToken} />} />
+                <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </TimezoneProvider>
