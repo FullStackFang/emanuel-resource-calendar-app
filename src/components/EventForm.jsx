@@ -584,10 +584,7 @@ function EventForm({
     };
     
     logger.debug("Final event data prepared for preview:", eventData);
-    logger.debug("EventForm category debugging:", {
-      'formData.category': formData.category,
-      'eventData.categories': eventData.categories
-    });
+    // Category debugging removed
     
     // Show preview modal instead of directly saving
     setPendingEventData(eventData);

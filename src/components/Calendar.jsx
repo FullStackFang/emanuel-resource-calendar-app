@@ -173,12 +173,7 @@
         return;
       }
       
-      // Log when events are being set
-      logger.debug('setAllEvents: Setting events', {
-        newCount: newEvents.length,
-        oldCount: allEvents.length,
-        sample: newEvents.length > 0 ? newEvents[0].subject : 'none'
-      });
+      // Setting events
       
       // Warn if clearing events
       if (newEvents.length === 0 && allEvents.length > 0) {
@@ -227,10 +222,7 @@
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
-    logger.debug('Calendar timezone context:', { userTimezone, setUserTimezone });
-    useEffect(() => {
-      logger.debug('Calendar timezone changed to:', userTimezone);
-    }, [userTimezone]);
+    // Timezone context initialized
 
     const [, setUserProfile] = useState(null);
     const [userPermissions, setUserPermissions] = useState({
@@ -245,8 +237,7 @@
       isAdmin: true,      // TEMPORARY: Set to true for testing
     });
     
-    // Log permissions on every render to debug
-    logger.debug('Current userPermissions state:', userPermissions);
+    // User permissions initialized
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -263,7 +254,7 @@
      */
     const handleRegistrationTimesToggle = useCallback((enabled) => {
       setShowRegistrationTimes(enabled);
-      logger.debug('Registration times toggled:', enabled);
+      // Registration times toggled
     }, []);
     /**
      * @param {*} event 
@@ -1005,7 +996,7 @@
         }
         
         const data = await response.json();
-        logger.debug('[Calendar.loadOutlookCategories]: Fetched Outlook categories:', data.value);
+        // Fetched Outlook categories
         
         // Extract category names
         const outlookCategories = data.value.map(cat => ({
@@ -1116,7 +1107,7 @@
         const extIds = schemaExtensions.map(e => e.id);
         
         if (extIds.length === 0) {
-          logger.debug("No schema extensions registered; skipping extension expand.");
+          // No schema extensions registered; skipping extension expand
         } else {
           logger.debug("Found schema extensions:", extIds);
         }
@@ -1151,12 +1142,11 @@
         }
     
         // 5. Check for linked registration events and extract setup/teardown data
-        logger.debug('loadGraphEvents: Processing', all.length, 'events for registration data');
+        // Processing events for registration data
         const eventsWithRegistrationData = await Promise.all(all.map(async (evt) => {
           // Check if this event has a linked registration event
           try {
-            logger.debug('loadGraphEvents: Checking event:', evt.subject, 'for extended properties');
-            logger.debug('loadGraphEvents: singleValueExtendedProperties:', evt.singleValueExtendedProperties);
+            // Checking event for extended properties
             
             if (evt.singleValueExtendedProperties) {
               const linkedEventIdProp = evt.singleValueExtendedProperties.find(
@@ -1223,8 +1213,7 @@
         
         // DEBUG: Log summary of events with registration data
         const eventsWithRegistration = eventsWithRegistrationData.filter(evt => evt.hasRegistrationEvent);
-        logger.debug('loadGraphEvents: Summary - Total events:', eventsWithRegistrationData.length, 
-                   'Events with registration data:', eventsWithRegistration.length);
+        // Events with registration data processed
         
         // 6. Normalize into your UI model
         const converted = eventsWithRegistrationData.map(evt => {
@@ -1306,7 +1295,7 @@
         if (apiToken) {
           try {
             // Sync events to unified collection before enrichment
-            logger.debug('Syncing events to unified collection before enrichment');
+            // Syncing events to unified collection before enrichment
             // Use the manual sync endpoint instead since it doesn't require calendarId
             const response = await fetch(`${API_BASE_URL}/internal-events/sync`, {
               method: 'POST',
@@ -1325,14 +1314,14 @@
             
             if (response.ok) {
               const syncResult = await response.json();
-              logger.debug('Sync result:', syncResult);
+              // Sync result processed
             } else {
               logger.warn('Sync failed:', response.status, response.statusText);
             }
             
             // Now enrich with internal data
             enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
-            logger.debug(`Enriched ${enrichedEvents.filter(e => e._hasInternalData).length} events with internal data`);
+            // Events enriched with internal data
             
             // Calculate registration start/end times for events with setup/teardown data
             enrichedEvents = enrichedEvents.map(event => {
@@ -1369,7 +1358,7 @@
           }
         }
         
-        logger.debug("[loadGraphEvents] events:", enrichedEvents);
+        // Events loaded from Graph API
         setAllEvents(enrichedEvents);
 
         // Selectively cache uncached events (fire-and-forget to avoid performance issues)
@@ -1404,17 +1393,15 @@
                 return acc;
               }, {});
               
-              logger.debug('Selective caching for calendars:', Object.keys(eventsByCalendar));
+              // Selective caching for calendars
               const eventsWithoutCalendar = eventsByCalendar['_unknown'] || [];
-              if (eventsWithoutCalendar.length > 0) {
-                logger.warn('Events without calendarId:', eventsWithoutCalendar.map(e => ({id: e.id, subject: e.subject})));
-              }
+              // Events without calendarId will be skipped from caching
               
               // Cache events for each calendar separately
               for (const [calendarId, events] of Object.entries(eventsByCalendar)) {
                 // Skip unknown calendar group
                 if (calendarId === '_unknown') {
-                  logger.warn(`Skipping cache for ${events.length} events without valid calendar ID`);
+                  // Skipping cache for events without valid calendar ID
                   continue;
                 }
                 
@@ -1448,7 +1435,7 @@
           }, 500); // Small delay to let UI update first
         }
         
-        logger.debug('Events loaded from Graph API, selective caching initiated for uncached events');
+        // Events loaded from Graph API, selective caching initiated
 
         return true;
       } catch (err) {
@@ -1470,7 +1457,7 @@
 
       // If no calendar is selected, fall back to direct Graph API loading
       if (!selectedCalendarId) {
-        logger.debug("loadEventsWithCache: No calendar selected, falling back to Graph API loading");
+        // No calendar selected, falling back to Graph API loading
         return await loadGraphEvents();
       }
 
@@ -1565,8 +1552,9 @@
     /**
      * Load events using unified delta sync
      * @param {boolean} forceRefresh - Force full sync instead of delta
+     * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEventsUnified = useCallback(async (forceRefresh = false) => {
+    const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null) => {
       if (!graphToken || !apiToken) {
         logger.debug("loadEventsUnified: Missing tokens");
         return false;
@@ -1581,60 +1569,41 @@
         // Get calendar IDs to sync - include both user calendar and TempleRegistration
         const calendarIds = [];
         
-        // Enhanced logging for calendar ID resolution
-        logger.debug('loadEventsUnified: Resolving calendar IDs', {
-          selectedCalendarId,
-          availableCalendarsCount: availableCalendars?.length || 0,
-          availableCalendars: availableCalendars?.map(cal => ({
-            id: cal.id,
-            name: cal.name,
-            isDefaultCalendar: cal.isDefaultCalendar,
-            ownerName: cal.owner?.name,
-            ownerAddress: cal.owner?.address
-          })) || [],
-          currentUser: currentUser ? {
-            name: currentUser.name,
-            email: currentUser.email
-          } : null
-        });
+        // Use passed calendar data or fallback to state
+        const calendarsToUse = calendarsData || availableCalendars;
         
+        // Resolve calendar IDs for sync
         if (selectedCalendarId) {
           calendarIds.push(selectedCalendarId);
-          logger.debug('loadEventsUnified: Using selected calendar ID', { selectedCalendarId });
+          // Using selected calendar ID
         } else {
           // If no specific calendar selected, find and use the actual primary calendar ID
-          const primaryCalendar = availableCalendars.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
+          const primaryCalendar = calendarsToUse.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
           if (primaryCalendar) {
             calendarIds.push(primaryCalendar.id);
             logger.debug('loadEventsUnified: Found primary calendar', { 
               id: primaryCalendar.id, 
               name: primaryCalendar.name 
             });
-          } else if (availableCalendars.length > 0) {
+          } else if (calendarsToUse.length > 0) {
             // Fallback to first available calendar
-            calendarIds.push(availableCalendars[0].id);
-            logger.debug('loadEventsUnified: Using first available calendar', { 
-              id: availableCalendars[0].id, 
-              name: availableCalendars[0].name 
-            });
+            calendarIds.push(calendarsToUse[0].id);
+            // Using first available calendar
           } else {
             logger.warn('loadEventsUnified: No available calendars found');
           }
         }
         
         // Always include TempleRegistration shared mailbox if available
-        const templeRegistrationCalendar = availableCalendars.find(cal => 
+        const templeRegistrationCalendar = calendarsToUse.find(cal => 
           cal.name?.toLowerCase().includes('templeregistration') || 
           cal.owner?.address?.toLowerCase().includes('templeregistration')
         );
         if (templeRegistrationCalendar && !calendarIds.includes(templeRegistrationCalendar.id)) {
           calendarIds.push(templeRegistrationCalendar.id);
-          logger.debug('loadEventsUnified: Added TempleRegistration calendar', { 
-            id: templeRegistrationCalendar.id, 
-            name: templeRegistrationCalendar.name 
-          });
+          // Added TempleRegistration calendar
         } else if (!templeRegistrationCalendar) {
-          logger.debug('loadEventsUnified: TempleRegistration calendar not found in available calendars');
+          // TempleRegistration calendar not found in available calendars
         }
         
         // Final validation of calendar IDs
@@ -1722,19 +1691,20 @@
     /**
      * Enhanced load events with unified delta sync (primary) and cache fallback
      * @param {boolean} forceRefresh - Force refresh from Graph API
+     * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEvents = useCallback(async (forceRefresh = false) => {
+    const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null) => {
       if (isDemoMode) {
         return await loadDemoEvents();
       } else {
         // Hybrid approach: Try unified delta sync first, fallback to cache approach if it fails
-        logger.debug('loadEvents: Starting hybrid event loading approach');
+        // Starting hybrid event loading approach
         
         try {
           // Attempt unified delta sync first
-          const unifiedResult = await loadEventsUnified(forceRefresh);
+          const unifiedResult = await loadEventsUnified(forceRefresh, calendarsData);
           if (unifiedResult) {
-            logger.debug('loadEvents: Unified sync successful');
+            // Unified sync successful
             return unifiedResult;
           }
         } catch (error) {
@@ -1938,22 +1908,18 @@
             isAdmin: isAdmin,
           };
           
-          logger.debug("Parsed permissions:", permissions);
           // TEMPORARY: Don't overwrite test permissions
           // setUserPermissions(permissions);
-          logger.debug("SKIPPING permission update for testing - keeping createEvents: true");
           if (data.preferences?.preferredTimeZone) {
-            logger.debug("Setting timezone directly from profile:", data.preferences?.preferredTimeZone);
-            setUserTimeZone(data.preferences.preferredTimeZone);
+            setUserTimezone(data.preferences.preferredTimeZone);
           }
-          logger.debug("User permissions loaded (but not applied):", permissions);
           return true;
         }
         return false;
       } catch (error) {
         logger.error("Error fetching user permissions:", error);
         // TEMPORARY: Don't reset permissions for testing
-        logger.debug("Error loading profile but keeping test permissions");
+        // Error loading profile but keeping test permissions
         /*
         setUserPermissions({
           startOfWeek: 'Monday',
@@ -1973,7 +1939,7 @@
 
     // Add this function to your component to coordinate the loading sequence
     const initializeApp = useCallback(async () => {
-      logger.debug("initializeApp function called");
+      // Initialize app called
 
       // Check if initialization has already started
       if (initializationStarted.current) {
@@ -1985,28 +1951,27 @@
       initializationStarted.current = true;
 
       if (!graphToken || !apiToken) {
-        logger.debug("Cannot initialize: Missing authentication tokens");
+        logger.error("Cannot initialize: Missing authentication tokens");
         return;
       }
 
 
-      logger.debug("Starting application initialization...");
+      logger.info("Starting application initialization...");
       try {
         // Load user profile and permissions first
-        logger.debug("Step: Loading user profile...");
         const userLoaded = await loadUserProfile();
         setLoadingState(prev => ({ ...prev, user: false }));
         
         if (!userLoaded) {
-          logger.debug("Could not load user profile, but continuing with defaults");
+          logger.warn("Could not load user profile, continuing with defaults");
         }
 
         // Load current user information
-        logger.debug("Step: Loading current user information...");
+        // Load current user information
         await loadCurrentUser();
 
         // Load available calendars
-        logger.debug("Step: Loading available calendars...");
+        // Load available calendars
         const calendars = await loadAvailableCalendars();
         setAvailableCalendars(calendars);
         
@@ -2017,28 +1982,28 @@
         }
         
         // Load Outlook categories
-        logger.debug("Step: Loading Outlook categories...");
+        // Load Outlook categories
         const categories = await loadOutlookCategories();
         setOutlookCategories(categories);
         setLoadingState(prev => ({ ...prev, categories: false }));
         
         // Create default categories if needed (optional)
         if (categories.length === 0) {
-          logger.debug("No categories found, creating defaults");
+          // No categories found, creating defaults
           await createDefaultCategories();
         }
         
         // Step 3: Load schema extensions
-        logger.debug("Step: Loading schema extensions...");
+        // Load schema extensions
         await loadSchemaExtensions();
         setLoadingState(prev => ({ ...prev, extensions: false }));
         
         // Step 4: Finally load events (using cache-first approach)
-        logger.debug("Step: Loading calendar events...");
-        await loadEvents();
+        // Load calendar events - pass calendar data directly to avoid race condition
+        await loadEvents(false, calendars);
         setLoadingState(prev => ({ ...prev, events: false }));
         
-        logger.debug("Application initialized successfully");
+        logger.info("Application initialized successfully");
         setInitializing(false);
 
       } catch (error) {
@@ -2479,11 +2444,7 @@
       // Convert to array and sort
       const categoriesArray = Array.from(categoriesSet).sort();
       
-      logger.debug('[getDynamicCategories] Extracted categories from events:', {
-        totalEvents: allEvents.length,
-        categoriesFound: categoriesArray,
-        categoriesCount: categoriesArray.length
-      });
+      // Categories extracted from events
       
       // Add special options
       const finalCategories = [
@@ -2812,7 +2773,7 @@
         if (selectedLocations.length === 0) {
           // No locations selected = show NO events
           locationMatch = false;
-          logger.debug('No locations selected - filtering out all events');
+          // No locations selected - filtering out all events
         } else {
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
@@ -2848,9 +2809,7 @@
         // Event must pass BOTH category AND location filters
         const result = categoryMatch && locationMatch;
         
-        if (!result) {
-          logger.debug(`Filtered out "${event.subject}": categoryMatch=${categoryMatch}, locationMatch=${locationMatch}`);
-        }
+        // Event filtered based on category and location criteria
         
         return result;
       });
@@ -2869,7 +2828,7 @@
         return aEndTime - bEndTime;
       });
       
-      logger.debug('Filtered events result:', sorted.length);
+      // Filtered events completed
       
       return sorted;
     }, [
@@ -3131,7 +3090,7 @@
     const handleAddEvent = useCallback(() => {
       logger.debug('handleAddEvent called');
       logger.debug('Permissions:', userPermissions);
-      logger.debug('Modal state before:', { isModalOpen, modalType });
+      // Modal state before opening
       
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
   
@@ -3144,10 +3103,7 @@
       setModalType('add');
       setIsModalOpen(true);
       
-      // Add a timeout to check if modal actually opened
-      setTimeout(() => {
-        logger.debug('Modal state after 100ms:', { isModalOpen, modalType });
-      }, 100);
+      // Modal opened for adding new event
     }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification]);
 
     /**
@@ -4149,15 +4105,9 @@
     // MAIN INITIALIZATION FUNCTION
     //---------------------------------------------------------------------------
     useEffect(() => {
-      logger.debug('=== CALENDAR INIT CHECK ===');
-      logger.debug('graphToken:', graphToken ? 'present' : 'missing');
-      logger.debug('apiToken:', apiToken ? 'present' : 'missing');
-      logger.debug('initializing:', initializing);
-      logger.debug('Current permissions:', userPermissions);
-      
-      // Only run initialization once when tokens become available
+      // Check if tokens are available for initialization
       if (graphToken && apiToken && initializing) {
-        logger.debug("Tokens available, starting initialization");
+        logger.info("Tokens available, starting initialization");
         initializeApp();
       }
     }, [graphToken, apiToken, initializing, initializeApp]);
@@ -4173,27 +4123,15 @@
       [dateRange.start, dateRange.end]
     );
 
+    // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
-      if (graphToken && !initializing) {
-        logger.debug("Date range changed, loading events for:", {
-          start: dateRange.start.toISOString(),
-          end: dateRange.end.toISOString()
-        });
-        
-        loadEvents();
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dateRangeString, graphToken, initializing]);
-
-    useEffect(() => {
-      if (selectedCalendarId && !initializing && graphToken) {
-        logger.debug(`Loading events for calendar: ${selectedCalendarId}`);
+      if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
         loadEvents().finally(() => {
           setChangingCalendar(false);
         });
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedCalendarId, initializing, graphToken]);
+    }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
 
     // Set user time zone from user permissions
     useEffect(() => {
@@ -4202,10 +4140,10 @@
     if (userPermissions.preferredTimeZone && 
         userPermissions.preferredTimeZone !== userTimezone &&
         !hasUserManuallyChangedTimezone.current) {
-      logger.debug("Setting initial timezone from userPermissions:", userPermissions.preferredTimeZone);
+      // Setting initial timezone from userPermissions
       setUserTimezone(userPermissions.preferredTimeZone);
     }
-  }, [userPermissions.preferredTimeZone]); 
+  }, [userPermissions.preferredTimeZone, userTimezone]); 
 
     // Update selected locations when dynamic locations change - smart merging
     useEffect(() => {
@@ -4213,15 +4151,15 @@
         if (selectedLocations.length === 0) {
           // Initial selection: select all locations
           setSelectedLocations(dynamicLocations);
-          logger.debug("🏢 Initial location selection:", dynamicLocations);
+          // Initial location selection: all locations
         } else {
           // Smart merging: add new locations to existing selection
           const newLocations = dynamicLocations.filter(loc => !selectedLocations.includes(loc));
           if (newLocations.length > 0) {
             setSelectedLocations(prev => [...prev, ...newLocations]);
-            logger.debug("🏢 Added new locations to selection:", newLocations, "Total now:", [...selectedLocations, ...newLocations].length);
+            // Added new locations to selection
           } else {
-            logger.debug("🏢 No new locations to add, current selection:", selectedLocations);
+            // No new locations to add
           }
         }
       }
@@ -4233,15 +4171,15 @@
         if (selectedCategories.length === 0) {
           // Initial selection: select all categories
           setSelectedCategories(dynamicCategories);
-          logger.debug("🏷️  Initial category selection:", dynamicCategories);
+          // Initial category selection: all categories
         } else {
           // Smart merging: add new categories to existing selection
           const newCategories = dynamicCategories.filter(cat => !selectedCategories.includes(cat));
           if (newCategories.length > 0) {
             setSelectedCategories(prev => [...prev, ...newCategories]);
-            logger.debug("🏷️  Added new categories to selection:", newCategories, "Total now:", [...selectedCategories, ...newCategories].length);
+            // Added new categories to selection
           } else {
-            logger.debug("🏷️  No new categories to add, current selection:", selectedCategories);
+            // No new categories to add
           }
         }
       }
@@ -4260,19 +4198,7 @@
     }, [groupBy, dynamicCategories]);
 
 
-    // Debugging 
-    useEffect(() => {
-      if (allEvents.length > 0) {
-        logger.debug('All events locations:', allEvents.map(event => ({
-          subject: event.subject,
-          location: event.location?.displayName,
-          isVirtual: isEventVirtual(event),
-          isUnspecified: isUnspecifiedLocation(event)
-        })));
-        
-        logger.debug('Dynamic locations:', dynamicLocations);
-      }
-    }, [allEvents, isEventVirtual, isUnspecifiedLocation, dynamicLocations]);
+    // Location debugging removed for performance
 
     useEffect(() => {
       const handleKeyPress = (e) => {
@@ -4728,7 +4654,6 @@
         </div>
 
         {/* Modal for Add/Edit Event */}
-        {logger.debug('Modal render check:', { isModalOpen, modalType, shouldOpen: isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view') })}
         <Modal 
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
           onClose={() => setIsModalOpen(false)}
@@ -4744,11 +4669,6 @@
             categories={(() => {
               const targetCalendarId = getTargetCalendarId();
               const calendarSpecificCategories = getCalendarSpecificCategories(targetCalendarId);
-              logger.debug('[EventForm] Using calendar-specific categories:', { 
-                targetCalendarId, 
-                targetCalendarName: getTargetCalendarName(),
-                calendarSpecificCategories 
-              });
               return calendarSpecificCategories;
             })()} 
             availableLocations={getFilteredLocationsForMultiSelect()}

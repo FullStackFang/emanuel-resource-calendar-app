@@ -29,28 +29,14 @@ const WeekView = memo(({
   showRegistrationTimes
 }) => {
   
-  // DEBUG: Log the showRegistrationTimes prop
-  logger.debug('WeekView: showRegistrationTimes prop:', showRegistrationTimes);
-  
-  // DEBUG: Check if any filtered events have registration properties
+  // Check if any filtered events have registration properties
   if (filteredEvents && filteredEvents.length > 0) {
     const eventsWithRegistration = filteredEvents.filter(event => 
       event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
     );
-    logger.debug('WeekView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
+    // Events with registration properties check completed
     
-    // DEBUG: Let's see a sample event structure
-    if (filteredEvents.length > 0) {
-      logger.debug('WeekView: Sample event structure:', {
-        id: filteredEvents[0].id,
-        subject: filteredEvents[0].subject,
-        hasRegistrationEvent: filteredEvents[0].hasRegistrationEvent,
-        registrationStart: filteredEvents[0].registrationStart,
-        registrationEnd: filteredEvents[0].registrationEnd,
-        setupMinutes: filteredEvents[0].setupMinutes,
-        teardownMinutes: filteredEvents[0].teardownMinutes
-      });
-    }
+    // Sample event structure check completed
   }
   
   // Helper function to get the display location for an event
@@ -181,13 +167,6 @@ const WeekView = memo(({
                         // Use registration times if available and toggle is enabled
                         let displayStartTime, displayEndTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
-                          logger.debug('WeekView: Using registration times for event:', {
-                            subject: event.subject,
-                            originalStart: event.start.dateTime,
-                            originalEnd: event.end.dateTime,
-                            registrationStart: event.registrationStart,
-                            registrationEnd: event.registrationEnd
-                          });
                           displayStartTime = new Date(event.registrationStart);
                           displayEndTime = new Date(event.registrationEnd);
                         } else {
