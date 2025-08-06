@@ -5053,7 +5053,11 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       specialRequirements,
       department,
       phone,
-      priority = 'medium'
+      priority = 'medium',
+      // New delegation fields
+      isOnBehalfOf = false,
+      contactName,
+      contactEmail
     } = req.body;
     
     // Validation
@@ -5063,6 +5067,23 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       });
     }
     
+    // Validate delegation fields if on behalf of someone else
+    if (isOnBehalfOf) {
+      if (!contactName || !contactEmail) {
+        return res.status(400).json({
+          error: 'Contact name and email are required when submitting on behalf of someone else'
+        });
+      }
+      
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(contactEmail)) {
+        return res.status(400).json({
+          error: 'Invalid contact email format'
+        });
+      }
+    }
+    
     // Create reservation record
     const reservation = {
       requesterId: userId,
@@ -5070,6 +5091,11 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       requesterEmail: userEmail,
       department: department || '',
       phone: phone || '',
+      
+      // Delegation fields
+      isOnBehalfOf: isOnBehalfOf,
+      contactName: isOnBehalfOf ? contactName : null,
+      contactEmail: isOnBehalfOf ? contactEmail : null,
       
       eventTitle,
       eventDescription: eventDescription || '',
@@ -5144,7 +5170,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       specialRequirements,
       department,
       phone,
-      priority = 'medium'
+      priority = 'medium',
+      // New delegation fields
+      isOnBehalfOf = false,
+      contactName,
+      contactEmail
     } = req.body;
     
     // Validation
@@ -5152,6 +5182,23 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       return res.status(400).json({ 
         error: 'Missing required fields: requesterName, requesterEmail, eventTitle, startDateTime, endDateTime, requestedRooms' 
       });
+    }
+    
+    // Validate delegation fields if on behalf of someone else
+    if (isOnBehalfOf) {
+      if (!contactName || !contactEmail) {
+        return res.status(400).json({
+          error: 'Contact name and email are required when submitting on behalf of someone else'
+        });
+      }
+      
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(contactEmail)) {
+        return res.status(400).json({
+          error: 'Invalid contact email format'
+        });
+      }
     }
     
     // Mark token as used
@@ -5173,6 +5220,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       requesterEmail,
       department: department || '',
       phone: phone || '',
+      
+      // Delegation fields
+      isOnBehalfOf: isOnBehalfOf,
+      contactName: isOnBehalfOf ? contactName : null,
+      contactEmail: isOnBehalfOf ? contactEmail : null,
       
       eventTitle,
       eventDescription: eventDescription || '',
@@ -5298,6 +5350,69 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching room reservation:', error);
     res.status(500).json({ error: 'Failed to fetch room reservation' });
+  }
+});
+
+/**
+ * Cancel a room reservation (users can only cancel their own pending reservations)
+ */
+app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const { reason } = req.body;
+    
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Cancellation reason is required' });
+    }
+    
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
+    
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Only allow users to cancel their own reservations
+    if (reservation.requesterId !== userId) {
+      return res.status(403).json({ error: 'You can only cancel your own reservation requests' });
+    }
+    
+    // Only allow cancellation of pending requests
+    if (reservation.status !== 'pending') {
+      return res.status(400).json({ error: 'Only pending reservations can be cancelled' });
+    }
+    
+    // Update the reservation
+    const updateResult = await roomReservationsCollection.updateOne(
+      { _id: new ObjectId(reservationId) },
+      {
+        $set: {
+          status: 'cancelled',
+          cancelReason: reason,
+          actionDate: new Date(),
+          actionBy: userId
+        }
+      }
+    );
+    
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    logger.info('Room reservation cancelled:', {
+      reservationId,
+      cancelledBy: userId,
+      reason: reason
+    });
+    
+    res.json({ 
+      message: 'Reservation cancelled successfully',
+      reservationId,
+      status: 'cancelled'
+    });
+  } catch (error) {
+    logger.error('Error cancelling room reservation:', error);
+    res.status(500).json({ error: 'Failed to cancel reservation' });
   }
 });
 

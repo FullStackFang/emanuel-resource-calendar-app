@@ -115,6 +115,66 @@
   box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
 }
 
+/* Read-only fields */
+.readonly-field {
+  background-color: #f9fafb !important;
+  color: #6b7280 !important;
+  cursor: not-allowed;
+  border-color: #e5e7eb !important;
+}
+
+/* Delegation section */
+.delegation-checkbox {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  padding: 15px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f8fafc;
+  transition: all 0.2s;
+}
+
+.delegation-checkbox:hover {
+  background: #f1f5f9;
+  border-color: #d1d5db;
+}
+
+.delegation-checkbox input[type="checkbox"] {
+  margin-right: 12px;
+  margin-top: 2px;
+  cursor: pointer;
+  transform: scale(1.2);
+}
+
+.delegation-checkbox span {
+  font-weight: 500;
+  color: #374151;
+  line-height: 1.4;
+}
+
+.delegation-fields {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fefefe;
+}
+
+.delegation-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 12px;
+  color: #1e40af;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.delegation-info strong {
+  color: #1d4ed8;
+}
+
 .form-group textarea {
   resize: vertical;
   min-height: 60px;

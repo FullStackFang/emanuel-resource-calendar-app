@@ -1,35 +1,36 @@
-// src/components/ReservationRequests.jsx
+// src/components/MyReservations.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/RoomContext';
-import './ReservationRequests.css';
+import './MyReservations.css';
 
-export default function ReservationRequests({ apiToken }) {
+export default function MyReservations({ apiToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState(null);
-  const [actionNotes, setActionNotes] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
   
-  // Load all reservations once on mount
+  // Load all user's reservations once on mount
   useEffect(() => {
     if (apiToken) {
-      loadAllReservations();
+      loadMyReservations();
     }
   }, [apiToken]);
-  
-  const loadAllReservations = async () => {
+
+  const loadMyReservations = async () => {
     try {
       setLoading(true);
       setError('');
       
-      // Load all reservations without pagination or filtering
+      // Load all user's reservations (API automatically filters by user)
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
@@ -41,8 +42,8 @@ export default function ReservationRequests({ apiToken }) {
       const data = await response.json();
       setAllReservations(data.reservations || []);
     } catch (err) {
-      logger.error('Error loading reservations:', err);
-      setError('Failed to load reservation requests');
+      logger.error('Error loading user reservations:', err);
+      setError('Failed to load your reservation requests');
     } finally {
       setLoading(false);
     }
@@ -68,64 +69,39 @@ export default function ReservationRequests({ apiToken }) {
     setPage(1);
   };
   
-  const handleApprove = async (reservation) => {
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ notes: actionNotes })
-      });
-      
-      if (!response.ok) throw new Error('Failed to approve reservation');
-      
-      // Update local state
-      setAllReservations(prev => prev.map(r => 
-        r._id === reservation._id 
-          ? { ...r, status: 'approved', actionDate: new Date() }
-          : r
-      ));
-      
-      setSelectedReservation(null);
-      setActionNotes('');
-    } catch (err) {
-      logger.error('Error approving reservation:', err);
-      setError('Failed to approve reservation');
-    }
-  };
-  
-  const handleReject = async (reservation) => {
-    if (!actionNotes.trim()) {
-      alert('Please provide a reason for rejection');
+  const handleCancelRequest = async (reservation) => {
+    if (!cancelReason.trim()) {
+      alert('Please provide a reason for cancellation');
       return;
     }
     
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/reject`, {
+      setCancelling(true);
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/cancel`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason: actionNotes })
+        body: JSON.stringify({ reason: cancelReason })
       });
       
-      if (!response.ok) throw new Error('Failed to reject reservation');
+      if (!response.ok) throw new Error('Failed to cancel reservation');
       
       // Update local state
       setAllReservations(prev => prev.map(r => 
         r._id === reservation._id 
-          ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: actionNotes }
+          ? { ...r, status: 'cancelled', actionDate: new Date(), cancelReason: cancelReason }
           : r
       ));
       
       setSelectedReservation(null);
-      setActionNotes('');
+      setCancelReason('');
     } catch (err) {
-      logger.error('Error rejecting reservation:', err);
-      setError('Failed to reject reservation');
+      logger.error('Error cancelling reservation:', err);
+      setError('Failed to cancel reservation request');
+    } finally {
+      setCancelling(false);
     }
   };
   
@@ -160,12 +136,12 @@ export default function ReservationRequests({ apiToken }) {
   };
   
   if (loading && allReservations.length === 0) {
-    return <div className="reservation-requests loading">Loading reservation requests...</div>;
+    return <div className="my-reservations loading">Loading your reservation requests...</div>;
   }
   
   return (
-    <div className="reservation-requests">
-      <h1>Reservation Requests</h1>
+    <div className="my-reservations">
+      <h1>My Room Reservations</h1>
       
       {error && (
         <div className="error-message">
@@ -204,6 +180,13 @@ export default function ReservationRequests({ apiToken }) {
             Rejected
             <span className="count">({allReservations.filter(r => r.status === 'rejected').length})</span>
           </button>
+          <button
+            className={`tab ${activeTab === 'cancelled' ? 'active' : ''}`}
+            onClick={() => handleTabChange('cancelled')}
+          >
+            Cancelled
+            <span className="count">({allReservations.filter(r => r.status === 'cancelled').length})</span>
+          </button>
         </div>
       </div>
       
@@ -214,7 +197,6 @@ export default function ReservationRequests({ apiToken }) {
             <tr>
               <th>Submitted</th>
               <th>Event Details</th>
-              <th>Requester</th>
               <th>Date & Time</th>
               <th>Rooms</th>
               <th>Priority</th>
@@ -230,32 +212,14 @@ export default function ReservationRequests({ apiToken }) {
                 </td>
                 <td className="event-details">
                   <strong>{reservation.eventTitle}</strong>
+                  {reservation.isOnBehalfOf && reservation.contactName && (
+                    <div className="delegation-status">📋 On behalf of {reservation.contactName}</div>
+                  )}
                   {reservation.eventDescription && (
                     <div className="event-desc">{reservation.eventDescription}</div>
                   )}
                   {reservation.attendeeCount > 0 && (
                     <div className="attendee-count">👥 {reservation.attendeeCount} attendees</div>
-                  )}
-                </td>
-                <td className="requester-info">
-                  <div className="submitter-info">
-                    <strong>Submitted by:</strong>
-                    <div>{reservation.requesterName}</div>
-                    <div className="email">{reservation.requesterEmail}</div>
-                  </div>
-                  {reservation.isOnBehalfOf && reservation.contactName && (
-                    <div className="contact-info">
-                      <strong>Contact Person:</strong>
-                      <div>{reservation.contactName}</div>
-                      <div className="email">{reservation.contactEmail}</div>
-                      <div className="delegation-badge">📋 On Behalf Of</div>
-                    </div>
-                  )}
-                  {reservation.department && (
-                    <div className="department">{reservation.department}</div>
-                  )}
-                  {reservation.sponsoredBy && (
-                    <div className="sponsor">Sponsored by: {reservation.sponsoredBy}</div>
                   )}
                 </td>
                 <td className="datetime">
@@ -291,23 +255,24 @@ export default function ReservationRequests({ apiToken }) {
                       ❌ {reservation.rejectionReason}
                     </div>
                   )}
+                  {reservation.cancelReason && (
+                    <div className="cancel-reason" title={reservation.cancelReason}>
+                      🚫 {reservation.cancelReason}
+                    </div>
+                  )}
+                  {reservation.actionDate && reservation.status !== 'pending' && (
+                    <div className="action-date">
+                      {reservation.status === 'approved' ? '✅' : reservation.status === 'rejected' ? '❌' : '🚫'} {new Date(reservation.actionDate).toLocaleDateString()}
+                    </div>
+                  )}
                 </td>
                 <td className="actions">
-                  {reservation.status === 'pending' && (
-                    <>
-                      <button
-                        className="view-btn"
-                        onClick={() => setSelectedReservation(reservation)}
-                      >
-                        Review
-                      </button>
-                    </>
-                  )}
-                  {reservation.status === 'approved' && reservation.createdEventIds?.length > 0 && (
-                    <button className="view-event-btn">
-                      View Event
-                    </button>
-                  )}
+                  <button
+                    className="view-btn"
+                    onClick={() => setSelectedReservation(reservation)}
+                  >
+                    View Details
+                  </button>
                 </td>
               </tr>
             ))}
@@ -317,8 +282,8 @@ export default function ReservationRequests({ apiToken }) {
         {paginatedReservations.length === 0 && !loading && (
           <div className="no-reservations">
             {activeTab === 'all' 
-              ? 'No reservation requests found.' 
-              : `No ${activeTab} reservation requests found.`}
+              ? "You haven't submitted any reservation requests yet." 
+              : `You don't have any ${activeTab} reservation requests.`}
           </div>
         )}
       </div>
@@ -342,32 +307,26 @@ export default function ReservationRequests({ apiToken }) {
         </div>
       )}
       
-      {/* Review Modal */}
+      {/* Details/Cancel Modal */}
       {selectedReservation && (
-        <div className="review-modal-overlay">
-          <div className="review-modal">
-            <h2>Review Reservation Request</h2>
+        <div className="details-modal-overlay">
+          <div className="details-modal">
+            <h2>
+              {selectedReservation.status === 'pending' ? 'Cancel Reservation Request' : 'Reservation Details'}
+            </h2>
             
             <div className="reservation-details">
               <div className="detail-row">
                 <label>Event:</label>
                 <div>{selectedReservation.eventTitle}</div>
               </div>
-              
-              <div className="detail-row">
-                <label>Submitted by:</label>
-                <div>
-                  {selectedReservation.requesterName} ({selectedReservation.requesterEmail})
-                  {selectedReservation.phone && <div>📞 {selectedReservation.phone}</div>}
-                </div>
-              </div>
 
               {selectedReservation.isOnBehalfOf && selectedReservation.contactName && (
                 <div className="detail-row">
-                  <label>Contact Person:</label>
+                  <label>Submitted for:</label>
                   <div>
                     {selectedReservation.contactName} ({selectedReservation.contactEmail})
-                    <div className="delegation-indicator">📋 This request was submitted on behalf of this person</div>
+                    <div className="delegation-note">📧 Updates will be sent to this contact</div>
                   </div>
                 </div>
               )}
@@ -390,6 +349,15 @@ export default function ReservationRequests({ apiToken }) {
                   }).join(', ')}
                 </div>
               </div>
+
+              <div className="detail-row">
+                <label>Status:</label>
+                <div>
+                  <span className={`status-badge ${getStatusBadgeClass(selectedReservation.status)}`}>
+                    {selectedReservation.status}
+                  </span>
+                </div>
+              </div>
               
               {selectedReservation.requiredFeatures?.length > 0 && (
                 <div className="detail-row">
@@ -398,46 +366,67 @@ export default function ReservationRequests({ apiToken }) {
                 </div>
               )}
               
+              {selectedReservation.eventDescription && (
+                <div className="detail-row">
+                  <label>Description:</label>
+                  <div>{selectedReservation.eventDescription}</div>
+                </div>
+              )}
+
               {selectedReservation.specialRequirements && (
                 <div className="detail-row">
                   <label>Special Requirements:</label>
                   <div>{selectedReservation.specialRequirements}</div>
                 </div>
               )}
+
+              {selectedReservation.rejectionReason && (
+                <div className="detail-row">
+                  <label>Rejection Reason:</label>
+                  <div className="rejection-text">{selectedReservation.rejectionReason}</div>
+                </div>
+              )}
+
+              {selectedReservation.cancelReason && (
+                <div className="detail-row">
+                  <label>Cancellation Reason:</label>
+                  <div className="cancel-text">{selectedReservation.cancelReason}</div>
+                </div>
+              )}
             </div>
             
-            <div className="action-notes">
-              <label htmlFor="actionNotes">Notes / Rejection Reason:</label>
-              <textarea
-                id="actionNotes"
-                value={actionNotes}
-                onChange={(e) => setActionNotes(e.target.value)}
-                rows="4"
-                placeholder="Add any notes or provide a reason for rejection..."
-              />
-            </div>
+            {selectedReservation.status === 'pending' && (
+              <div className="cancel-section">
+                <label htmlFor="cancelReason">Reason for Cancellation:</label>
+                <textarea
+                  id="cancelReason"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows="3"
+                  placeholder="Please provide a reason for cancelling this reservation request..."
+                />
+              </div>
+            )}
             
             <div className="modal-actions">
+              {selectedReservation.status === 'pending' && (
+                <button
+                  className="confirm-cancel-btn"
+                  onClick={() => handleCancelRequest(selectedReservation)}
+                  disabled={cancelling}
+                >
+                  {cancelling ? 'Cancelling...' : 'Cancel Request'}
+                </button>
+              )}
               <button
-                className="approve-btn"
-                onClick={() => handleApprove(selectedReservation)}
-              >
-                Approve
-              </button>
-              <button
-                className="reject-btn"
-                onClick={() => handleReject(selectedReservation)}
-              >
-                Reject
-              </button>
-              <button
-                className="cancel-btn"
+                className="close-btn"
                 onClick={() => {
                   setSelectedReservation(null);
-                  setActionNotes('');
+                  setCancelReason('');
                 }}
+                disabled={cancelling}
               >
-                Cancel
+                Close
               </button>
             </div>
           </div>

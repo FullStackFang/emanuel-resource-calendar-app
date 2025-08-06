@@ -1,12 +1,12 @@
-/* src/components/ReservationRequests.css */
+/* src/components/MyReservations.css */
 
-.reservation-requests {
+.my-reservations {
   padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
-.reservation-requests h1 {
+.my-reservations h1 {
   color: #333;
   margin-bottom: 30px;
 }
@@ -110,8 +110,8 @@
 .reservations-table tbody tr {
   display: table;
   width: 100%;
-  table-layout: auto;
-  min-width: 1200px;
+  table-layout: fixed;
+  min-width: 1300px;
 }
 
 .reservations-table th {
@@ -124,46 +124,44 @@
   white-space: nowrap;
 }
 
-/* Specific column widths */
-.reservations-table th:nth-child(1), /* Submitted */
-.reservations-table td:nth-child(1) {
-  width: 100px;
+/* Specific column widths for user view - utilizing full width */
+.my-reservations .reservations-table th:nth-child(1), /* Submitted */
+.my-reservations .reservations-table td:nth-child(1) {
+  width: 130px;
 }
 
-.reservations-table th:nth-child(2), /* Event Details */
-.reservations-table td:nth-child(2) {
-  width: 300px;
+.my-reservations .reservations-table th:nth-child(2), /* Event Details */
+.my-reservations .reservations-table td:nth-child(2) {
+  width: 450px;
+}
+
+.my-reservations .reservations-table td:nth-child(2) {
   white-space: normal;
 }
 
-.reservations-table th:nth-child(3), /* Requester */
-.reservations-table td:nth-child(3) {
-  width: 200px;
+.my-reservations .reservations-table th:nth-child(3), /* Date & Time */
+.my-reservations .reservations-table td:nth-child(3) {
+  width: 250px;
 }
 
-.reservations-table th:nth-child(4), /* Date & Time */
-.reservations-table td:nth-child(4) {
-  width: 200px;
+.my-reservations .reservations-table th:nth-child(4), /* Rooms */
+.my-reservations .reservations-table td:nth-child(4) {
+  width: 160px;
 }
 
-.reservations-table th:nth-child(5), /* Rooms */
-.reservations-table td:nth-child(5) {
-  width: 120px;
+.my-reservations .reservations-table th:nth-child(5), /* Priority */
+.my-reservations .reservations-table td:nth-child(5) {
+  width: 90px;
 }
 
-.reservations-table th:nth-child(6), /* Priority */
-.reservations-table td:nth-child(6) {
-  width: 80px;
+.my-reservations .reservations-table th:nth-child(6), /* Status */
+.my-reservations .reservations-table td:nth-child(6) {
+  width: 170px;
 }
 
-.reservations-table th:nth-child(7), /* Status */
-.reservations-table td:nth-child(7) {
-  width: 100px;
-}
-
-.reservations-table th:nth-child(8), /* Actions */
-.reservations-table td:nth-child(8) {
-  width: 100px;
+.my-reservations .reservations-table th:nth-child(7), /* Actions */
+.my-reservations .reservations-table td:nth-child(7) {
+  width: 130px;
 }
 
 .reservations-table td {
@@ -174,6 +172,10 @@
 
 .reservations-table tr:hover {
   background: #f9fafb;
+}
+
+.reservations-table tbody {
+  transition: opacity 0.2s ease;
 }
 
 /* Table Cell Styles */
@@ -207,72 +209,24 @@
   margin-top: 4px;
 }
 
-.requester-info {
-  font-size: 0.9rem;
-}
-
-.requester-info .email {
-  color: #6b7280;
-  font-size: 0.85rem;
-}
-
-.requester-info .department {
-  color: #9ca3af;
-  font-size: 0.85rem;
-  font-style: italic;
-}
-
-.requester-info .sponsor {
-  color: #7c3aed;
-  font-size: 0.85rem;
-  margin-top: 4px;
-}
-
-/* Delegation styling */
-.submitter-info {
-  margin-bottom: 12px;
-}
-
-.submitter-info strong {
-  font-size: 0.85rem;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.contact-info {
-  padding: 8px;
-  background: #f0f8ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 4px;
-  margin-top: 8px;
-}
-
-.contact-info strong {
-  font-size: 0.85rem;
-  color: #1e40af;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.delegation-badge {
+.delegation-status {
   background: #dbeafe;
   color: #1e40af;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 3px;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 500;
   margin-top: 4px;
   display: inline-block;
 }
 
-.delegation-indicator {
-  background: #dbeafe;
+.delegation-note {
+  background: #eff6ff;
   color: #1e40af;
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+  margin-top: 4px;
   font-style: italic;
 }
 
@@ -288,7 +242,7 @@
 }
 
 .rooms {
-  max-width: 150px;
+  max-width: 120px;
 }
 
 .room-badge {
@@ -346,14 +300,28 @@
   color: #1e40af;
 }
 
-.rejection-reason {
+.rejection-reason,
+.cancel-reason {
   font-size: 0.8rem;
-  color: #dc2626;
   margin-top: 4px;
-  max-width: 200px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rejection-reason {
+  color: #dc2626;
+}
+
+.cancel-reason {
+  color: #6b7280;
+}
+
+.action-date {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-top: 2px;
 }
 
 /* Actions */
@@ -362,7 +330,7 @@
 }
 
 .view-btn,
-.view-event-btn {
+.cancel-btn {
   padding: 6px 12px;
   border: none;
   border-radius: 4px;
@@ -370,6 +338,7 @@
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  margin: 2px;
 }
 
 .view-btn {
@@ -381,13 +350,13 @@
   background: #106ebe;
 }
 
-.view-event-btn {
-  background: #e5e7eb;
-  color: #374151;
+.cancel-btn {
+  background: #ef4444;
+  color: white;
 }
 
-.view-event-btn:hover {
-  background: #d1d5db;
+.cancel-btn:hover {
+  background: #dc2626;
 }
 
 /* No Reservations */
@@ -438,8 +407,8 @@
   font-size: 0.95rem;
 }
 
-/* Review Modal */
-.review-modal-overlay {
+/* Details/Cancel Modal */
+.details-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -453,7 +422,7 @@
   padding: 20px;
 }
 
-.review-modal {
+.details-modal {
   background: white;
   border-radius: 8px;
   padding: 30px;
@@ -464,7 +433,7 @@
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
 }
 
-.review-modal h2 {
+.details-modal h2 {
   margin: 0 0 25px 0;
   color: #333;
 }
@@ -497,18 +466,28 @@
   flex: 1;
 }
 
-.action-notes {
+.rejection-text {
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.cancel-text {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.cancel-section {
   margin-bottom: 20px;
 }
 
-.action-notes label {
+.cancel-section label {
   display: block;
   font-weight: 500;
   color: #374151;
   margin-bottom: 8px;
 }
 
-.action-notes textarea {
+.cancel-section textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid #d1d5db;
@@ -518,7 +497,7 @@
   min-height: 80px;
 }
 
-.action-notes textarea:focus {
+.cancel-section textarea:focus {
   outline: none;
   border-color: #0078d4;
   box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
@@ -533,9 +512,8 @@
   border-top: 1px solid #e5e7eb;
 }
 
-.approve-btn,
-.reject-btn,
-.cancel-btn {
+.confirm-cancel-btn,
+.close-btn {
   padding: 10px 20px;
   border: none;
   border-radius: 6px;
@@ -545,43 +523,39 @@
   transition: all 0.2s;
 }
 
-.approve-btn {
-  background: #10b981;
-  color: white;
-}
-
-.approve-btn:hover {
-  background: #059669;
-}
-
-.reject-btn {
+.confirm-cancel-btn {
   background: #ef4444;
   color: white;
 }
 
-.reject-btn:hover {
+.confirm-cancel-btn:hover:not(:disabled) {
   background: #dc2626;
 }
 
-.cancel-btn {
+.confirm-cancel-btn:disabled {
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
+.close-btn {
   background: white;
   color: #374151;
   border: 1px solid #d1d5db;
 }
 
-.cancel-btn:hover {
+.close-btn:hover:not(:disabled) {
   background: #f9fafb;
   border-color: #9ca3af;
 }
 
 /* Responsive Design */
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .reservations-table-container {
     overflow-x: auto;
   }
   
   .reservations-table {
-    min-width: 1000px;
+    min-width: 1300px;
   }
 }
 
@@ -615,9 +589,8 @@
     flex-direction: column;
   }
   
-  .approve-btn,
-  .reject-btn,
-  .cancel-btn {
+  .confirm-cancel-btn,
+  .close-btn {
     width: 100%;
   }
 }

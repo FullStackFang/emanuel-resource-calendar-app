@@ -12,11 +12,13 @@ import EventSyncAdmin from './components/EventSyncAdmin';
 import CacheAdmin from './components/CacheAdmin';
 import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import RoomReservationForm from './components/RoomReservationForm';
+import MyReservations from './components/MyReservations';
 import RoomManagement from './components/RoomManagement';
 import ReservationRequests from './components/ReservationRequests';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
+import { RoomProvider } from './context/RoomContext';
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
@@ -215,12 +217,13 @@ function App() {
         </header>
         <main>
           {apiToken && graphToken ? (
-            // Wrap authenticated routes with TimezoneProvider
+            // Wrap authenticated routes with providers
             <TimezoneProvider 
               apiToken={apiToken}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               initialTimezone="UTC"
             >
+              <RoomProvider apiToken={apiToken}>
               <Navigation 
                 selectedCalendarId={selectedCalendarId}
                 availableCalendars={availableCalendars}
@@ -259,10 +262,12 @@ function App() {
                 <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/room-reservation" element={<RoomReservationForm apiToken={apiToken} />} />
                 <Route path="/room-reservation/public/:token" element={<RoomReservationForm isPublic={true} />} />
+                <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
                 <Route path="/admin/rooms" element={<RoomManagement apiToken={apiToken} />} />
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+              </RoomProvider>
             </TimezoneProvider>
           ) : signedOut ? (
             <div className="signed-out-landing">

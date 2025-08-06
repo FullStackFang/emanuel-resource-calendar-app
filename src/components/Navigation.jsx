@@ -74,6 +74,12 @@ export default function Navigation({
         </li>
 
         <li>
+          <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
+            My Reservations
+          </NavLink>
+        </li>
+
+        <li>
           <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
             My Profile
           </NavLink>

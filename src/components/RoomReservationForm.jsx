@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import { useRooms } from '../context/RoomContext';
 import './RoomReservationForm.css';
 
 export default function RoomReservationForm({ apiToken, isPublic }) {
@@ -27,16 +28,21 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     requestedRooms: [],
     requiredFeatures: [],
     specialRequirements: '',
-    priority: 'medium'
+    priority: 'medium',
+    // Contact field for reservation updates
+    contactEmail: ''
   });
   
   // UI state
-  const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [availability, setAvailability] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  
+  // Use room context for efficient room management
+  const { rooms, loading: roomsLoading, getRoomName } = useRooms();
   
   // Feature options
   const featureOptions = [
@@ -51,14 +57,9 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     { value: 'hearing-loop', label: '🔊 Hearing Loop' }
   ];
   
-  // Load available rooms
+  // Auto-fill user email if authenticated and not in public mode (only once)
   useEffect(() => {
-    loadRooms();
-  }, []);
-
-  // Auto-fill user email if authenticated and not in public mode
-  useEffect(() => {
-    if (!isPublic && accounts.length > 0) {
+    if (!isPublic && accounts.length > 0 && !hasAutoFilled) {
       const userEmail = accounts[0].username;
       const displayName = accounts[0].name || '';
       
@@ -67,21 +68,10 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         requesterEmail: userEmail,
         requesterName: displayName
       }));
-    }
-  }, [isPublic, accounts]);
-  
-  const loadRooms = async () => {
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms`);
-      if (!response.ok) throw new Error('Failed to load rooms');
       
-      const data = await response.json();
-      setRooms(data);
-    } catch (err) {
-      logger.error('Error loading rooms:', err);
-      setError('Failed to load available rooms');
+      setHasAutoFilled(true);
     }
-  };
+  }, [isPublic, accounts, hasAutoFilled]);
   
   // Check room availability when dates change
   useEffect(() => {
@@ -257,29 +247,31 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       <form onSubmit={handleSubmit}>
         {/* Contact Information */}
         <section className="form-section">
-          <h2>Contact Information</h2>
+          <h2>Submitter Information</h2>
           <div className="form-grid">
             <div className="form-group">
-              <label htmlFor="requesterName">Name *</label>
+              <label htmlFor="requesterName">Your Name *</label>
               <input
                 type="text"
                 id="requesterName"
                 name="requesterName"
                 value={formData.requesterName}
-                onChange={handleInputChange}
-                required
+                readOnly
+                className="readonly-field"
+                title="This field is automatically filled from your account"
               />
             </div>
             
             <div className="form-group">
-              <label htmlFor="requesterEmail">Email *</label>
+              <label htmlFor="requesterEmail">Your Email *</label>
               <input
                 type="email"
                 id="requesterEmail"
                 name="requesterEmail"
                 value={formData.requesterEmail}
-                onChange={handleInputChange}
-                required
+                readOnly
+                className="readonly-field"
+                title="This field is automatically filled from your account"
               />
             </div>
             
@@ -304,6 +296,32 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 onChange={handleInputChange}
               />
             </div>
+          </div>
+        </section>
+
+        {/* Contact Information */}
+        <section className="form-section">
+          <h2>Contact Information</h2>
+          <div className="form-grid">
+            <div className="form-group">
+              <label htmlFor="contactEmail">Contact Person Email</label>
+              <input
+                type="email"
+                id="contactEmail"
+                name="contactEmail"
+                value={formData.contactEmail}
+                onChange={handleInputChange}
+                placeholder="Email for reservation updates"
+              />
+            </div>
+            
+            {formData.contactEmail && (
+              <div className="form-group full-width">
+                <p className="delegation-info">
+                  📧 Reservation updates will be sent to <strong>{formData.contactEmail}</strong>
+                </p>
+              </div>
+            )}
           </div>
         </section>
         
@@ -498,7 +516,11 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
             })}
           </div>
           
-          {allRooms.length === 0 && (
+          {roomsLoading && (
+            <div className="loading-message">Loading available rooms...</div>
+          )}
+          
+          {!roomsLoading && allRooms.length === 0 && (
             <div className="no-rooms-message">
               No rooms available. Please contact the office for assistance.
             </div>
