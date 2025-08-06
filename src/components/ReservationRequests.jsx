@@ -1,37 +1,32 @@
 // src/components/ReservationRequests.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken }) {
-  const [reservations, setReservations] = useState([]);
+  const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
   
+  // Load all reservations once on mount
   useEffect(() => {
-    loadReservations();
-  }, [apiToken, filter, page]);
+    if (apiToken) {
+      loadAllReservations();
+    }
+  }, [apiToken]);
   
-  const loadReservations = async () => {
+  const loadAllReservations = async () => {
     try {
       setLoading(true);
+      setError('');
       
-      const params = new URLSearchParams({
-        page,
-        limit: 20
-      });
-      
-      if (filter !== 'all') {
-        params.append('status', filter);
-      }
-      
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?${params}`, {
+      // Load all reservations without pagination or filtering
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
@@ -40,14 +35,33 @@ export default function ReservationRequests({ apiToken }) {
       if (!response.ok) throw new Error('Failed to load reservations');
       
       const data = await response.json();
-      setReservations(data.reservations);
-      setTotalPages(data.pagination.pages);
+      setAllReservations(data.reservations || []);
     } catch (err) {
       logger.error('Error loading reservations:', err);
       setError('Failed to load reservation requests');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Client-side filtering with memoization
+  const filteredReservations = useMemo(() => {
+    if (activeTab === 'all') {
+      return allReservations;
+    }
+    return allReservations.filter(reservation => reservation.status === activeTab);
+  }, [allReservations, activeTab]);
+
+  // Pagination for filtered results
+  const itemsPerPage = 20;
+  const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
+  const startIndex = (page - 1) * itemsPerPage;
+  const paginatedReservations = filteredReservations.slice(startIndex, startIndex + itemsPerPage);
+
+  // Reset page when tab changes
+  const handleTabChange = (newTab) => {
+    setActiveTab(newTab);
+    setPage(1);
   };
   
   const handleApprove = async (reservation) => {
@@ -64,7 +78,7 @@ export default function ReservationRequests({ apiToken }) {
       if (!response.ok) throw new Error('Failed to approve reservation');
       
       // Update local state
-      setReservations(prev => prev.map(r => 
+      setAllReservations(prev => prev.map(r => 
         r._id === reservation._id 
           ? { ...r, status: 'approved', actionDate: new Date() }
           : r
@@ -97,7 +111,7 @@ export default function ReservationRequests({ apiToken }) {
       if (!response.ok) throw new Error('Failed to reject reservation');
       
       // Update local state
-      setReservations(prev => prev.map(r => 
+      setAllReservations(prev => prev.map(r => 
         r._id === reservation._id 
           ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: actionNotes }
           : r
@@ -141,7 +155,7 @@ export default function ReservationRequests({ apiToken }) {
     }
   };
   
-  if (loading && reservations.length === 0) {
+  if (loading && allReservations.length === 0) {
     return <div className="reservation-requests loading">Loading reservation requests...</div>;
   }
   
@@ -155,44 +169,36 @@ export default function ReservationRequests({ apiToken }) {
         </div>
       )}
       
-      {/* Filters */}
-      <div className="filters-bar">
-        <div className="filter-buttons">
+      {/* Tab Navigation */}
+      <div className="tabs-container">
+        <div className="tabs">
           <button
-            className={filter === 'all' ? 'active' : ''}
-            onClick={() => {
-              setFilter('all');
-              setPage(1);
-            }}
+            className={`tab ${activeTab === 'all' ? 'active' : ''}`}
+            onClick={() => handleTabChange('all')}
           >
             All Requests
+            <span className="count">({allReservations.length})</span>
           </button>
           <button
-            className={filter === 'pending' ? 'active' : ''}
-            onClick={() => {
-              setFilter('pending');
-              setPage(1);
-            }}
+            className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
+            onClick={() => handleTabChange('pending')}
           >
             Pending
+            <span className="count">({allReservations.filter(r => r.status === 'pending').length})</span>
           </button>
           <button
-            className={filter === 'approved' ? 'active' : ''}
-            onClick={() => {
-              setFilter('approved');
-              setPage(1);
-            }}
+            className={`tab ${activeTab === 'approved' ? 'active' : ''}`}
+            onClick={() => handleTabChange('approved')}
           >
             Approved
+            <span className="count">({allReservations.filter(r => r.status === 'approved').length})</span>
           </button>
           <button
-            className={filter === 'rejected' ? 'active' : ''}
-            onClick={() => {
-              setFilter('rejected');
-              setPage(1);
-            }}
+            className={`tab ${activeTab === 'rejected' ? 'active' : ''}`}
+            onClick={() => handleTabChange('rejected')}
           >
             Rejected
+            <span className="count">({allReservations.filter(r => r.status === 'rejected').length})</span>
           </button>
         </div>
       </div>
@@ -213,7 +219,7 @@ export default function ReservationRequests({ apiToken }) {
             </tr>
           </thead>
           <tbody>
-            {reservations.map(reservation => (
+            {paginatedReservations.map(reservation => (
               <tr key={reservation._id}>
                 <td className="submitted-date">
                   {new Date(reservation.submittedAt).toLocaleDateString()}
@@ -284,9 +290,11 @@ export default function ReservationRequests({ apiToken }) {
           </tbody>
         </table>
         
-        {reservations.length === 0 && (
+        {paginatedReservations.length === 0 && !loading && (
           <div className="no-reservations">
-            No reservation requests found.
+            {activeTab === 'all' 
+              ? 'No reservation requests found.' 
+              : `No ${activeTab} reservation requests found.`}
           </div>
         )}
       </div>

@@ -1470,7 +1470,7 @@ async function getUnifiedEvents(userId, calendarId = null, startDate = null, end
     
     // Add calendar filter if specified
     if (calendarId) {
-      query["sourceCalendars.calendarId"] = calendarId;
+      query.calendarId = calendarId;
     }
     
     // Add date range filter if specified
@@ -1759,12 +1759,30 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
       }
     }
     
-    // Return unified events for the requested date range
+    // Return unified events for the requested date range from the synced calendars only
     let unifiedEvents = [];
     if (startTime && endTime) {
-      unifiedEvents = await getUnifiedEvents(userId, null, new Date(startTime), new Date(endTime));
+      // Get events only from the calendars we just synced
+      for (const calendarId of calendarIds) {
+        const calendarEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
+        unifiedEvents = unifiedEvents.concat(calendarEvents);
+      }
+      logger.debug(`Returning ${unifiedEvents.length} events from calendars: ${calendarIds.join(', ')}`);
+      
+      // Log details about which events belong to which calendar
+      const eventsByCalendar = {};
+      unifiedEvents.forEach(event => {
+        const calId = event.calendarId || 'unknown';
+        eventsByCalendar[calId] = (eventsByCalendar[calId] || 0) + 1;
+      });
+      logger.debug('Events by calendar ID:', eventsByCalendar);
     } else {
-      unifiedEvents = await getUnifiedEvents(userId);
+      // If no date range, still filter by calendar IDs
+      for (const calendarId of calendarIds) {
+        const calendarEvents = await getUnifiedEvents(userId, calendarId);
+        unifiedEvents = unifiedEvents.concat(calendarEvents);
+      }
+      logger.debug(`Returning ${unifiedEvents.length} events from calendars (no date range): ${calendarIds.join(', ')}`);
     }
     
     // Transform events to frontend format
@@ -4677,15 +4695,20 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
 app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { events, dateRange } = req.body;
+    const { events, dateRange, calendarId } = req.body;
     
     if (!events || !Array.isArray(events)) {
       return res.status(400).json({ error: 'events array is required' });
     }
     
+    if (!calendarId) {
+      return res.status(400).json({ error: 'calendarId is required' });
+    }
+    
     logger.debug(`[MANUAL SYNC] Starting manual sync for user ${userId}`, {
       eventCount: events.length,
       dateRange,
+      calendarId,
       collectionName: 'templeEvents__Events',
       endpoint: '/api/internal-events/sync'
     });
@@ -4713,15 +4736,15 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
         
         // Prepare source calendars array
         const sourceCalendars = [{
-          calendarId: event.calendarId || 'primary',
-          calendarName: event.calendarId?.includes('TempleRegistration') ? 'Temple Registrations' : 'Primary Calendar',
-          role: event.calendarId?.includes('TempleRegistration') ? 'shared' : 'primary'
+          calendarId: calendarId,
+          calendarName: calendarId?.includes('TempleRegistration') ? 'Temple Registrations' : 'Calendar',
+          role: calendarId?.includes('TempleRegistration') ? 'shared' : 'primary'
         }];
         
         // Prepare unified event structure
         const unifiedEventData = {
           userId: userId,
-          calendarId: event.calendarId || 'primary',
+          calendarId: calendarId,
           eventId: event.id,
           
           // Graph API data (source of truth)
@@ -4779,7 +4802,7 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
           const mergedSourceCalendars = [...(existingUnified.sourceCalendars || [])];
           
           // Add current calendar if not already in source calendars
-          if (!mergedSourceCalendars.find(sc => sc.calendarId === (event.calendarId || 'primary'))) {
+          if (!mergedSourceCalendars.find(sc => sc.calendarId === calendarId)) {
             mergedSourceCalendars.push(sourceCalendars[0]);
           }
           

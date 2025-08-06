@@ -19,6 +19,7 @@ import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
+import calendarDebug from './utils/calendarDebug';
 import './App.css';
 
 function App() {
@@ -34,10 +35,43 @@ function App() {
   const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
 
   // Handle calendar change
-  const handleCalendarChange = (newCalendarId) => {
+  const handleCalendarChange = useCallback((newCalendarId) => {
+    console.log('[App] handleCalendarChange called:', {
+      currentCalendarId: selectedCalendarId,
+      newCalendarId,
+      currentChangingCalendar: changingCalendar
+    });
+    
+    // Don't allow changing if already changing
+    if (changingCalendar) {
+      console.log('[App] Already changing calendar, ignoring request');
+      return;
+    }
+    
+    // Validate that the calendar exists
+    const calendarExists = availableCalendars.some(cal => cal.id === newCalendarId);
+    if (!calendarExists) {
+      calendarDebug.logError('Invalid calendar selection', new Error('Calendar not found'), { 
+        newCalendarId, 
+        availableCalendarIds: availableCalendars.map(c => c.id) 
+      });
+      return;
+    }
+    
+    // Don't change if it's the same calendar
+    if (selectedCalendarId === newCalendarId) {
+      console.log('[App] Same calendar selected, ignoring');
+      return;
+    }
+    
+    console.log('[App] Setting changingCalendar to true and selectedCalendarId to:', newCalendarId);
+    calendarDebug.logCalendarChange(selectedCalendarId, newCalendarId, availableCalendars);
+    calendarDebug.logStateChange('changingCalendar', false, true);
+    
+    // Update both states in the same batch
     setChangingCalendar(true);
     setSelectedCalendarId(newCalendarId);
-  };
+  }, [selectedCalendarId, changingCalendar, availableCalendars]);
 
   // Handle registration times toggle
   const handleRegistrationTimesToggle = useCallback((enabled) => {

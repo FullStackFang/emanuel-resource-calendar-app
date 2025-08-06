@@ -190,6 +190,16 @@
   box-shadow: none;
 }
 
+.room-card.room-insufficient {
+  background: #fee;
+  border-color: #fcc;
+}
+
+.room-card.room-insufficient:hover {
+  border-color: #faa;
+  box-shadow: 0 2px 4px rgba(255, 0, 0, 0.1);
+}
+
 .room-card h3 {
   margin: 0 0 10px 0;
   color: #333;
@@ -237,6 +247,19 @@
   border-radius: 4px;
   font-size: 0.85rem;
   margin-top: 10px;
+}
+
+.criteria-warning {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  margin-top: 10px;
+}
+
+.criteria-issue {
+  margin: 2px 0;
 }
 
 .no-rooms-message {

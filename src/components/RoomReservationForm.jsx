@@ -1,6 +1,7 @@
 // src/components/RoomReservationForm.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import './RoomReservationForm.css';
@@ -8,6 +9,7 @@ import './RoomReservationForm.css';
 export default function RoomReservationForm({ apiToken, isPublic }) {
   const { token } = useParams();
   const navigate = useNavigate();
+  const { accounts } = useMsal();
   
   // Form state
   const [formData, setFormData] = useState({
@@ -53,6 +55,20 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   useEffect(() => {
     loadRooms();
   }, []);
+
+  // Auto-fill user email if authenticated and not in public mode
+  useEffect(() => {
+    if (!isPublic && accounts.length > 0) {
+      const userEmail = accounts[0].username;
+      const displayName = accounts[0].name || '';
+      
+      setFormData(prev => ({
+        ...prev,
+        requesterEmail: userEmail,
+        requesterName: displayName
+      }));
+    }
+  }, [isPublic, accounts]);
   
   const loadRooms = async () => {
     try {
@@ -183,26 +199,37 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }
   };
   
-  // Filter rooms based on capacity and features
-  const getFilteredRooms = () => {
-    return rooms.filter(room => {
-      // Check capacity
-      if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
-        return false;
-      }
+  // Check if a room meets the criteria
+  const checkRoomCriteria = (room) => {
+    const issues = [];
+    let meetsCriteria = true;
+    
+    // Check capacity
+    if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
+      meetsCriteria = false;
+      issues.push(`Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`);
+    }
+    
+    // Check required features
+    if (formData.requiredFeatures.length > 0) {
+      const missingFeatures = formData.requiredFeatures.filter(feature => 
+        !room.features?.includes(feature)
+      );
       
-      // Check required features
-      if (formData.requiredFeatures.length > 0) {
-        return formData.requiredFeatures.every(feature => 
-          room.features?.includes(feature)
+      if (missingFeatures.length > 0) {
+        meetsCriteria = false;
+        const featureLabels = missingFeatures.map(f => 
+          featureOptions.find(opt => opt.value === f)?.label || f
         );
+        issues.push(`Missing features: ${featureLabels.join(', ')}`);
       }
-      
-      return true;
-    });
+    }
+    
+    return { meetsCriteria, issues };
   };
   
-  const filteredRooms = getFilteredRooms();
+  // Get all rooms (no filtering)
+  const allRooms = rooms;
   
   if (success) {
     return (
@@ -417,15 +444,16 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           )}
           
           <div className="room-grid">
-            {filteredRooms.map(room => {
+            {allRooms.map(room => {
               const roomAvailability = availability.find(a => a.room._id === room._id);
               const isAvailable = !roomAvailability || roomAvailability.available;
+              const { meetsCriteria, issues } = checkRoomCriteria(room);
               
               return (
                 <div
                   key={room._id}
-                  className={`room-card ${formData.requestedRooms.includes(room._id) ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''}`}
-                  onClick={() => isAvailable && handleRoomSelection(room._id)}
+                  className={`room-card ${formData.requestedRooms.includes(room._id) ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''} ${!meetsCriteria ? 'room-insufficient' : ''}`}
+                  onClick={() => isAvailable && meetsCriteria && handleRoomSelection(room._id)}
                 >
                   <h3>{room.name}</h3>
                   <p className="room-location">{room.building} - {room.floor}</p>
@@ -457,14 +485,22 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                       )}
                     </div>
                   )}
+                  
+                  {!meetsCriteria && issues.length > 0 && (
+                    <div className="criteria-warning">
+                      {issues.map((issue, index) => (
+                        <div key={index} className="criteria-issue">❌ {issue}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           
-          {filteredRooms.length === 0 && (
+          {allRooms.length === 0 && (
             <div className="no-rooms-message">
-              No rooms match your requirements. Try adjusting your filters or contact the office for assistance.
+              No rooms available. Please contact the office for assistance.
             </div>
           )}
         </section>

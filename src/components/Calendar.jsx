@@ -11,6 +11,7 @@
   import DayView from './DayView';
   import RegistrationTimesToggle from './RegistrationTimesToggle';
   import { logger } from '../utils/logger';
+  import calendarDebug from '../utils/calendarDebug';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -1575,7 +1576,7 @@
         // Resolve calendar IDs for sync
         if (selectedCalendarId) {
           calendarIds.push(selectedCalendarId);
-          // Using selected calendar ID
+          calendarDebug.logApiCall('loadEventsUnified', 'sync', { selectedCalendarId });
         } else {
           // If no specific calendar selected, find and use the actual primary calendar ID
           const primaryCalendar = calendarsToUse.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
@@ -1594,16 +1595,27 @@
           }
         }
         
-        // Always include TempleRegistration shared mailbox if available
+        // Only include TempleRegistration if it's the selected calendar or if no specific calendar is selected
         const templeRegistrationCalendar = calendarsToUse.find(cal => 
           cal.name?.toLowerCase().includes('templeregistration') || 
           cal.owner?.address?.toLowerCase().includes('templeregistration')
         );
-        if (templeRegistrationCalendar && !calendarIds.includes(templeRegistrationCalendar.id)) {
-          calendarIds.push(templeRegistrationCalendar.id);
-          // Added TempleRegistration calendar
-        } else if (!templeRegistrationCalendar) {
-          // TempleRegistration calendar not found in available calendars
+        
+        if (templeRegistrationCalendar && 
+            (!selectedCalendarId || selectedCalendarId === templeRegistrationCalendar.id)) {
+          // Only add TempleRegistration if it's specifically selected or no calendar is selected
+          if (!calendarIds.includes(templeRegistrationCalendar.id)) {
+            calendarIds.push(templeRegistrationCalendar.id);
+            logger.debug('loadEventsUnified: Added TempleRegistration calendar', { 
+              id: templeRegistrationCalendar.id,
+              reason: selectedCalendarId ? 'specifically selected' : 'no calendar selected'
+            });
+          }
+        } else if (selectedCalendarId && templeRegistrationCalendar) {
+          logger.debug('loadEventsUnified: Skipping TempleRegistration calendar (different calendar selected)', {
+            selectedCalendarId,
+            templeRegistrationId: templeRegistrationCalendar.id
+          });
         }
         
         // Final validation of calendar IDs
@@ -1616,10 +1628,25 @@
           throw new Error('No valid calendar IDs found for sync');
         }
         
+        // Log which calendars we're actually syncing from
+        const calendarDetails = calendarIds.map(id => {
+          const calendar = calendarsToUse.find(c => c.id === id);
+          return { id, name: calendar?.name || 'Unknown', isSelected: id === selectedCalendarId };
+        });
+        
         logger.debug('loadEventsUnified: Final calendar IDs for sync', { 
           calendarIds,
-          count: calendarIds.length 
+          count: calendarIds.length,
+          calendars: calendarDetails
         });
+        
+        // Clear console message for what we're loading
+        const selectedCalendar = calendarsToUse.find(c => c.id === selectedCalendarId);
+        console.log(`\n🔄 ==================== CALENDAR SWITCH ====================`);
+        console.log(`🔍 LOADING EVENTS FROM: ${calendarDetails.map(c => c.name).join(', ')}`);
+        console.log(`📍 SELECTED CALENDAR: ${selectedCalendar?.name || 'None'} (${selectedCalendarId?.substring(0, 20)}...)`);
+        console.log(`📅 DATE RANGE: ${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`);
+        console.log(`==========================================================\n`);
         
         logger.debug('loadEventsUnified: Starting unified delta sync', {
           calendarIds,
@@ -1650,7 +1677,32 @@
         // Don't clear existing events if unified sync returns empty
         if (syncResult.events && syncResult.events.length > 0) {
           logger.debug('loadEventsUnified: Setting events from unified sync', { count: syncResult.events.length });
-          setAllEvents(syncResult.events);
+          
+          // Get selected calendar name for logging
+          const selectedCalendar = availableCalendars.find(c => c.id === selectedCalendarId);
+          const selectedCalendarName = selectedCalendar?.name || 'Unknown Calendar';
+          
+          // Backend now returns only events from the selected calendars
+          // No need to filter on frontend anymore
+          let eventsToDisplay = syncResult.events;
+          
+          console.log(`📊 RECEIVED ${eventsToDisplay.length} EVENTS FROM BACKEND`);
+          
+          // Log event details for debugging
+          if (calendarDebug.isEnabled && eventsToDisplay.length > 0) {
+            const eventSummary = eventsToDisplay.slice(0, 5).map(e => ({
+              subject: e.subject,
+              calendarId: e.calendarId?.substring(0, 20) + '...',
+              start: e.start?.dateTime || e.start?.date
+            }));
+            console.log('📝 Sample events:', eventSummary);
+          }
+          
+          // Log the events we're setting
+          calendarDebug.logEventsLoaded(selectedCalendarId, selectedCalendarName, eventsToDisplay);
+          
+          setAllEvents(eventsToDisplay);
+          calendarDebug.logEventLoadingComplete(selectedCalendarId, eventsToDisplay.length, Date.now() - (window._calendarLoadStart || Date.now()));
           return true;
         } else if (syncResult.syncResults && syncResult.syncResults.errors && syncResult.syncResults.errors.length > 0) {
           // If there were errors, don't clear events - keep existing ones
@@ -1694,26 +1746,37 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null) => {
-      if (isDemoMode) {
-        return await loadDemoEvents();
-      } else {
-        // Hybrid approach: Try unified delta sync first, fallback to cache approach if it fails
-        // Starting hybrid event loading approach
-        
-        try {
-          // Attempt unified delta sync first
-          const unifiedResult = await loadEventsUnified(forceRefresh, calendarsData);
-          if (unifiedResult) {
-            // Unified sync successful
-            return unifiedResult;
+      calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
+      
+      try {
+        if (isDemoMode) {
+          return await loadDemoEvents();
+        } else {
+          // Hybrid approach: Try unified delta sync first, fallback to cache approach if it fails
+          // Starting hybrid event loading approach
+          
+          try {
+            // Attempt unified delta sync first
+            const unifiedResult = await loadEventsUnified(forceRefresh, calendarsData);
+            if (unifiedResult) {
+              // Unified sync successful
+              calendarDebug.logApiCall('loadEvents', 'complete', { method: 'unified' });
+              return unifiedResult;
+            }
+          } catch (error) {
+            logger.warn('loadEvents: Unified sync failed, falling back to cache approach:', error);
+            calendarDebug.logError('loadEventsUnified', error);
           }
-        } catch (error) {
-          logger.warn('loadEvents: Unified sync failed, falling back to cache approach:', error);
+          
+          // Fallback to cache-based approach
+          logger.debug('loadEvents: Using cache fallback approach');
+          const cacheResult = await loadEventsWithCache(forceRefresh);
+          calendarDebug.logApiCall('loadEvents', 'complete', { method: 'cache' });
+          return cacheResult;
         }
-        
-        // Fallback to cache-based approach
-        logger.debug('loadEvents: Using cache fallback approach');
-        return await loadEventsWithCache(forceRefresh);
+      } catch (error) {
+        calendarDebug.logError('loadEvents', error);
+        throw error;
       }
     }, [isDemoMode, loadDemoEvents, loadEventsUnified, loadEventsWithCache]);
 
@@ -1975,10 +2038,26 @@
         const calendars = await loadAvailableCalendars();
         setAvailableCalendars(calendars);
         
-        // Set default calendar
-        const defaultCalendar = calendars.find(cal => cal.isDefault);
-        if (defaultCalendar) {
-          setSelectedCalendarId(defaultCalendar.id);
+        // Check if the currently selected calendar still exists
+        if (selectedCalendarId && !calendars.some(cal => cal.id === selectedCalendarId)) {
+          calendarDebug.logError('Selected calendar no longer available', 
+            new Error('Calendar removed or permissions changed'), 
+            { selectedCalendarId, availableCalendarIds: calendars.map(c => c.id) }
+          );
+          setSelectedCalendarId(null);
+        }
+        
+        // Set default calendar if none selected
+        if (!selectedCalendarId) {
+          const defaultCalendar = calendars.find(cal => cal.isDefaultCalendar);
+          if (defaultCalendar) {
+            calendarDebug.logStateChange('selectedCalendarId', null, defaultCalendar.id);
+            setSelectedCalendarId(defaultCalendar.id);
+          } else if (calendars.length > 0) {
+            // If no default calendar found, select the first one
+            calendarDebug.logStateChange('selectedCalendarId', null, calendars[0].id);
+            setSelectedCalendarId(calendars[0].id);
+          }
         }
         
         // Load Outlook categories
@@ -4125,10 +4204,47 @@
 
     // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
+      console.log('[Calendar useEffect] Triggered:', {
+        hasGraphToken: !!graphToken,
+        initializing,
+        selectedCalendarId,
+        availableCalendarsLength: availableCalendars.length,
+        dateRangeString,
+        changingCalendar
+      });
+      
       if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
-        loadEvents().finally(() => {
+        calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
+        window._calendarLoadStart = Date.now();
+        const startTime = Date.now();
+        
+        // Set a timeout to ensure changingCalendar is reset even if loading hangs
+        const timeoutId = setTimeout(() => {
+          console.error('[Calendar useEffect] TIMEOUT - Forcing changingCalendar to false');
+          calendarDebug.logError('Calendar loading timeout', new Error('Loading took too long'), { selectedCalendarId });
           setChangingCalendar(false);
-        });
+        }, 30000); // 30 second timeout
+        
+        console.log('[Calendar useEffect] Calling loadEvents...');
+        loadEvents()
+          .then((result) => {
+            const duration = Date.now() - startTime;
+            console.log('[Calendar useEffect] loadEvents completed:', { result, duration });
+            calendarDebug.logEventLoadingComplete(selectedCalendarId, allEvents.length, duration);
+          })
+          .catch((error) => {
+            console.error('[Calendar useEffect] loadEvents failed:', error);
+            calendarDebug.logError('loadEvents in useEffect', error, { selectedCalendarId });
+            logger.error('Failed to load events:', error);
+          })
+          .finally(() => {
+            console.log('[Calendar useEffect] Finally block - setting changingCalendar to false');
+            clearTimeout(timeoutId);
+            calendarDebug.logStateChange('changingCalendar', true, false);
+            setChangingCalendar(false);
+          });
+      } else {
+        console.log('[Calendar useEffect] Skipping loadEvents due to missing requirements');
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);

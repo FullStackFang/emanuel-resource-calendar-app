@@ -1,7 +1,18 @@
 // src/components/CalendarSelector.jsx
-import React from 'react';
+import React, { useEffect } from 'react';
 
 function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarChange, changingCalendar }) {
+  // Debug logging
+  useEffect(() => {
+    const selectedCalendar = availableCalendars?.find(c => c.id === selectedCalendarId);
+    console.log('[CalendarSelector] Props:', {
+      selectedCalendarId,
+      selectedCalendarName: selectedCalendar?.name || 'Not found',
+      availableCalendars: availableCalendars?.map(c => ({ id: c.id, name: c.name })),
+      changingCalendar
+    });
+  }, [selectedCalendarId, availableCalendars, changingCalendar]);
+
   if (!availableCalendars || availableCalendars.length === 0) {
     return null;
   }
@@ -10,9 +21,17 @@ function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarCh
     <div className="nav-calendar-selector-container">
       <select
         value={selectedCalendarId || ''}
-        onChange={(e) => onCalendarChange(e.target.value)}
-        className="nav-calendar-selector"
+        onChange={(e) => {
+          console.log('[CalendarSelector] onChange:', {
+            currentValue: selectedCalendarId,
+            newValue: e.target.value,
+            changingCalendar
+          });
+          onCalendarChange(e.target.value);
+        }}
+        className={`nav-calendar-selector ${changingCalendar ? 'loading' : ''}`}
         disabled={changingCalendar}
+        title={changingCalendar ? 'Loading calendar events...' : 'Select a calendar'}
       >
         {availableCalendars.map(calendar => (
           <option key={calendar.id} value={calendar.id}>
@@ -20,6 +39,7 @@ function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarCh
           </option>
         ))}
       </select>
+      {changingCalendar && <span className="calendar-loading-indicator">Loading...</span>}
     </div>
   );
 }
