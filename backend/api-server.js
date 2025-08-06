@@ -5084,6 +5084,46 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       }
     }
     
+    // Helper function to create reservation snapshot
+    const createReservationSnapshot = (reservationData) => ({
+      eventTitle: reservationData.eventTitle,
+      eventDescription: reservationData.eventDescription,
+      startDateTime: reservationData.startDateTime,
+      endDateTime: reservationData.endDateTime,
+      attendeeCount: reservationData.attendeeCount,
+      requestedRooms: reservationData.requestedRooms,
+      requiredFeatures: reservationData.requiredFeatures,
+      specialRequirements: reservationData.specialRequirements,
+      priority: reservationData.priority,
+      contactEmail: reservationData.contactEmail,
+      department: reservationData.department,
+      phone: reservationData.phone
+    });
+
+    // Create initial communication history entry
+    const initialSubmissionEntry = {
+      timestamp: new Date(),
+      type: 'submission',
+      author: userId,
+      authorName: req.user.name || userEmail,
+      message: 'Initial reservation submission',
+      revisionNumber: 1,
+      reservationSnapshot: createReservationSnapshot({
+        eventTitle,
+        eventDescription: eventDescription || '',
+        startDateTime: new Date(startDateTime),
+        endDateTime: new Date(endDateTime),
+        attendeeCount: attendeeCount || 0,
+        requestedRooms,
+        requiredFeatures: requiredFeatures || [],
+        specialRequirements: specialRequirements || '',
+        priority,
+        contactEmail: isOnBehalfOf ? contactEmail : null,
+        department: department || '',
+        phone: phone || ''
+      })
+    };
+
     // Create reservation record
     const reservation = {
       requesterId: userId,
@@ -5109,6 +5149,11 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       
       status: 'pending',
       priority,
+      
+      // New resubmission fields
+      currentRevision: 1,
+      resubmissionAllowed: true,
+      communicationHistory: [initialSubmissionEntry],
       
       assignedTo: null,
       reviewNotes: '',
@@ -5213,6 +5258,46 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       }
     );
     
+    // Helper function to create reservation snapshot (reuse from authenticated endpoint)
+    const createReservationSnapshot = (reservationData) => ({
+      eventTitle: reservationData.eventTitle,
+      eventDescription: reservationData.eventDescription,
+      startDateTime: reservationData.startDateTime,
+      endDateTime: reservationData.endDateTime,
+      attendeeCount: reservationData.attendeeCount,
+      requestedRooms: reservationData.requestedRooms,
+      requiredFeatures: reservationData.requiredFeatures,
+      specialRequirements: reservationData.specialRequirements,
+      priority: reservationData.priority,
+      contactEmail: reservationData.contactEmail,
+      department: reservationData.department,
+      phone: reservationData.phone
+    });
+
+    // Create initial communication history entry
+    const initialSubmissionEntry = {
+      timestamp: new Date(),
+      type: 'submission',
+      author: `guest-${tokenDoc._id}`,
+      authorName: requesterName,
+      message: 'Initial reservation submission (public form)',
+      revisionNumber: 1,
+      reservationSnapshot: createReservationSnapshot({
+        eventTitle,
+        eventDescription: eventDescription || '',
+        startDateTime: new Date(startDateTime),
+        endDateTime: new Date(endDateTime),
+        attendeeCount: attendeeCount || 0,
+        requestedRooms,
+        requiredFeatures: requiredFeatures || [],
+        specialRequirements: specialRequirements || '',
+        priority,
+        contactEmail: isOnBehalfOf ? contactEmail : null,
+        department: department || '',
+        phone: phone || ''
+      })
+    };
+
     // Create reservation record
     const reservation = {
       requesterId: `guest-${tokenDoc._id}`,
@@ -5238,6 +5323,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       
       status: 'pending',
       priority,
+      
+      // New resubmission fields
+      currentRevision: 1,
+      resubmissionAllowed: true,
+      communicationHistory: [initialSubmissionEntry],
       
       assignedTo: null,
       reviewNotes: '',
@@ -5413,6 +5503,178 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error cancelling room reservation:', error);
     res.status(500).json({ error: 'Failed to cancel reservation' });
+  }
+});
+
+/**
+ * Resubmit a rejected room reservation with changes
+ */
+app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      priority,
+      contactEmail,
+      userMessage
+    } = req.body;
+    
+    // Validation
+    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms' 
+      });
+    }
+    
+    if (!userMessage || !userMessage.trim()) {
+      return res.status(400).json({
+        error: 'Response message is required for resubmissions'
+      });
+    }
+    
+    // Find the original reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
+    
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Only allow users to resubmit their own reservations
+    if (reservation.requesterId !== userId) {
+      return res.status(403).json({ error: 'You can only resubmit your own reservation requests' });
+    }
+    
+    // Validate resubmission eligibility
+    if (reservation.status !== 'rejected') {
+      return res.status(400).json({ error: 'Only rejected reservations can be resubmitted' });
+    }
+    
+    if (!reservation.resubmissionAllowed) {
+      return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
+    }
+    
+    // Check revision limits (max 5 revisions)
+    const currentRevision = reservation.currentRevision || 1;
+    if (currentRevision >= 5) {
+      return res.status(400).json({ error: 'Maximum number of revisions reached (5)' });
+    }
+    
+    
+    // Helper function to create reservation snapshot
+    const createReservationSnapshot = (reservationData) => ({
+      eventTitle: reservationData.eventTitle,
+      eventDescription: reservationData.eventDescription,
+      startDateTime: reservationData.startDateTime,
+      endDateTime: reservationData.endDateTime,
+      attendeeCount: reservationData.attendeeCount,
+      requestedRooms: reservationData.requestedRooms,
+      requiredFeatures: reservationData.requiredFeatures,
+      specialRequirements: reservationData.specialRequirements,
+      priority: reservationData.priority,
+      contactEmail: reservationData.contactEmail,
+      department: reservationData.department,
+      phone: reservationData.phone
+    });
+    
+    const newRevisionNumber = currentRevision + 1;
+    const newStartDateTime = new Date(startDateTime);
+    const newEndDateTime = new Date(endDateTime);
+    
+    // Create resubmission communication history entry
+    const resubmissionEntry = {
+      timestamp: new Date(),
+      type: 'resubmission',
+      author: userId,
+      authorName: req.user.name || userEmail,
+      message: userMessage.trim(),
+      revisionNumber: newRevisionNumber,
+      reservationSnapshot: createReservationSnapshot({
+        eventTitle,
+        eventDescription: eventDescription || '',
+        startDateTime: newStartDateTime,
+        endDateTime: newEndDateTime,
+        attendeeCount: attendeeCount || 0,
+        requestedRooms,
+        requiredFeatures: requiredFeatures || [],
+        specialRequirements: specialRequirements || '',
+        priority,
+        contactEmail: contactEmail || null,
+        department: department || '',
+        phone: phone || ''
+      })
+    };
+    
+    // Update reservation with new data and add communication history
+    const updateDoc = {
+      $set: {
+        // Update main reservation fields
+        eventTitle,
+        eventDescription: eventDescription || '',
+        startDateTime: newStartDateTime,
+        endDateTime: newEndDateTime,
+        attendeeCount: attendeeCount || 0,
+        requestedRooms,
+        requiredFeatures: requiredFeatures || [],
+        specialRequirements: specialRequirements || '',
+        department: department || '',
+        phone: phone || '',
+        priority,
+        contactEmail: contactEmail || null,
+        
+        // Update status and revision tracking
+        status: 'pending',
+        currentRevision: newRevisionNumber,
+        lastModified: new Date(),
+        
+        // Clear previous action data
+        actionDate: null,
+        approvedBy: null,
+        actionBy: null,
+        actionByEmail: null
+      },
+      $push: {
+        communicationHistory: resubmissionEntry
+      }
+    };
+    
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(reservationId) },
+      updateDoc,
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    logger.info('Room reservation resubmitted:', {
+      reservationId,
+      resubmittedBy: userEmail,
+      revisionNumber: newRevisionNumber,
+      eventTitle
+    });
+    
+    res.json({
+      message: 'Reservation resubmitted successfully',
+      reservation: result.value,
+      revisionNumber: newRevisionNumber
+    });
+    
+  } catch (error) {
+    logger.error('Error resubmitting room reservation:', error);
+    res.status(500).json({ error: 'Failed to resubmit reservation' });
   }
 });
 
@@ -5638,13 +5900,34 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
       return res.status(403).json({ error: 'Admin access required' });
     }
     
+    // Get the current reservation to determine revision number
+    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!currentReservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Create approval communication history entry
+    const approvalEntry = {
+      timestamp: new Date(),
+      type: 'approval',
+      author: userId,
+      authorName: req.user.name || userEmail,
+      message: notes ? notes.trim() : 'Reservation approved',
+      revisionNumber: currentReservation.currentRevision || 1,
+      reservationSnapshot: null // No changes to reservation data on approval
+    };
+    
     const updateDoc = {
       $set: {
         status: 'approved',
         actionDate: new Date(),
         actionBy: userId,
         actionByEmail: userEmail,
+        lastModified: new Date(),
         ...(notes && { actionNotes: notes.trim() })
+      },
+      $push: {
+        communicationHistory: approvalEntry
       }
     };
     
@@ -5688,13 +5971,34 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
       return res.status(400).json({ error: 'Rejection reason is required' });
     }
     
+    // Get the current reservation to determine revision number
+    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!currentReservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Create rejection communication history entry
+    const rejectionEntry = {
+      timestamp: new Date(),
+      type: 'rejection',
+      author: userId,
+      authorName: req.user.name || userEmail,
+      message: reason.trim(),
+      revisionNumber: currentReservation.currentRevision || 1,
+      reservationSnapshot: null // No changes to reservation data on rejection
+    };
+    
     const updateDoc = {
       $set: {
         status: 'rejected',
         actionDate: new Date(),
         actionBy: userId,
         actionByEmail: userEmail,
-        rejectionReason: reason.trim()
+        rejectionReason: reason.trim(), // Keep for backward compatibility
+        lastModified: new Date()
+      },
+      $push: {
+        communicationHistory: rejectionEntry
       }
     };
     

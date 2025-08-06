@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/RoomContext';
+import CommunicationHistory from './CommunicationHistory';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken }) {
@@ -227,6 +228,11 @@ export default function ReservationRequests({ apiToken }) {
               <tr key={reservation._id}>
                 <td className="submitted-date">
                   {new Date(reservation.submittedAt).toLocaleDateString()}
+                  {reservation.currentRevision > 1 && (
+                    <div className="revision-indicator">
+                      📝 Rev {reservation.currentRevision}
+                    </div>
+                  )}
                 </td>
                 <td className="event-details">
                   <strong>{reservation.eventTitle}</strong>
@@ -293,16 +299,12 @@ export default function ReservationRequests({ apiToken }) {
                   )}
                 </td>
                 <td className="actions">
-                  {reservation.status === 'pending' && (
-                    <>
-                      <button
-                        className="view-btn"
-                        onClick={() => setSelectedReservation(reservation)}
-                      >
-                        Review
-                      </button>
-                    </>
-                  )}
+                  <button
+                    className="view-btn"
+                    onClick={() => setSelectedReservation(reservation)}
+                  >
+                    {reservation.status === 'pending' ? 'Review' : 'View Details'}
+                  </button>
                   {reservation.status === 'approved' && reservation.createdEventIds?.length > 0 && (
                     <button className="view-event-btn">
                       View Event
@@ -346,7 +348,12 @@ export default function ReservationRequests({ apiToken }) {
       {selectedReservation && (
         <div className="review-modal-overlay">
           <div className="review-modal">
-            <h2>Review Reservation Request</h2>
+            <h2>
+              {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'Reservation Details'}
+              {selectedReservation.currentRevision > 1 && (
+                <span className="revision-badge">Revision {selectedReservation.currentRevision}</span>
+              )}
+            </h2>
             
             <div className="reservation-details">
               <div className="detail-row">
@@ -405,31 +412,42 @@ export default function ReservationRequests({ apiToken }) {
                 </div>
               )}
             </div>
+
+            {/* Communication History */}
+            {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
+              <CommunicationHistory reservation={selectedReservation} isAdmin={true} />
+            )}
             
-            <div className="action-notes">
-              <label htmlFor="actionNotes">Notes / Rejection Reason:</label>
-              <textarea
-                id="actionNotes"
-                value={actionNotes}
-                onChange={(e) => setActionNotes(e.target.value)}
-                rows="4"
-                placeholder="Add any notes or provide a reason for rejection..."
-              />
-            </div>
+            {selectedReservation.status === 'pending' && (
+              <div className="action-notes">
+                <label htmlFor="actionNotes">Notes / Rejection Reason:</label>
+                <textarea
+                  id="actionNotes"
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  rows="4"
+                  placeholder="Add any notes or provide a reason for rejection..."
+                />
+              </div>
+            )}
             
             <div className="modal-actions">
-              <button
-                className="approve-btn"
-                onClick={() => handleApprove(selectedReservation)}
-              >
-                Approve
-              </button>
-              <button
-                className="reject-btn"
-                onClick={() => handleReject(selectedReservation)}
-              >
-                Reject
-              </button>
+              {selectedReservation.status === 'pending' && (
+                <>
+                  <button
+                    className="approve-btn"
+                    onClick={() => handleApprove(selectedReservation)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className="reject-btn"
+                    onClick={() => handleReject(selectedReservation)}
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
               <button
                 className="cancel-btn"
                 onClick={() => {
@@ -437,7 +455,7 @@ export default function ReservationRequests({ apiToken }) {
                   setActionNotes('');
                 }}
               >
-                Cancel
+                {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
               </button>
             </div>
           </div>

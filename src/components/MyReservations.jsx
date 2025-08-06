@@ -1,11 +1,14 @@
 // src/components/MyReservations.jsx
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/RoomContext';
+import CommunicationHistory from './CommunicationHistory';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
+  const navigate = useNavigate();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -103,6 +106,16 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setCancelling(false);
     }
+  };
+
+  const handleResubmitReservation = (reservation) => {
+    // Navigate to resubmission form with reservation data
+    navigate('/room-reservation/resubmit', {
+      state: {
+        reservationId: reservation._id,
+        originalReservation: reservation
+      }
+    });
   };
   
   const formatDateTime = (date) => {
@@ -394,6 +407,11 @@ export default function MyReservations({ apiToken }) {
                 </div>
               )}
             </div>
+
+            {/* Communication History */}
+            {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
+              <CommunicationHistory reservation={selectedReservation} isAdmin={false} />
+            )}
             
             {selectedReservation.status === 'pending' && (
               <div className="cancel-section">
@@ -416,6 +434,15 @@ export default function MyReservations({ apiToken }) {
                   disabled={cancelling}
                 >
                   {cancelling ? 'Cancelling...' : 'Cancel Request'}
+                </button>
+              )}
+              {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
+                <button
+                  className="resubmit-btn"
+                  onClick={() => handleResubmitReservation(selectedReservation)}
+                  title="Edit and resubmit this reservation"
+                >
+                  🔄 Resubmit Request
                 </button>
               )}
               <button

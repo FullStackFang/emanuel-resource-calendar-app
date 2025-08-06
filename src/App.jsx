@@ -12,6 +12,7 @@ import EventSyncAdmin from './components/EventSyncAdmin';
 import CacheAdmin from './components/CacheAdmin';
 import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import RoomReservationForm from './components/RoomReservationForm';
+import ResubmissionForm from './components/ResubmissionForm';
 import MyReservations from './components/MyReservations';
 import RoomManagement from './components/RoomManagement';
 import ReservationRequests from './components/ReservationRequests';
@@ -262,6 +263,7 @@ function App() {
                 <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/room-reservation" element={<RoomReservationForm apiToken={apiToken} />} />
                 <Route path="/room-reservation/public/:token" element={<RoomReservationForm isPublic={true} />} />
+                <Route path="/room-reservation/resubmit" element={<ResubmissionForm apiToken={apiToken} />} />
                 <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
                 <Route path="/admin/rooms" element={<RoomManagement apiToken={apiToken} />} />
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} />} />
