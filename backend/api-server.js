@@ -105,8 +105,12 @@ let eventCacheCollection; // TODO: Remove after migration
 let unifiedEventsCollection; // New unified collection
 let calendarDeltasCollection; // Delta token storage
 let roomsCollection; // Room information and features
+let locationsCollection; // Unified locations from events
 let roomReservationsCollection; // Room reservation requests
 let reservationTokensCollection; // Guest access tokens
+let roomCapabilityTypesCollection; // Configurable room capability definitions
+let eventServiceTypesCollection; // Configurable event service definitions
+let featureCategoriesCollection; // Feature groupings for UI organization
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -342,6 +346,43 @@ async function createRoomIndexes() {
 }
 
 /**
+ * Create indexes for locations collection
+ */
+async function createLocationIndexes() {
+  try {
+    console.log('Creating location indexes...');
+    
+    // Index for location name (unique)
+    await locationsCollection.createIndex(
+      { name: 1 },
+      { name: "location_name", unique: true, background: true }
+    );
+    
+    // Index for aliases
+    await locationsCollection.createIndex(
+      { aliases: 1 },
+      { name: "location_aliases", background: true }
+    );
+    
+    // Index for active locations
+    await locationsCollection.createIndex(
+      { active: 1, usageCount: -1 },
+      { name: "active_usage", background: true }
+    );
+    
+    // Index for location code
+    await locationsCollection.createIndex(
+      { locationCode: 1 },
+      { name: "location_code", background: true, sparse: true }
+    );
+    
+    console.log('Location indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating location indexes:', error);
+  }
+}
+
+/**
  * Create indexes for the room reservations collection
  */
 async function createRoomReservationIndexes() {
@@ -406,6 +447,93 @@ async function createReservationTokenIndexes() {
     console.log('Reservation token indexes created successfully');
   } catch (error) {
     console.error('Error creating reservation token indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for room capability types collection
+ */
+async function createRoomCapabilityTypesIndexes() {
+  try {
+    console.log('Creating room capability types indexes...');
+    
+    // Unique index for capability keys
+    await roomCapabilityTypesCollection.createIndex(
+      { key: 1 },
+      { name: "unique_capability_key", unique: true, background: true }
+    );
+    
+    // Index for category grouping
+    await roomCapabilityTypesCollection.createIndex(
+      { category: 1, displayOrder: 1 },
+      { name: "category_order", background: true }
+    );
+    
+    // Index for active capabilities
+    await roomCapabilityTypesCollection.createIndex(
+      { active: 1, displayOrder: 1 },
+      { name: "active_capabilities", background: true }
+    );
+    
+    console.log('Room capability types indexes created successfully');
+  } catch (error) {
+    console.error('Error creating room capability types indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for event service types collection
+ */
+async function createEventServiceTypesIndexes() {
+  try {
+    console.log('Creating event service types indexes...');
+    
+    // Unique index for service keys
+    await eventServiceTypesCollection.createIndex(
+      { key: 1 },
+      { name: "unique_service_key", unique: true, background: true }
+    );
+    
+    // Index for category grouping
+    await eventServiceTypesCollection.createIndex(
+      { category: 1, displayOrder: 1 },
+      { name: "service_category_order", background: true }
+    );
+    
+    // Index for active services
+    await eventServiceTypesCollection.createIndex(
+      { active: 1, displayOrder: 1 },
+      { name: "active_services", background: true }
+    );
+    
+    console.log('Event service types indexes created successfully');
+  } catch (error) {
+    console.error('Error creating event service types indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for feature categories collection
+ */
+async function createFeatureCategoriesIndexes() {
+  try {
+    console.log('Creating feature categories indexes...');
+    
+    // Unique index for category keys
+    await featureCategoriesCollection.createIndex(
+      { key: 1 },
+      { name: "unique_category_key", unique: true, background: true }
+    );
+    
+    // Index for display order
+    await featureCategoriesCollection.createIndex(
+      { displayOrder: 1, active: 1 },
+      { name: "category_display_order", background: true }
+    );
+    
+    console.log('Feature categories indexes created successfully');
+  } catch (error) {
+    console.error('Error creating feature categories indexes:', error);
   }
 }
 
@@ -507,21 +635,414 @@ async function seedInitialRooms() {
   }
 }
 
+/**
+ * Seed initial feature categories if the collection is empty
+ */
+async function seedInitialFeatureCategories() {
+  try {
+    const categoryCount = await featureCategoriesCollection.countDocuments();
+    if (categoryCount === 0) {
+      console.log('Seeding initial feature categories...');
+      
+      const initialCategories = [
+        {
+          key: "infrastructure",
+          name: "Infrastructure & Equipment",
+          description: "Physical features and built-in equipment",
+          displayOrder: 1,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "policies",
+          name: "Policies & Permissions", 
+          description: "What activities and services are allowed",
+          displayOrder: 2,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "accessibility",
+          name: "Accessibility",
+          description: "Accessibility and accommodation features",
+          displayOrder: 3,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "catering",
+          name: "Catering & Food Service",
+          description: "Food and beverage related services",
+          displayOrder: 4,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "setup",
+          name: "Setup & Decorations",
+          description: "Room setup and decoration services",
+          displayOrder: 5,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "technology",
+          name: "Technology & AV",
+          description: "Audio/visual and technology services",
+          displayOrder: 6,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+      
+      await featureCategoriesCollection.insertMany(initialCategories);
+      console.log(`Seeded ${initialCategories.length} initial feature categories`);
+    }
+  } catch (error) {
+    console.error('Error seeding initial feature categories:', error);
+  }
+}
+
+/**
+ * Seed initial room capability types if the collection is empty
+ */
+async function seedInitialRoomCapabilityTypes() {
+  try {
+    const capabilityCount = await roomCapabilityTypesCollection.countDocuments();
+    if (capabilityCount === 0) {
+      console.log('Seeding initial room capability types...');
+      
+      const initialCapabilities = [
+        // Infrastructure
+        {
+          key: "hasKitchen",
+          name: "Kitchen Access",
+          description: "Room has direct access to kitchen facilities",
+          category: "infrastructure",
+          dataType: "boolean",
+          icon: "🍽️",
+          displayOrder: 1,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "hasStage",
+          name: "Stage/Platform",
+          description: "Room has a raised stage or platform area",
+          category: "infrastructure", 
+          dataType: "boolean",
+          icon: "🎭",
+          displayOrder: 2,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "hasPiano",
+          name: "Piano Available",
+          description: "Room has a piano available for use",
+          category: "infrastructure",
+          dataType: "boolean",
+          icon: "🎹",
+          displayOrder: 3,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "hasProjector",
+          name: "Built-in Projector",
+          description: "Room has permanently installed projection equipment",
+          category: "infrastructure",
+          dataType: "boolean",
+          icon: "🎬",
+          displayOrder: 4,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "hasSoundSystem",
+          name: "Sound System",
+          description: "Room has built-in audio/sound system",
+          category: "infrastructure",
+          dataType: "boolean",
+          icon: "🔊",
+          displayOrder: 5,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        
+        // Policies
+        {
+          key: "allowsFood",
+          name: "Food Permitted",
+          description: "Food and beverages are allowed in this room",
+          category: "policies",
+          dataType: "boolean",
+          icon: "🍽️",
+          displayOrder: 10,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "allowsDancing",
+          name: "Dancing Permitted",
+          description: "Dancing and movement activities are allowed",
+          category: "policies",
+          dataType: "boolean", 
+          icon: "💃",
+          displayOrder: 11,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "allowsChildren",
+          name: "Child-Friendly",
+          description: "Room is suitable and safe for children's activities",
+          category: "policies",
+          dataType: "boolean",
+          icon: "👶",
+          displayOrder: 12,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        
+        // Accessibility
+        {
+          key: "isWheelchairAccessible",
+          name: "Wheelchair Accessible",
+          description: "Room is fully accessible for wheelchair users",
+          category: "accessibility",
+          dataType: "boolean",
+          icon: "♿",
+          displayOrder: 20,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "hasHearingLoop",
+          name: "Hearing Loop System",
+          description: "Room has assistive hearing loop system",
+          category: "accessibility",
+          dataType: "boolean",
+          icon: "🦻",
+          displayOrder: 21,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+      
+      await roomCapabilityTypesCollection.insertMany(initialCapabilities);
+      console.log(`Seeded ${initialCapabilities.length} initial room capability types`);
+    }
+  } catch (error) {
+    console.error('Error seeding initial room capability types:', error);
+  }
+}
+
+/**
+ * Seed initial event service types if the collection is empty
+ */
+async function seedInitialEventServiceTypes() {
+  try {
+    const serviceCount = await eventServiceTypesCollection.countDocuments();
+    if (serviceCount === 0) {
+      console.log('Seeding initial event service types...');
+      
+      const initialServices = [
+        // Catering
+        {
+          key: "needsCatering",
+          name: "Professional Catering",
+          description: "Professional catering services for the event",
+          category: "catering",
+          dataType: "boolean",
+          icon: "🍽️",
+          hasCost: true,
+          displayOrder: 1,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsBeverages",
+          name: "Beverage Service",
+          description: "Coffee, tea, water, and other beverages",
+          category: "catering",
+          dataType: "boolean",
+          icon: "☕",
+          hasCost: true,
+          displayOrder: 2,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsKosherCatering",
+          name: "Kosher Catering",
+          description: "Kosher-certified food service",
+          category: "catering",
+          dataType: "boolean",
+          icon: "✡️",
+          hasCost: true,
+          displayOrder: 3,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        
+        // Setup & Decorations
+        {
+          key: "needsTablecloths",
+          name: "Tablecloths",
+          description: "Tablecloths and table linens",
+          category: "setup",
+          dataType: "boolean", 
+          icon: "🪑",
+          hasCost: true,
+          displayOrder: 10,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsChairs",
+          name: "Additional Chairs",
+          description: "Extra chairs beyond room's standard setup",
+          category: "setup",
+          dataType: "number",
+          icon: "🪑",
+          hasCost: true,
+          displayOrder: 11,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsTables",
+          name: "Additional Tables",
+          description: "Extra tables beyond room's standard setup",
+          category: "setup",
+          dataType: "number",
+          icon: "🪑",
+          hasCost: true,
+          displayOrder: 12,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsFlowers",
+          name: "Floral Arrangements",
+          description: "Fresh flower arrangements and decorations",
+          category: "setup",
+          dataType: "boolean",
+          icon: "🌸",
+          hasCost: true,
+          displayOrder: 13,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsCandleLighting",
+          name: "Candle Lighting Setup",
+          description: "Sabbath or holiday candle lighting arrangement",
+          category: "setup",
+          dataType: "boolean",
+          icon: "🕯️",
+          hasCost: false,
+          displayOrder: 14,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        
+        // Technology & AV
+        {
+          key: "needsAVSetup",
+          name: "Audio/Visual Setup",
+          description: "Professional AV equipment setup and operation",
+          category: "technology",
+          dataType: "boolean",
+          icon: "📽️",
+          hasCost: true,
+          displayOrder: 20,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsMicrophones",
+          name: "Microphone System",
+          description: "Wireless or wired microphone system",
+          category: "technology", 
+          dataType: "number",
+          icon: "🎤",
+          hasCost: true,
+          displayOrder: 21,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          key: "needsLiveStreaming",
+          name: "Live Streaming",
+          description: "Professional live streaming of the event",
+          category: "technology",
+          dataType: "boolean",
+          icon: "📹",
+          hasCost: true,
+          displayOrder: 22,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+      
+      await eventServiceTypesCollection.insertMany(initialServices);
+      console.log(`Seeded ${initialServices.length} initial event service types`);
+    }
+  } catch (error) {
+    console.error('Error seeding initial event service types:', error);
+  }
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
     await client.connect();
     console.log('Connected to MongoDB');
     
-    db = client.db('emanuelnyc');
+    const dbName = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
+    console.log(`API Server connecting to database: '${dbName}'`);
+    db = client.db(dbName);
     usersCollection = db.collection('templeEvents__Users');
     internalEventsCollection = db.collection('templeEvents__InternalEvents'); // TODO: Remove after migration
     eventCacheCollection = db.collection('templeEvents__EventCache'); // TODO: Remove after migration
     unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
     roomsCollection = db.collection('templeEvents__Rooms'); // Room information and features
+    locationsCollection = db.collection('templeEvents__Locations'); // Unified locations from events
     roomReservationsCollection = db.collection('templeEvents__RoomReservations'); // Room reservation requests
     reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
+    roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
+    eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
+    featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
     
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
@@ -529,14 +1050,25 @@ async function connectToDatabase() {
     
     // Create indexes for room reservation system
     await createRoomIndexes();
+    await createLocationIndexes();
     await createRoomReservationIndexes();
     await createReservationTokenIndexes();
+    
+    // Create indexes for feature configuration system
+    await createRoomCapabilityTypesIndexes();
+    await createEventServiceTypesIndexes();
+    await createFeatureCategoriesIndexes();
     
     // Keep old indexes for now during migration
     await createEventCacheIndexes();
     
     // Seed initial room data if none exists
     await seedInitialRooms();
+    
+    // Seed initial feature configuration data if none exists
+    await seedInitialFeatureCategories();
+    await seedInitialRoomCapabilityTypes();
+    await seedInitialEventServiceTypes();
     
     console.log('Database and collections initialized');
   } catch (error) {
@@ -1303,6 +1835,31 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       lastAccessedAt: now
     };
     
+    // Extract and process location if present
+    let locationId = null;
+    if (graphEvent.location && graphEvent.location.displayName) {
+      try {
+        const locationResult = await upsertLocationFromEvent({
+          graphData: { location: graphEvent.location }
+        });
+        locationId = locationResult.locationId;
+        logger.debug('Processed location for event', {
+          eventId: graphEvent.id,
+          locationName: graphEvent.location.displayName,
+          locationId: locationId,
+          wasCreated: locationResult.wasCreated
+        });
+      } catch (error) {
+        logger.error('Error processing location for event:', error);
+        // Continue without location reference - non-blocking
+      }
+    }
+    
+    // Add location reference to unified event
+    if (locationId) {
+      unifiedEvent.locationId = locationId;
+    }
+    
     // Use upsert to handle updates while preserving internal data
     const result = await unifiedEventsCollection.replaceOne(
       { 
@@ -1325,6 +1882,434 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     logger.error('Error upserting unified event:', error);
     throw error;
   }
+}
+
+/**
+ * Location extraction and matching helper functions
+ */
+
+// Calculate Levenshtein distance between two strings
+function levenshteinDistance(str1, str2) {
+  const m = str1.length;
+  const n = str2.length;
+  
+  // Create a matrix to store distances
+  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  
+  // Initialize first column and row
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  
+  // Fill in the matrix
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(
+          dp[i - 1][j],     // deletion
+          dp[i][j - 1],     // insertion
+          dp[i - 1][j - 1]  // substitution
+        );
+      }
+    }
+  }
+  
+  return dp[m][n];
+}
+
+// Calculate similarity score between two strings (0-1)
+function calculateSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0;
+  
+  const s1 = str1.toLowerCase();
+  const s2 = str2.toLowerCase();
+  
+  // Exact match
+  if (s1 === s2) return 1.0;
+  
+  // Calculate Levenshtein-based similarity
+  const distance = levenshteinDistance(s1, s2);
+  const maxLength = Math.max(s1.length, s2.length);
+  const similarity = 1 - (distance / maxLength);
+  
+  // Check for common patterns
+  let bonus = 0;
+  
+  // One string contains the other
+  if (s1.includes(s2) || s2.includes(s1)) {
+    bonus += 0.2;
+  }
+  
+  // Start with same word
+  const words1 = s1.split(/\s+/);
+  const words2 = s2.split(/\s+/);
+  if (words1[0] === words2[0]) {
+    bonus += 0.1;
+  }
+  
+  // Share significant words
+  const sharedWords = words1.filter(w => words2.includes(w) && w.length > 3);
+  if (sharedWords.length > 0) {
+    bonus += 0.1 * (sharedWords.length / Math.max(words1.length, words2.length));
+  }
+  
+  return Math.min(1, similarity + bonus);
+}
+
+// Normalize location name for matching
+function normalizeLocationName(name) {
+  if (!name || typeof name !== 'string') return '';
+  
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')  // Normalize whitespace
+    .replace(/[^\w\s-]/g, '')  // Remove special chars except spaces and hyphens
+    .replace(/^(the|a|an)\s+/i, '');  // Remove articles
+}
+
+// Check for common location abbreviations and variations
+function expandAbbreviations(name) {
+  const abbreviations = {
+    'tpl': 'temple',
+    'cpl': 'chapel',
+    'mus': 'museum',
+    'rm': 'room',
+    'bldg': 'building',
+    'fl': 'floor',
+    'conf': 'conference',
+    'ctr': 'center',
+    'lib': 'library',
+    'aud': 'auditorium',
+    'hall': 'hall'
+  };
+  
+  let expanded = name.toLowerCase();
+  for (const [abbr, full] of Object.entries(abbreviations)) {
+    const pattern = new RegExp(`\\b${abbr}\\b`, 'gi');
+    expanded = expanded.replace(pattern, full);
+  }
+  
+  return expanded;
+}
+
+// Extract location from event data
+function extractLocationFromEvent(event) {
+  // Try different location fields
+  const locationString = 
+    event.graphData?.location?.displayName ||
+    event.location?.displayName ||
+    event.location ||
+    '';
+    
+  if (!locationString) return null;
+  
+  // Parse location string for components
+  const parts = locationString.split(/[-,]/);
+  const mainName = parts[0]?.trim() || locationString;
+  const additionalInfo = parts.slice(1).map(p => p.trim()).filter(Boolean);
+  
+  return {
+    originalText: locationString,
+    normalizedName: normalizeLocationName(mainName),
+    mainName: mainName,
+    building: additionalInfo.find(p => p.toLowerCase().includes('building')) || null,
+    floor: additionalInfo.find(p => p.toLowerCase().match(/\d+(st|nd|rd|th)?\s+floor/i)) || null,
+    room: additionalInfo.find(p => p.toLowerCase().match(/room\s+\d+/i)) || null,
+    additionalInfo: additionalInfo
+  };
+}
+
+// Find matching location in database with fuzzy matching
+async function findMatchingLocation(locationInfo) {
+  if (!locationInfo || !locationInfo.normalizedName) return null;
+  
+  try {
+    // First try exact match on normalized name or aliases
+    let location = await locationsCollection.findOne({
+      $or: [
+        { name: { $regex: `^${locationInfo.mainName}$`, $options: 'i' } },
+        { aliases: { $regex: `^${locationInfo.mainName}$`, $options: 'i' } }
+      ],
+      status: { $ne: 'merged' } // Don't match merged locations
+    });
+    
+    if (location) {
+      return { location, confidence: 1.0, matchType: 'exact' };
+    }
+    
+    // Try location code match (e.g., TPL, CPL)
+    const possibleCode = locationInfo.originalText.match(/\b[A-Z]{2,4}\b/)?.[0];
+    if (possibleCode) {
+      location = await locationsCollection.findOne({ 
+        locationCode: possibleCode,
+        status: { $ne: 'merged' }
+      });
+      if (location) {
+        return { location, confidence: 0.95, matchType: 'code' };
+      }
+    }
+    
+    // Expand abbreviations for better matching
+    const expandedName = expandAbbreviations(locationInfo.normalizedName);
+    
+    // Get all active locations for fuzzy matching
+    const allLocations = await locationsCollection.find({
+      status: { $ne: 'merged' }
+    }).toArray();
+    
+    let bestMatch = null;
+    let bestScore = 0;
+    
+    for (const loc of allLocations) {
+      // Check name similarity
+      const nameSimilarity = calculateSimilarity(locationInfo.mainName, loc.name);
+      const expandedSimilarity = calculateSimilarity(expandedName, expandAbbreviations(loc.name));
+      
+      // Check alias similarity
+      let aliasSimilarity = 0;
+      if (loc.aliases && loc.aliases.length > 0) {
+        for (const alias of loc.aliases) {
+          const aliasScore = calculateSimilarity(locationInfo.mainName, alias);
+          aliasSimilarity = Math.max(aliasSimilarity, aliasScore);
+        }
+      }
+      
+      // Check if location has been seen with this variation
+      let variationMatch = 0;
+      if (loc.seenVariations && loc.seenVariations.includes(locationInfo.originalText)) {
+        variationMatch = 0.95; // High confidence if we've seen this exact text before
+      }
+      
+      // Take the best score
+      const score = Math.max(nameSimilarity, expandedSimilarity, aliasSimilarity, variationMatch);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = {
+          location: loc,
+          confidence: score,
+          matchType: variationMatch > 0 ? 'variation' : 
+                     aliasSimilarity > nameSimilarity ? 'alias' : 
+                     expandedSimilarity > nameSimilarity ? 'expanded' : 'fuzzy'
+        };
+      }
+    }
+    
+    // Return match if confidence is above threshold
+    if (bestMatch && bestScore > 0.6) {
+      return bestMatch;
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error('Error finding matching location:', error);
+    return null;
+  }
+}
+
+// Create or update location from event
+async function upsertLocationFromEvent(event) {
+  const locationInfo = extractLocationFromEvent(event);
+  if (!locationInfo || !locationInfo.mainName) return null;
+  
+  try {
+    const now = new Date();
+    
+    // Check if location already exists
+    const existing = await findMatchingLocation(locationInfo);
+    
+    // If high confidence match, use existing location
+    if (existing?.confidence >= 0.9) {
+      // Update usage count
+      await locationsCollection.updateOne(
+        { _id: existing.location._id },
+        { 
+          $inc: { usageCount: 1 },
+          $set: { updatedAt: now },
+          $addToSet: { 
+            // Track variations seen in the wild
+            seenVariations: locationInfo.originalText 
+          }
+        }
+      );
+      return {
+        locationId: existing.location._id,
+        wasCreated: false,
+        confidence: existing.confidence
+      };
+    }
+    
+    // Determine status based on confidence
+    const status = existing?.confidence >= 0.7 ? 'pending' : 'approved';
+    const suggestedMatches = existing ? [{
+      locationId: existing.location._id,
+      locationName: existing.location.name,
+      confidence: existing.confidence,
+      reason: existing.confidence >= 0.7 ? 'Partial name match' : 'Possible match'
+    }] : [];
+    
+    // Create new location with review status
+    const newLocation = {
+      name: locationInfo.mainName,
+      aliases: [],
+      locationCode: null,
+      building: locationInfo.building,
+      floor: locationInfo.floor,
+      capacity: null,
+      features: [],
+      accessibility: [],
+      address: null,
+      notes: `Auto-imported from event: ${locationInfo.originalText}`,
+      
+      // Review and status fields
+      status: status, // 'approved', 'pending', 'merged'
+      confidence: existing?.confidence || 0,
+      suggestedMatches: suggestedMatches,
+      needsReview: status === 'pending',
+      mergedInto: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewNotes: null,
+      
+      // Tracking fields
+      importSource: 'event-import',
+      originalText: locationInfo.originalText,
+      seenVariations: [locationInfo.originalText],
+      
+      // Standard fields
+      active: status === 'approved',
+      createdAt: now,
+      updatedAt: now,
+      importedFrom: 'event-import',
+      usageCount: 1
+    };
+    
+    const result = await locationsCollection.insertOne(newLocation);
+    return {
+      locationId: result.insertedId,
+      wasCreated: true,
+      needsReview: status === 'pending',
+      confidence: existing?.confidence || 0
+    };
+  } catch (error) {
+    logger.error('Error upserting location from event:', error);
+    return null;
+  }
+}
+
+// Analyze locations in a list of events for migration preview
+async function analyzeEventLocations(events) {
+  const locationMap = new Map();
+  
+  // Extract and count unique locations
+  for (const event of events) {
+    const locationString = event.location || '';
+    if (!locationString) continue;
+    
+    const locationInfo = extractLocationFromEvent({ graphData: { location: { displayName: locationString } } });
+    if (!locationInfo) continue;
+    
+    const key = locationInfo.normalizedName;
+    if (!locationMap.has(key)) {
+      locationMap.set(key, {
+        originalName: locationInfo.mainName,
+        normalizedName: locationInfo.normalizedName,
+        count: 0,
+        examples: [],
+        match: null
+      });
+    }
+    
+    const locationEntry = locationMap.get(key);
+    locationEntry.count++;
+    
+    // Keep first 3 examples for reference
+    if (locationEntry.examples.length < 3 && !locationEntry.examples.includes(locationString)) {
+      locationEntry.examples.push(locationString);
+    }
+  }
+  
+  // Check for matches against existing locations
+  const existingLocations = [];
+  const newLocations = [];
+  const ambiguousLocations = [];
+  
+  for (const [key, locationData] of locationMap) {
+    const match = await findMatchingLocation({
+      mainName: locationData.originalName,
+      normalizedName: locationData.normalizedName,
+      originalText: locationData.examples[0]
+    });
+    
+    if (match) {
+      if (match.confidence >= 0.9) {
+        // High confidence match
+        existingLocations.push({
+          name: locationData.originalName,
+          count: locationData.count,
+          examples: locationData.examples,
+          matchedLocation: {
+            id: match.location._id,
+            name: match.location.name,
+            confidence: match.confidence,
+            matchType: match.matchType,
+            confidenceLabel: match.confidence === 1 ? 'Exact Match' :
+                           match.confidence >= 0.95 ? 'Very High' : 'High'
+          }
+        });
+      } else {
+        // Low confidence - needs review
+        ambiguousLocations.push({
+          name: locationData.originalName,
+          count: locationData.count,
+          examples: locationData.examples,
+          possibleMatches: [{
+            id: match.location._id,
+            name: match.location.name,
+            confidence: match.confidence,
+            matchType: match.matchType,
+            confidenceLabel: match.confidence >= 0.8 ? 'Medium' :
+                           match.confidence >= 0.7 ? 'Low' : 'Very Low',
+            action: match.confidence >= 0.8 ? 'Review Recommended' : 'Manual Review Required'
+          }]
+        });
+      }
+    } else {
+      // No match found - new location
+      newLocations.push({
+        name: locationData.originalName,
+        count: locationData.count,
+        examples: locationData.examples,
+        suggested: {
+          name: locationData.originalName,
+          aliases: locationData.examples.slice(1),
+          importedFrom: 'event-import',
+          status: 'Will be created as new'
+        }
+      });
+    }
+  }
+  
+  // Sort by count (most used first)
+  existingLocations.sort((a, b) => b.count - a.count);
+  newLocations.sort((a, b) => b.count - a.count);
+  ambiguousLocations.sort((a, b) => b.count - a.count);
+  
+  return {
+    summary: {
+      totalUniqueLocations: locationMap.size,
+      existing: existingLocations.length,
+      new: newLocations.length,
+      ambiguous: ambiguousLocations.length
+    },
+    locations: {
+      existing: existingLocations,
+      new: newLocations,
+      ambiguous: ambiguousLocations
+    }
+  };
 }
 
 /**
@@ -1497,18 +2482,18 @@ async function getUnifiedEvents(userId, calendarId = null, startDate = null, end
 }
 
 /**
- * Delta sync API endpoint - fetches only changed events
+ * Smart cache-first events loading API endpoint
  */
-app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
+app.post('/api/events/load', verifyToken, async (req, res) => {
   try {
-    logger.debug('Delta sync handler started');
+    logger.debug('Cache-first events load handler started');
     
-    const { calendarIds, startTime, endTime, forceFullSync = false } = req.body;
+    const { calendarIds, startTime, endTime, forceRefresh = false } = req.body;
     const userId = req.user.userId;
     const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
     
     // Enhanced validation and logging
-    logger.debug('Delta sync handler: validating request', {
+    logger.debug('Cache-first events load handler: validating request', {
       userId,
       hasGraphToken: !!graphToken,
       calendarIds,
@@ -1517,17 +2502,12 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
       calendarIdsLength: Array.isArray(calendarIds) ? calendarIds.length : 'N/A',
       startTime,
       endTime,
-      forceFullSync,
+      forceRefresh,
       requestBody: req.body
     });
     
-    if (!graphToken) {
-      logger.error('Delta sync handler: Graph token missing');
-      return res.status(400).json({ error: 'Graph token required for sync' });
-    }
-    
     if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
-      logger.error('Delta sync handler: Invalid calendarIds', {
+      logger.error('Cache-first events load handler: Invalid calendarIds', {
         calendarIds,
         type: typeof calendarIds,
         isArray: Array.isArray(calendarIds),
@@ -1540,7 +2520,7 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
     for (let i = 0; i < calendarIds.length; i++) {
       const calendarId = calendarIds[i];
       if (!calendarId || typeof calendarId !== 'string' || calendarId.trim() === '') {
-        logger.error('Delta sync handler: Invalid calendar ID at index', {
+        logger.error('Cache-first events load handler: Invalid calendar ID at index', {
           index: i,
           calendarId,
           type: typeof calendarId,
@@ -1553,164 +2533,214 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
         });
       }
     }
+    
+    logger.log(`Cache-first events load requested for user ${userId}, calendars: ${calendarIds.join(', ')}`);
+    
+    const loadResults = {
+      calendars: {},
+      totalEvents: 0,
+      errors: [],
+      strategy: 'cache-first'
+    };
 
-    // Validate Graph token format (basic JWT check)
+    // STEP 1: Try to load from unified events collection first (cache-first approach)
+    let unifiedEvents = [];
+    let foundInCache = false;
+    const cacheAge = 5 * 60 * 1000; // Consider cache fresh for 5 minutes
+
+    if (!forceRefresh && startTime && endTime) {
+      logger.debug('Checking unified events cache first...');
+      
+      for (const calendarId of calendarIds) {
+        try {
+          const cachedEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
+          
+          if (cachedEvents.length > 0) {
+            // Check if cached events are recent enough
+            const recentCachedEvents = cachedEvents.filter(event => {
+              const lastSynced = new Date(event.lastSyncedAt || event.cachedAt || 0);
+              const now = new Date();
+              return (now - lastSynced) < cacheAge;
+            });
+            
+            if (recentCachedEvents.length > 0) {
+              logger.debug(`Found ${recentCachedEvents.length} fresh cached events for calendar ${calendarId}`);
+              unifiedEvents = unifiedEvents.concat(recentCachedEvents);
+              foundInCache = true;
+              
+              loadResults.calendars[calendarId] = {
+                totalEvents: recentCachedEvents.length,
+                source: 'cache',
+                cacheAge: Math.min(...recentCachedEvents.map(e => {
+                  const lastSynced = new Date(e.lastSyncedAt || e.cachedAt || 0);
+                  return new Date() - lastSynced;
+                }))
+              };
+            } else {
+              logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}, but they are stale`);
+            }
+          } else {
+            logger.debug(`No cached events found for calendar ${calendarId} in date range`);
+          }
+        } catch (cacheError) {
+          logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
+        }
+      }
+    }
+
+    // STEP 2: If we found fresh cached events, return them immediately
+    if (foundInCache && !forceRefresh) {
+      logger.debug(`Using cached events: ${unifiedEvents.length} events from cache`);
+      
+      // Transform events to frontend format
+      const transformedEvents = unifiedEvents.map(event => {
+        // Check if graphData exists and has required properties
+        if (!event.graphData || !event.graphData.start || !event.graphData.end) {
+          logger.warn('Cached event missing required graphData properties:', {
+            eventId: event.eventId,
+            hasGraphData: !!event.graphData,
+            hasStart: event.graphData?.start ? true : false,
+            hasEnd: event.graphData?.end ? true : false
+          });
+          return null;
+        }
+        
+        // Ensure event has a subject
+        if (!event.graphData.subject) {
+          event.graphData.subject = event.internalData?.subject || '(No Subject)';
+        }
+        
+        // Normalize category field
+        let category = '';
+        if (event.internalData?.mecCategories && event.internalData.mecCategories.length > 0) {
+          category = event.internalData.mecCategories[0];
+        } else if (event.graphData?.categories && event.graphData.categories.length > 0) {
+          category = event.graphData.categories[0];
+        }
+        
+        const internalData = event.internalData || {};
+        
+        return {
+          // Use Graph data as base
+          ...event.graphData,
+          // Add internal enrichments
+          ...internalData,
+          // Override with normalized category
+          category: category,
+          // Add metadata
+          calendarId: event.calendarId,
+          sourceCalendars: event.sourceCalendars,
+          _hasInternalData: Object.keys(internalData).some(key => 
+            internalData[key] && 
+            (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
+          ),
+          _lastSyncedAt: event.lastSyncedAt,
+          _cached: true
+        };
+      }).filter(event => event !== null);
+      
+      logger.log(`Cache-first load complete for user ${userId}: ${transformedEvents.length} events from cache`);
+      
+      return res.status(200).json({
+        loadResults: loadResults,
+        events: transformedEvents,
+        count: transformedEvents.length,
+        source: 'cache'
+      });
+    }
+
+    // STEP 3: Cache miss or force refresh - fetch from Graph API
+    if (!graphToken) {
+      logger.error('Cache-first events load handler: Graph token missing for API fallback');
+      return res.status(400).json({ error: 'Graph token required for events loading when cache is unavailable' });
+    }
+
     if (!graphToken.startsWith('eyJ')) {
-      logger.error('Delta sync handler: Graph token appears invalid', {
+      logger.error('Cache-first events load handler: Graph token appears invalid', {
         tokenPrefix: graphToken.substring(0, 10)
       });
       return res.status(400).json({ error: 'Graph token appears to be invalid format' });
     }
-    
-    logger.log(`Delta sync requested for user ${userId}, calendars: ${calendarIds.join(', ')}`);
-    
-    const syncResults = {
-      calendars: {},
-      totalEvents: 0,
-      changedEvents: 0,
-      errors: []
-    };
+
+    logger.debug('Cache miss or force refresh - fetching from Graph API...');
+    loadResults.strategy = 'graph-api-fallback';
     
     // Process each calendar
     for (const calendarId of calendarIds) {
       try {
-        logger.debug(`Processing delta sync for calendar: ${calendarId}`);
+        logger.debug(`Loading events from Graph API for calendar: ${calendarId}`);
         
-        // Get or create delta token
-        const deltaInfo = await getDeltaToken(userId, calendarId);
-        const shouldDoFullSync = forceFullSync || deltaInfo.fullSyncRequired || !deltaInfo.deltaToken;
+        // Build Graph API URL with date filtering
+        const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
+        let graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}`;
         
-        let deltaUrl;
-        if (shouldDoFullSync) {
-          // Full sync
-          logger.debug(`Performing full sync for calendar ${calendarId}`);
-          const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
-          deltaUrl = `https://graph.microsoft.com/v1.0${calendarPath}/delta?` +
-            `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime&` +
-            `$expand=extensions`;
-          // Note: Removed $top parameter - delta queries don't support it
-          // Use Prefer header instead for page size
-          
-          // Note: Delta queries don't support $filter with date ranges
-          // We'll filter events in memory after fetching
+        // Add date range filtering
+        if (startTime && endTime) {
+          const startISO = new Date(startTime).toISOString();
+          const endISO = new Date(endTime).toISOString();
+          graphUrl += `?$filter=start/dateTime ge '${startISO}' and start/dateTime lt '${endISO}'`;
+          graphUrl += `&$select=id,subject,start,end,location,categories,organizer,attendees,body,importance,showAs,isAllDay,isCancelled,responseStatus,sensitivity,webLink,hasAttachments,singleValueExtendedProperties`;
+          graphUrl += `&$expand=singleValueExtendedProperties($filter=id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_linkedEventId' or id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType')`;
+          graphUrl += `&$top=1000`;
         } else {
-          // Delta sync using stored token
-          logger.debug(`Performing delta sync for calendar ${calendarId} with token`);
-          deltaUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/delta?$deltatoken=${deltaInfo.deltaToken}`;
+          graphUrl += `?$select=id,subject,start,end,location,categories,organizer,attendees,body,importance,showAs,isAllDay,isCancelled,responseStatus,sensitivity,webLink,hasAttachments,singleValueExtendedProperties`;
+          graphUrl += `&$expand=singleValueExtendedProperties($filter=id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_linkedEventId' or id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType')`;
+          graphUrl += `&$top=1000`;
         }
         
-        let allDeltaEvents = [];
-        let nextLink = deltaUrl;
-        let newDeltaToken = null;
+        let allEvents = [];
+        let nextLink = graphUrl;
+        let pageCount = 0;
+        const maxPages = 10; // Circuit breaker
         
-        // Process delta/full sync pages
-        while (nextLink) {
-          logger.debug(`Calling Graph API URL: ${nextLink}`);
+        // Fetch from Graph API with pagination
+        while (nextLink && pageCount < maxPages) {
+          pageCount++;
+          logger.debug(`Calling Graph API URL (page ${pageCount}): ${nextLink}`);
+          
           const response = await fetch(nextLink, {
             headers: {
               Authorization: `Bearer ${graphToken}`,
               'Content-Type': 'application/json',
-              'Prefer': 'odata.maxpagesize=100' // Use Prefer header for page size with delta queries
+              'Prefer': 'odata.maxpagesize=200'
             }
           });
           
           if (!response.ok) {
-            // Get error details from response body
-            let errorDetails = '';
-            try {
-              const errorBody = await response.text();
-              errorDetails = errorBody ? ` - ${errorBody}` : '';
-              logger.error(`Graph API error details: ${errorDetails}`);
-            } catch (e) {
-              logger.warn('Could not read error response body');
-            }
-
-            if (response.status === 410 && !shouldDoFullSync) {
-              // Delta token expired, force full sync
-              logger.warn(`Delta token expired for calendar ${calendarId}, forcing full sync${errorDetails}`);
-              await resetDeltaToken(userId, calendarId);
-              // Restart with full sync
-              const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
-              nextLink = `https://graph.microsoft.com/v1.0${calendarPath}/delta?` +
-                `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime&` +
-                `$expand=extensions`;
-              // Note: Removed $top parameter - use Prefer header instead
-              continue;
-            }
-            
-            const errorMsg = `Graph API failed: ${response.status} ${response.statusText}${errorDetails}`;
+            const errorMsg = `Graph API failed: ${response.status} ${response.statusText}`;
             logger.error(`Graph API error for calendar ${calendarId}: ${errorMsg}`);
             throw new Error(errorMsg);
           }
           
           const data = await response.json();
-          allDeltaEvents = allDeltaEvents.concat(data.value || []);
+          const pageEvents = data.value || [];
+          allEvents = allEvents.concat(pageEvents);
+          logger.debug(`Received ${pageEvents.length} events on page ${pageCount} for calendar ${calendarId}`);
           
-          // Get next link or delta token from response
           nextLink = data['@odata.nextLink'];
-          if (data['@odata.deltaLink']) {
-            // Extract delta token from delta link
-            const deltaLink = data['@odata.deltaLink'];
-            const tokenMatch = deltaLink.match(/\$deltatoken=([^&]+)/);
-            if (tokenMatch) {
-              newDeltaToken = decodeURIComponent(tokenMatch[1]);
-            }
+          if (nextLink && pageCount >= maxPages) {
+            logger.warn(`Reached maximum page limit (${maxPages}) for calendar ${calendarId}, stopping pagination`);
+            break;
           }
         }
         
-        logger.debug(`Received ${allDeltaEvents.length} delta events for calendar ${calendarId}`);
+        logger.debug(`Total received ${allEvents.length} events from Graph API for calendar ${calendarId}`);
         
-        // Filter events by date range if provided (since delta queries don't support $filter)
-        let filteredEvents = allDeltaEvents;
-        if (startTime && endTime && shouldDoFullSync) {
-          const startDate = new Date(startTime);
-          const endDate = new Date(endTime);
-          
-          filteredEvents = allDeltaEvents.filter(event => {
-            if (!event.start || !event.start.dateTime) return false;
-            const eventStart = new Date(event.start.dateTime);
-            return eventStart >= startDate && eventStart <= endDate;
-          });
-          
-          logger.debug(`Filtered events by date range: ${filteredEvents.length} of ${allDeltaEvents.length} events`);
-        }
-        
-        // Process delta events
+        // Update unified collection with fresh data
         let eventsCreated = 0;
         let eventsUpdated = 0;
-        let eventsDeleted = 0;
         
-        for (const deltaEvent of filteredEvents) {
+        for (const graphEvent of allEvents) {
           try {
-            // Check if event is deleted (indicated by @removed annotation)
-            if (deltaEvent['@removed']) {
-              // Mark as deleted in unified collection
-              await unifiedEventsCollection.updateOne(
-                { userId: userId, eventId: deltaEvent.id },
-                { 
-                  $set: { 
-                    isDeleted: true, 
-                    lastSyncedAt: new Date(),
-                    deltaAction: 'deleted'
-                  } 
-                }
-              );
-              eventsDeleted++;
-              logger.debug(`Marked event as deleted: ${deltaEvent.id}`);
-              continue;
-            }
-            
-            // Use merging function to handle multiple calendars and enrichment
             const wasExisting = await unifiedEventsCollection.findOne({
               userId: userId,
-              eventId: deltaEvent.id
+              eventId: graphEvent.id
             });
             
-            // Merge event from multiple calendars (handles both new and existing events)
             await mergeEventFromMultipleCalendars(
               userId,
-              deltaEvent.id,
-              deltaEvent,
+              graphEvent.id,
+              graphEvent,
               calendarId
             );
             
@@ -1719,115 +2749,95 @@ app.post('/api/events/sync-delta', verifyToken, async (req, res) => {
             } else {
               eventsCreated++;
             }
-            
           } catch (eventError) {
-            logger.error(`Error processing delta event ${deltaEvent.id}:`, eventError);
-            syncResults.errors.push({
+            logger.error(`Error processing event ${graphEvent.id}:`, eventError);
+            loadResults.errors.push({
               calendarId: calendarId,
-              eventId: deltaEvent.id,
+              eventId: graphEvent.id,
               error: eventError.message
             });
           }
         }
         
-        // Update delta token for next sync
-        if (newDeltaToken) {
-          await updateDeltaToken(userId, calendarId, newDeltaToken);
-        }
-        
-        syncResults.calendars[calendarId] = {
-          totalEvents: filteredEvents.length,
-          rawEvents: allDeltaEvents.length,
+        loadResults.calendars[calendarId] = {
+          totalEvents: allEvents.length,
           created: eventsCreated,
           updated: eventsUpdated,
-          deleted: eventsDeleted,
-          syncType: shouldDoFullSync ? 'full' : 'delta',
-          deltaToken: newDeltaToken ? 'updated' : 'unchanged'
+          pages: pageCount,
+          source: 'graph-api'
         };
         
-        syncResults.totalEvents += filteredEvents.length;
-        syncResults.changedEvents += eventsCreated + eventsUpdated + eventsDeleted;
-        
-        logger.debug(`Calendar ${calendarId} sync complete:`, syncResults.calendars[calendarId]);
+        loadResults.totalEvents += allEvents.length;
         
       } catch (calendarError) {
-        logger.error(`Error syncing calendar ${calendarId}:`, calendarError);
-        syncResults.errors.push({
+        logger.error(`Error loading calendar ${calendarId}:`, calendarError);
+        loadResults.errors.push({
           calendarId: calendarId,
           error: calendarError.message
         });
       }
     }
     
-    // Return unified events for the requested date range from the synced calendars only
-    let unifiedEvents = [];
+    // STEP 4: Return updated unified events
+    unifiedEvents = [];
     if (startTime && endTime) {
-      // Get events only from the calendars we just synced
       for (const calendarId of calendarIds) {
         const calendarEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
         unifiedEvents = unifiedEvents.concat(calendarEvents);
       }
-      logger.debug(`Returning ${unifiedEvents.length} events from calendars: ${calendarIds.join(', ')}`);
-      
-      // Log details about which events belong to which calendar
-      const eventsByCalendar = {};
-      unifiedEvents.forEach(event => {
-        const calId = event.calendarId || 'unknown';
-        eventsByCalendar[calId] = (eventsByCalendar[calId] || 0) + 1;
-      });
-      logger.debug('Events by calendar ID:', eventsByCalendar);
     } else {
-      // If no date range, still filter by calendar IDs
       for (const calendarId of calendarIds) {
         const calendarEvents = await getUnifiedEvents(userId, calendarId);
         unifiedEvents = unifiedEvents.concat(calendarEvents);
       }
-      logger.debug(`Returning ${unifiedEvents.length} events from calendars (no date range): ${calendarIds.join(', ')}`);
     }
     
     // Transform events to frontend format
     const transformedEvents = unifiedEvents.map(event => {
-      // Normalize category field - frontend expects a single string
+      if (!event.graphData || !event.graphData.start || !event.graphData.end) {
+        return null;
+      }
+      
+      if (!event.graphData.subject) {
+        event.graphData.subject = event.internalData?.subject || '(No Subject)';
+      }
+      
       let category = '';
-      if (event.internalData.mecCategories && event.internalData.mecCategories.length > 0) {
-        // CSV imports use mecCategories
+      if (event.internalData?.mecCategories && event.internalData.mecCategories.length > 0) {
         category = event.internalData.mecCategories[0];
-      } else if (event.graphData.categories && event.graphData.categories.length > 0) {
-        // Graph events use categories
+      } else if (event.graphData?.categories && event.graphData.categories.length > 0) {
         category = event.graphData.categories[0];
       }
       
+      const internalData = event.internalData || {};
+      
       return {
-        // Use Graph data as base
         ...event.graphData,
-        // Add internal enrichments
-        ...event.internalData,
-        // Override with normalized category
+        ...internalData,
         category: category,
-        // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(event.internalData).some(key => 
-          event.internalData[key] && 
-          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+        _hasInternalData: Object.keys(internalData).some(key => 
+          internalData[key] && 
+          (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
         ),
         _lastSyncedAt: event.lastSyncedAt,
         _cached: true
       };
-    });
+    }).filter(event => event !== null);
     
-    logger.log(`Delta sync complete for user ${userId}: ${syncResults.changedEvents} changes across ${calendarIds.length} calendars`);
+    logger.log(`Cache-first load complete for user ${userId}: ${transformedEvents.length} events (${loadResults.strategy})`);
     
     res.status(200).json({
-      syncResults: syncResults,
+      loadResults: loadResults,
       events: transformedEvents,
       count: transformedEvents.length,
-      source: 'delta_sync'
+      source: loadResults.strategy
     });
     
   } catch (error) {
-    logger.error('Error in delta sync:', error);
-    res.status(500).json({ error: 'Failed to sync events', details: error.message });
+    logger.error('Error in cache-first events load:', error);
+    res.status(500).json({ error: 'Failed to load events', details: error.message });
   }
 });
 
@@ -2132,7 +3142,21 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
         throw new Error(`Graph API failed: ${graphResponse.status} ${graphResponse.statusText}`);
       }
       
-      const graphData = await graphResponse.json();
+      // Safely parse response to handle empty or invalid JSON
+      let graphData;
+      try {
+        const responseText = await graphResponse.text();
+        if (!responseText) {
+          logger.warn('Graph API returned empty response');
+          graphData = { value: [] };
+        } else {
+          graphData = JSON.parse(responseText);
+        }
+      } catch (parseError) {
+        logger.error('Failed to parse Graph API response:', parseError);
+        graphData = { value: [] };
+      }
+      
       const events = graphData.value || [];
       
       logger.log(`Fetched ${events.length} events from Graph API for cache miss`);
@@ -2726,6 +3750,660 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to clean deleted events' });
   }
 });
+
+// ============================================
+// MIGRATION ENDPOINTS
+// ============================================
+
+// Migration sessions storage (in-memory for active sessions)
+const migrationSessions = new Map();
+
+/**
+ * Determine calendar access level based on permissions
+ */
+function determineAccessLevel(calendarData) {
+  // Full access: Can edit OR can view private items
+  if (calendarData.canEdit || calendarData.canViewPrivateItems) {
+    return 'full';
+  }
+  
+  // Owner access (inferred from having share permission but not edit)
+  if (calendarData.canShare && !calendarData.owner) {
+    return 'owner';
+  }
+  
+  // Limited access: Has some permissions but can't see private items
+  if (!calendarData.canEdit && !calendarData.canViewPrivateItems && !calendarData.canShare) {
+    return 'limited';
+  }
+  
+  // Free/busy only: Minimal access
+  return 'freeBusy';
+}
+
+/**
+ * Preview migration - analyze what would be migrated
+ */
+app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { startDate, endDate, calendarIds, options = {}, includeEvents = false } = req.body;
+    
+    // Validate input
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+    
+    if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
+      return res.status(400).json({ error: 'At least one calendar must be selected' });
+    }
+    
+    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
+    if (!graphToken) {
+      return res.status(401).json({ error: 'Graph token is required for migration' });
+    }
+    
+    logger.debug('Migration preview requested:', { userId, startDate, endDate, calendars: calendarIds.length });
+    
+    // Calculate existing events in the database
+    const startDateTime = new Date(startDate);
+    const endDateTime = new Date(endDate);
+    
+    // Debug: Log the working statistics query
+    const statsQuery = {
+      userId: userId,
+      'graphData.start.dateTime': { 
+        $gte: startDateTime.toISOString(), 
+        $lte: endDateTime.toISOString() 
+      },
+      isDeleted: { $ne: true }
+    };
+    logger.debug('Statistics query (working):', statsQuery);
+    
+    const existingEvents = await unifiedEventsCollection.countDocuments(statsQuery);
+    
+    // Get calendar details and estimate event counts
+    const calendarDetails = [];
+    let totalOutlookEvents = 0;
+    
+    for (const calendarId of calendarIds) {
+      try {
+        // Get calendar name and permission info
+        const calendarPath = calendarId === 'primary' 
+          ? '/me/calendar' 
+          : `/me/calendars/${calendarId}`;
+        
+        // Request calendar with permission properties
+        const calendarUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
+          `$select=id,name,owner,canEdit,canShare,canViewPrivateItems`;
+        
+        const calendarResponse = await fetch(calendarUrl, {
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        let calendarInfo = {
+          name: 'Unknown Calendar',
+          canEdit: false,
+          canShare: false,
+          canViewPrivateItems: false,
+          owner: null,
+          accessLevel: 'unknown'
+        };
+        
+        if (calendarResponse.ok) {
+          const calendarData = await calendarResponse.json();
+          calendarInfo = {
+            name: calendarData.name || calendarId,
+            canEdit: calendarData.canEdit || false,
+            canShare: calendarData.canShare || false,
+            canViewPrivateItems: calendarData.canViewPrivateItems || false,
+            owner: calendarData.owner || null,
+            accessLevel: determineAccessLevel(calendarData)
+          };
+        } else {
+          const errorText = await calendarResponse.text();
+          logger.warn(`Failed to get calendar permissions for ${calendarId}:`, {
+            status: calendarResponse.status,
+            error: errorText
+          });
+        }
+        
+        // Count events using calendarView (Microsoft's recommended approach for date ranges)
+        const calendarViewPath = calendarId === 'primary' 
+          ? '/me/calendar/calendarView' 
+          : `/me/calendars/${calendarId}/calendarView`;
+        
+        // Use ISO 8601 format for calendarView parameters
+        const startDateStr = startDateTime.toISOString();
+        const endDateStr = endDateTime.toISOString();
+        
+        const countUrl = `https://graph.microsoft.com/v1.0${calendarViewPath}?` + 
+          `startDateTime=${encodeURIComponent(startDateStr)}&` +
+          `endDateTime=${encodeURIComponent(endDateStr)}&` +
+          `$select=id&$top=1000`;
+        
+        logger.debug(`Counting events for calendar ${calendarId} using calendarView:`, countUrl);
+        
+        const countResponse = await fetch(countUrl, {
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        let eventCount = 0;
+        if (countResponse.ok) {
+          const responseData = await countResponse.json();
+          eventCount = responseData.value ? responseData.value.length : 0;
+          logger.debug(`CalendarView count response for ${calendarId}:`, eventCount);
+          
+          // Check if there are more results (pagination)
+          if (responseData['@odata.nextLink']) {
+            logger.debug(`Calendar ${calendarId} has more than 1000 events, showing first 1000`);
+          }
+        } else {
+          const errorText = await countResponse.text();
+          logger.error(`CalendarView count failed for ${calendarId}:`, {
+            url: countUrl,
+            status: countResponse.status,
+            statusText: countResponse.statusText,
+            error: errorText,
+            calendarId: calendarId
+          });
+          eventCount = -1; // Indicate error
+        }
+        
+        calendarDetails.push({
+          id: calendarId,
+          name: calendarInfo.name,
+          eventCount: eventCount,
+          permissions: {
+            canEdit: calendarInfo.canEdit,
+            canShare: calendarInfo.canShare,
+            canViewPrivateItems: calendarInfo.canViewPrivateItems,
+            accessLevel: calendarInfo.accessLevel
+          },
+          owner: calendarInfo.owner,
+          hasLimitedAccess: calendarInfo.accessLevel === 'limited' || calendarInfo.accessLevel === 'freeBusy'
+        });
+        
+        totalOutlookEvents += eventCount;
+        
+      } catch (error) {
+        logger.error(`Error getting info for calendar ${calendarId}:`, error);
+        calendarDetails.push({
+          id: calendarId,
+          name: calendarId,
+          eventCount: 0,
+          error: error.message,
+          permissions: {
+            canEdit: false,
+            canShare: false,
+            canViewPrivateItems: false,
+            accessLevel: 'unknown'
+          },
+          owner: null,
+          hasLimitedAccess: true
+        });
+      }
+    }
+    
+    // Calculate statistics
+    const preview = {
+      dateRange: {
+        start: startDate,
+        end: endDate
+      },
+      statistics: {
+        totalInOutlook: totalOutlookEvents,
+        alreadyImported: existingEvents,
+        estimatedNewEvents: Math.max(0, totalOutlookEvents - existingEvents),
+        estimatedDuplicates: Math.min(existingEvents, totalOutlookEvents)
+      },
+      calendars: calendarDetails,
+      options: options
+    };
+
+    // If detailed events are requested, fetch and categorize them
+    if (includeEvents) {
+      logger.debug('Fetching detailed event lists for migration preview');
+      
+      try {
+        const eventDetails = {
+          alreadyImported: [],
+          newEvents: []
+        };
+
+        // Debug: Log query parameters
+        logger.debug('Event details query parameters:', {
+          userId: userId,
+          startDateTime: startDateTime.toISOString(),
+          endDateTime: endDateTime.toISOString(),
+          collection: unifiedEventsCollection.collectionName
+        });
+
+        // Debug: Sample a few documents to see actual structure
+        const sampleDocs = await unifiedEventsCollection.find({userId: userId}).limit(3).toArray();
+        logger.debug('Sample document structures:', sampleDocs.map(doc => ({
+          id: doc._id,
+          hasGraphData: !!doc.graphData,
+          graphDataKeys: doc.graphData ? Object.keys(doc.graphData) : 'No graphData',
+          startStructure: doc.graphData?.start,
+          isDeleted: doc.isDeleted
+        })));
+
+        // Get existing events from database
+        const existingEventsList = await unifiedEventsCollection.find({
+          userId: userId,
+          'graphData.start.dateTime': { 
+            $gte: startDateTime.toISOString(), 
+            $lte: endDateTime.toISOString() 
+          },
+          isDeleted: { $ne: true }
+        }).toArray();
+
+        logger.debug('Raw existing events found:', {
+          count: existingEventsList.length,
+          sampleEvent: existingEventsList[0] ? {
+            id: existingEventsList[0]._id,
+            graphId: existingEventsList[0].graphData?.id,
+            subject: existingEventsList[0].graphData?.subject,
+            startDateTime: existingEventsList[0].graphData?.start?.dateTime,
+            hasGraphData: !!existingEventsList[0].graphData
+          } : 'No events found'
+        });
+
+        // If main query returned 0 but stats showed >0, try alternative queries
+        if (existingEventsList.length === 0 && existingEvents > 0) {
+          logger.debug('Main query returned 0 but stats show positive count. Trying alternative queries...');
+          
+          // Try query without date filter first
+          const allUserEvents = await unifiedEventsCollection.find({
+            userId: userId,
+            isDeleted: { $ne: true }
+          }).limit(5).toArray();
+          
+          logger.debug('Alternative query - all user events sample:', {
+            count: allUserEvents.length,
+            samples: allUserEvents.map(event => ({
+              id: event._id,
+              subject: event.graphData?.subject,
+              startDateTime: event.graphData?.start?.dateTime,
+              startDate: event.graphData?.start?.date,
+              startType: typeof event.graphData?.start?.dateTime
+            }))
+          });
+
+          // Try different date field structures
+          const altQuery1 = await unifiedEventsCollection.find({
+            userId: userId,
+            'graphData.start.date': { 
+              $gte: startDate, 
+              $lte: endDate 
+            },
+            isDeleted: { $ne: true }
+          }).toArray();
+          
+          logger.debug('Alternative query 1 (using start.date):', { count: altQuery1.length });
+
+          // If alt query works, use it instead
+          if (altQuery1.length > 0) {
+            logger.debug('Alternative query worked! Using start.date instead of start.dateTime');
+            existingEventsList.length = 0; // Clear original array
+            existingEventsList.push(...altQuery1); // Use alternative results
+          }
+        }
+
+        // Convert existing events to the display format
+        existingEventsList.forEach(event => {
+          // Try multiple fields to get a meaningful title
+          const subject = event.graphData.subject || 
+                         event.graphData.bodyPreview?.substring(0, 50) || 
+                         event.graphData.location?.displayName ||
+                         event.graphData.organizer?.emailAddress?.name ||
+                         `Event ${event.graphData.id?.substring(0, 8)}...` ||
+                         'Untitled Event';
+
+          eventDetails.alreadyImported.push({
+            id: event.graphData.id || event._id,
+            subject: subject,
+            startDateTime: event.graphData.start.dateTime || event.graphData.start.date,
+            endDateTime: event.graphData.end.dateTime || event.graphData.end.date,
+            calendarId: event.calendarId || 'unknown',
+            location: event.graphData.location?.displayName || '',
+            organizer: event.graphData.organizer?.emailAddress?.name || '',
+            categories: event.graphData.categories?.join(', ') || '',
+            bodyPreview: event.graphData.bodyPreview?.substring(0, 100) || ''
+          });
+        });
+
+        // Create a Set of existing event IDs for quick lookup
+        const existingEventIds = new Set(existingEventsList.map(e => e.graphData.id));
+
+        // Fetch sample of new events from Graph API for each calendar
+        for (const calendarId of calendarIds) {
+          try {
+            const eventsPath = calendarId === 'primary' 
+              ? '/me/events' 
+              : `/me/calendars/${calendarId}/events`;
+            
+            const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` + 
+              `$filter=start/dateTime ge '${startDateTime.toISOString()}' and ` +
+              `end/dateTime le '${endDateTime.toISOString()}'` +
+              `&$select=id,subject,start,end,location` +
+              `&$top=100`; // Limit to first 100 events per calendar for preview
+
+            const eventsResponse = await fetch(eventsUrl, {
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (eventsResponse.ok) {
+              const eventsData = await eventsResponse.json();
+              const calendarName = calendarDetails.find(c => c.id === calendarId)?.name || calendarId;
+              
+              eventsData.value?.forEach(event => {
+                // Only include events that are NOT already imported
+                if (!existingEventIds.has(event.id)) {
+                  eventDetails.newEvents.push({
+                    id: event.id,
+                    subject: event.subject || 'No Title',
+                    startDateTime: event.start.dateTime,
+                    endDateTime: event.end.dateTime,
+                    calendarId: calendarId,
+                    calendarName: calendarName,
+                    location: event.location?.displayName || ''
+                  });
+                }
+              });
+            }
+          } catch (error) {
+            logger.warn(`Error fetching events for calendar ${calendarId}:`, error.message);
+          }
+        }
+
+        // Sort events by start date
+        eventDetails.alreadyImported.sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+        eventDetails.newEvents.sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+
+        preview.eventDetails = eventDetails;
+        
+        // Analyze locations in events
+        try {
+          const locationAnalysis = await analyzeEventLocations([
+            ...eventDetails.alreadyImported,
+            ...eventDetails.newEvents
+          ]);
+          preview.locationAnalysis = locationAnalysis;
+        } catch (error) {
+          logger.warn('Error analyzing locations:', error);
+          preview.locationAnalysisError = 'Failed to analyze event locations';
+        }
+        
+        logger.debug(`Event details included: ${eventDetails.alreadyImported.length} existing, ${eventDetails.newEvents.length} new`);
+      } catch (error) {
+        logger.warn('Error fetching event details:', error);
+        preview.eventDetailsError = 'Failed to fetch detailed event information';
+      }
+    }
+    
+    res.status(200).json(preview);
+    
+  } catch (error) {
+    logger.error('Error in migration preview:', error);
+    res.status(500).json({ error: 'Failed to generate migration preview' });
+  }
+});
+
+/**
+ * Start migration - begin importing events
+ */
+app.post('/api/admin/migration/start', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { startDate, endDate, calendarIds, options = {} } = req.body;
+    
+    // Validate input
+    if (!startDate || !endDate || !calendarIds || !calendarIds.length) {
+      return res.status(400).json({ error: 'Invalid migration parameters' });
+    }
+    
+    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
+    if (!graphToken) {
+      return res.status(401).json({ error: 'Graph token is required for migration' });
+    }
+    
+    // Create migration session
+    const sessionId = `migration_${userId}_${Date.now()}`;
+    const session = {
+      sessionId,
+      userId,
+      status: 'running',
+      config: { startDate, endDate, calendarIds, options },
+      progress: {
+        totalEvents: 0,
+        processed: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        errors: []
+      },
+      startedAt: new Date(),
+      currentCalendar: '',
+      currentEvent: ''
+    };
+    
+    migrationSessions.set(sessionId, session);
+    
+    // Start migration in background
+    processMigration(sessionId, userId, graphToken, startDate, endDate, calendarIds, options)
+      .then(() => {
+        const session = migrationSessions.get(sessionId);
+        if (session) {
+          session.status = 'completed';
+          session.completedAt = new Date();
+        }
+      })
+      .catch(error => {
+        logger.error('Migration failed:', error);
+        const session = migrationSessions.get(sessionId);
+        if (session) {
+          session.status = 'failed';
+          session.error = error.message;
+          session.completedAt = new Date();
+        }
+      });
+    
+    res.status(200).json({ 
+      sessionId, 
+      status: 'started',
+      message: 'Migration started successfully'
+    });
+    
+  } catch (error) {
+    logger.error('Error starting migration:', error);
+    res.status(500).json({ error: 'Failed to start migration' });
+  }
+});
+
+/**
+ * Get migration status
+ */
+app.get('/api/admin/migration/status/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = migrationSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Migration session not found' });
+    }
+    
+    // Only return session if it belongs to the requesting user
+    if (session.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    res.status(200).json({
+      status: session.status,
+      progress: session.progress,
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+      currentCalendar: session.currentCalendar,
+      currentEvent: session.currentEvent,
+      error: session.error
+    });
+    
+  } catch (error) {
+    logger.error('Error getting migration status:', error);
+    res.status(500).json({ error: 'Failed to get migration status' });
+  }
+});
+
+/**
+ * Cancel migration
+ */
+app.post('/api/admin/migration/cancel/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = migrationSessions.get(sessionId);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Migration session not found' });
+    }
+    
+    if (session.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    
+    if (session.status !== 'running') {
+      return res.status(400).json({ error: 'Migration is not running' });
+    }
+    
+    session.status = 'cancelled';
+    session.completedAt = new Date();
+    
+    res.status(200).json({ 
+      status: 'cancelled',
+      processed: session.progress.processed
+    });
+    
+  } catch (error) {
+    logger.error('Error cancelling migration:', error);
+    res.status(500).json({ error: 'Failed to cancel migration' });
+  }
+});
+
+/**
+ * Process migration in background
+ */
+async function processMigration(sessionId, userId, graphToken, startDate, endDate, calendarIds, options) {
+  const session = migrationSessions.get(sessionId);
+  if (!session) return;
+  
+  const { skipDuplicates = true, preserveEnrichments = true, forceOverwrite = false } = options;
+  
+  try {
+    for (const calendarId of calendarIds) {
+      if (session.status === 'cancelled') break;
+      
+      session.currentCalendar = calendarId;
+      
+      // Fetch events from Graph API
+      const calendarPath = calendarId === 'primary' 
+        ? '/me/events' 
+        : `/me/calendars/${calendarId}/events`;
+      
+      let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
+        `$filter=start/dateTime ge '${startDate}' and end/dateTime le '${endDate}'` +
+        `&$top=100&$orderby=start/dateTime`;
+      
+      while (nextLink && session.status === 'running') {
+        const response = await fetch(nextLink, {
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Graph API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const events = data.value || [];
+        
+        // Process each event
+        for (const graphEvent of events) {
+          if (session.status === 'cancelled') break;
+          
+          session.currentEvent = graphEvent.subject || 'Untitled Event';
+          
+          try {
+            // Check for duplicates
+            if (skipDuplicates && !forceOverwrite) {
+              const existing = await unifiedEventsCollection.findOne({
+                userId: userId,
+                eventId: graphEvent.id
+              });
+              
+              if (existing) {
+                session.progress.skipped++;
+                session.progress.processed++;
+                continue;
+              }
+            }
+            
+            // Use existing merge function to handle the event
+            const wasExisting = await unifiedEventsCollection.findOne({
+              userId: userId,
+              eventId: graphEvent.id
+            });
+            
+            await mergeEventFromMultipleCalendars(
+              userId,
+              graphEvent.id,
+              graphEvent,
+              calendarId
+            );
+            
+            if (wasExisting) {
+              session.progress.updated++;
+            } else {
+              session.progress.created++;
+            }
+            
+            session.progress.processed++;
+            
+          } catch (eventError) {
+            logger.error(`Error processing event ${graphEvent.id}:`, eventError);
+            session.progress.errors.push({
+              eventId: graphEvent.id,
+              subject: graphEvent.subject,
+              error: eventError.message
+            });
+          }
+        }
+        
+        // Get next page
+        nextLink = data['@odata.nextLink'] || null;
+      }
+    }
+    
+  } catch (error) {
+    logger.error('Migration processing error:', error);
+    throw error;
+  } finally {
+    // Clean up session after 1 hour
+    setTimeout(() => {
+      migrationSessions.delete(sessionId);
+    }, 3600000);
+  }
+}
 
 // ============================================
 // CSV IMPORT ENDPOINTS
@@ -4897,9 +6575,26 @@ app.get('/api/rooms', async (req, res) => {
     // TEMPORARY WORKAROUND: Azure Cosmos DB indexing issue
     // Return hardcoded rooms until indexing is fixed
     const hardcodedRooms = [
+      // Legacy locations from calendar system (with location codes)
       {
-        _id: "temp1",
+        _id: "legacy1",
+        name: "Temple Emanu-El",
+        locationCode: "TPL",
+        displayName: "Temple Emanu-El",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 400,
+        features: ["piano", "stage", "microphone", "projector", "organ"],
+        accessibility: ["wheelchair-accessible", "hearing-loop"],
+        active: true,
+        description: "Main sanctuary for worship and large gatherings",
+        notes: "Primary worship space"
+      },
+      {
+        _id: "legacy2", 
         name: "Chapel",
+        locationCode: "CPL",
+        displayName: "Chapel",
         building: "Main Building",
         floor: "1st Floor",
         capacity: 200,
@@ -4909,6 +6604,63 @@ app.get('/api/rooms', async (req, res) => {
         description: "Main worship space with traditional setup",
         notes: "Reserved for services on Sabbath"
       },
+      {
+        _id: "legacy3",
+        name: "Music Room", 
+        locationCode: "MUS",
+        displayName: "Music Room",
+        building: "Main Building",
+        floor: "2nd Floor",
+        capacity: 25,
+        features: ["piano", "music-stands", "acoustic-treatment"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Dedicated space for music practice and choir rehearsals",
+        notes: "Requires coordination with music director"
+      },
+      {
+        _id: "legacy4",
+        name: "Room 402",
+        locationCode: "402", 
+        displayName: "Room 402",
+        building: "Main Building",
+        floor: "4th Floor",
+        capacity: 20,
+        features: ["tables", "chairs", "whiteboard"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Classroom space for educational programs",
+        notes: "General purpose classroom"
+      },
+      {
+        _id: "legacy5",
+        name: "Room 602",
+        locationCode: "602",
+        displayName: "6th Floor Lounge - 602", 
+        building: "Main Building",
+        floor: "6th Floor",
+        capacity: 40,
+        features: ["comfortable-seating", "kitchenette", "tables"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Lounge area for social gatherings and meetings",
+        notes: "Popular for committee meetings and social events"
+      },
+      {
+        _id: "legacy6",
+        name: "Nursery School",
+        locationCode: "NURSERY",
+        displayName: "Nursery School",
+        building: "Education Wing",
+        floor: "Ground Floor",
+        capacity: 15,
+        features: ["child-furniture", "toys", "safety-equipment"],
+        accessibility: ["wheelchair-accessible", "child-safe"],
+        active: true,
+        description: "Early childhood education space",
+        notes: "Requires advance coordination with nursery school director"
+      },
+      // Existing newer rooms (no location codes - newer additions)
       {
         _id: "temp2",
         name: "Social Hall",
@@ -4972,31 +6724,265 @@ app.get('/api/rooms', async (req, res) => {
 });
 
 /**
+ * Get all available locations from templeEvents__Locations collection
+ */
+app.get('/api/locations', async (req, res) => {
+  try {
+    logger.debug('Getting locations from templeEvents__Locations collection');
+    
+    // Query the locations collection
+    const locations = await db.collection('templeEvents__Locations').find({
+      active: { $ne: false } // Include locations that are not explicitly set to false
+    }).sort({ name: 1 }).toArray();
+    
+    // Transform to consistent format (ensure name field exists)
+    const transformedLocations = locations.map(location => ({
+      _id: location._id,
+      name: location.name || location.displayName || 'Unnamed Location',
+      displayName: location.displayName || location.name,
+      description: location.description || '',
+      building: location.building || '',
+      floor: location.floor || '',
+      capacity: location.capacity || 0,
+      features: location.features || [],
+      accessibility: location.accessibility || [],
+      active: location.active !== false,
+      notes: location.notes || '',
+      locationCode: location.locationCode || '',
+      // Include additional metadata if present
+      ...(location.coordinates && { coordinates: location.coordinates }),
+      ...(location.address && { address: location.address }),
+      ...(location.contactInfo && { contactInfo: location.contactInfo })
+    }));
+    
+    logger.debug(`Locations loaded successfully: ${transformedLocations.length} locations found`);
+    
+    // Return the locations array
+    res.status(200).json(transformedLocations);
+    
+  } catch (error) {
+    console.error('Error in locations endpoint:', error);
+    logger.error('Error in locations endpoint:', error);
+    
+    // Return empty array instead of hardcoded fallback locations
+    // Frontend should handle empty state gracefully
+    logger.warn('Database error - returning empty locations array');
+    res.status(200).json([]);
+  }
+});
+
+/**
  * Get room availability for a specific date range
  */
 app.get('/api/rooms/availability', async (req, res) => {
   try {
-    const { startDateTime, endDateTime, roomIds } = req.query;
+    const { startDateTime, endDateTime, roomIds, setupTimeMinutes = 0, teardownTimeMinutes = 0 } = req.query;
     
     if (!startDateTime || !endDateTime) {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
     
-    const start = new Date(startDateTime);
-    const end = new Date(endDateTime);
+    const eventStart = new Date(startDateTime);
+    const eventEnd = new Date(endDateTime);
     
-    // Build room filter
-    const roomFilter = roomIds ? { _id: { $in: roomIds.split(',').map(id => new ObjectId(id)) } } : { active: true };
+    // Calculate buffer times
+    const setupMinutes = parseInt(setupTimeMinutes) || 0;
+    const teardownMinutes = parseInt(teardownTimeMinutes) || 0;
     
-    // Get all active rooms (or specified rooms)
-    const rooms = await roomsCollection.find(roomFilter).toArray();
+    // Extended time window including setup/teardown buffers
+    const start = new Date(eventStart.getTime() - (setupMinutes * 60 * 1000));
+    const end = new Date(eventEnd.getTime() + (teardownMinutes * 60 * 1000));
     
-    // Check for overlapping reservations
-    const overlappingReservations = await roomReservationsCollection.find({
+    // TEMPORARY WORKAROUND: Use hardcoded rooms like /api/rooms endpoint due to indexing issue
+    const hardcodedRooms = [
+      // Legacy locations from calendar system (with location codes)
+      {
+        _id: "legacy1",
+        name: "Temple Emanu-El",
+        locationCode: "TPL",
+        displayName: "Temple Emanu-El",
+        building: "Main Building",
+        floor: "Sanctuary",
+        capacity: 500,
+        features: ["piano", "stage", "microphone", "projector"],
+        accessibility: ["wheelchair-accessible", "hearing-loop"],
+        active: true,
+        description: "Main worship space with traditional setup",
+        notes: "Primary worship space"
+      },
+      {
+        _id: "legacy2", 
+        name: "Chapel",
+        locationCode: "CPL",
+        displayName: "Chapel",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 200,
+        features: ["piano", "stage", "microphone", "projector"],
+        accessibility: ["wheelchair-accessible", "hearing-loop"],
+        active: true,
+        description: "Main worship space with traditional setup",
+        notes: "Reserved for services on Sabbath"
+      },
+      {
+        _id: "legacy3",
+        name: "Music Room", 
+        locationCode: "MUS",
+        displayName: "Music Room",
+        building: "Main Building",
+        floor: "2nd Floor",
+        capacity: 50,
+        features: ["piano", "music-stands", "audio-equipment"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Music rehearsal and performance space",
+        notes: "Requires coordination with music director"
+      },
+      {
+        _id: "legacy4",
+        name: "Room 402",
+        locationCode: "402", 
+        displayName: "Room 402",
+        building: "Education Building",
+        floor: "4th Floor",
+        capacity: 25,
+        features: ["whiteboard", "tables", "chairs"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Standard classroom with flexible seating",
+        notes: "General purpose classroom"
+      },
+      {
+        _id: "legacy5",
+        name: "Room 602",
+        locationCode: "602",
+        displayName: "6th Floor Lounge - 602", 
+        building: "Main Building",
+        floor: "6th Floor",
+        capacity: 40,
+        features: ["kitchen", "lounge-seating", "coffee-station"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Comfortable lounge space with kitchen facilities",
+        notes: "Popular for committee meetings and social events"
+      },
+      {
+        _id: "legacy6",
+        name: "Nursery School",
+        locationCode: "NURSERY",
+        displayName: "Nursery School",
+        building: "Education Building",
+        floor: "Ground Floor", 
+        capacity: 15,
+        features: ["child-safe", "toys", "small-furniture"],
+        accessibility: ["wheelchair-accessible"],
+        active: true,
+        description: "Child-friendly space with age-appropriate facilities",
+        notes: "Requires supervision and advance notice"
+      },
+      {
+        _id: "temp1",
+        name: "Social Hall",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 150,
+        features: ["kitchen", "stage", "tables", "chairs"],
+        accessibility: ["wheelchair-accessible"],
+        active: true,
+        description: "Large multipurpose room with kitchen access",
+        notes: "Can be divided with partition"
+      },
+      {
+        _id: "temp2",
+        name: "Library",
+        building: "Main Building",
+        floor: "2nd Floor",
+        capacity: 20,
+        features: ["quiet-zone", "books", "study-tables"],
+        accessibility: ["wheelchair-accessible", "elevator"],
+        active: true,
+        description: "Quiet study and small group space",
+        notes: "No food or drinks allowed"
+      },
+      {
+        _id: "temp3",
+        name: "Conference Room A",
+        building: "Main Building",
+        floor: "2nd Floor", 
+        capacity: 12,
+        features: ["av-equipment", "projector", "whiteboard", "conference-table"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Executive conference room with video conferencing",
+        notes: "Requires advance booking for setup"
+      },
+      {
+        _id: "temp4",
+        name: "Conference Room B",
+        building: "Main Building",
+        floor: "2nd Floor",
+        capacity: 8,
+        features: ["whiteboard", "conference-table"],
+        accessibility: ["elevator"],
+        active: true,
+        description: "Small meeting room for intimate discussions",
+        notes: "No AV equipment available"
+      },
+      {
+        _id: "temp5",
+        name: "Youth Room",
+        building: "Main Building",
+        floor: "1st Floor",
+        capacity: 30,
+        features: ["games", "comfortable-seating", "tv", "kitchenette"],
+        accessibility: ["wheelchair-accessible"],
+        active: true,
+        description: "Casual space designed for youth activities",
+        notes: "Snacks and beverages allowed"
+      }
+    ];
+    
+    // Build room filter for hardcoded rooms
+    let rooms = hardcodedRooms;
+    if (roomIds) {
+      const requestedRoomIds = roomIds.split(',');
+      
+      // Map real MongoDB ObjectIds to hardcoded room IDs
+      const objectIdMapping = {
+        '687973a7f5296c1bc444689c': 'temp3', // Conference Room A
+        '687973a7f5296c1bc444689d': 'temp4'  // Conference Room B
+      };
+      
+      // Convert real ObjectIds to hardcoded IDs if needed
+      const mappedRoomIds = requestedRoomIds.map(id => objectIdMapping[id] || id);
+      
+      rooms = hardcodedRooms.filter(room => mappedRoomIds.includes(room._id));
+    }
+    
+    // Filter for active rooms only
+    rooms = rooms.filter(room => room.active);
+    
+    // Check for overlapping reservations (including their setup/teardown times)
+    // We need to get all reservations that might overlap and then check their extended time windows
+    const potentialReservations = await roomReservationsCollection.find({
       status: { $in: ['pending', 'approved'] },
-      startDateTime: { $lt: end },
-      endDateTime: { $gt: start }
+      // Cast a wider net to catch reservations that might overlap when including buffer times
+      startDateTime: { $lt: new Date(end.getTime() + (8 * 60 * 60 * 1000)) }, // Add 8 hours buffer for query
+      endDateTime: { $gt: new Date(start.getTime() - (8 * 60 * 60 * 1000)) }   // Subtract 8 hours buffer for query
     }).toArray();
+    
+    
+    // Filter for actual overlaps considering setup/teardown times
+    const overlappingReservations = potentialReservations.filter(reservation => {
+      const resSetupMinutes = reservation.setupTimeMinutes || 0;
+      const resTeardownMinutes = reservation.teardownTimeMinutes || 0;
+      
+      const resStart = new Date(reservation.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
+      const resEnd = new Date(reservation.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+      
+      // Check if the extended time windows overlap
+      return resStart < end && resEnd > start;
+    });
     
     // Check for overlapping calendar events (in location field)
     const roomNames = rooms.map(room => room.name);
@@ -5007,27 +6993,164 @@ app.get('/api/rooms/availability', async (req, res) => {
       $or: roomNames.map(name => ({ location: { $regex: name, $options: 'i' } }))
     }).toArray();
     
-    // Build availability response
+    // Helper function to format time for display
+    const formatTime = (date) => date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+    
+    // Build availability response with detailed conflict information
     const availability = rooms.map(room => {
+      // Create reverse mapping from hardcoded IDs to real ObjectIds
+      const reverseMapping = {
+        'temp3': '687973a7f5296c1bc444689c', // Conference Room A
+        'temp4': '687973a7f5296c1bc444689d'  // Conference Room B
+      };
+      
+      const realRoomId = reverseMapping[room._id];
+      
       const roomReservationConflicts = overlappingReservations.filter(res => 
-        res.requestedRooms.includes(room._id.toString())
+        res.requestedRooms.includes(room._id) || // Check hardcoded ID
+        (realRoomId && res.requestedRooms.includes(realRoomId)) // Check real ObjectId
       );
       
       const roomEventConflicts = overlappingEvents.filter(event => 
         event.location && event.location.toLowerCase().includes(room.name.toLowerCase())
       );
       
+      // Enhanced conflict details for reservations
+      const detailedReservationConflicts = roomReservationConflicts.map(res => {
+        const resSetupMinutes = res.setupTimeMinutes || 0;
+        const resTeardownMinutes = res.teardownTimeMinutes || 0;
+        const effectiveStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
+        const effectiveEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+        
+        return {
+          id: res._id,
+          eventTitle: res.eventTitle,
+          requesterName: res.requesterName,
+          status: res.status,
+          originalStart: res.startDateTime,
+          originalEnd: res.endDateTime,
+          effectiveStart,
+          effectiveEnd,
+          setupTimeMinutes: resSetupMinutes,
+          teardownTimeMinutes: resTeardownMinutes,
+          conflictReason: resSetupMinutes > 0 || resTeardownMinutes > 0 ? 
+            'Conflicts with setup/teardown time' : 'Direct time overlap'
+        };
+      });
+      
+      // Enhanced conflict details for calendar events  
+      const detailedEventConflicts = roomEventConflicts.map(event => ({
+        id: event._id,
+        subject: event.subject,
+        organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
+        start: event.startTime,
+        end: event.endTime,
+        location: event.location,
+        conflictReason: 'Calendar event overlap'
+      }));
+      
+      const isAvailable = detailedReservationConflicts.length === 0 && detailedEventConflicts.length === 0;
+      
       return {
         room,
-        available: roomReservationConflicts.length === 0 && roomEventConflicts.length === 0,
+        available: isAvailable,
         conflicts: {
-          reservations: roomReservationConflicts,
-          events: roomEventConflicts
+          reservations: detailedReservationConflicts,
+          events: detailedEventConflicts,
+          totalConflicts: detailedReservationConflicts.length + detailedEventConflicts.length
+        },
+        // Availability window being checked (including buffers)
+        requestedWindow: {
+          eventStart,
+          eventEnd,
+          effectiveStart: start,
+          effectiveEnd: end,
+          setupTimeMinutes: setupMinutes,
+          teardownTimeMinutes: teardownMinutes
         }
       };
     });
     
-    res.json(availability);
+    // Generate smart suggestions for unavailable rooms
+    const generateSmartSuggestions = async (room, requestedWindow) => {
+      const suggestions = [];
+      const { eventStart, eventEnd, setupTimeMinutes, teardownTimeMinutes } = requestedWindow;
+      const eventDurationMs = eventEnd.getTime() - eventStart.getTime();
+      
+      // Search for alternative time slots within the same day
+      const dayStart = new Date(eventStart);
+      dayStart.setHours(8, 0, 0, 0); // Start at 8 AM
+      const dayEnd = new Date(eventStart);
+      dayEnd.setHours(22, 0, 0, 0); // End at 10 PM
+      
+      // Check slots in 30-minute intervals
+      for (let time = new Date(dayStart); time <= dayEnd; time.setMinutes(time.getMinutes() + 30)) {
+        const slotStart = new Date(time);
+        const slotEnd = new Date(slotStart.getTime() + eventDurationMs);
+        
+        // Skip if slot would go past day end
+        if (slotEnd > dayEnd) break;
+        
+        // Skip if this is too close to the requested time (within 1 hour)
+        const timeDiff = Math.abs(slotStart.getTime() - eventStart.getTime()) / (1000 * 60);
+        if (timeDiff < 60) continue;
+        
+        // Check if this slot would be available
+        const slotBufferStart = new Date(slotStart.getTime() - (setupTimeMinutes * 60 * 1000));
+        const slotBufferEnd = new Date(slotEnd.getTime() + (teardownTimeMinutes * 60 * 1000));
+        
+        const hasConflict = overlappingReservations.some(res => {
+          if (!res.requestedRooms.includes(room._id.toString())) return false;
+          
+          const resSetupMinutes = res.setupTimeMinutes || 0;
+          const resTeardownMinutes = res.teardownTimeMinutes || 0;
+          const resStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
+          const resEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+          
+          return resStart < slotBufferEnd && resEnd > slotBufferStart;
+        }) || overlappingEvents.some(event => {
+          if (!event.location || !event.location.toLowerCase().includes(room.name.toLowerCase())) return false;
+          return event.startTime < slotBufferEnd && event.endTime > slotBufferStart;
+        });
+        
+        if (!hasConflict) {
+          const timeUntilSlot = (slotStart.getTime() - eventStart.getTime()) / (1000 * 60 * 60);
+          suggestions.push({
+            startTime: slotStart,
+            endTime: slotEnd,
+            effectiveStartTime: slotBufferStart,
+            effectiveEndTime: slotBufferEnd,
+            hoursFromRequested: Math.round(timeUntilSlot * 10) / 10,
+            recommendation: timeUntilSlot > 0 ? 'Later same day' : 'Earlier same day'
+          });
+          
+          // Limit to 3 suggestions per room
+          if (suggestions.length >= 3) break;
+        }
+      }
+      
+      return suggestions;
+    };
+    
+    // Add suggestions to unavailable rooms
+    const availabilityWithSuggestions = await Promise.all(
+      availability.map(async (roomAvailability) => {
+        if (!roomAvailability.available) {
+          const suggestions = await generateSmartSuggestions(roomAvailability.room, roomAvailability.requestedWindow);
+          return {
+            ...roomAvailability,
+            suggestions
+          };
+        }
+        return roomAvailability;
+      })
+    );
+    
+    res.json(availabilityWithSuggestions);
   } catch (error) {
     logger.error('Error checking room availability:', error);
     res.status(500).json({ error: 'Failed to check room availability' });
@@ -5054,6 +7177,9 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       department,
       phone,
       priority = 'medium',
+      // Setup/teardown times (in minutes)
+      setupTimeMinutes = 0,
+      teardownTimeMinutes = 0,
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
@@ -5097,7 +7223,9 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
-      phone: reservationData.phone
+      phone: reservationData.phone,
+      setupTimeMinutes: reservationData.setupTimeMinutes,
+      teardownTimeMinutes: reservationData.teardownTimeMinutes
     });
 
     // Create initial communication history entry
@@ -5120,7 +7248,9 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         priority,
         contactEmail: isOnBehalfOf ? contactEmail : null,
         department: department || '',
-        phone: phone || ''
+        phone: phone || '',
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0
       })
     };
 
@@ -5146,6 +7276,10 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       requestedRooms,
       requiredFeatures: requiredFeatures || [],
       specialRequirements: specialRequirements || '',
+      
+      // Setup and teardown times
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
       
       status: 'pending',
       priority,
@@ -5216,6 +7350,9 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       department,
       phone,
       priority = 'medium',
+      // Setup/teardown times (in minutes)
+      setupTimeMinutes = 0,
+      teardownTimeMinutes = 0,
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
@@ -5271,7 +7408,9 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
-      phone: reservationData.phone
+      phone: reservationData.phone,
+      setupTimeMinutes: reservationData.setupTimeMinutes,
+      teardownTimeMinutes: reservationData.teardownTimeMinutes
     });
 
     // Create initial communication history entry
@@ -5294,7 +7433,9 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         priority,
         contactEmail: isOnBehalfOf ? contactEmail : null,
         department: department || '',
-        phone: phone || ''
+        phone: phone || '',
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0
       })
     };
 
@@ -5320,6 +7461,10 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       requestedRooms,
       requiredFeatures: requiredFeatures || [],
       specialRequirements: specialRequirements || '',
+      
+      // Setup and teardown times
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
       
       status: 'pending',
       priority,
@@ -5528,7 +7673,10 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       phone,
       priority,
       contactEmail,
-      userMessage
+      userMessage,
+      // Setup/teardown times (in minutes)
+      setupTimeMinutes = 0,
+      teardownTimeMinutes = 0
     } = req.body;
     
     // Validation
@@ -5585,7 +7733,9 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
-      phone: reservationData.phone
+      phone: reservationData.phone,
+      setupTimeMinutes: reservationData.setupTimeMinutes,
+      teardownTimeMinutes: reservationData.teardownTimeMinutes
     });
     
     const newRevisionNumber = currentRevision + 1;
@@ -5612,7 +7762,9 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         priority,
         contactEmail: contactEmail || null,
         department: department || '',
-        phone: phone || ''
+        phone: phone || '',
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0
       })
     };
     
@@ -5632,6 +7784,10 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         phone: phone || '',
         priority,
         contactEmail: contactEmail || null,
+        
+        // Setup and teardown times
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0,
         
         // Update status and revision tracking
         status: 'pending',
@@ -5839,6 +7995,297 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
 });
 
 /**
+ * LOCATION MANAGEMENT ENDPOINTS
+ */
+
+/**
+ * Get pending locations for review (Admin only)
+ */
+app.get('/api/admin/locations/pending', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get all pending locations with their suggested matches
+    const pendingLocations = await locationsCollection.find({
+      status: 'pending'
+    }).toArray();
+    
+    // For each pending location, get details of suggested matches
+    const locationsWithMatches = await Promise.all(pendingLocations.map(async (location) => {
+      const matchDetails = [];
+      if (location.suggestedMatches && location.suggestedMatches.length > 0) {
+        for (const match of location.suggestedMatches) {
+          const matchLocation = await locationsCollection.findOne({ 
+            _id: new ObjectId(match.locationId) 
+          });
+          if (matchLocation) {
+            matchDetails.push({
+              ...match,
+              location: matchLocation
+            });
+          }
+        }
+      }
+      return {
+        ...location,
+        suggestedMatchDetails: matchDetails
+      };
+    }));
+    
+    res.json(locationsWithMatches);
+  } catch (error) {
+    logger.error('Error fetching pending locations:', error);
+    res.status(500).json({ error: 'Failed to fetch pending locations' });
+  }
+});
+
+/**
+ * Get all locations with filters (Admin only)
+ */
+app.get('/api/admin/locations', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { status, includeVariations } = req.query;
+    const filter = {};
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    const locations = await locationsCollection.find(filter).toArray();
+    
+    res.json(locations);
+  } catch (error) {
+    logger.error('Error fetching locations:', error);
+    res.status(500).json({ error: 'Failed to fetch locations' });
+  }
+});
+
+/**
+ * Approve a pending location (Admin only)
+ */
+app.post('/api/admin/locations/:id/approve', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const { reviewNotes } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const result = await locationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: 'approved',
+          active: true,
+          needsReview: false,
+          reviewedBy: userEmail,
+          reviewedAt: new Date(),
+          reviewNotes: reviewNotes || null,
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+    
+    logger.log('Location approved:', { locationId: id, approvedBy: userEmail });
+    res.json(result.value);
+  } catch (error) {
+    logger.error('Error approving location:', error);
+    res.status(500).json({ error: 'Failed to approve location' });
+  }
+});
+
+/**
+ * Merge locations (Admin only)
+ */
+app.post('/api/admin/locations/merge', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { sourceId, targetId, mergeAliases } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    if (!sourceId || !targetId) {
+      return res.status(400).json({ error: 'Both sourceId and targetId are required' });
+    }
+    
+    if (sourceId === targetId) {
+      return res.status(400).json({ error: 'Cannot merge a location into itself' });
+    }
+    
+    // Get both locations
+    const sourceLocation = await locationsCollection.findOne({ _id: new ObjectId(sourceId) });
+    const targetLocation = await locationsCollection.findOne({ _id: new ObjectId(targetId) });
+    
+    if (!sourceLocation || !targetLocation) {
+      return res.status(404).json({ error: 'One or both locations not found' });
+    }
+    
+    // Update all events that reference the source location
+    const eventUpdateResult = await unifiedEventsCollection.updateMany(
+      { locationId: sourceLocation._id },
+      { $set: { locationId: targetLocation._id } }
+    );
+    
+    // Merge aliases and variations
+    const mergedAliases = [...(targetLocation.aliases || [])];
+    const mergedVariations = [...(targetLocation.seenVariations || [])];
+    
+    if (mergeAliases) {
+      // Add source location name as an alias
+      if (!mergedAliases.includes(sourceLocation.name)) {
+        mergedAliases.push(sourceLocation.name);
+      }
+      
+      // Add source aliases
+      if (sourceLocation.aliases) {
+        for (const alias of sourceLocation.aliases) {
+          if (!mergedAliases.includes(alias)) {
+            mergedAliases.push(alias);
+          }
+        }
+      }
+      
+      // Add source variations
+      if (sourceLocation.seenVariations) {
+        for (const variation of sourceLocation.seenVariations) {
+          if (!mergedVariations.includes(variation)) {
+            mergedVariations.push(variation);
+          }
+        }
+      }
+    }
+    
+    // Update target location with merged data
+    await locationsCollection.updateOne(
+      { _id: targetLocation._id },
+      {
+        $set: {
+          aliases: mergedAliases,
+          seenVariations: mergedVariations,
+          usageCount: (targetLocation.usageCount || 0) + (sourceLocation.usageCount || 0),
+          updatedAt: new Date()
+        }
+      }
+    );
+    
+    // Mark source location as merged
+    await locationsCollection.updateOne(
+      { _id: sourceLocation._id },
+      {
+        $set: {
+          status: 'merged',
+          active: false,
+          mergedInto: targetLocation._id,
+          mergedBy: userEmail,
+          mergedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+    
+    logger.log('Locations merged:', { 
+      sourceId, 
+      targetId, 
+      eventsUpdated: eventUpdateResult.modifiedCount,
+      mergedBy: userEmail 
+    });
+    
+    res.json({
+      message: 'Locations merged successfully',
+      eventsUpdated: eventUpdateResult.modifiedCount,
+      targetLocation: await locationsCollection.findOne({ _id: targetLocation._id })
+    });
+  } catch (error) {
+    logger.error('Error merging locations:', error);
+    res.status(500).json({ error: 'Failed to merge locations' });
+  }
+});
+
+/**
+ * Update location aliases (Admin only)
+ */
+app.post('/api/admin/locations/:id/aliases', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const { aliases } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    if (!Array.isArray(aliases)) {
+      return res.status(400).json({ error: 'Aliases must be an array' });
+    }
+    
+    const result = await locationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          aliases: aliases.filter(a => a && a.trim()),
+          updatedAt: new Date()
+        }
+      },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+    
+    logger.log('Location aliases updated:', { locationId: id, updatedBy: userEmail });
+    res.json(result.value);
+  } catch (error) {
+    logger.error('Error updating location aliases:', error);
+    res.status(500).json({ error: 'Failed to update location aliases' });
+  }
+});
+
+/**
  * Delete a room (Admin only)
  */
 app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
@@ -6020,11 +8467,821 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
   }
 });
 
+// ==========================================
+// FEATURE CONFIGURATION ENDPOINTS
+// ==========================================
+
+/**
+ * Get all feature categories
+ */
+app.get('/api/feature-categories', async (req, res) => {
+  try {
+    const categories = await featureCategoriesCollection.find({ active: true })
+      .sort({ displayOrder: 1 })
+      .toArray();
+    
+    res.json(categories);
+  } catch (error) {
+    logger.error('Error fetching feature categories:', error);
+    res.status(500).json({ error: 'Failed to fetch feature categories' });
+  }
+});
+
+/**
+ * Get all room capability types
+ */
+app.get('/api/room-capability-types', async (req, res) => {
+  try {
+    const { category } = req.query;
+    
+    const query = { active: true };
+    if (category) {
+      query.category = category;
+    }
+    
+    const capabilities = await roomCapabilityTypesCollection.find(query)
+      .sort({ category: 1, displayOrder: 1 })
+      .toArray();
+    
+    res.json(capabilities);
+  } catch (error) {
+    logger.error('Error fetching room capability types:', error);
+    res.status(500).json({ error: 'Failed to fetch room capability types' });
+  }
+});
+
+/**
+ * Get all event service types
+ */
+app.get('/api/event-service-types', async (req, res) => {
+  try {
+    const { category } = req.query;
+    
+    const query = { active: true };
+    if (category) {
+      query.category = category;
+    }
+    
+    const services = await eventServiceTypesCollection.find(query)
+      .sort({ category: 1, displayOrder: 1 })
+      .toArray();
+    
+    res.json(services);
+  } catch (error) {
+    logger.error('Error fetching event service types:', error);
+    res.status(500).json({ error: 'Failed to fetch event service types' });
+  }
+});
+
+/**
+ * Get complete feature configuration (categories, capabilities, and services)
+ */
+app.get('/api/feature-config', async (req, res) => {
+  try {
+    const [categories, capabilities, services] = await Promise.all([
+      featureCategoriesCollection.find({ active: true }).sort({ displayOrder: 1 }).toArray(),
+      roomCapabilityTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray(),
+      eventServiceTypesCollection.find({ active: true }).sort({ category: 1, displayOrder: 1 }).toArray()
+    ]);
+    
+    // Group capabilities and services by category
+    const capabilitiesByCategory = capabilities.reduce((acc, cap) => {
+      if (!acc[cap.category]) acc[cap.category] = [];
+      acc[cap.category].push(cap);
+      return acc;
+    }, {});
+    
+    const servicesByCategory = services.reduce((acc, service) => {
+      if (!acc[service.category]) acc[service.category] = [];
+      acc[service.category].push(service);
+      return acc;
+    }, {});
+    
+    res.json({
+      categories,
+      capabilities: capabilitiesByCategory,
+      services: servicesByCategory
+    });
+  } catch (error) {
+    logger.error('Error fetching complete feature configuration:', error);
+    res.status(500).json({ error: 'Failed to fetch feature configuration' });
+  }
+});
+
+// ==========================================
+// FEATURE CONFIGURATION ADMIN ENDPOINTS  
+// ==========================================
+
+/**
+ * Create a new room capability type (Admin only)
+ */
+app.post('/api/admin/room-capability-types', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { key, name, description, category, dataType, icon, displayOrder, active } = req.body;
+    
+    if (!key || !name || !category || !dataType) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name, category, dataType' 
+      });
+    }
+    
+    const capabilityType = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category.trim(),
+      dataType: dataType.trim(),
+      icon: icon?.trim() || '',
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: userId
+    };
+    
+    const result = await roomCapabilityTypesCollection.insertOne(capabilityType);
+    
+    logger.info('Room capability type created:', {
+      capabilityId: result.insertedId,
+      key: capabilityType.key,
+      createdBy: userEmail
+    });
+    
+    res.status(201).json({
+      message: 'Room capability type created successfully',
+      capability: { ...capabilityType, _id: result.insertedId }
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Capability key already exists' });
+    }
+    logger.error('Error creating room capability type:', error);
+    res.status(500).json({ error: 'Failed to create room capability type' });
+  }
+});
+
+/**
+ * Create a new event service type (Admin only)
+ */
+app.post('/api/admin/event-service-types', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { key, name, description, category, dataType, icon, hasCost, displayOrder, active } = req.body;
+    
+    if (!key || !name || !category || !dataType) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name, category, dataType' 
+      });
+    }
+    
+    const serviceType = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category.trim(),
+      dataType: dataType.trim(),
+      icon: icon?.trim() || '',
+      hasCost: hasCost === true,
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: userId
+    };
+    
+    const result = await eventServiceTypesCollection.insertOne(serviceType);
+    
+    logger.info('Event service type created:', {
+      serviceId: result.insertedId,
+      key: serviceType.key,
+      createdBy: userEmail
+    });
+    
+    res.status(201).json({
+      message: 'Event service type created successfully',
+      service: { ...serviceType, _id: result.insertedId }
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Service key already exists' });
+    }
+    logger.error('Error creating event service type:', error);
+    res.status(500).json({ error: 'Failed to create event service type' });
+  }
+});
+
+/**
+ * Create a new feature category (Admin only)
+ */
+app.post('/api/admin/feature-categories', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { key, name, description, displayOrder, active } = req.body;
+    
+    if (!key || !name) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name' 
+      });
+    }
+    
+    const category = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdBy: userId
+    };
+    
+    const result = await featureCategoriesCollection.insertOne(category);
+    
+    logger.info('Feature category created:', {
+      categoryId: result.insertedId,
+      key: category.key,
+      createdBy: userEmail
+    });
+    
+    res.status(201).json({
+      message: 'Feature category created successfully',
+      category: { ...category, _id: result.insertedId }
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Category key already exists' });
+    }
+    logger.error('Error creating feature category:', error);
+    res.status(500).json({ error: 'Failed to create feature category' });
+  }
+});
+
+/**
+ * Update a feature category (Admin only)
+ */
+app.put('/api/admin/feature-categories/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const categoryId = req.params.id;
+    const { key, name, description, displayOrder, active } = req.body;
+    
+    if (!key || !name) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name' 
+      });
+    }
+    
+    const updateData = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      updatedAt: new Date(),
+      updatedBy: userId
+    };
+    
+    const result = await featureCategoriesCollection.findOneAndUpdate(
+      { _id: new ObjectId(categoryId) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    logger.info('Feature category updated:', {
+      categoryId,
+      key: updateData.key,
+      updatedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Feature category updated successfully',
+      category: result.value
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Category key already exists' });
+    }
+    logger.error('Error updating feature category:', error);
+    res.status(500).json({ error: 'Failed to update feature category' });
+  }
+});
+
+/**
+ * Delete a feature category (Admin only)
+ */
+app.delete('/api/admin/feature-categories/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const categoryId = req.params.id;
+    
+    // Check if category is in use
+    const category = await featureCategoriesCollection.findOne({ _id: new ObjectId(categoryId) });
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    const capabilitiesCount = await roomCapabilityTypesCollection.countDocuments({ category: category.key });
+    const servicesCount = await eventServiceTypesCollection.countDocuments({ category: category.key });
+    
+    if (capabilitiesCount > 0 || servicesCount > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete category. It has ${capabilitiesCount} capabilities and ${servicesCount} services.`,
+        usage: { capabilities: capabilitiesCount, services: servicesCount }
+      });
+    }
+    
+    const result = await featureCategoriesCollection.deleteOne({ _id: new ObjectId(categoryId) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    
+    logger.info('Feature category deleted:', {
+      categoryId,
+      key: category.key,
+      deletedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Feature category deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Error deleting feature category:', error);
+    res.status(500).json({ error: 'Failed to delete feature category' });
+  }
+});
+
+/**
+ * Update a room capability type (Admin only)
+ */
+app.put('/api/admin/room-capability-types/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const capabilityId = req.params.id;
+    const { key, name, description, category, dataType, icon, displayOrder, active } = req.body;
+    
+    if (!key || !name || !category || !dataType) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name, category, dataType' 
+      });
+    }
+    
+    const updateData = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category.trim(),
+      dataType: dataType.trim(),
+      icon: icon?.trim() || '',
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      updatedAt: new Date(),
+      updatedBy: userId
+    };
+    
+    const result = await roomCapabilityTypesCollection.findOneAndUpdate(
+      { _id: new ObjectId(capabilityId) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Room capability not found' });
+    }
+    
+    logger.info('Room capability type updated:', {
+      capabilityId,
+      key: updateData.key,
+      updatedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Room capability type updated successfully',
+      capability: result.value
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Capability key already exists' });
+    }
+    logger.error('Error updating room capability type:', error);
+    res.status(500).json({ error: 'Failed to update room capability type' });
+  }
+});
+
+/**
+ * Delete a room capability type (Admin only)
+ */
+app.delete('/api/admin/room-capability-types/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const capabilityId = req.params.id;
+    
+    const result = await roomCapabilityTypesCollection.deleteOne({ _id: new ObjectId(capabilityId) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Room capability not found' });
+    }
+    
+    logger.info('Room capability type deleted:', {
+      capabilityId,
+      deletedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Room capability type deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Error deleting room capability type:', error);
+    res.status(500).json({ error: 'Failed to delete room capability type' });
+  }
+});
+
+/**
+ * Update an event service type (Admin only)
+ */
+app.put('/api/admin/event-service-types/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const serviceId = req.params.id;
+    const { key, name, description, category, dataType, icon, hasCost, displayOrder, active } = req.body;
+    
+    if (!key || !name || !category || !dataType) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: key, name, category, dataType' 
+      });
+    }
+    
+    const updateData = {
+      key: key.trim(),
+      name: name.trim(),
+      description: description?.trim() || '',
+      category: category.trim(),
+      dataType: dataType.trim(),
+      icon: icon?.trim() || '',
+      hasCost: hasCost === true,
+      displayOrder: displayOrder || 1,
+      active: active !== false,
+      updatedAt: new Date(),
+      updatedBy: userId
+    };
+    
+    const result = await eventServiceTypesCollection.findOneAndUpdate(
+      { _id: new ObjectId(serviceId) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+    
+    if (!result.value) {
+      return res.status(404).json({ error: 'Event service not found' });
+    }
+    
+    logger.info('Event service type updated:', {
+      serviceId,
+      key: updateData.key,
+      updatedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Event service type updated successfully',
+      service: result.value
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Service key already exists' });
+    }
+    logger.error('Error updating event service type:', error);
+    res.status(500).json({ error: 'Failed to update event service type' });
+  }
+});
+
+/**
+ * Delete an event service type (Admin only)
+ */
+app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const serviceId = req.params.id;
+    
+    const result = await eventServiceTypesCollection.deleteOne({ _id: new ObjectId(serviceId) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Event service not found' });
+    }
+    
+    logger.info('Event service type deleted:', {
+      serviceId,
+      deletedBy: userEmail
+    });
+    
+    res.json({
+      message: 'Event service type deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Error deleting event service type:', error);
+    res.status(500).json({ error: 'Failed to delete event service type' });
+  }
+});
+
 // Graceful shutdown handling
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
   await client.close();
   process.exit(0);
+});
+
+// Test endpoint to create sample events for Conference Room A and B
+app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
+  try {
+    logger.log('Creating sample events for Conference Room A and B');
+
+    const today = new Date('2025-08-20'); // August 20, 2025
+    const userId = req.user.userId;
+    
+    // Find Conference Room A and B by name
+    const conferenceRoomA = hardcodedRooms.find(room => room.name === 'Conference Room A');
+    const conferenceRoomB = hardcodedRooms.find(room => room.name === 'Conference Room B');
+    
+    if (!conferenceRoomA || !conferenceRoomB) {
+      return res.status(404).json({ error: 'Conference Room A or B not found' });
+    }
+
+    const sampleEvents = [
+      // Conference Room A events
+      {
+        eventId: `test-conf-a-1-${Date.now()}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-a-1-${Date.now()}`,
+          subject: 'Team Standup Meeting',
+          start: {
+            dateTime: new Date(today.getTime() + (9 * 60 * 60 * 1000)).toISOString(), // 9 AM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (11 * 60 * 60 * 1000)).toISOString(), // 11 AM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomA.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomA._id,
+          categories: ['Meeting'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      },
+      {
+        eventId: `test-conf-a-2-${Date.now() + 1}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-a-2-${Date.now() + 1}`,
+          subject: 'Project Review',
+          start: {
+            dateTime: new Date(today.getTime() + (15 * 60 * 60 * 1000)).toISOString(), // 3 PM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (15.5 * 60 * 60 * 1000)).toISOString(), // 3:30 PM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomA.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomA._id,
+          categories: ['Meeting'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      },
+      {
+        eventId: `test-conf-a-3-${Date.now() + 2}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-a-3-${Date.now() + 2}`,
+          subject: 'Client Presentation',
+          start: {
+            dateTime: new Date(today.getTime() + (18 * 60 * 60 * 1000)).toISOString(), // 6 PM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (20 * 60 * 60 * 1000)).toISOString(), // 8 PM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomA.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomA._id,
+          categories: ['Meeting'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      },
+      // Conference Room B events
+      {
+        eventId: `test-conf-b-1-${Date.now() + 3}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-b-1-${Date.now() + 3}`,
+          subject: 'Department Meeting',
+          start: {
+            dateTime: new Date(today.getTime() + (10.5 * 60 * 60 * 1000)).toISOString(), // 10:30 AM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (11.5 * 60 * 60 * 1000)).toISOString(), // 11:30 AM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomB.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomB._id,
+          categories: ['Meeting'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      },
+      {
+        eventId: `test-conf-b-2-${Date.now() + 4}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-b-2-${Date.now() + 4}`,
+          subject: 'Training Session',
+          start: {
+            dateTime: new Date(today.getTime() + (14 * 60 * 60 * 1000)).toISOString(), // 2 PM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (14.25 * 60 * 60 * 1000)).toISOString(), // 2:15 PM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomB.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomB._id,
+          categories: ['Training'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      },
+      {
+        eventId: `test-conf-b-3-${Date.now() + 5}`,
+        userId: userId,
+        calendarId: 'test-calendar',
+        isDeleted: false,
+        graphData: {
+          id: `test-conf-b-3-${Date.now() + 5}`,
+          subject: 'Board Meeting',
+          start: {
+            dateTime: new Date(today.getTime() + (17 * 60 * 60 * 1000)).toISOString(), // 5 PM
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: new Date(today.getTime() + (19 * 60 * 60 * 1000)).toISOString(), // 7 PM
+            timeZone: 'America/New_York'
+          },
+          location: { displayName: conferenceRoomB.displayName },
+          organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
+        },
+        internalData: {
+          roomId: conferenceRoomB._id,
+          categories: ['Meeting'],
+          setupTime: 0,
+          teardownTime: 0
+        },
+        lastSyncTime: new Date()
+      }
+    ];
+
+    // Insert events into unified collection
+    const result = await unifiedEventsCollection.insertMany(sampleEvents);
+    
+    logger.log(`Created ${result.insertedCount} sample events`);
+    
+    res.json({ 
+      success: true, 
+      message: `Created ${result.insertedCount} sample events`,
+      eventIds: Object.values(result.insertedIds)
+    });
+
+  } catch (error) {
+    logger.error('Error creating sample events:', error);
+    res.status(500).json({ error: 'Failed to create sample events' });
+  }
 });
 
 process.on('SIGINT', async () => {

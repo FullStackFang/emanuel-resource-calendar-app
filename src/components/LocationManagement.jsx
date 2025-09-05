@@ -1,11 +1,12 @@
-// src/components/RoomManagement.jsx
+// src/components/LocationManagement.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
-import './RoomManagement.css';
+import featureConfigService from '../services/featureConfigService';
+import './LocationManagement.css';
 
-// Icon-based multi-select for features
-function IconMultiSelect({ options, selectedValues, onSelectionChange, label }) {
+// Icon-based multi-select for features with category support
+function IconMultiSelect({ options, selectedValues, onSelectionChange, label, categories = [] }) {
   const toggleOption = (value) => {
     const newSelection = selectedValues.includes(value)
       ? selectedValues.filter(v => v !== value)
@@ -13,27 +14,46 @@ function IconMultiSelect({ options, selectedValues, onSelectionChange, label }) 
     onSelectionChange(newSelection);
   };
 
+  // Group options by category
+  const groupedOptions = options.reduce((groups, option) => {
+    const category = option.category || 'other';
+    if (!groups[category]) groups[category] = [];
+    groups[category].push(option);
+    return groups;
+  }, {});
+
   return (
     <div className="icon-multi-select">
       <div className="selection-header">
         <span className="selection-count">{selectedValues.length}/{options.length} selected</span>
       </div>
-      <div className="icon-grid">
-        {options.map(option => (
-          <label key={option.value} className={`icon-option ${selectedValues.includes(option.value) ? 'selected' : ''}`}>
-            <input
-              type="checkbox"
-              checked={selectedValues.includes(option.value)}
-              onChange={() => toggleOption(option.value)}
-              className="icon-checkbox"
-            />
-            <div className="icon-content">
-              <span className="feature-icon">{option.icon}</span>
-              <span className="feature-label">{option.label}</span>
+      
+      {Object.entries(groupedOptions).map(([categoryKey, categoryOptions]) => {
+        const category = categories.find(c => c.key === categoryKey);
+        return (
+          <div key={categoryKey} className="feature-category-group">
+            <h4 className="category-header">
+              {category?.name || categoryKey.charAt(0).toUpperCase() + categoryKey.slice(1)}
+            </h4>
+            <div className="icon-grid">
+              {categoryOptions.map(option => (
+                <label key={option.value} className={`icon-option ${selectedValues.includes(option.value) ? 'selected' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedValues.includes(option.value)}
+                    onChange={() => toggleOption(option.value)}
+                    className="icon-checkbox"
+                  />
+                  <div className="icon-content">
+                    <span className="feature-icon">{option.icon}</span>
+                    <span className="feature-label">{option.label}</span>
+                  </div>
+                </label>
+              ))}
             </div>
-          </label>
-        ))}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -107,16 +127,23 @@ function MultiSelectDropdown({ options, selectedValues, onSelectionChange, place
   );
 }
 
-export default function RoomManagement({ apiToken }) {
-  const [rooms, setRooms] = useState([]);
+export default function LocationManagement({ apiToken }) {
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editingRoom, setEditingRoom] = useState(null);
+  const [editingLocation, setEditingLocation] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // Dynamic capabilities state
+  const [capabilities, setCapabilities] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(true);
   
   // Form state for add/edit
   const [formData, setFormData] = useState({
     name: '',
+    locationCode: '',
+    displayName: '',
     building: '',
     floor: '',
     capacity: '',
@@ -127,36 +154,52 @@ export default function RoomManagement({ apiToken }) {
     notes: ''
   });
   
-  // Feature options with icons
-  const featureOptions = [
-    { value: 'kitchen', label: 'Kitchen', icon: '🍽️' },
-    { value: 'av-equipment', label: 'AV Equipment', icon: '📽️' },
-    { value: 'projector', label: 'Projector', icon: '🎬' },
-    { value: 'whiteboard', label: 'Whiteboard', icon: '📝' },
-    { value: 'piano', label: 'Piano', icon: '🎹' },
-    { value: 'stage', label: 'Stage', icon: '🎭' },
-    { value: 'microphone', label: 'Microphone', icon: '🎤' },
-    { value: 'tables', label: 'Tables & Chairs', icon: '🪑' },
-    { value: 'tv', label: 'TV/Monitor', icon: '📺' },
-    { value: 'sound-system', label: 'Sound System', icon: '🔊' },
-    { value: 'lighting', label: 'Lighting Control', icon: '💡' },
-    { value: 'air-conditioning', label: 'Air Conditioning', icon: '❄️' },
-    { value: 'wifi', label: 'WiFi', icon: '🌐' },
-    { value: 'computer', label: 'Computer Access', icon: '🖥️' },
-    { value: 'coffee', label: 'Coffee Station', icon: '☕' },
-    { value: 'books', label: 'Library/Books', icon: '📚' }
-  ];
+  // Dynamic feature options from capabilities
+  const getFeatureOptions = () => {
+    return capabilities
+      .filter(cap => cap.active && cap.category !== 'accessibility')
+      .map(cap => ({
+        value: cap.key,
+        label: cap.name,
+        icon: cap.icon || '📦',
+        category: cap.category
+      }));
+  };
   
-  const accessibilityOptions = [
-    'wheelchair-accessible', 'hearing-loop', 'elevator', 
-    'ramp', 'accessible-restroom', 'braille-signage'
-  ];
+  const getAccessibilityOptions = () => {
+    return capabilities
+      .filter(cap => cap.active && cap.category === 'accessibility')
+      .map(cap => cap.key);
+  };
   
   useEffect(() => {
-    loadRooms();
+    loadLocations();
+    loadCapabilities();
   }, [apiToken]);
   
-  const loadRooms = async () => {
+  const loadCapabilities = async () => {
+    try {
+      setCapabilitiesLoading(true);
+      const [categoriesData, capabilitiesData] = await Promise.all([
+        featureConfigService.getCategories(),
+        featureConfigService.getRoomCapabilityTypes()
+      ]);
+      
+      setCategories(categoriesData);
+      setCapabilities(capabilitiesData);
+      logger.debug('Loaded capabilities:', { 
+        categoriesCount: categoriesData.length,
+        capabilitiesCount: capabilitiesData.length 
+      });
+    } catch (err) {
+      logger.error('Error loading capabilities:', err);
+      setError('Failed to load location capabilities');
+    } finally {
+      setCapabilitiesLoading(false);
+    }
+  };
+  
+  const loadLocations = async () => {
     try {
       setLoading(true);
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms`, {
@@ -165,13 +208,13 @@ export default function RoomManagement({ apiToken }) {
         }
       });
       
-      if (!response.ok) throw new Error('Failed to load rooms');
+      if (!response.ok) throw new Error('Failed to load locations');
       
       const data = await response.json();
-      setRooms(data);
+      setLocations(data);
     } catch (err) {
-      logger.error('Error loading rooms:', err);
-      setError('Failed to load rooms');
+      logger.error('Error loading locations:', err);
+      setError('Failed to load locations');
     } finally {
       setLoading(false);
     }
@@ -186,9 +229,11 @@ export default function RoomManagement({ apiToken }) {
   };
   
   
-  const handleAddRoom = () => {
+  const handleAddLocation = () => {
     setFormData({
       name: '',
+      locationCode: '',
+      displayName: '',
       building: '',
       floor: '',
       capacity: '',
@@ -198,23 +243,25 @@ export default function RoomManagement({ apiToken }) {
       description: '',
       notes: ''
     });
-    setEditingRoom(null);
+    setEditingLocation(null);
     setShowAddForm(true);
   };
   
-  const handleEditRoom = (room) => {
+  const handleEditLocation = (location) => {
     setFormData({
-      name: room.name || '',
-      building: room.building || '',
-      floor: room.floor || '',
-      capacity: room.capacity || '',
-      features: room.features || [],
-      accessibility: room.accessibility || [],
-      active: room.active !== false,
-      description: room.description || '',
-      notes: room.notes || ''
+      name: location.name || '',
+      locationCode: location.locationCode || '',
+      displayName: location.displayName || location.name || '',
+      building: location.building || '',
+      floor: location.floor || '',
+      capacity: location.capacity || '',
+      features: location.features || [],
+      accessibility: location.accessibility || [],
+      active: location.active !== false,
+      description: location.description || '',
+      notes: location.notes || ''
     });
-    setEditingRoom(room);
+    setEditingLocation(location);
     setShowAddForm(true);
   };
   
@@ -227,11 +274,11 @@ export default function RoomManagement({ apiToken }) {
         capacity: parseInt(formData.capacity) || 0
       };
       
-      const url = editingRoom 
-        ? `${APP_CONFIG.API_BASE_URL}/admin/rooms/${editingRoom._id}`
+      const url = editingLocation 
+        ? `${APP_CONFIG.API_BASE_URL}/admin/rooms/${editingLocation._id}`
         : `${APP_CONFIG.API_BASE_URL}/admin/rooms`;
       
-      const method = editingRoom ? 'PUT' : 'POST';
+      const method = editingLocation ? 'PUT' : 'POST';
       
       const response = await fetch(url, {
         method,
@@ -244,76 +291,76 @@ export default function RoomManagement({ apiToken }) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save room');
+        throw new Error(errorData.error || 'Failed to save location');
       }
       
-      const savedRoom = await response.json();
+      const savedLocation = await response.json();
       
-      if (editingRoom) {
-        setRooms(prev => prev.map(r => r._id === savedRoom._id ? savedRoom : r));
+      if (editingLocation) {
+        setLocations(prev => prev.map(l => l._id === savedLocation._id ? savedLocation : l));
       } else {
-        setRooms(prev => [...prev, savedRoom]);
+        setLocations(prev => [...prev, savedLocation]);
       }
       
       setShowAddForm(false);
-      setEditingRoom(null);
+      setEditingLocation(null);
     } catch (err) {
-      logger.error('Error saving room:', err);
-      setError(err.message || 'Failed to save room');
+      logger.error('Error saving location:', err);
+      setError(err.message || 'Failed to save location');
     }
   };
   
-  const handleDeleteRoom = async (roomId) => {
-    if (!confirm('Are you sure you want to delete this room?')) return;
+  const handleDeleteLocation = async (locationId) => {
+    if (!confirm('Are you sure you want to delete this location?')) return;
     
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${roomId}`, {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${locationId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
       });
       
-      if (!response.ok) throw new Error('Failed to delete room');
+      if (!response.ok) throw new Error('Failed to delete location');
       
-      setRooms(prev => prev.filter(r => r._id !== roomId));
+      setLocations(prev => prev.filter(l => l._id !== locationId));
     } catch (err) {
-      logger.error('Error deleting room:', err);
-      setError('Failed to delete room');
+      logger.error('Error deleting location:', err);
+      setError('Failed to delete location');
     }
   };
   
-  const handleToggleActive = async (room) => {
+  const handleToggleActive = async (location) => {
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${room._id}`, {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${location._id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ ...room, active: !room.active })
+        body: JSON.stringify({ ...location, active: !location.active })
       });
       
-      if (!response.ok) throw new Error('Failed to update room');
+      if (!response.ok) throw new Error('Failed to update location');
       
-      const updatedRoom = await response.json();
-      setRooms(prev => prev.map(r => r._id === updatedRoom._id ? updatedRoom : r));
+      const updatedLocation = await response.json();
+      setLocations(prev => prev.map(l => l._id === updatedLocation._id ? updatedLocation : l));
     } catch (err) {
-      logger.error('Error updating room:', err);
-      setError('Failed to update room status');
+      logger.error('Error updating location:', err);
+      setError('Failed to update location status');
     }
   };
   
   if (loading) {
-    return <div className="room-management loading">Loading rooms...</div>;
+    return <div className="location-management loading">Loading locations...</div>;
   }
   
   return (
-    <div className="room-management">
+    <div className="location-management">
       <div className="admin-header">
-        <h1>Room Management</h1>
-        <button className="add-room-btn" onClick={handleAddRoom}>
-          + Add New Room
+        <h1>Location Management</h1>
+        <button className="add-location-btn" onClick={handleAddLocation}>
+          + Add New Location
         </button>
       </div>
       
@@ -324,14 +371,14 @@ export default function RoomManagement({ apiToken }) {
       )}
       
       {showAddForm && (
-        <div className="room-form-overlay">
-          <div className="room-form">
-            <h2>{editingRoom ? 'Edit Room' : 'Add New Room'}</h2>
+        <div className="location-form-overlay">
+          <div className="location-form">
+            <h2>{editingLocation ? 'Edit Location' : 'Add New Location'}</h2>
             
             <form onSubmit={handleSubmit}>
               <div className="form-grid">
                 <div className="form-group">
-                  <label htmlFor="name">Room Name *</label>
+                  <label htmlFor="name">Location Name *</label>
                   <input
                     type="text"
                     id="name"
@@ -340,6 +387,32 @@ export default function RoomManagement({ apiToken }) {
                     onChange={handleInputChange}
                     required
                   />
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="locationCode">Location Code</label>
+                  <input
+                    type="text"
+                    id="locationCode"
+                    name="locationCode"
+                    value={formData.locationCode}
+                    onChange={handleInputChange}
+                    placeholder="e.g., TPL, CPL, MUS"
+                  />
+                  <div className="help-text">Legacy calendar location code (optional)</div>
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="displayName">Display Name</label>
+                  <input
+                    type="text"
+                    id="displayName"
+                    name="displayName"
+                    value={formData.displayName}
+                    onChange={handleInputChange}
+                    placeholder="Full descriptive name"
+                  />
+                  <div className="help-text">Full name shown in detailed views</div>
                 </div>
                 
                 <div className="form-group">
@@ -382,22 +455,31 @@ export default function RoomManagement({ apiToken }) {
               
               <div className="form-group">
                 <label>Features</label>
-                <IconMultiSelect
-                  options={featureOptions}
-                  selectedValues={formData.features}
-                  onSelectionChange={(selected) => setFormData(prev => ({ ...prev, features: selected }))}
-                  label="Room Features"
-                />
+                {capabilitiesLoading ? (
+                  <div className="loading-placeholder">Loading capabilities...</div>
+                ) : (
+                  <IconMultiSelect
+                    options={getFeatureOptions()}
+                    selectedValues={formData.features}
+                    onSelectionChange={(selected) => setFormData(prev => ({ ...prev, features: selected }))}
+                    label="Location Features"
+                    categories={categories}
+                  />
+                )}
               </div>
               
               <div className="form-group">
                 <label>Accessibility</label>
-                <MultiSelectDropdown
-                  options={accessibilityOptions}
-                  selectedValues={formData.accessibility}
-                  onSelectionChange={(selected) => setFormData(prev => ({ ...prev, accessibility: selected }))}
-                  placeholder="Select accessibility features..."
-                />
+                {capabilitiesLoading ? (
+                  <div className="loading-placeholder">Loading accessibility options...</div>
+                ) : (
+                  <MultiSelectDropdown
+                    options={getAccessibilityOptions()}
+                    selectedValues={formData.accessibility}
+                    onSelectionChange={(selected) => setFormData(prev => ({ ...prev, accessibility: selected }))}
+                    placeholder="Select accessibility features..."
+                  />
+                )}
               </div>
               
               <div className="form-group">
@@ -430,20 +512,20 @@ export default function RoomManagement({ apiToken }) {
                     checked={formData.active}
                     onChange={handleInputChange}
                   />
-                  <span>Room is Active</span>
+                  <span>Location is Active</span>
                 </label>
               </div>
               
               <div className="form-actions">
                 <button type="submit" className="save-btn">
-                  {editingRoom ? 'Update Room' : 'Add Room'}
+                  {editingLocation ? 'Update Location' : 'Add Location'}
                 </button>
                 <button 
                   type="button" 
                   className="cancel-btn"
                   onClick={() => {
                     setShowAddForm(false);
-                    setEditingRoom(null);
+                    setEditingLocation(null);
                   }}
                 >
                   Cancel
@@ -454,12 +536,13 @@ export default function RoomManagement({ apiToken }) {
         </div>
       )}
       
-      <div className="rooms-table-container">
-        <table className="rooms-table">
+      <div className="locations-table-container">
+        <table className="locations-table">
           <thead>
             <tr>
-              <th>Room Name</th>
-              <th>Location</th>
+              <th>Location Name</th>
+              <th>Code</th>
+              <th>Building/Floor</th>
               <th>Capacity</th>
               <th>Features</th>
               <th>Accessibility</th>
@@ -468,24 +551,34 @@ export default function RoomManagement({ apiToken }) {
             </tr>
           </thead>
           <tbody>
-            {rooms.map(room => (
-              <tr key={room._id}>
-                <td className="room-name">
-                  <strong>{room.name}</strong>
-                  {room.description && (
-                    <div className="room-desc">{room.description}</div>
+            {locations.map(location => (
+              <tr key={location._id}>
+                <td className="location-name">
+                  <strong>{location.name}</strong>
+                  {location.locationCode && (
+                    <div className="location-code">Code: {location.locationCode}</div>
+                  )}
+                  {location.description && (
+                    <div className="location-desc">{location.description}</div>
                   )}
                 </td>
-                <td>{room.building} - {room.floor}</td>
-                <td className="capacity">{room.capacity}</td>
+                <td className="location-code-cell">
+                  {location.locationCode ? (
+                    <span className="code-badge">{location.locationCode}</span>
+                  ) : (
+                    <span className="no-data">None</span>
+                  )}
+                </td>
+                <td>{location.building} - {location.floor}</td>
+                <td className="capacity">{location.capacity}</td>
                 <td className="features">
-                  {room.features?.length > 0 ? (
+                  {location.features?.length > 0 ? (
                     <div className="tag-list">
-                      {room.features.slice(0, 3).map(f => (
+                      {location.features.slice(0, 3).map(f => (
                         <span key={f} className="tag">{f}</span>
                       ))}
-                      {room.features.length > 3 && (
-                        <span className="tag">+{room.features.length - 3}</span>
+                      {location.features.length > 3 && (
+                        <span className="tag">+{location.features.length - 3}</span>
                       )}
                     </div>
                   ) : (
@@ -493,9 +586,9 @@ export default function RoomManagement({ apiToken }) {
                   )}
                 </td>
                 <td className="accessibility">
-                  {room.accessibility?.length > 0 ? (
+                  {location.accessibility?.length > 0 ? (
                     <div className="tag-list">
-                      {room.accessibility.map(a => (
+                      {location.accessibility.map(a => (
                         <span key={a} className="tag accessibility-tag">♿ {a}</span>
                       ))}
                     </div>
@@ -505,22 +598,22 @@ export default function RoomManagement({ apiToken }) {
                 </td>
                 <td>
                   <button
-                    className={`status-toggle ${room.active ? 'active' : 'inactive'}`}
-                    onClick={() => handleToggleActive(room)}
+                    className={`status-toggle ${location.active ? 'active' : 'inactive'}`}
+                    onClick={() => handleToggleActive(location)}
                   >
-                    {room.active ? 'Active' : 'Inactive'}
+                    {location.active ? 'Active' : 'Inactive'}
                   </button>
                 </td>
                 <td className="actions">
                   <button
                     className="edit-btn"
-                    onClick={() => handleEditRoom(room)}
+                    onClick={() => handleEditLocation(location)}
                   >
                     Edit
                   </button>
                   <button
                     className="delete-btn"
-                    onClick={() => handleDeleteRoom(room._id)}
+                    onClick={() => handleDeleteLocation(location._id)}
                   >
                     Delete
                   </button>
@@ -530,9 +623,9 @@ export default function RoomManagement({ apiToken }) {
           </tbody>
         </table>
         
-        {rooms.length === 0 && (
-          <div className="no-rooms">
-            No rooms found. Click "Add New Room" to get started.
+        {locations.length === 0 && (
+          <div className="no-locations">
+            No locations found. Click "Add New Location" to get started.
           </div>
         )}
       </div>

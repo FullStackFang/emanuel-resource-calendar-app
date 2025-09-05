@@ -30,6 +30,7 @@
     deleteLinkedEvent
   } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
+  import { useRooms, useLocations } from '../context/LocationContext';
   import { 
     TimezoneSelector, 
     formatEventTime, 
@@ -50,17 +51,6 @@
   const categories = [
   ]; 
 
-  const availableLocations = [
-    'Unspecified',
-    'TPL',
-    'CPL',
-    'MUS',
-    'Nursery School',
-    '402',
-    '602',
-    'Virtual',
-    'Microsoft Teams Meeting'
-  ];
 
   const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
     const handleDateChange = (date) => {
@@ -220,6 +210,8 @@
 
     // Profile states
     const { userTimezone, setUserTimezone } = useTimezone();
+    const { rooms } = useRooms();
+    const { generalLocations } = useLocations();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -1659,24 +1651,24 @@
         unifiedEventService.setApiToken(apiToken);
         unifiedEventService.setGraphToken(graphToken);
         
-        // Perform delta sync
-        const syncResult = await unifiedEventService.syncEvents({
+        // Perform regular events loading (replaces problematic delta sync)
+        const loadResult = await unifiedEventService.loadEvents({
           calendarIds: calendarIds,
           startTime: start,
           endTime: end,
-          forceFullSync: forceRefresh
+          forceRefresh: forceRefresh
         });
         
-        logger.debug('loadEventsUnified: Delta sync completed', {
-          source: syncResult.source,
-          eventCount: syncResult.count,
-          syncResults: syncResult.syncResults
+        logger.debug('loadEventsUnified: Regular events load completed', {
+          source: loadResult.source,
+          eventCount: loadResult.count,
+          loadResults: loadResult.loadResults
         });
         
         // Only update events if we got actual results
-        // Don't clear existing events if unified sync returns empty
-        if (syncResult.events && syncResult.events.length > 0) {
-          logger.debug('loadEventsUnified: Setting events from unified sync', { count: syncResult.events.length });
+        // Don't clear existing events if regular load returns empty
+        if (loadResult.events && loadResult.events.length > 0) {
+          logger.debug('loadEventsUnified: Setting events from regular load', { count: loadResult.events.length });
           
           // Get selected calendar name for logging
           const selectedCalendar = availableCalendars.find(c => c.id === selectedCalendarId);
@@ -1684,7 +1676,7 @@
           
           // Backend now returns only events from the selected calendars
           // No need to filter on frontend anymore
-          let eventsToDisplay = syncResult.events;
+          let eventsToDisplay = loadResult.events;
           
           console.log(`📊 RECEIVED ${eventsToDisplay.length} EVENTS FROM BACKEND`);
           
@@ -1704,17 +1696,17 @@
           setAllEvents(eventsToDisplay);
           calendarDebug.logEventLoadingComplete(selectedCalendarId, eventsToDisplay.length, Date.now() - (window._calendarLoadStart || Date.now()));
           return true;
-        } else if (syncResult.syncResults && syncResult.syncResults.errors && syncResult.syncResults.errors.length > 0) {
+        } else if (loadResult.loadResults && loadResult.loadResults.errors && loadResult.loadResults.errors.length > 0) {
           // If there were errors, don't clear events - keep existing ones
-          logger.warn('loadEventsUnified: Unified sync had errors, keeping existing events', {
-            errorCount: syncResult.syncResults.errors.length,
-            errors: syncResult.syncResults.errors
+          logger.warn('loadEventsUnified: Regular load had errors, keeping existing events', {
+            errorCount: loadResult.loadResults.errors.length,
+            errors: loadResult.loadResults.errors
           });
           return false;
         } else {
           // No events returned but no errors - this might be legitimate (empty calendar)
           // Only clear events if this was explicitly a successful empty result
-          if (syncResult.source === 'delta_sync' && syncResult.syncResults?.totalEvents === 0) {
+          if (loadResult.source === 'regular_load' && loadResult.loadResults?.totalEvents === 0) {
             logger.debug('loadEventsUnified: Calendar is empty, clearing events');
             setAllEvents([]);
             return true;
@@ -1727,7 +1719,7 @@
       } catch (error) {
         logger.error('loadEventsUnified failed:', error);
         
-        // Fallback to old cache approach if unified sync fails
+        // Fallback to old cache approach if regular load fails
         logger.warn('loadEventsUnified: Falling back to cache approach');
         try {
           return await loadEventsWithCache(forceRefresh);
@@ -1741,7 +1733,7 @@
     }, [graphToken, apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI, loadEventsWithCache]);
 
     /**
-     * Enhanced load events with unified delta sync (primary) and cache fallback
+     * Enhanced load events with regular Graph API queries (primary) and cache fallback
      * @param {boolean} forceRefresh - Force refresh from Graph API
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
@@ -1752,19 +1744,19 @@
         if (isDemoMode) {
           return await loadDemoEvents();
         } else {
-          // Hybrid approach: Try unified delta sync first, fallback to cache approach if it fails
+          // Hybrid approach: Try regular load first, fallback to cache approach if it fails
           // Starting hybrid event loading approach
           
           try {
-            // Attempt unified delta sync first
-            const unifiedResult = await loadEventsUnified(forceRefresh, calendarsData);
-            if (unifiedResult) {
-              // Unified sync successful
-              calendarDebug.logApiCall('loadEvents', 'complete', { method: 'unified' });
-              return unifiedResult;
+            // Attempt regular load first
+            const regularResult = await loadEventsUnified(forceRefresh, calendarsData);
+            if (regularResult) {
+              // Regular load successful
+              calendarDebug.logApiCall('loadEvents', 'complete', { method: 'regular' });
+              return regularResult;
             }
           } catch (error) {
-            logger.warn('loadEvents: Unified sync failed, falling back to cache approach:', error);
+            logger.warn('loadEvents: Regular load failed, falling back to cache approach:', error);
             calendarDebug.logError('loadEventsUnified', error);
           }
           
@@ -2434,17 +2426,41 @@
     // DEPENDENT UTILITY FUNCTIONS - functions that depend on state or other functions
     //---------------------------------------------------------------------------
     /** 
-     * Get dynamic locations from events, grouping virtual meetings
+     * Get dynamic locations from events and rooms, grouping virtual meetings
      */
     const getDynamicLocations = useCallback(() => {
       const locationsSet = new Set();
       
+      // Add all locations from templeEvents__Locations collection (primary source)
+      generalLocations.forEach(location => {
+        if (location.name) {
+          locationsSet.add(location.name);
+        }
+      });
+      
+      // Only add special handling for events without locations or virtual locations
+      // if corresponding database entries exist
+      const hasUnspecifiedInDb = generalLocations.some(loc => 
+        loc.name && loc.name.toLowerCase() === 'unspecified'
+      );
+      const hasVirtualInDb = generalLocations.some(loc => 
+        loc.name && (loc.name.toLowerCase() === 'virtual' || loc.name.toLowerCase() === 'microsoft teams meeting')
+      );
+      
+      // Process events only to determine if we need Unspecified or Virtual from database
       allEvents.forEach(event => {
         const locationText = event.location?.displayName?.trim() || '';
         
         if (!locationText) {
-          // Empty or null location
-          locationsSet.add('Unspecified');
+          // Empty or null location - only add Unspecified if it exists in database
+          if (hasUnspecifiedInDb) {
+            const unspecifiedLocation = generalLocations.find(loc => 
+              loc.name && loc.name.toLowerCase() === 'unspecified'
+            );
+            if (unspecifiedLocation) {
+              locationsSet.add(unspecifiedLocation.name);
+            }
+          }
           return;
         }
         
@@ -2455,38 +2471,60 @@
           .filter(loc => loc.length > 0);
         
         if (eventLocations.length === 0) {
-          locationsSet.add('Unspecified');
+          // Empty location list - only add Unspecified if it exists in database
+          if (hasUnspecifiedInDb) {
+            const unspecifiedLocation = generalLocations.find(loc => 
+              loc.name && loc.name.toLowerCase() === 'unspecified'
+            );
+            if (unspecifiedLocation) {
+              locationsSet.add(unspecifiedLocation.name);
+            }
+          }
           return;
         }
         
-        // Check if ANY location is virtual - if so, add Virtual
+        // Check if ANY location is virtual - if so, add Virtual from database
         const hasVirtualLocation = eventLocations.some(location => isVirtualLocation(location));
-        if (hasVirtualLocation) {
-          locationsSet.add('Virtual');
+        if (hasVirtualLocation && hasVirtualInDb) {
+          const virtualLocation = generalLocations.find(loc => 
+            loc.name && (loc.name.toLowerCase() === 'virtual' || loc.name.toLowerCase() === 'microsoft teams meeting')
+          );
+          if (virtualLocation) {
+            locationsSet.add(virtualLocation.name);
+          }
         }
         
-        // Add physical locations
+        // Only add locations that exist in the database
         eventLocations.forEach(location => {
           if (!isVirtualLocation(location)) {
-            // Add physical location as-is
-            locationsSet.add(location);
+            // Check if this location matches a general location name (case-insensitive)
+            const matchingGeneral = generalLocations.find(loc => 
+              loc.name && loc.name.toLowerCase() === location.toLowerCase()
+            );
+            
+            if (matchingGeneral) {
+              // Use the canonical name from the general locations database
+              locationsSet.add(matchingGeneral.name);
+            }
+            // Note: We no longer add non-database locations
           }
         });
       });
       
-      // Convert to sorted array
+      // Convert to sorted array - since all locations are now from database, simple sort
       const locationsArray = Array.from(locationsSet).sort((a, b) => {
-        // Sort with Virtual first, then Unspecified last
-        if (a === 'Virtual' && b !== 'Virtual') return -1;
-        if (b === 'Virtual' && a !== 'Virtual') return 1;
-        if (a === 'Unspecified' && b !== 'Unspecified') return 1;
-        if (b === 'Unspecified' && a !== 'Unspecified') return -1;
+        // Sort with Virtual first, then alphabetical, then Unspecified last
+        if (a.toLowerCase().includes('virtual') && !b.toLowerCase().includes('virtual')) return -1;
+        if (b.toLowerCase().includes('virtual') && !a.toLowerCase().includes('virtual')) return 1;
+        if (a.toLowerCase() === 'unspecified' && b.toLowerCase() !== 'unspecified') return 1;
+        if (b.toLowerCase() === 'unspecified' && a.toLowerCase() !== 'unspecified') return -1;
+        
         return a.localeCompare(b);
       });
       
-      // Return just the actual locations found in events
+      // Return only database locations
       return locationsArray;
-    }, [allEvents, isVirtualLocation]);
+    }, [allEvents, isVirtualLocation, generalLocations]);
 
     /**
      * TBD
@@ -2814,6 +2852,13 @@
 
     const dynamicLocations = useMemo(() => getDynamicLocations(), [getDynamicLocations]);
     const dynamicCategories = useMemo(() => getDynamicCategories(), [getDynamicCategories]);
+
+    /**
+     * Get location names from database (generalLocations) for simple arrays
+     */
+    const getDatabaseLocationNames = useCallback(() => {
+      return generalLocations.map(location => location.name).filter(name => name);
+    }, [generalLocations]);
 
     /**
      * TBD
@@ -4597,7 +4642,7 @@
                           groupBy={groupBy}
                           filteredEvents={filteredEvents}
                           outlookCategories={outlookCategories}
-                          availableLocations={availableLocations}
+                          availableLocations={getDatabaseLocationNames()}
                           dynamicLocations={dynamicLocations}
                           getFilteredMonthEvents={getFilteredMonthEvents}
                           getMonthDayEventPosition={getMonthDayEventPosition}
@@ -4631,7 +4676,7 @@
                           groupBy={groupBy}
                           outlookCategories={outlookCategories}
                           selectedCategories={selectedCategories}
-                          availableLocations={availableLocations}
+                          availableLocations={getDatabaseLocationNames()}
                           dynamicLocations={dynamicLocations}
                           selectedLocations={selectedLocations}
                           getDaysInRange={getDaysInRange}
@@ -4660,7 +4705,7 @@
                           groupBy={groupBy}
                           outlookCategories={outlookCategories}
                           selectedCategories={selectedCategories}
-                          availableLocations={availableLocations}
+                          availableLocations={getDatabaseLocationNames()}
                           dynamicLocations={dynamicLocations}
                           selectedLocations={selectedLocations}
                           formatDateHeader={formatDateHeader}
@@ -4877,7 +4922,7 @@
             onViewInCalendar={handleViewInCalendar}
             onClose={() => setShowSearch(false)}
             outlookCategories={outlookCategories}
-            availableLocations={availableLocations}
+            availableLocations={getDatabaseLocationNames()}
             dynamicLocations={dynamicLocations}
             onSaveEvent={handleSaveEvent}
             selectedCalendarId={selectedCalendarId}

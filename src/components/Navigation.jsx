@@ -69,7 +69,7 @@ export default function Navigation({
         
         <li>
           <NavLink to="/room-reservation" className={({ isActive }) => isActive ? 'active' : ''}>
-            Room Reservation
+            Space Booking
           </NavLink>
         </li>
 
@@ -141,11 +141,11 @@ export default function Navigation({
               </li>
               <li>
                 <NavLink 
-                  to="/admin/rooms" 
+                  to="/admin/locations" 
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
-                  Room Management
+                  Location Management
                 </NavLink>
               </li>
               <li>
@@ -155,6 +155,15 @@ export default function Navigation({
                   onClick={handleDropdownLinkClick}
                 >
                   Reservation Requests
+                </NavLink>
+              </li>
+              <li>
+                <NavLink 
+                  to="/admin/feature-management" 
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Feature Management
                 </NavLink>
               </li>
             </ul>

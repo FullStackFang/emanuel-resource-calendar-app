@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
-import { useRooms } from '../context/RoomContext';
+import { useRooms } from '../context/LocationContext';
 import CommunicationHistory from './CommunicationHistory';
 import './ReservationRequests.css';
 
@@ -398,12 +398,6 @@ export default function ReservationRequests({ apiToken }) {
                 </div>
               </div>
               
-              {selectedReservation.requiredFeatures?.length > 0 && (
-                <div className="detail-row">
-                  <label>Required Features:</label>
-                  <div>{selectedReservation.requiredFeatures.join(', ')}</div>
-                </div>
-              )}
               
               {selectedReservation.specialRequirements && (
                 <div className="detail-row">

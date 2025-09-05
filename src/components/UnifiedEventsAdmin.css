@@ -78,7 +78,7 @@
   position: relative;
   min-height: 300px;
   height: calc(100vh - 200px); /* Constrain to fit within main element */
-  overflow: hidden; /* Ensure content stays within bounds */
+  overflow-y: auto; /* Enable vertical scrolling */
   width: 100%; /* Ensure full width */
 }
 
@@ -523,3 +523,1324 @@
     padding: 3px 6px;
   }
 }
+
+/* Migration Styles */
+.migration-container {
+  padding: 20px;
+}
+
+.migration-header {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.migration-header h2 {
+  color: #2d3748;
+  margin-bottom: 10px;
+}
+
+.migration-header p {
+  color: #718096;
+  margin: 0;
+}
+
+.migration-config {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.migration-config h3 {
+  color: #2d3748;
+  margin: 0 0 20px 0;
+}
+
+.config-row {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.form-group {
+  flex: 1;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.form-group input[type="date"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.calendar-selection-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 0;
+}
+
+.select-btn {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #4a5568;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.select-btn:hover {
+  background: #f9fafb;
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.calendar-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.calendar-selection {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.no-calendars-message {
+  text-align: center;
+  padding: 24px;
+  background: #fafafa;
+  border: none;
+  border-radius: 4px;
+}
+
+.no-calendars-message p {
+  margin: 0 0 8px 0;
+  color: #6b7280;
+}
+
+.calendar-hint {
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.calendar-checkbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: all 0.15s;
+  border-radius: 4px;
+  font-size: 13px;
+  min-width: 0;
+  user-select: none;
+  text-align: center;
+  min-height: 70px;
+}
+
+.calendar-checkbox:hover {
+  background: #f0f9ff;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.calendar-checkbox.selected {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  font-weight: 500;
+}
+
+.calendar-checkbox input[type="checkbox"] {
+  display: none;
+}
+
+.calendar-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+}
+
+.calendar-name {
+  font-weight: 400;
+  color: #2d3748;
+  font-size: 11px;
+  width: 100%;
+  line-height: 1.3;
+  word-wrap: break-word;
+  hyphens: auto;
+  text-align: center;
+  max-height: 3.9em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.calendar-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.calendar-badge.default {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.calendar-owner {
+  font-size: 11px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.options-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.option-checkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+  min-height: 80px;
+  user-select: none;
+}
+
+.option-checkbox input[type="checkbox"] {
+  display: none;
+}
+
+.option-checkbox:hover {
+  background: #f0f9ff;
+  border-color: #3b82f6;
+  transform: translateY(-1px);
+}
+
+.option-checkbox.selected {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  font-weight: 500;
+}
+
+.migration-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+  margin-top: 24px;
+}
+
+.migration-actions .action-btn {
+  padding: 10px 20px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.migration-actions .action-btn.primary {
+  background: white;
+  color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.migration-actions .action-btn.primary:hover:not(:disabled) {
+  background: #3b82f6;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+.migration-actions .action-btn.success {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.migration-actions .action-btn.success:hover:not(:disabled) {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.migration-actions .action-btn.danger {
+  background: white;
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.migration-actions .action-btn.danger:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #dc2626;
+  color: #dc2626;
+  transform: translateY(-1px);
+}
+
+.migration-actions .action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Migration Preview */
+.migration-preview {
+  background: #f0f9ff;
+  border: 1px solid #0284c7;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.migration-preview h3 {
+  color: #0c4a6e;
+  margin: 0 0 20px 0;
+}
+
+.preview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid #bae6fd;
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #0284c7;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.calendar-breakdown h4 {
+  color: #0c4a6e;
+  margin: 0 0 12px 0;
+}
+
+/* Two-column layout for calendar breakdown */
+.breakdown-container {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.calendar-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.location-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.location-analysis.scrollable {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fafc;
+}
+
+.location-analysis h4 {
+  margin-top: 0;
+  color: #0c4a6e;
+}
+
+.location-content {
+  margin-top: 12px;
+}
+
+/* Location analysis note */
+.location-analysis-note {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.location-analysis-note h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: #0c4a6e;
+}
+
+.location-analysis-note p {
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.location-analysis-note small {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Location header with toggle */
+.location-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.location-header h4 {
+  margin: 0;
+}
+
+.toggle-btn {
+  background: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.toggle-btn .arrow {
+  transition: transform 0.2s ease;
+  font-size: 12px;
+}
+
+.toggle-btn .arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.calendar-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid #bae6fd;
+}
+
+.calendar-name {
+  font-weight: 500;
+  color: #374151;
+}
+
+.calendar-count {
+  color: #0284c7;
+  font-weight: 600;
+}
+
+.calendar-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+/* Migration Progress */
+.migration-progress {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.migration-progress h3 {
+  color: #92400e;
+  margin: 0 0 20px 0;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.progress-stats .stat {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 600;
+  color: #374151;
+  border: 1px solid #fbbf24;
+}
+
+.current-activity {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  border: 1px solid #fbbf24;
+}
+
+.current-activity div {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.migration-errors {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.migration-errors h4 {
+  color: #dc2626;
+  margin: 0 0 12px 0;
+}
+
+.error-item {
+  padding: 8px 12px;
+  background: white;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  border: 1px solid #fca5a5;
+}
+
+.migration-complete {
+  background: #d1fae5;
+  border: 1px solid #10b981;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  margin-top: 16px;
+}
+
+.migration-complete h4 {
+  color: #065f46;
+  margin: 0 0 12px 0;
+}
+
+.migration-complete p {
+  color: #047857;
+  margin: 0 0 16px 0;
+}
+
+/* User Guide Styles */
+.user-guide {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.guide-toggle {
+  width: 100%;
+  background: #e9ecef;
+  border: none;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #495057;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background-color 0.2s;
+}
+
+.guide-toggle:hover {
+  background: #dee2e6;
+}
+
+.guide-content {
+  padding: 20px;
+}
+
+.guide-overview {
+  margin-bottom: 30px;
+}
+
+.guide-overview h3 {
+  color: #2d3748;
+  margin-bottom: 12px;
+  font-size: 1.3rem;
+}
+
+.guide-overview p {
+  color: #718096;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.guide-steps {
+  margin-bottom: 30px;
+}
+
+.guide-steps h3 {
+  color: #2d3748;
+  margin-bottom: 20px;
+  font-size: 1.2rem;
+}
+
+.guide-step {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.step-number {
+  background: #3b82f6;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.step-content h4 {
+  color: #374151;
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+}
+
+.step-content p {
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.best-practices {
+  margin-bottom: 30px;
+}
+
+.best-practices h3 {
+  color: #2d3748;
+  margin-bottom: 16px;
+  font-size: 1.2rem;
+}
+
+.practice-item {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  background: #ecfdf5;
+  border-radius: 6px;
+  border-left: 4px solid #10b981;
+}
+
+.practice-item strong {
+  color: #047857;
+  margin-right: 8px;
+  min-width: 80px;
+}
+
+.practice-item span {
+  color: #374151;
+  line-height: 1.5;
+}
+
+.faq-section h3 {
+  color: #2d3748;
+  margin-bottom: 16px;
+  font-size: 1.2rem;
+}
+
+.faq-item {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.faq-item strong {
+  color: #374151;
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+}
+
+.faq-item p {
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
+.tooltip {
+  position: relative;
+  display: inline-block;
+  margin-left: 4px;
+  color: #6b7280;
+  cursor: help;
+}
+
+.tooltip:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+.tooltip:hover::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: #1f2937;
+  z-index: 1000;
+}
+
+.validation-hint {
+  font-size: 13px;
+  color: #dc2626;
+  margin-top: 6px;
+  display: block;
+}
+
+.required {
+  color: #dc2626;
+  font-weight: bold;
+  margin-left: 2px;
+}
+
+.option-help {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 6px;
+  font-style: italic;
+  line-height: 1.3;
+}
+
+.option-checkbox .option-text {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.option-checkbox .option-help.warning {
+  color: #dc2626;
+  font-weight: 500;
+}
+
+/* Clickable Stat Cards */
+.stat-card.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+  background: #f0f9ff;
+}
+
+.stat-card.clickable:active {
+  transform: translateY(0);
+}
+
+.stat-card.clickable::after {
+  content: '👆 Click to view event list';
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #6b7280;
+  opacity: 0;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.stat-card.clickable:hover::after {
+  opacity: 1;
+}
+
+/* Enhanced Calendar Permission Display */
+.calendar-item {
+  padding: 18px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  border-left: 4px solid #e5e7eb;
+  background: white;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s ease;
+}
+
+.calendar-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+.calendar-item.access-full {
+  border-left-color: #10b981;
+  background: #f0fdf4;
+}
+
+.calendar-item.access-limited {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.calendar-item.access-restricted {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.calendar-item.access-unknown {
+  border-left-color: #6b7280;
+  background: #f9fafb;
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.calendar-name {
+  font-weight: 600;
+  color: #374151;
+  font-size: 14px;
+}
+
+.calendar-count {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.calendar-permissions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  font-size: 12px;
+}
+
+.access-level {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.access-level.access-full {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.access-level.access-limited {
+  color: #d97706;
+  background: #fed7aa;
+}
+
+.access-level.access-restricted {
+  color: #dc2626;
+  background: #fecaca;
+}
+
+.access-level.access-unknown {
+  color: #4b5563;
+  background: #e5e7eb;
+}
+
+.calendar-shared, .calendar-owner {
+  font-size: 11px;
+  color: #6b7280;
+  background: #f9fafb;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.calendar-warning {
+  font-size: 12px;
+  color: #d97706;
+  background: #fef3c7;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #fcd34d;
+  margin-top: 8px;
+}
+
+.calendar-error {
+  font-size: 12px;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  margin-top: 8px;
+}
+
+/* Enhanced Calendar Selection Styles */
+
+.calendar-badge.primary {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+}
+
+.calendar-badge.shared {
+  background: #10b981;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  border: 1px solid #059669;
+}
+
+
+/* Enhanced Calendar Breakdown Styles */
+.calendar-header-breakdown {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.calendar-title-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.calendar-type-badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.calendar-type-badge.primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+}
+
+.calendar-type-badge.shared {
+  background: #10b981;
+  color: white;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #059669;
+}
+
+
+.calendar-details {
+  margin-top: 8px;
+}
+
+/* Updated calendar count styling for breakdown */
+.calendar-header-breakdown .calendar-count {
+  font-size: 12px;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  margin-left: 8px;
+  align-self: flex-start;
+}
+
+/* Location Analysis Styles */
+.location-analysis {
+  background: #f8fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.location-analysis h3 {
+  color: #1e293b;
+  margin: 0 0 16px 0;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.location-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.location-stat {
+  background: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 100px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.location-stat.existing {
+  border-left: 4px solid #10b981;
+  background: #f0fdfa;
+}
+
+.location-stat.new {
+  border-left: 4px solid #3b82f6;
+  background: #eff6ff;
+}
+
+.location-stat.ambiguous {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.location-number {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.location-label {
+  font-size: 0.85rem;
+  color: #64748b;
+  text-align: center;
+  font-weight: 500;
+}
+
+.location-details {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid #e2e8f0;
+}
+
+.location-details h4 {
+  color: #374151;
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+}
+
+.location-item {
+  margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+}
+
+.location-item.new-location {
+  background: #f0f9ff;
+  border-left-color: #3b82f6;
+}
+
+.location-item.ambiguous-location {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+}
+
+.location-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.location-name {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.location-count {
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.location-examples {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-left: 20px;
+}
+
+.location-matches {
+  font-size: 0.85rem;
+  color: #92400e;
+  margin-left: 20px;
+  font-style: italic;
+}
+
+.existing-locations {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+  border: 1px solid #d1fae5;
+  background: #f0fdf4;
+}
+
+.existing-locations h4 {
+  color: #065f46;
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+}
+
+.existing-location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.existing-location-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.existing-location-tag {
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.confidence-indicator {
+  font-size: 12px;
+  color: #059669;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.confidence-value {
+  color: #6b7280;
+  font-weight: normal;
+}
+
+/* Match details for ambiguous locations */
+.location-matches {
+  margin-top: 8px;
+}
+
+.match-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #fffbeb;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.match-name {
+  flex: 1;
+  color: #92400e;
+  font-weight: 500;
+}
+
+.confidence-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.confidence-badge.exact-match {
+  background: #10b981;
+  color: white;
+}
+
+.confidence-badge.very-high {
+  background: #34d399;
+  color: white;
+}
+
+.confidence-badge.high {
+  background: #86efac;
+  color: #064e3b;
+}
+
+.confidence-badge.medium {
+  background: #fbbf24;
+  color: #713f12;
+}
+
+.confidence-badge.low {
+  background: #fb923c;
+  color: #7c2d12;
+}
+
+.confidence-badge.very-low {
+  background: #f87171;
+  color: white;
+}
+
+.action-label {
+  font-size: 11px;
+  color: #6b7280;
+  font-style: italic;
+  padding: 3px 6px;
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+/* Responsive design for location analysis */
+@media (max-width: 768px) {
+  .location-summary {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .location-stat {
+    min-width: auto;
+  }
+  
+  .location-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .existing-location-list {
+    justify-content: flex-start;
+  }
+}
+

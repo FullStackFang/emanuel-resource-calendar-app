@@ -14,12 +14,13 @@ import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import RoomReservationForm from './components/RoomReservationForm';
 import ResubmissionForm from './components/ResubmissionForm';
 import MyReservations from './components/MyReservations';
-import RoomManagement from './components/RoomManagement';
+import LocationReview from './components/LocationReview';
 import ReservationRequests from './components/ReservationRequests';
+import FeatureManagement from './components/FeatureManagement';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
-import { RoomProvider } from './context/RoomContext';
+import { RoomProvider } from './context/LocationContext';
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
@@ -265,8 +266,9 @@ function App() {
                 <Route path="/room-reservation/public/:token" element={<RoomReservationForm isPublic={true} />} />
                 <Route path="/room-reservation/resubmit" element={<ResubmissionForm apiToken={apiToken} />} />
                 <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
-                <Route path="/admin/rooms" element={<RoomManagement apiToken={apiToken} />} />
+                <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} />} />
+                <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               </RoomProvider>

@@ -39,22 +39,22 @@ class UnifiedEventService {
   }
 
   /**
-   * Sync events using delta query - only fetches changed events
-   * @param {Object} params - Sync parameters
-   * @param {Array} params.calendarIds - Array of calendar IDs to sync
+   * Load events using regular Graph API queries - replaces problematic delta sync
+   * @param {Object} params - Load parameters
+   * @param {Array} params.calendarIds - Array of calendar IDs to load from
    * @param {string} params.startTime - Start time for date range (ISO string)
    * @param {string} params.endTime - End time for date range (ISO string)
-   * @param {boolean} params.forceFullSync - Force full sync instead of delta
-   * @returns {Object} Sync results and events
+   * @param {boolean} params.forceRefresh - Force refresh from Graph API
+   * @returns {Object} Load results and events
    */
-  async syncEvents({ calendarIds, startTime, endTime, forceFullSync = false }) {
+  async loadEvents({ calendarIds, startTime, endTime, forceRefresh = false }) {
     try {
       // Enhanced debug logging
-      logger.debug('UnifiedEventService: Starting delta sync', { 
+      logger.debug('UnifiedEventService: Starting regular events load', { 
         calendarIds, 
         startTime, 
         endTime, 
-        forceFullSync,
+        forceRefresh,
         calendarIdsType: typeof calendarIds,
         calendarIdsLength: Array.isArray(calendarIds) ? calendarIds.length : 'not array',
         hasApiToken: !!this.apiToken,
@@ -85,13 +85,13 @@ class UnifiedEventService {
         calendarIds: calendarIds,
         startTime: startTime,
         endTime: endTime,
-        forceFullSync: forceFullSync
+        forceRefresh: forceRefresh
       };
 
       const headers = this.getAuthHeaders();
       
-      logger.debug('UnifiedEventService: Making request to delta sync', {
-        url: `${API_BASE_URL}/events/sync-delta`,
+      logger.debug('UnifiedEventService: Making request to regular events load', {
+        url: `${API_BASE_URL}/events/load`,
         method: 'POST',
         headers: {
           'Authorization': headers.Authorization ? 'Bearer [PRESENT]' : 'MISSING',
@@ -102,11 +102,11 @@ class UnifiedEventService {
           calendarIdsCount: requestBody.calendarIds.length,
           startTime: requestBody.startTime,
           endTime: requestBody.endTime,
-          forceFullSync: requestBody.forceFullSync
+          forceRefresh: requestBody.forceRefresh
         }
       });
 
-      const response = await fetch(`${API_BASE_URL}/events/sync-delta`, {
+      const response = await fetch(`${API_BASE_URL}/events/load`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify(requestBody)
@@ -121,28 +121,38 @@ class UnifiedEventService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('UnifiedEventService: Delta sync HTTP error', { 
+        logger.error('UnifiedEventService: Regular events load HTTP error', { 
           status: response.status, 
           statusText: response.statusText,
           errorText: errorText,
-          url: `${API_BASE_URL}/events/sync-delta`,
+          url: `${API_BASE_URL}/events/load`,
           requestSentAt: new Date().toISOString()
         });
-        throw new Error(`Delta sync failed: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(`Events load failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
-      logger.debug('UnifiedEventService: Delta sync response', { 
+      logger.debug('UnifiedEventService: Regular events load response', { 
         source: data.source, 
         eventCount: data.count,
-        syncResults: data.syncResults
+        loadResults: data.loadResults
       });
 
       return data;
     } catch (error) {
-      logger.error('UnifiedEventService: Error in delta sync:', error);
+      logger.error('UnifiedEventService: Error in regular events load:', error);
       throw error;
     }
+  }
+
+  /**
+   * Backward compatibility method - delegates to loadEvents
+   * @param {Object} params - Sync parameters (same as loadEvents)
+   * @returns {Object} Load results and events
+   */
+  async syncEvents(params) {
+    logger.debug('UnifiedEventService: syncEvents called (delegating to loadEvents)');
+    return await this.loadEvents(params);
   }
 
   /**
@@ -195,36 +205,37 @@ class UnifiedEventService {
   }
 
   /**
-   * Force full sync by resetting delta tokens
-   * @param {Array} calendarIds - Array of calendar IDs to reset
-   * @returns {Object} Reset result
+   * Force full refresh by loading events with forceRefresh flag
+   * @param {Array} calendarIds - Array of calendar IDs to refresh
+   * @param {string} startTime - Start time for date range (optional)
+   * @param {string} endTime - End time for date range (optional)
+   * @returns {Object} Refresh result
    */
-  async forceFullSync(calendarIds) {
+  async forceFullSync(calendarIds, startTime = null, endTime = null) {
     try {
-      logger.debug('UnifiedEventService: Forcing full sync', { calendarIds });
+      logger.debug('UnifiedEventService: Forcing full refresh', { calendarIds, startTime, endTime });
 
-      const response = await fetch(`${API_BASE_URL}/events/force-sync`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify({ calendarIds: calendarIds })
+      // Use the regular loadEvents method with forceRefresh flag
+      const result = await this.loadEvents({
+        calendarIds: calendarIds,
+        startTime: startTime,
+        endTime: endTime,
+        forceRefresh: true
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('UnifiedEventService: Force sync HTTP error', { 
-          status: response.status, 
-          statusText: response.statusText,
-          errorText: errorText
-        });
-        throw new Error(`Force sync failed: ${response.status} ${response.statusText}`);
-      }
+      logger.debug('UnifiedEventService: Force refresh complete', {
+        eventCount: result.count,
+        source: result.source
+      });
 
-      const data = await response.json();
-      logger.debug('UnifiedEventService: Force sync response', data);
-
-      return data;
+      return {
+        message: 'Full refresh completed using regular load',
+        calendarIds: calendarIds,
+        eventCount: result.count,
+        loadResults: result.loadResults
+      };
     } catch (error) {
-      logger.error('UnifiedEventService: Error in force sync:', error);
+      logger.error('UnifiedEventService: Error in force refresh:', error);
       throw error;
     }
   }

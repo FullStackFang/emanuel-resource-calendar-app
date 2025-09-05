@@ -29,7 +29,9 @@
       "Bash(timeout:*)",
       "Bash(find:*)",
       "Bash(npm run:*)",
-      "WebFetch(domain:learn.microsoft.com)"
+      "WebFetch(domain:learn.microsoft.com)",
+      "Bash(git log:*)",
+      "WebSearch"
     ],
     "deny": []
   }

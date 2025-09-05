@@ -59,7 +59,7 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
     const changes = [];
     const fieldsToCheck = [
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
-      'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
+      'attendeeCount', 'requestedRooms', 'specialRequirements',
       'priority', 'department', 'phone', 'contactEmail'
     ];
 
@@ -88,8 +88,6 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
         return formatDateTime(value);
       case 'requestedRooms':
         return Array.isArray(value) ? `${value.length} room(s)` : value;
-      case 'requiredFeatures':
-        return Array.isArray(value) ? value.join(', ') || 'None' : value;
       case 'attendeeCount':
         return value ? `${value} attendees` : 'Not specified';
       default:
@@ -105,7 +103,6 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
       case 'endDateTime': return 'End Time';
       case 'attendeeCount': return 'Attendees';
       case 'requestedRooms': return 'Requested Rooms';
-      case 'requiredFeatures': return 'Required Features';
       case 'specialRequirements': return 'Special Requirements';
       case 'priority': return 'Priority';
       case 'department': return 'Department';

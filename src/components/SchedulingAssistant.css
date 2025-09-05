@@ -1,0 +1,249 @@
+/* src/components/SchedulingAssistant.css */
+
+.scheduling-assistant {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  height: fit-content;
+  min-height: 600px;
+  position: sticky;
+  top: 20px;
+}
+
+.assistant-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.assistant-header h3 {
+  color: #333;
+  font-size: 1.2rem;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-date {
+  color: #6b7280;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* Empty State */
+.empty-assistant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+  opacity: 0.5;
+}
+
+.empty-assistant p {
+  margin: 0;
+  font-style: italic;
+}
+
+/* Location Legend */
+.location-legend {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-name {
+  color: #374151;
+  font-weight: 500;
+}
+
+/* Timeline */
+.timeline-container {
+  height: 480px; /* Fixed height showing ~12 hours at once */
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fafafa;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar styling */
+.timeline-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.timeline-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.timeline-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.time-slot {
+  display: flex;
+  min-height: 40px;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  position: relative;
+}
+
+.time-slot:hover {
+  background-color: #f3f4f6;
+}
+
+.time-slot:last-child {
+  border-bottom: none;
+}
+
+.time-slot.event-time {
+  background: #eff6ff;
+  border-left: 3px solid #0078d4;
+}
+
+.time-slot.event-time:hover {
+  background: #dbeafe;
+}
+
+.time-label {
+  width: 60px;
+  padding: 10px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #6b7280;
+  text-align: right;
+  border-right: 1px solid #e5e7eb;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.availability-bars {
+  flex: 1;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+}
+
+.room-availability {
+  height: 8px;
+  position: relative;
+}
+
+.busy-bar {
+  height: 100%;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.conflict-indicator {
+  font-size: 8px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Conflict Time Highlights */
+
+/* Assistant Actions */
+.assistant-actions {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.find-time-btn {
+  width: 100%;
+  background: #0078d4;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.find-time-btn:hover {
+  background: #106ebe;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .scheduling-assistant {
+    position: static;
+    margin-top: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .location-legend {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  
+  .legend-item {
+    flex: 0 0 calc(50% - 4px);
+    font-size: 0.8rem;
+  }
+  
+  .time-label {
+    width: 50px;
+    font-size: 0.7rem;
+  }
+  
+  .timeline-container {
+    height: 320px; /* Fixed height on mobile with scroll capability */
+  }
+  
+  .time-slot {
+    min-height: 32px;
+  }
+}

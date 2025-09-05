@@ -1,13 +1,17 @@
 // src/components/UnifiedEventsAdmin.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import { useMsal } from '@azure/msal-react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import CSVImport from './CSVImport';
+import EventDetailsModal from './EventDetailsModal';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
 
 export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+  const { accounts } = useMsal();
+  const currentUser = accounts && accounts.length > 0 ? accounts[0] : null;
   
   // Main state
   const [activeTab, setActiveTab] = useState('overview');
@@ -27,6 +31,33 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
     search: '',
     status: 'all', // all, active, deleted, enriched
     calendarId: ''
+  });
+
+  // Migration state
+  const [migrationConfig, setMigrationConfig] = useState({
+    startDate: '',
+    endDate: '',
+    calendarIds: [],
+    options: {
+      skipDuplicates: true,
+      preserveEnrichments: true,
+      forceOverwrite: false,
+      skipLimitedAccessCalendars: true,
+      skipEventsWithoutSubjects: false
+    }
+  });
+  const [migrationPreview, setMigrationPreview] = useState(null);
+  const [migrationSession, setMigrationSession] = useState(null);
+  const [migrationProgress, setMigrationProgress] = useState(null);
+  const [showUserGuide, setShowUserGuide] = useState(false);
+  const [showLocationDetails, setShowLocationDetails] = useState(false);
+
+  // Event details modal state
+  const [eventDetailsModal, setEventDetailsModal] = useState({
+    isOpen: false,
+    events: [],
+    title: '',
+    type: null
   });
 
   // Auth headers
@@ -156,7 +187,38 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
       
       const data = await response.json();
       logger.log('Calendar data received:', data.value);
-      setAvailableCalendars(data.value || []);
+      
+      // Filter out system calendars we don't need
+      const systemCalendarNames = [
+        'Birthdays',
+        'United States Holidays', 
+        'Holiday Calendar',
+        'Holidays in United States',
+        'US Holidays',
+        'United States holidays',  // lowercase variant
+        'US holidays',             // lowercase variant
+        'Holidays'                 // generic holidays
+      ];
+      
+      // Debug: Log all calendar names first
+      logger.log('All available calendar names before filtering:', (data.value || []).map(cal => `"${cal.name}"`));
+      
+      const filteredCalendars = (data.value || []).filter(calendar => {
+        const name = calendar.name || '';
+        const shouldFilter = systemCalendarNames.includes(name);
+        if (shouldFilter) {
+          logger.log(`Filtering out system calendar: "${name}"`);
+        }
+        return !shouldFilter;
+      });
+      
+      logger.log(`Filtered ${data.value?.length || 0} calendars down to ${filteredCalendars.length}`);
+      if (filteredCalendars.length !== (data.value?.length || 0)) {
+        const removedCalendars = (data.value || []).filter(cal => systemCalendarNames.includes(cal.name || ''));
+        logger.log('Removed system calendars:', removedCalendars.map(cal => `"${cal.name}"`));
+      }
+      
+      setAvailableCalendars(filteredCalendars);
       
     } catch (err) {
       logger.error('Error loading calendars:', err);
@@ -262,6 +324,8 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
       loadEvents(1);
       setCurrentPage(1);
     } else if (activeTab === 'csv-import') {
+      loadAvailableCalendars();
+    } else if (activeTab === 'migration') {
       loadAvailableCalendars();
     }
     // Removed loadEvents from dependencies to prevent double-firing
@@ -586,6 +650,816 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
     );
   };
 
+  // Migration functions
+  const getAuthHeadersWithGraph = useCallback(() => {
+    const headers = getAuthHeaders();
+    if (graphToken) {
+      headers['X-Graph-Token'] = graphToken;
+    }
+    return headers;
+  }, [getAuthHeaders, graphToken]);
+
+  // Preview migration
+  const previewMigration = async () => {
+    if (!migrationConfig.startDate || !migrationConfig.endDate || migrationConfig.calendarIds.length === 0) {
+      showError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`${API_BASE_URL}/admin/migration/preview`, {
+        method: 'POST',
+        headers: getAuthHeadersWithGraph(),
+        body: JSON.stringify({
+          startDate: migrationConfig.startDate,
+          endDate: migrationConfig.endDate,
+          calendarIds: migrationConfig.calendarIds,
+          options: migrationConfig.options
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const preview = await response.json();
+      setMigrationPreview(preview);
+      showSuccess('Migration preview generated successfully');
+      
+      // Automatically analyze locations in background for console export and UI display
+      setTimeout(() => analyzeLocationsInPreview(preview), 1000);
+      
+      // Scroll to the migration preview section
+      setTimeout(() => {
+        const previewElement = document.querySelector('.migration-preview');
+        if (previewElement) {
+          previewElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start'
+          });
+        }
+      }, 100);
+
+    } catch (err) {
+      logger.error('Error previewing migration:', err);
+      showError(`Failed to preview migration: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Analyze locations in migration preview (console export)
+  const analyzeLocationsInPreview = async (previewData = null) => {
+    console.log('🔄 Starting location analysis...');
+    
+    const currentPreview = previewData || migrationPreview;
+    if (!currentPreview) {
+      console.log('❌ No migration preview available');
+      return;
+    }
+
+    try {
+      console.log('📡 Fetching location analysis with includeEvents: true');
+      const response = await fetch(`${API_BASE_URL}/admin/migration/preview`, {
+        method: 'POST',
+        headers: getAuthHeadersWithGraph(),
+        body: JSON.stringify({
+          startDate: migrationConfig.startDate,
+          endDate: migrationConfig.endDate,
+          calendarIds: migrationConfig.calendarIds,
+          options: migrationConfig.options,
+          includeEvents: true
+        })
+      });
+
+      if (!response.ok) {
+        console.error('❌ Failed to fetch location analysis:', response.status);
+        return;
+      }
+
+      const previewWithLocations = await response.json();
+      console.log('📥 Received preview response:', previewWithLocations);
+      
+      if (previewWithLocations.locationAnalysis) {
+        console.log('✅ Location analysis found, exporting to console');
+        
+        // Export detailed analysis to console only
+        console.log('📍 LOCATION ANALYSIS FOR MIGRATION:', previewWithLocations.locationAnalysis);
+        console.table(previewWithLocations.locationAnalysis.summary);
+        if (previewWithLocations.locationAnalysis.locations.new.length > 0) {
+          console.log('🆕 NEW LOCATIONS:', previewWithLocations.locationAnalysis.locations.new);
+        }
+        if (previewWithLocations.locationAnalysis.locations.ambiguous.length > 0) {
+          console.log('❓ AMBIGUOUS LOCATIONS:', previewWithLocations.locationAnalysis.locations.ambiguous);
+        }
+        if (previewWithLocations.locationAnalysis.locations.existing.length > 0) {
+          console.log('✅ EXISTING LOCATIONS:', previewWithLocations.locationAnalysis.locations.existing);
+        }
+      } else {
+        console.log('❌ No locationAnalysis property in response');
+      }
+      
+    } catch (err) {
+      console.error('💥 Error analyzing locations:', err);
+    }
+  };
+
+  // Log detailed events for a specific category to console
+  const fetchEventDetails = async (type) => {
+    if (!migrationConfig.startDate || !migrationConfig.endDate || migrationConfig.calendarIds.length === 0) {
+      showError('Please ensure migration configuration is complete');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`${API_BASE_URL}/admin/migration/preview`, {
+        method: 'POST',
+        headers: getAuthHeadersWithGraph(),
+        body: JSON.stringify({
+          startDate: migrationConfig.startDate,
+          endDate: migrationConfig.endDate,
+          calendarIds: migrationConfig.calendarIds,
+          options: migrationConfig.options,
+          includeEvents: true
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const preview = await response.json();
+      
+      if (preview.eventDetailsError) {
+        throw new Error(preview.eventDetailsError);
+      }
+
+      const events = type === 'imported' 
+        ? preview.eventDetails?.alreadyImported || []
+        : preview.eventDetails?.newEvents || [];
+
+      // Show events in modal instead of console
+      const categoryTitle = type === 'imported' ? 'Already Imported Events' : 'New Events to Import';
+      
+      setEventDetailsModal({
+        isOpen: true,
+        events: events,
+        title: categoryTitle,
+        type: type
+      });
+
+    } catch (err) {
+      logger.error('Error fetching event details:', err);
+      showError(`Failed to fetch event details: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Close event details modal
+  const closeEventDetailsModal = () => {
+    setEventDetailsModal({
+      isOpen: false,
+      events: [],
+      title: '',
+      type: null
+    });
+  };
+
+  // Start migration
+  const startMigration = async () => {
+    if (!migrationPreview) {
+      showError('Please generate a preview first');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to start the migration? This will import events from Outlook into the database.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`${API_BASE_URL}/admin/migration/start`, {
+        method: 'POST',
+        headers: getAuthHeadersWithGraph(),
+        body: JSON.stringify({
+          startDate: migrationConfig.startDate,
+          endDate: migrationConfig.endDate,
+          calendarIds: migrationConfig.calendarIds,
+          options: migrationConfig.options
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      setMigrationSession(result);
+      showSuccess('Migration started successfully');
+      
+      // Start polling for progress
+      pollMigrationProgress(result.sessionId);
+
+    } catch (err) {
+      logger.error('Error starting migration:', err);
+      showError(`Failed to start migration: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Poll migration progress
+  const pollMigrationProgress = useCallback(async (sessionId) => {
+    if (!sessionId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/migration/status/${sessionId}`, {
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const progress = await response.json();
+      setMigrationProgress(progress);
+
+      // Continue polling if still running
+      if (progress.status === 'running') {
+        setTimeout(() => pollMigrationProgress(sessionId), 2000);
+      }
+
+    } catch (err) {
+      logger.error('Error polling migration progress:', err);
+    }
+  }, [API_BASE_URL, getAuthHeaders]);
+
+  // Cancel migration
+  const cancelMigration = async () => {
+    if (!migrationSession?.sessionId) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/migration/cancel/${migrationSession.sessionId}`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showSuccess(`Migration cancelled. Processed ${result.processed} events.`);
+      setMigrationSession(null);
+      setMigrationProgress(null);
+
+    } catch (err) {
+      logger.error('Error cancelling migration:', err);
+      showError(`Failed to cancel migration: ${err.message}`);
+    }
+  };
+
+  // Render migration tab
+  const renderMigration = () => {
+    return (
+      <div className="migration-container">
+        <div className="migration-header">
+          <h2>📦 Data Migration</h2>
+          <p>Import historical events from Outlook into the local database for improved performance</p>
+          
+          <div className="user-guide-toggle">
+            <button
+              onClick={() => setShowUserGuide(!showUserGuide)}
+              className="guide-toggle-btn"
+            >
+              📖 {showUserGuide ? 'Hide User Guide' : 'Show User Guide'}
+            </button>
+          </div>
+        </div>
+
+        {/* User Guide */}
+        {showUserGuide && (
+          <div className="user-guide">
+            <div className="guide-overview">
+              <h3>🎯 What This Tool Does</h3>
+              <p>This tool imports historical events from your Outlook calendars into the local database for faster access and the ability to add internal enrichments (notes, categories, etc.).</p>
+              <div className="important-note">
+                <strong>⚠️ Important:</strong> This is a <strong>ONE-TIME import tool</strong>, not a sync tool. Your regular calendar sync will continue to handle ongoing changes.
+              </div>
+            </div>
+
+            <div className="guide-steps">
+              <h3>📋 Step-by-Step Guide</h3>
+              
+              <div className="guide-step">
+                <div className="step-number">1️⃣</div>
+                <div className="step-content">
+                  <h4>Set Date Range</h4>
+                  <ul>
+                    <li>Choose start and end dates for the events you want to import</li>
+                    <li><strong>Recommendation:</strong> Start with a smaller range (1-4 weeks) for your first migration</li>
+                    <li><strong>Example:</strong> Import last month's events first, then expand to historical data</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="guide-step">
+                <div className="step-number">2️⃣</div>
+                <div className="step-content">
+                  <h4>Select Calendars</h4>
+                  <ul>
+                    <li>Choose which calendars to import from:</li>
+                    <li>✓ <strong>Primary Calendar</strong> - Your personal calendar</li>
+                    <li>✓ <strong>Shared Mailboxes</strong> - Team calendars you have access to</li>
+                    <li>✓ <strong>Room Calendars</strong> - Meeting room bookings</li>
+                    <li><strong>Tip:</strong> Start with just your primary calendar for the first test</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="guide-step">
+                <div className="step-number">3️⃣</div>
+                <div className="step-content">
+                  <h4>Configure Options</h4>
+                  <ul>
+                    <li>✓ <strong>Skip Duplicates</strong> (Recommended) - Avoids importing events already in database</li>
+                    <li>✓ <strong>Preserve Enrichments</strong> - Keeps any internal notes you've already added</li>
+                    <li>⚠️ <strong>Force Overwrite</strong> - Only use if you want to replace existing data</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="guide-step">
+                <div className="step-number">4️⃣</div>
+                <div className="step-content">
+                  <h4>Preview Before Importing</h4>
+                  <ul>
+                    <li>Always click <strong>"Preview"</strong> first to see what will be imported</li>
+                    <li>Review the statistics: events found, already imported, new to import</li>
+                    <li>Check for any calendar errors before proceeding</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="guide-step">
+                <div className="step-number">5️⃣</div>
+                <div className="step-content">
+                  <h4>Start Migration</h4>
+                  <ul>
+                    <li>Monitor progress in real-time</li>
+                    <li>You can cancel safely at any time</li>
+                    <li>Migration runs in the background - you can use other parts of the app</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="guide-step">
+                <div className="step-number">6️⃣</div>
+                <div className="step-content">
+                  <h4>Review Results</h4>
+                  <ul>
+                    <li>Check final statistics for created/updated/skipped events</li>
+                    <li>Review any errors and their details</li>
+                    <li>Errors don't stop the migration - other events continue processing</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="guide-section">
+              <h3>💡 Best Practices</h3>
+              <div className="best-practices">
+                <div className="practice-item">
+                  <h4>🎯 Start Small</h4>
+                  <p>Test with 1-2 weeks first before importing large date ranges. Verify everything works as expected with your data.</p>
+                </div>
+                
+                <div className="practice-item">
+                  <h4>📅 Date Range Strategy</h4>
+                  <p>Import recent events first (last 1-3 months), then expand to historical data as needed. Very old events may have different data structures.</p>
+                </div>
+                
+                <div className="practice-item">
+                  <h4>🗂️ Calendar Selection</h4>
+                  <p>Import your primary calendar first. Add shared calendars one at a time to identify any issues. Room calendars often have many events - expect longer processing times.</p>
+                </div>
+                
+                <div className="practice-item">
+                  <h4>⏱️ Timing Considerations</h4>
+                  <p>Large imports (&gt;1000 events) can take 10-30 minutes. Run during off-hours if importing large amounts of data. Migration continues running even if you close the browser.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="guide-section">
+              <h3>❓ Frequently Asked Questions</h3>
+              <div className="faq-section">
+                <div className="faq-item">
+                  <h4>Will this create duplicate events?</h4>
+                  <p>No, if "Skip Duplicates" is enabled (recommended), existing events are skipped.</p>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>What happens to my internal notes and categories?</h4>
+                  <p>They're preserved if "Preserve Enrichments" is enabled (recommended).</p>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>Can I stop the migration if something goes wrong?</h4>
+                  <p>Yes, click "Cancel Migration" to safely stop at any time.</p>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>How long does migration take?</h4>
+                  <p>Depends on the number of events:</p>
+                  <ul>
+                    <li>100 events: ~2-3 minutes</li>
+                    <li>1,000 events: ~10-15 minutes</li>
+                    <li>5,000+ events: ~30-60 minutes</li>
+                  </ul>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>What if some events fail to import?</h4>
+                  <p>The migration continues with other events. Failed events are listed in the error report.</p>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>Do I need to run this regularly?</h4>
+                  <p>No, this is a one-time import. Your regular calendar sync handles ongoing changes.</p>
+                </div>
+                
+                <div className="faq-item">
+                  <h4>Can I import the same date range multiple times?</h4>
+                  <p>Yes, but with "Skip Duplicates" enabled, it will only import new/changed events.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Migration Configuration */}
+        <div className="migration-config">
+          <h3>Migration Configuration</h3>
+          
+          <div className="config-row">
+            <div className="form-group">
+              <label htmlFor="startDate">Start Date <span className="required">*</span></label>
+              <input
+                type="date"
+                id="startDate"
+                value={migrationConfig.startDate}
+                onChange={(e) => setMigrationConfig(prev => ({ ...prev, startDate: e.target.value }))}
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="endDate">End Date <span className="required">*</span></label>
+              <input
+                type="date"
+                id="endDate"
+                value={migrationConfig.endDate}
+                onChange={(e) => setMigrationConfig(prev => ({ ...prev, endDate: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Select Calendars to Import</label>
+            
+            <div className="calendar-selection">
+              {availableCalendars.length === 0 ? (
+                <div className="no-calendars-message">
+                  <p>Loading available calendars...</p>
+                  <p className="calendar-hint">If calendars don't appear, ensure you're signed in and have the necessary permissions.</p>
+                </div>
+              ) : (
+                availableCalendars.map(calendar => {
+                  const isSelected = migrationConfig.calendarIds.includes(calendar.id);
+                  return (
+                    <div 
+                      key={calendar.id} 
+                      className={`calendar-checkbox ${isSelected ? 'selected' : ''}`}
+                      onClick={() => {
+                        setMigrationConfig(prev => ({
+                          ...prev,
+                          calendarIds: isSelected
+                            ? prev.calendarIds.filter(id => id !== calendar.id)
+                            : [...prev.calendarIds, calendar.id]
+                        }));
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        readOnly
+                      />
+                      <div className="calendar-info">
+                        <span className="calendar-name">{calendar.name || 'Unnamed Calendar'}</span>
+                        {calendar.isDefaultCalendar ? (
+                          <span className="calendar-badge primary">Primary</span>
+                        ) : calendar.owner?.address && calendar.owner.address !== currentUser?.username ? (
+                          <span className="calendar-badge shared">Shared</span>
+                        ) : null}
+                        {calendar.owner?.address && calendar.owner.address !== currentUser?.username && (
+                          <span className="calendar-owner">👤 {calendar.owner.name || calendar.owner.address}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {availableCalendars.length > 0 && migrationConfig.calendarIds.length === 0 && (
+              <div className="validation-hint">⚠️ Select at least one calendar to import from</div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>
+              Migration Options 
+              <span className="tooltip" title="Configure how the migration handles existing events and data">ℹ️</span>
+            </label>
+            <div className="options-group">
+              <div 
+                className={`option-checkbox ${migrationConfig.options.skipDuplicates ? 'selected' : ''}`}
+                onClick={() => setMigrationConfig(prev => ({
+                  ...prev,
+                  options: { ...prev.options, skipDuplicates: !prev.options.skipDuplicates }
+                }))}
+              >
+                <input
+                  type="checkbox"
+                  checked={migrationConfig.options.skipDuplicates}
+                  readOnly
+                />
+                <div className="option-text">Skip duplicate events (recommended)</div>
+                <div className="option-help">Prevents importing events that already exist in the database</div>
+              </div>
+              
+              <div 
+                className={`option-checkbox ${migrationConfig.options.preserveEnrichments ? 'selected' : ''}`}
+                onClick={() => setMigrationConfig(prev => ({
+                  ...prev,
+                  options: { ...prev.options, preserveEnrichments: !prev.options.preserveEnrichments }
+                }))}
+              >
+                <input
+                  type="checkbox"
+                  checked={migrationConfig.options.preserveEnrichments}
+                  readOnly
+                />
+                <div className="option-text">Preserve existing enrichments</div>
+                <div className="option-help">Keeps internal notes, categories, and custom data you've already added</div>
+              </div>
+              
+              <div 
+                className={`option-checkbox ${migrationConfig.options.forceOverwrite ? 'selected' : ''}`}
+                onClick={() => setMigrationConfig(prev => ({
+                  ...prev,
+                  options: { ...prev.options, forceOverwrite: !prev.options.forceOverwrite }
+                }))}
+              >
+                <input
+                  type="checkbox"
+                  checked={migrationConfig.options.forceOverwrite}
+                  readOnly
+                />
+                <div className="option-text">Force overwrite existing events</div>
+                <div className="option-help warning">⚠️ This will replace existing event data - use with caution</div>
+              </div>
+              
+              <div 
+                className={`option-checkbox ${migrationConfig.options.skipLimitedAccessCalendars ? 'selected' : ''}`}
+                onClick={() => setMigrationConfig(prev => ({
+                  ...prev,
+                  options: { ...prev.options, skipLimitedAccessCalendars: !prev.options.skipLimitedAccessCalendars }
+                }))}
+              >
+                <input
+                  type="checkbox"
+                  checked={migrationConfig.options.skipLimitedAccessCalendars}
+                  readOnly
+                />
+                <div className="option-text">Skip calendars with limited access (recommended)</div>
+                <div className="option-help">Excludes calendars where you may not see full event details (subjects, organizers, etc.)</div>
+              </div>
+              
+              <div 
+                className={`option-checkbox ${migrationConfig.options.skipEventsWithoutSubjects ? 'selected' : ''}`}
+                onClick={() => setMigrationConfig(prev => ({
+                  ...prev,
+                  options: { ...prev.options, skipEventsWithoutSubjects: !prev.options.skipEventsWithoutSubjects }
+                }))}
+              >
+                <input
+                  type="checkbox"
+                  checked={migrationConfig.options.skipEventsWithoutSubjects}
+                  readOnly
+                />
+                <div className="option-text">Skip events without subjects</div>
+                <div className="option-help">Excludes events that have no title/subject (often blocked time or placeholder events)</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="migration-actions">
+            <button
+              onClick={previewMigration}
+              className="action-btn primary"
+              disabled={loading || migrationSession?.status === 'running'}
+            >
+              🔍 Preview Migration
+            </button>
+
+            {migrationPreview && (
+              <button
+                onClick={startMigration}
+                className="action-btn success"
+                disabled={loading || migrationSession?.status === 'running'}
+              >
+                ▶️ Start Migration
+              </button>
+            )}
+
+            {migrationSession?.status === 'running' && (
+              <button
+                onClick={cancelMigration}
+                className="action-btn danger"
+                disabled={loading}
+              >
+                ❌ Cancel Migration
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Migration Preview */}
+        {migrationPreview && (
+          <div className="migration-preview">
+            <h3>Migration Preview</h3>
+            <div className="preview-stats">
+              <div className="stat-card">
+                <div className="stat-number">{migrationPreview.statistics.totalInOutlook}</div>
+                <div className="stat-label">Events in Outlook</div>
+              </div>
+              <div 
+                className="stat-card clickable"
+                onClick={() => fetchEventDetails('imported')}
+                title="Click to view event list"
+              >
+                <div className="stat-number">{migrationPreview.statistics.alreadyImported}</div>
+                <div className="stat-label">Already Imported</div>
+              </div>
+              <div 
+                className="stat-card clickable"
+                onClick={() => fetchEventDetails('new')}
+                title="Click to view event list"
+              >
+                <div className="stat-number">{migrationPreview.statistics.estimatedNewEvents}</div>
+                <div className="stat-label">New Events to Import</div>
+              </div>
+            </div>
+
+            <div className="calendar-breakdown">
+              <div className="breakdown-container">
+                <div className="calendar-section">
+                  <h4>Calendar Breakdown</h4>
+                  {migrationPreview.calendars.map(calendar => {
+                const getAccessLevelDisplay = (permissions) => {
+                  if (!permissions) return { text: 'Unknown', icon: '❓', className: 'access-unknown' };
+                  
+                  switch (permissions.accessLevel) {
+                    case 'owner':
+                    case 'full':
+                      return { text: 'Full Access', icon: '✅', className: 'access-full' };
+                    case 'limited':
+                      return { text: 'Limited Access', icon: '⚠️', className: 'access-limited' };
+                    case 'freeBusy':
+                      return { text: 'Free/Busy Only', icon: '🔒', className: 'access-restricted' };
+                    default:
+                      return { text: 'Unknown', icon: '❓', className: 'access-unknown' };
+                  }
+                };
+                
+                const access = getAccessLevelDisplay(calendar.permissions);
+                
+                return (
+                  <div key={calendar.id} className={`calendar-item ${access.className}`}>
+                    <div className="calendar-header-breakdown">
+                      <div className="calendar-title-section">
+                        <span className="calendar-name">{calendar.name}</span>
+                        <div className="calendar-type-badges">
+                          {calendar.id === 'primary' || (calendar.owner && calendar.owner.address === currentUser?.username) ? (
+                            <span className="calendar-type-badge primary">Primary</span>
+                          ) : (
+                            <span className="calendar-type-badge shared">Shared</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="calendar-count">{calendar.eventCount} events</span>
+                    </div>
+                    
+                    <div className="calendar-details">
+                      <div className="calendar-permissions">
+                        <span className={`access-level ${access.className}`}>
+                          {access.icon} {access.text}
+                        </span>
+                        
+                        {calendar.owner && calendar.owner.address && (
+                          <span className="calendar-owner">👤 {calendar.owner.address}</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {calendar.hasLimitedAccess && (
+                      <div className="calendar-warning">
+                        ⚠️ This calendar may have incomplete event data (missing subjects, organizers, etc.)
+                      </div>
+                    )}
+                    
+                    {calendar.error && (
+                      <div className="calendar-error">❌ Error: {calendar.error}</div>
+                    )}
+                  </div>
+                );
+              })}
+                </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Migration Progress */}
+        {migrationProgress && (
+          <div className="migration-progress">
+            <h3>Migration Progress</h3>
+            <div className="progress-header">
+              <span>Status: {migrationProgress.status}</span>
+              <span>Progress: {migrationProgress.progress.processed} processed</span>
+            </div>
+            
+            <div className="progress-stats">
+              <div className="stat">Created: {migrationProgress.progress.created}</div>
+              <div className="stat">Updated: {migrationProgress.progress.updated}</div>
+              <div className="stat">Skipped: {migrationProgress.progress.skipped}</div>
+              <div className="stat">Errors: {migrationProgress.progress.errors.length}</div>
+            </div>
+
+            {migrationProgress.currentCalendar && (
+              <div className="current-activity">
+                <div>Calendar: {migrationProgress.currentCalendar}</div>
+                <div>Event: {migrationProgress.currentEvent}</div>
+              </div>
+            )}
+
+            {migrationProgress.progress.errors.length > 0 && (
+              <div className="migration-errors">
+                <h4>Errors</h4>
+                {migrationProgress.progress.errors.slice(0, 10).map((error, index) => (
+                  <div key={index} className="error-item">
+                    <strong>{error.subject}</strong>: {error.error}
+                  </div>
+                ))}
+                {migrationProgress.progress.errors.length > 10 && (
+                  <div className="error-item">... and {migrationProgress.progress.errors.length - 10} more errors</div>
+                )}
+              </div>
+            )}
+
+            {migrationProgress.status === 'completed' && (
+              <div className="migration-complete">
+                <h4>✅ Migration Complete!</h4>
+                <p>Successfully processed {migrationProgress.progress.processed} events</p>
+                <button
+                  onClick={() => {
+                    setMigrationSession(null);
+                    setMigrationProgress(null);
+                    setMigrationPreview(null);
+                  }}
+                  className="action-btn primary"
+                >
+                  Start New Migration
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    );
+  };
+
   if (!apiToken) {
     return (
       <div className="unified-events-admin">
@@ -635,6 +1509,12 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         >
           📁 CSV Import
         </button>
+        <button
+          className={`tab ${activeTab === 'migration' ? 'active' : ''}`}
+          onClick={() => setActiveTab('migration')}
+        >
+          🚚 Migration
+        </button>
       </div>
 
       {/* Tab Content */}
@@ -643,7 +1523,17 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'events' && renderEvents()}
         {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} availableCalendars={availableCalendars} />}
+        {activeTab === 'migration' && renderMigration()}
       </div>
+
+      {/* Event Details Modal */}
+      <EventDetailsModal
+        isOpen={eventDetailsModal.isOpen}
+        onClose={closeEventDetailsModal}
+        events={eventDetailsModal.events}
+        title={eventDetailsModal.title}
+        migrationConfig={migrationConfig}
+      />
     </div>
   );
 }

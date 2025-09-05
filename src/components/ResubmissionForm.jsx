@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
-import { useRooms } from '../context/RoomContext';
+import { useRooms } from '../context/LocationContext';
+import RoomTimeline from './RoomTimeline';
 import './ResubmissionForm.css';
 
 export default function ResubmissionForm({ apiToken }) {
@@ -21,12 +22,14 @@ export default function ResubmissionForm({ apiToken }) {
     endTime: originalReservation?.endDateTime ? new Date(originalReservation.endDateTime).toISOString().split('T')[1].substring(0, 5) : '',
     attendeeCount: originalReservation?.attendeeCount?.toString() || '',
     requestedRooms: originalReservation?.requestedRooms || [],
-    requiredFeatures: originalReservation?.requiredFeatures || [],
     specialRequirements: originalReservation?.specialRequirements || '',
     priority: originalReservation?.priority || 'medium',
     department: originalReservation?.department || '',
     phone: originalReservation?.phone || '',
     contactEmail: originalReservation?.contactEmail || '',
+    // Setup/teardown times
+    setupTimeMinutes: originalReservation?.setupTimeMinutes || 0,
+    teardownTimeMinutes: originalReservation?.teardownTimeMinutes || 0,
     userMessage: ''
   });
   
@@ -36,22 +39,11 @@ export default function ResubmissionForm({ apiToken }) {
   const [success, setSuccess] = useState(false);
   const [availability, setAvailability] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [expandedTimelines, setExpandedTimelines] = useState(new Set());
   
   // Use room context for efficient room management
   const { rooms, loading: roomsLoading, getRoomName } = useRooms();
   
-  // Feature options
-  const featureOptions = [
-    { value: 'kitchen', label: '🍽️ Kitchen' },
-    { value: 'av-equipment', label: '📽️ A/V Equipment' },
-    { value: 'projector', label: '🎬 Projector' },
-    { value: 'whiteboard', label: '📝 Whiteboard' },
-    { value: 'piano', label: '🎹 Piano' },
-    { value: 'stage', label: '🎭 Stage' },
-    { value: 'microphone', label: '🎤 Microphone' },
-    { value: 'wheelchair-accessible', label: '♿ Wheelchair Accessible' },
-    { value: 'hearing-loop', label: '🔊 Hearing Loop' }
-  ];
 
   // Redirect if no reservation data
   useEffect(() => {
@@ -60,12 +52,12 @@ export default function ResubmissionForm({ apiToken }) {
     }
   }, [reservationId, originalReservation, navigate]);
 
-  // Check room availability when dates change
+  // Check room availability when dates or buffer times change
   useEffect(() => {
     if (formData.startDate && formData.startTime && formData.endDate && formData.endTime) {
       checkAvailability();
     }
-  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime]);
+  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.setupTimeMinutes, formData.teardownTimeMinutes]);
   
   const checkAvailability = async () => {
     try {
@@ -74,7 +66,15 @@ export default function ResubmissionForm({ apiToken }) {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
       
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?startDateTime=${startDateTime}&endDateTime=${endDateTime}`);
+      // Include setup/teardown times in availability check
+      const params = new URLSearchParams({
+        startDateTime,
+        endDateTime,
+        setupTimeMinutes: formData.setupTimeMinutes || 0,
+        teardownTimeMinutes: formData.teardownTimeMinutes || 0
+      });
+      
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
       if (!response.ok) throw new Error('Failed to check availability');
       
       const data = await response.json();
@@ -103,14 +103,52 @@ export default function ResubmissionForm({ apiToken }) {
     }));
   };
   
-  const handleFeatureSelection = (feature) => {
-    setFormData(prev => ({
-      ...prev,
-      requiredFeatures: prev.requiredFeatures.includes(feature)
-        ? prev.requiredFeatures.filter(f => f !== feature)
-        : [...prev.requiredFeatures, feature]
-    }));
+  const toggleTimeline = async (roomId) => {
+    setExpandedTimelines(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(roomId)) {
+        newSet.delete(roomId);
+      } else {
+        newSet.add(roomId);
+        // If no dates selected, fetch today's schedule for this room
+        if (!formData.startDate || !formData.startTime || !formData.endDate || !formData.endTime) {
+          fetchRoomSchedule(roomId);
+        }
+      }
+      return newSet;
+    });
   };
+  
+  const fetchRoomSchedule = async (roomId) => {
+    try {
+      // Fetch today's schedule for the specific room
+      const today = new Date();
+      const startOfDay = new Date(today);
+      startOfDay.setHours(8, 0, 0, 0);
+      const endOfDay = new Date(today);
+      endOfDay.setHours(22, 0, 0, 0);
+      
+      const params = new URLSearchParams({
+        startDateTime: startOfDay.toISOString(),
+        endDateTime: endOfDay.toISOString(),
+        roomIds: roomId
+      });
+      
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch room schedule');
+      
+      const data = await response.json();
+      
+      // Update availability state with room-specific data
+      setAvailability(prevAvailability => {
+        const otherRooms = prevAvailability.filter(item => item.room._id !== roomId);
+        return [...otherRooms, ...data];
+      });
+    } catch (err) {
+      logger.error('Error fetching room schedule:', err);
+    }
+  };
+  
   
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -134,7 +172,6 @@ export default function ResubmissionForm({ apiToken }) {
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
         requestedRooms: formData.requestedRooms,
-        requiredFeatures: formData.requiredFeatures,
         specialRequirements: formData.specialRequirements,
         department: formData.department,
         phone: formData.phone,
@@ -175,33 +212,15 @@ export default function ResubmissionForm({ apiToken }) {
     }
   };
 
-  // Check if a room meets the criteria
-  const checkRoomCriteria = (room) => {
-    const issues = [];
-    let meetsCriteria = true;
-    
-    // Check capacity
+  // Check if a room meets capacity criteria
+  const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
-      meetsCriteria = false;
-      issues.push(`Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`);
+      return {
+        meetsCapacity: false,
+        issue: `Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`
+      };
     }
-    
-    // Check required features
-    if (formData.requiredFeatures.length > 0) {
-      const missingFeatures = formData.requiredFeatures.filter(feature => 
-        !room.features?.includes(feature)
-      );
-      
-      if (missingFeatures.length > 0) {
-        meetsCriteria = false;
-        const featureLabels = missingFeatures.map(f => 
-          featureOptions.find(opt => opt.value === f)?.label || f
-        );
-        issues.push(`Missing features: ${featureLabels.join(', ')}`);
-      }
-    }
-    
-    return { meetsCriteria, issues };
+    return { meetsCapacity: true, issue: null };
   };
 
   // Get rejection reason from communication history
@@ -365,6 +384,36 @@ export default function ResubmissionForm({ apiToken }) {
             </div>
             
             <div className="form-group">
+              <label htmlFor="setupTimeMinutes">Setup Time (minutes)</label>
+              <input
+                type="number"
+                id="setupTimeMinutes"
+                name="setupTimeMinutes"
+                value={formData.setupTimeMinutes}
+                onChange={handleInputChange}
+                min="0"
+                max="480"
+                placeholder="0"
+              />
+              <div className="help-text">Additional time before event for setup</div>
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="teardownTimeMinutes">Teardown Time (minutes)</label>
+              <input
+                type="number"
+                id="teardownTimeMinutes"
+                name="teardownTimeMinutes"
+                value={formData.teardownTimeMinutes}
+                onChange={handleInputChange}
+                min="0"
+                max="480"
+                placeholder="0"
+              />
+              <div className="help-text">Additional time after event for cleanup</div>
+            </div>
+            
+            <div className="form-group">
               <label htmlFor="priority">Priority</label>
               <select
                 id="priority"
@@ -428,30 +477,12 @@ export default function ResubmissionForm({ apiToken }) {
           </div>
         </section>
         
-        {/* Required Features */}
-        <section className="form-section">
-          <h2>Required Features</h2>
-          <div className="feature-grid">
-            {featureOptions.map(feature => (
-              <label key={feature.value} className="feature-checkbox">
-                <input
-                  type="checkbox"
-                  checked={formData.requiredFeatures.includes(feature.value)}
-                  onChange={() => handleFeatureSelection(feature.value)}
-                />
-                <span>{feature.label}</span>
-              </label>
-            ))}
-          </div>
-        </section>
-        
         {/* Room Selection */}
         <section className="form-section">
           <h2>Select Room(s) *</h2>
           {formData.attendeeCount && (
             <p className="help-text">
               Showing rooms with capacity for {formData.attendeeCount} or more attendees
-              {formData.requiredFeatures.length > 0 && ' and selected features'}
             </p>
           )}
           
@@ -463,13 +494,13 @@ export default function ResubmissionForm({ apiToken }) {
             {rooms.map(room => {
               const roomAvailability = availability.find(a => a.room._id === room._id);
               const isAvailable = !roomAvailability || roomAvailability.available;
-              const { meetsCriteria, issues } = checkRoomCriteria(room);
+              const { meetsCapacity, issue } = checkRoomCapacity(room);
               
               return (
                 <div
                   key={room._id}
-                  className={`room-card ${formData.requestedRooms.includes(room._id) ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''} ${!meetsCriteria ? 'room-insufficient' : ''}`}
-                  onClick={() => isAvailable && meetsCriteria && handleRoomSelection(room._id)}
+                  className={`room-card ${formData.requestedRooms.includes(room._id) ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''} ${!meetsCapacity ? 'room-insufficient' : ''}`}
+                  onClick={() => isAvailable && handleRoomSelection(room._id)}
                 >
                   <h3>{room.name}</h3>
                   <p className="room-location">{room.building} - {room.floor}</p>
@@ -499,15 +530,59 @@ export default function ResubmissionForm({ apiToken }) {
                       {roomAvailability.conflicts.reservations.length > 0 && (
                         <span> - {roomAvailability.conflicts.reservations.length} pending reservation(s)</span>
                       )}
+                      
+                      {/* Smart time suggestions */}
+                      {roomAvailability.suggestions && roomAvailability.suggestions.length > 0 && (
+                        <div className="time-suggestions">
+                          <div className="suggestions-header">💡 Available times:</div>
+                          {roomAvailability.suggestions.slice(0, 2).map((suggestion, index) => (
+                            <div key={index} className="suggestion-item">
+                              <span className="suggestion-time">
+                                {new Date(suggestion.startTime).toLocaleTimeString('en-US', { 
+                                  hour: 'numeric', 
+                                  minute: '2-digit', 
+                                  hour12: true 
+                                })} - {new Date(suggestion.endTime).toLocaleTimeString('en-US', { 
+                                  hour: 'numeric', 
+                                  minute: '2-digit', 
+                                  hour12: true 
+                                })}
+                              </span>
+                              <span className="suggestion-label">({suggestion.recommendation})</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   
-                  {!meetsCriteria && issues.length > 0 && (
+                  {!meetsCapacity && issue && (
                     <div className="criteria-warning">
-                      {issues.map((issue, index) => (
-                        <div key={index} className="criteria-issue">❌ {issue}</div>
-                      ))}
+                      <div className="criteria-issue">❌ {issue}</div>
                     </div>
+                  )}
+                  
+                  {/* Timeline toggle button - always available */}
+                  <div className="timeline-controls">
+                    <button
+                      type="button"
+                      className="timeline-toggle-btn"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent room selection
+                        toggleTimeline(room._id);
+                      }}
+                    >
+                      📅 {expandedTimelines.has(room._id) ? 'Hide' : 'View'} Schedule
+                    </button>
+                  </div>
+                  
+                  {/* Timeline component */}
+                  {expandedTimelines.has(room._id) && (
+                    <RoomTimeline
+                      room={room}
+                      conflicts={roomAvailability?.conflicts || { reservations: [], events: [] }}
+                      requestedWindow={roomAvailability?.requestedWindow}
+                    />
                   )}
                 </div>
               );

@@ -4,7 +4,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
-import { useRooms } from '../context/RoomContext';
+import { useRooms } from '../context/LocationContext';
+import RoomTimeline from './RoomTimeline';
+import SchedulingAssistant from './SchedulingAssistant';
+import LocationMultiSelect from './LocationMultiSelect';
 import './RoomReservationForm.css';
 
 export default function RoomReservationForm({ apiToken, isPublic }) {
@@ -24,11 +27,22 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     startTime: '',
     endDate: '',
     endTime: '',
+    // Access & Operations Times (optional)
+    doorOpenTime: '',
+    doorCloseTime: '',
+    setupTime: '',
+    teardownTime: '',
+    // Internal Notes (staff use only)
+    setupNotes: '',
+    doorNotes: '',
+    eventNotes: '',
     attendeeCount: '',
     requestedRooms: [],
-    requiredFeatures: [],
     specialRequirements: '',
     priority: 'medium',
+    // Legacy setup/teardown times in minutes (for backward compatibility)
+    setupTimeMinutes: 0,
+    teardownTimeMinutes: 0,
     // Contact field for reservation updates
     contactEmail: ''
   });
@@ -40,22 +54,11 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   const [availability, setAvailability] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [assistantRooms, setAssistantRooms] = useState([]);
   
   // Use room context for efficient room management
   const { rooms, loading: roomsLoading, getRoomName } = useRooms();
   
-  // Feature options
-  const featureOptions = [
-    { value: 'kitchen', label: '🍽️ Kitchen' },
-    { value: 'av-equipment', label: '📽️ A/V Equipment' },
-    { value: 'projector', label: '🎬 Projector' },
-    { value: 'whiteboard', label: '📝 Whiteboard' },
-    { value: 'piano', label: '🎹 Piano' },
-    { value: 'stage', label: '🎭 Stage' },
-    { value: 'microphone', label: '🎤 Microphone' },
-    { value: 'wheelchair-accessible', label: '♿ Wheelchair Accessible' },
-    { value: 'hearing-loop', label: '🔊 Hearing Loop' }
-  ];
   
   // Auto-fill user email if authenticated and not in public mode (only once)
   useEffect(() => {
@@ -73,12 +76,12 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }
   }, [isPublic, accounts, hasAutoFilled]);
   
-  // Check room availability when dates change
+  // Check room availability when dates or buffer times change
   useEffect(() => {
     if (formData.startDate && formData.startTime && formData.endDate && formData.endTime) {
       checkAvailability();
     }
-  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime]);
+  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.setupTimeMinutes, formData.teardownTimeMinutes, formData.setupTime, formData.teardownTime]);
   
   const checkAvailability = async () => {
     try {
@@ -87,7 +90,27 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
       
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?startDateTime=${startDateTime}&endDateTime=${endDateTime}`);
+      // Calculate setup/teardown minutes for availability check
+      let setupTimeMinutes = formData.setupTimeMinutes || 0;
+      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      
+      // If new time-based setup/teardown is provided, calculate minutes
+      if (formData.setupTime) {
+        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      }
+      if (formData.teardownTime) {
+        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      }
+      
+      // Include setup/teardown times in availability check
+      const params = new URLSearchParams({
+        startDateTime,
+        endDateTime,
+        setupTimeMinutes,
+        teardownTimeMinutes
+      });
+      
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
       if (!response.ok) throw new Error('Failed to check availability');
       
       const data = await response.json();
@@ -98,6 +121,50 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       setCheckingAvailability(false);
     }
   };
+
+  // Check availability for the entire day for scheduling assistant
+  const checkDayAvailability = async (roomIds, date) => {
+    if (!roomIds.length || !date) return;
+    
+    try {
+      // Set time range for the entire day (24 hours)
+      const startDateTime = `${date}T00:00:00`;
+      const endDateTime = `${date}T23:59:59`;
+      
+      const params = new URLSearchParams({
+        startDateTime,
+        endDateTime,
+        roomIds: roomIds.join(','),
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0
+      });
+      
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+      if (!response.ok) throw new Error('Failed to check day availability');
+      
+      const data = await response.json();
+      setAvailability(data);
+    } catch (err) {
+      logger.error('Error checking day availability:', err);
+    }
+  };
+
+  // Check availability when assistant rooms change
+  useEffect(() => {
+    if (assistantRooms.length > 0) {
+      const roomIds = assistantRooms.map(room => room._id);
+      // Use selected date or today's date as default (in local timezone)
+      const getTodayDate = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      const dateToCheck = formData.startDate || getTodayDate();
+      checkDayAvailability(roomIds, dateToCheck);
+    }
+  }, [assistantRooms, formData.startDate]);
   
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -116,13 +183,42 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }));
   };
   
-  const handleFeatureSelection = (feature) => {
+  const toggleAssistantRoom = (room) => {
+    setAssistantRooms(prev => {
+      const isAlreadySelected = prev.find(r => r._id === room._id);
+      if (isAlreadySelected) {
+        // Remove room from assistant
+        return prev.filter(r => r._id !== room._id);
+      } else {
+        // Add room to assistant
+        return [...prev, room];
+      }
+    });
+  };
+
+  const handleTimeSlotClick = (hour) => {
+    // Future enhancement: allow clicking time slots to set event time
+    logger.debug('Time slot clicked:', hour);
+  };
+
+  const handleRoomSelectionChange = (newSelectedRooms) => {
     setFormData(prev => ({
       ...prev,
-      requiredFeatures: prev.requiredFeatures.includes(feature)
-        ? prev.requiredFeatures.filter(f => f !== feature)
-        : [...prev.requiredFeatures, feature]
+      requestedRooms: newSelectedRooms
     }));
+  };
+
+  
+  // Helper function to convert time difference to minutes
+  const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
+    if (!eventTime || !bufferTime) return 0;
+    
+    const eventDate = new Date(`1970-01-01T${eventTime}:00`);
+    const bufferDate = new Date(`1970-01-01T${bufferTime}:00`);
+    
+    // Calculate difference in minutes
+    const diffMs = Math.abs(eventDate.getTime() - bufferDate.getTime());
+    return Math.floor(diffMs / (1000 * 60));
   };
   
   const handleSubmit = async (e) => {
@@ -135,14 +231,29 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
       
+      // Calculate setup/teardown minutes from time fields (for backward compatibility)
+      let setupTimeMinutes = formData.setupTimeMinutes || 0;
+      let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+      
+      // If new time-based setup/teardown is provided, calculate minutes
+      if (formData.setupTime) {
+        setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+      }
+      if (formData.teardownTime) {
+        teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+      }
+      
       const payload = {
         ...formData,
         startDateTime,
         endDateTime,
-        attendeeCount: parseInt(formData.attendeeCount) || 0
+        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        // Include both new time fields and converted minutes for compatibility
+        setupTimeMinutes,
+        teardownTimeMinutes
       };
       
-      // Remove separate date/time fields
+      // Remove separate date/time fields from payload
       delete payload.startDate;
       delete payload.startTime;
       delete payload.endDate;
@@ -189,44 +300,34 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }
   };
   
-  // Check if a room meets the criteria
-  const checkRoomCriteria = (room) => {
-    const issues = [];
-    let meetsCriteria = true;
-    
-    // Check capacity
+  // Check if a room meets capacity criteria
+  const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
-      meetsCriteria = false;
-      issues.push(`Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`);
+      return {
+        meetsCapacity: false,
+        issue: `Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`
+      };
     }
-    
-    // Check required features
-    if (formData.requiredFeatures.length > 0) {
-      const missingFeatures = formData.requiredFeatures.filter(feature => 
-        !room.features?.includes(feature)
-      );
-      
-      if (missingFeatures.length > 0) {
-        meetsCriteria = false;
-        const featureLabels = missingFeatures.map(f => 
-          featureOptions.find(opt => opt.value === f)?.label || f
-        );
-        issues.push(`Missing features: ${featureLabels.join(', ')}`);
-      }
-    }
-    
-    return { meetsCriteria, issues };
+    return { meetsCapacity: true, issue: null };
   };
   
   // Get all rooms (no filtering)
   const allRooms = rooms;
+  
+  // Update assistant rooms when selected rooms change
+  useEffect(() => {
+    const selectedRoomObjects = allRooms.filter(room => 
+      formData.requestedRooms.includes(room._id)
+    );
+    setAssistantRooms(selectedRoomObjects);
+  }, [formData.requestedRooms, allRooms]);
   
   if (success) {
     return (
       <div className="room-reservation-form">
         <div className="success-message">
           <h2>✅ Reservation Request Submitted!</h2>
-          <p>Your room reservation request has been submitted successfully.</p>
+          <p>Your space booking request has been submitted successfully.</p>
           <p>You will receive a confirmation email once it has been reviewed.</p>
           <p>Redirecting...</p>
         </div>
@@ -236,7 +337,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   
   return (
     <div className="room-reservation-form">
-      <h1>Room Reservation Request</h1>
+      <h1>Space Booking Request</h1>
       
       {error && (
         <div className="error-message">
@@ -328,6 +429,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         {/* Event Details */}
         <section className="form-section">
           <h2>Event Details</h2>
+          
+          {/* Basic Event Information */}
           <div className="form-grid">
             <div className="form-group full-width">
               <label htmlFor="eventTitle">Event Title *</label>
@@ -349,55 +452,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 value={formData.eventDescription}
                 onChange={handleInputChange}
                 rows="3"
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="startDate">Start Date *</label>
-              <input
-                type="date"
-                id="startDate"
-                name="startDate"
-                value={formData.startDate}
-                onChange={handleInputChange}
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="startTime">Start Time *</label>
-              <input
-                type="time"
-                id="startTime"
-                name="startTime"
-                value={formData.startTime}
-                onChange={handleInputChange}
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="endDate">End Date *</label>
-              <input
-                type="date"
-                id="endDate"
-                name="endDate"
-                value={formData.endDate}
-                onChange={handleInputChange}
-                min={formData.startDate}
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="endTime">End Time *</label>
-              <input
-                type="time"
-                id="endTime"
-                name="endTime"
-                value={formData.endTime}
-                onChange={handleInputChange}
-                required
               />
             </div>
             
@@ -428,32 +482,181 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
               </select>
             </div>
           </div>
-        </section>
-        
-        {/* Required Features */}
-        <section className="form-section">
-          <h2>Required Features</h2>
-          <div className="feature-grid">
-            {featureOptions.map(feature => (
-              <label key={feature.value} className="feature-checkbox">
+
+          {/* Core Event Times */}
+          <div className="time-group-core">
+            <h3>🕒 Core Event Times</h3>
+            <div className="time-group-help">When your actual event starts and ends</div>
+            
+            <div className="time-field-row">
+              <div className="form-group">
+                <label htmlFor="startDate">Start Date *</label>
                 <input
-                  type="checkbox"
-                  checked={formData.requiredFeatures.includes(feature.value)}
-                  onChange={() => handleFeatureSelection(feature.value)}
+                  type="date"
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  required
                 />
-                <span>{feature.label}</span>
-              </label>
-            ))}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="startTime">Start Time *</label>
+                <input
+                  type="time"
+                  id="startTime"
+                  name="startTime"
+                  value={formData.startTime}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="time-field-row">
+              <div className="form-group">
+                <label htmlFor="endDate">End Date *</label>
+                <input
+                  type="date"
+                  id="endDate"
+                  name="endDate"
+                  value={formData.endDate}
+                  onChange={handleInputChange}
+                  min={formData.startDate}
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="endTime">End Time *</label>
+                <input
+                  type="time"
+                  id="endTime"
+                  name="endTime"
+                  value={formData.endTime}
+                  onChange={handleInputChange}
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Access & Operations Times */}
+          <div className="time-group-operations">
+            <h3>🚪 Access & Operations Times</h3>
+            <div className="time-group-help">Optional: When doors open/close and setup/cleanup times</div>
+            
+            <div className="time-field-row">
+              <div className="form-group">
+                <label htmlFor="doorOpenTime">Door Open Time</label>
+                <input
+                  type="time"
+                  id="doorOpenTime"
+                  name="doorOpenTime"
+                  value={formData.doorOpenTime}
+                  onChange={handleInputChange}
+                />
+                <div className="help-text">When attendees can start entering</div>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="doorCloseTime">Door Close Time</label>
+                <input
+                  type="time"
+                  id="doorCloseTime"
+                  name="doorCloseTime"
+                  value={formData.doorCloseTime}
+                  onChange={handleInputChange}
+                />
+                <div className="help-text">When doors will be locked</div>
+              </div>
+            </div>
+            
+            <div className="time-field-row">
+              <div className="form-group">
+                <label htmlFor="setupTime">Setup Time</label>
+                <input
+                  type="time"
+                  id="setupTime"
+                  name="setupTime"
+                  value={formData.setupTime}
+                  onChange={handleInputChange}
+                />
+                <div className="help-text">When setup can begin</div>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="teardownTime">Teardown Time</label>
+                <input
+                  type="time"
+                  id="teardownTime"
+                  name="teardownTime"
+                  value={formData.teardownTime}
+                  onChange={handleInputChange}
+                />
+                <div className="help-text">When cleanup must be completed</div>
+              </div>
+            </div>
+
+            {/* Internal Notes Section */}
+            <div className="internal-notes-section">
+              <h4>🔒 Internal Notes (Staff Use Only)</h4>
+              <div className="internal-notes-disclaimer">
+                These notes are for internal staff coordination and will not be visible to the requester.
+              </div>
+              
+              <div className="notes-field-row">
+                <div className="form-group">
+                  <label htmlFor="setupNotes">Setup Notes</label>
+                  <textarea
+                    id="setupNotes"
+                    name="setupNotes"
+                    value={formData.setupNotes}
+                    onChange={handleInputChange}
+                    rows="2"
+                    placeholder="Internal notes about setup requirements..."
+                  />
+                </div>
+              </div>
+              
+              <div className="notes-field-row">
+                <div className="form-group">
+                  <label htmlFor="doorNotes">Door/Access Notes</label>
+                  <textarea
+                    id="doorNotes"
+                    name="doorNotes"
+                    value={formData.doorNotes}
+                    onChange={handleInputChange}
+                    rows="2"
+                    placeholder="Internal notes about door access, keys, security..."
+                  />
+                </div>
+              </div>
+              
+              <div className="notes-field-row">
+                <div className="form-group">
+                  <label htmlFor="eventNotes">Event Notes</label>
+                  <textarea
+                    id="eventNotes"
+                    name="eventNotes"
+                    value={formData.eventNotes}
+                    onChange={handleInputChange}
+                    rows="2"
+                    placeholder="Internal notes about the event, special considerations..."
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </section>
         
         {/* Room Selection */}
         <section className="form-section">
-          <h2>Select Room(s) *</h2>
+          <h2>Select Location(s) *</h2>
           {formData.attendeeCount && (
             <p className="help-text">
-              Showing rooms with capacity for {formData.attendeeCount} or more attendees
-              {formData.requiredFeatures.length > 0 && ' and selected features'}
+              Choose "Reserve" to book locations and "View" to see their schedules. Search by name, building, or features.
             </p>
           )}
           
@@ -461,70 +664,68 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
             <div className="loading-message">Checking availability...</div>
           )}
           
-          <div className="room-grid">
-            {allRooms.map(room => {
-              const roomAvailability = availability.find(a => a.room._id === room._id);
-              const isAvailable = !roomAvailability || roomAvailability.available;
-              const { meetsCriteria, issues } = checkRoomCriteria(room);
-              
-              return (
-                <div
-                  key={room._id}
-                  className={`room-card ${formData.requestedRooms.includes(room._id) ? 'selected' : ''} ${!isAvailable ? 'unavailable' : ''} ${!meetsCriteria ? 'room-insufficient' : ''}`}
-                  onClick={() => isAvailable && meetsCriteria && handleRoomSelection(room._id)}
-                >
-                  <h3>{room.name}</h3>
-                  <p className="room-location">{room.building} - {room.floor}</p>
-                  <p className="room-capacity">Capacity: {room.capacity}</p>
-                  
-                  {room.features && room.features.length > 0 && (
-                    <div className="room-features">
-                      {room.features.slice(0, 3).map(feature => (
-                        <span key={feature} className="feature-tag">{feature}</span>
-                      ))}
-                      {room.features.length > 3 && (
-                        <span className="feature-tag">+{room.features.length - 3} more</span>
-                      )}
-                    </div>
-                  )}
-                  
-                  {room.description && (
-                    <p className="room-description">{room.description}</p>
-                  )}
-                  
-                  {!isAvailable && roomAvailability && (
-                    <div className="availability-warning">
-                      ⚠️ Conflicts detected
-                      {roomAvailability.conflicts.events.length > 0 && (
-                        <span> - {roomAvailability.conflicts.events.length} calendar event(s)</span>
-                      )}
-                      {roomAvailability.conflicts.reservations.length > 0 && (
-                        <span> - {roomAvailability.conflicts.reservations.length} pending reservation(s)</span>
-                      )}
-                    </div>
-                  )}
-                  
-                  {!meetsCriteria && issues.length > 0 && (
-                    <div className="criteria-warning">
-                      {issues.map((issue, index) => (
-                        <div key={index} className="criteria-issue">❌ {issue}</div>
-                      ))}
-                    </div>
-                  )}
+          <div className="room-selection-container">
+            {/* Left side: Location MultiSelect */}
+            <div className="room-cards-section">
+              {roomsLoading ? (
+                <div className="loading-message">Loading available locations...</div>
+              ) : allRooms.length === 0 ? (
+                <div className="no-rooms-message">
+                  No locations available. Please contact the office for assistance.
                 </div>
-              );
-            })}
-          </div>
-          
-          {roomsLoading && (
-            <div className="loading-message">Loading available rooms...</div>
-          )}
-          
-          {!roomsLoading && allRooms.length === 0 && (
-            <div className="no-rooms-message">
-              No rooms available. Please contact the office for assistance.
+              ) : (
+                <LocationMultiSelect
+                  rooms={allRooms}
+                  availability={availability}
+                  selectedRooms={formData.requestedRooms}
+                  onRoomSelectionChange={handleRoomSelectionChange}
+                  checkRoomCapacity={checkRoomCapacity}
+                  label="Choose locations for your event"
+                />
+              )}
+              
+              {/* Selected Rooms Summary */}
+              {formData.requestedRooms.length > 0 && (
+                <div className="selected-rooms-summary">
+                  <div className="summary-section">
+                    <h4>📍 Selected Locations:</h4>
+                    <div className="selected-pills">
+                      {formData.requestedRooms.map(roomId => {
+                        const room = allRooms.find(r => r._id === roomId);
+                        return room ? (
+                          <div key={roomId} className="room-pill reservation-pill">
+                            {room.name}
+                            <button
+                              type="button"
+                              onClick={() => handleRoomSelectionChange(
+                                formData.requestedRooms.filter(id => id !== roomId)
+                              )}
+                              className="pill-remove"
+                              title="Remove location"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Right side: Scheduling Assistant */}
+            <div className="scheduling-assistant-container">
+              <SchedulingAssistant
+                selectedRooms={assistantRooms}
+                selectedDate={formData.startDate}
+                eventStartTime={formData.startTime}
+                eventEndTime={formData.endTime}
+                availability={availability}
+                onTimeSlotClick={handleTimeSlotClick}
+              />
+            </div>
+          </div>
         </section>
         
         {/* Special Requirements */}
