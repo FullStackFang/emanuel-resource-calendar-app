@@ -3,7 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import MultiSelect from './MultiSelect';
 import SingleSelect from './SingleSelect';
 import EventPreviewModal from './EventPreviewModal';
+import EventAuditHistory from './EventAuditHistory';
 import { logger } from '../utils/logger';
+import APP_CONFIG from '../config/config';
 import './EventForm.css';
 
 // ===== ADD THESE FUNCTIONS AT THE TOP OF EventForm.jsx (outside the component) =====
@@ -91,17 +93,18 @@ const timeStringToMinutes = (timeString) => {
   return (hours * 60) + minutes;
 };
 
-function EventForm({ 
-  event, 
-  categories, 
-  availableLocations = [], 
-  schemaExtensions = [], 
-  onSave, 
+function EventForm({
+  event,
+  categories,
+  availableLocations = [],
+  schemaExtensions = [],
+  onSave,
   onCancel,
   onDelete,
   readOnly = false,
   userTimeZone = 'America/New_York', // Default fallback
-  savingEvent = false
+  savingEvent = false,
+  apiToken = null // For audit history
 }) {
   // Add this time zone mapping
   const timeZoneOptions = [
@@ -151,6 +154,10 @@ function EventForm({
   // Preview modal state
   const [showPreview, setShowPreview] = useState(false);
   const [pendingEventData, setPendingEventData] = useState(null);
+
+  // Tab state management
+  const [activeTab, setActiveTab] = useState('event');
+  const [auditHistoryCount, setAuditHistoryCount] = useState(0);
   const availableMecCategories = [
     'Community',
     'Membership',
@@ -367,6 +374,37 @@ function EventForm({
     }));
     
   }, [userTimeZone]); // This effect runs only when userTimeZone changes
+
+  // Fetch audit history count for existing events
+  useEffect(() => {
+    const fetchAuditHistoryCount = async () => {
+      if (!event?.id || !apiToken) {
+        setAuditHistoryCount(0);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${event.id}/audit-history`, {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setAuditHistoryCount(data.auditHistory?.length || 0);
+        } else {
+          setAuditHistoryCount(0);
+        }
+      } catch (error) {
+        logger.debug('Failed to fetch audit history count:', error);
+        setAuditHistoryCount(0);
+      }
+    };
+
+    fetchAuditHistoryCount();
+  }, [event?.id, apiToken]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -621,10 +659,25 @@ function EventForm({
         />
       </div>
 
-      {/* Event Types - simplified for Temple Events */}
+      {/* Event Types - Multi-tab interface */}
       <div className="event-type-tabs">
-        <div className="event-type-tab active">Event</div>
-        
+        <div
+          className={`event-type-tab ${activeTab === 'event' ? 'active' : ''}`}
+          onClick={() => setActiveTab('event')}
+        >
+          Event Details
+        </div>
+
+        {/* Show History tab only for existing events */}
+        {event && event.id && (
+          <div
+            className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >
+            History {auditHistoryCount > 0 && `(${auditHistoryCount})`}
+          </div>
+        )}
+
         {/* Timezone info - inline with tabs */}
         <div className="timezone-link-inline">
           {getTimeZoneLabel(userTimeZone)}
@@ -666,7 +719,10 @@ function EventForm({
         )}
       </div>
 
-      {/* Date, Time and All Day Row */}
+      {/* Conditional content based on active tab */}
+      {activeTab === 'event' && (
+        <>
+          {/* Date, Time and All Day Row */}
       <div className="google-datetime-row">
         <div className="form-icon">🕒</div>
         <div className="datetime-inputs">
@@ -985,7 +1041,16 @@ function EventForm({
           </button>
         )}
       </div>
-      
+        </>
+      )}
+
+      {/* History tab content */}
+      {activeTab === 'history' && event && event.id && apiToken && (
+        <div className="history-tab-content">
+          <EventAuditHistory eventId={event.id} apiToken={apiToken} />
+        </div>
+      )}
+
       {/* Event Preview Modal */}
       <EventPreviewModal
         isOpen={showPreview}

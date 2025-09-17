@@ -6,7 +6,7 @@ import { useRooms } from '../context/LocationContext';
 import CommunicationHistory from './CommunicationHistory';
 import './ReservationRequests.css';
 
-export default function ReservationRequests({ apiToken }) {
+export default function ReservationRequests({ apiToken, graphToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -15,8 +15,13 @@ export default function ReservationRequests({ apiToken }) {
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
   
+  // Calendar event creation settings
+  const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
+  const [createCalendarEvent, setCreateCalendarEvent] = useState(true);
+  
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
+  
   
   // Load all reservations once on mount
   useEffect(() => {
@@ -71,29 +76,81 @@ export default function ReservationRequests({ apiToken }) {
   
   const handleApprove = async (reservation) => {
     try {
+      console.log('🚀 Starting reservation approval process:', {
+        reservationId: reservation._id,
+        eventTitle: reservation.eventTitle,
+        calendarMode,
+        createCalendarEvent
+      });
+
+      const requestBody = { 
+        notes: actionNotes,
+        calendarMode: calendarMode,
+        createCalendarEvent: createCalendarEvent,
+        graphToken: graphToken
+      };
+
+      console.log('📤 Sending approval request:', requestBody);
+
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ notes: actionNotes })
+        body: JSON.stringify(requestBody)
       });
       
-      if (!response.ok) throw new Error('Failed to approve reservation');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Approval request failed:', response.status, errorText);
+        throw new Error(`Failed to approve reservation: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Approval response received:', result);
+
+      // Check for calendar event creation results (backend returns as 'calendarEvent')
+      const calendarEventResult = result.calendarEvent || result.calendarEventResult;
+      
+      if (createCalendarEvent && calendarEventResult) {
+        if (calendarEventResult.success) {
+          console.log('📅 Calendar event created successfully:', {
+            eventId: calendarEventResult.eventId,
+            calendar: calendarEventResult.targetCalendar
+          });
+          setError(`✅ Reservation approved and calendar event created in ${calendarEventResult.targetCalendar}`);
+        } else {
+          console.error('📅 Calendar event creation failed:', calendarEventResult.error);
+          setError(`⚠️ Reservation approved but calendar event creation failed: ${calendarEventResult.error}`);
+        }
+      } else if (createCalendarEvent) {
+        console.warn('📅 Calendar event creation was requested but no result received');
+        setError('⚠️ Reservation approved but calendar event creation status unknown');
+      } else {
+        console.log('✅ Reservation approved (calendar event creation disabled)');
+        setError('✅ Reservation approved successfully');
+      }
       
       // Update local state
       setAllReservations(prev => prev.map(r => 
         r._id === reservation._id 
-          ? { ...r, status: 'approved', actionDate: new Date() }
+          ? { ...r, status: 'approved', actionDate: new Date(), calendarEventId: calendarEventResult?.eventId }
           : r
       ));
       
       setSelectedReservation(null);
       setActionNotes('');
+      setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
+      setCreateCalendarEvent(true);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setError(''), 5000);
+      
     } catch (err) {
+      console.error('❌ Error in approval process:', err);
       logger.error('Error approving reservation:', err);
-      setError('Failed to approve reservation');
+      setError(`Failed to approve reservation: ${err.message}`);
     }
   };
   
@@ -127,6 +184,117 @@ export default function ReservationRequests({ apiToken }) {
     } catch (err) {
       logger.error('Error rejecting reservation:', err);
       setError('Failed to reject reservation');
+    }
+  };
+
+  const handleDelete = async (reservation) => {
+    // Confirm deletion
+    const confirmMessage = `Are you sure you want to permanently delete this reservation?\n\nEvent: ${reservation.eventTitle}\nRequester: ${reservation.requesterName}\n\nThis action cannot be undone.`;
+    
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+    
+    try {
+      console.log('🗑️ Starting reservation deletion:', {
+        reservationId: reservation._id,
+        eventTitle: reservation.eventTitle
+      });
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Delete request failed:', response.status, errorText);
+        throw new Error(`Failed to delete reservation: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Reservation deleted successfully:', result);
+      
+      // Remove from local state
+      setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
+      
+      setSelectedReservation(null);
+      setActionNotes('');
+      setError(`✅ Reservation "${result.eventTitle}" deleted successfully`);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setError(''), 3000);
+      
+    } catch (err) {
+      console.error('❌ Error deleting reservation:', err);
+      logger.error('Error deleting reservation:', err);
+      setError(`Failed to delete reservation: ${err.message}`);
+    }
+  };
+
+  const handleSync = async (reservation) => {
+    try {
+      console.log('🔄 Starting reservation calendar sync:', {
+        reservationId: reservation._id,
+        eventTitle: reservation.eventTitle,
+        calendarMode,
+        hasCalendarEventId: !!reservation.calendarEventId
+      });
+
+      const requestBody = { 
+        calendarMode: calendarMode,
+        graphToken: graphToken
+      };
+
+      console.log('📤 Sending sync request:', requestBody);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/sync`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Sync request failed:', response.status, errorText);
+        throw new Error(`Failed to sync calendar event: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Sync response received:', result);
+
+      // Check for calendar event sync results
+      const calendarEventResult = result.calendarEvent;
+      
+      if (calendarEventResult && calendarEventResult.success) {
+        console.log('📅 Calendar event synced successfully:', {
+          eventId: calendarEventResult.eventId,
+          calendar: calendarEventResult.targetCalendar
+        });
+        setError(`🔄 Calendar event synced successfully in ${calendarEventResult.targetCalendar}`);
+      } else {
+        console.error('📅 Calendar event sync failed:', calendarEventResult?.error);
+        setError(`⚠️ Calendar event sync failed: ${calendarEventResult?.error || 'Unknown error'}`);
+      }
+      
+      // Refresh reservations to show updated data
+      await loadAllReservations();
+      
+      setSelectedReservation(null);
+      setActionNotes('');
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setError(''), 5000);
+      
+    } catch (err) {
+      console.error('❌ Error in sync process:', err);
+      logger.error('Error syncing reservation:', err);
+      setError(`Failed to sync calendar event: ${err.message}`);
     }
   };
   
@@ -310,6 +478,16 @@ export default function ReservationRequests({ apiToken }) {
                       View Event
                     </button>
                   )}
+                  <button
+                    className="delete-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(reservation);
+                    }}
+                    title={`Delete reservation: ${reservation.eventTitle}`}
+                  >
+                    🗑️
+                  </button>
                 </td>
               </tr>
             ))}
@@ -425,6 +603,62 @@ export default function ReservationRequests({ apiToken }) {
               </div>
             )}
             
+            {selectedReservation.status === 'pending' && (
+              <div className="calendar-settings">
+                <h4>Calendar Event Settings</h4>
+                
+                <div className="calendar-option">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={createCalendarEvent}
+                      onChange={(e) => setCreateCalendarEvent(e.target.checked)}
+                    />
+                    Create calendar event upon approval
+                  </label>
+                </div>
+                
+                {createCalendarEvent && (
+                  <>
+                    <div className="calendar-mode-selection">
+                      <label htmlFor="calendarMode">Calendar:</label>
+                      <select
+                        id="calendarMode"
+                        value={calendarMode}
+                        onChange={(e) => setCalendarMode(e.target.value)}
+                        className={calendarMode === 'production' ? 'production-mode' : 'sandbox-mode'}
+                      >
+                        <option value="sandbox">
+                          🧪 Sandbox ({APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR})
+                        </option>
+                        <option value="production">
+                          🏛️ Production ({APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR})
+                        </option>
+                      </select>
+                      {calendarMode === 'production' && (
+                        <div className="production-warning">
+                          ⚠️ This will create an event in the live production calendar
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="service-auth-info">
+                      <div className="auth-info-content">
+                        <div className="auth-icon">🔐</div>
+                        <div>
+                          <strong>Automatic Authentication</strong>
+                          <div className="auth-description">
+                            Calendar events are created automatically using secure service authentication. 
+                            No manual tokens required!
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            
             <div className="modal-actions">
               {selectedReservation.status === 'pending' && (
                 <>
@@ -442,11 +676,28 @@ export default function ReservationRequests({ apiToken }) {
                   </button>
                 </>
               )}
+              {selectedReservation.status === 'approved' && (
+                <button
+                  className="sync-btn"
+                  onClick={() => handleSync(selectedReservation)}
+                  title="Sync/Create calendar event"
+                >
+                  🔄 Sync Calendar
+                </button>
+              )}
+              <button
+                className="delete-btn-modal"
+                onClick={() => handleDelete(selectedReservation)}
+              >
+                🗑️ Delete
+              </button>
               <button
                 className="cancel-btn"
                 onClick={() => {
                   setSelectedReservation(null);
                   setActionNotes('');
+                  setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
+                  setCreateCalendarEvent(true);
                 }}
               >
                 {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}

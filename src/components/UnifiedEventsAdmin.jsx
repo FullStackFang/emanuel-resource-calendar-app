@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import CSVImport from './CSVImport';
+import CSVImportWithMapping from './CSVImportWithMapping';
 import EventDetailsModal from './EventDetailsModal';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
@@ -1510,6 +1511,12 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
           📁 CSV Import
         </button>
         <button
+          className={`tab ${activeTab === 'advanced-import' ? 'active' : ''}`}
+          onClick={() => setActiveTab('advanced-import')}
+        >
+          🔧 Advanced Import
+        </button>
+        <button
           className={`tab ${activeTab === 'migration' ? 'active' : ''}`}
           onClick={() => setActiveTab('migration')}
         >
@@ -1523,6 +1530,7 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'events' && renderEvents()}
         {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} availableCalendars={availableCalendars} />}
+        {activeTab === 'advanced-import' && <CSVImportWithMapping apiToken={apiToken} />}
         {activeTab === 'migration' && renderMigration()}
       </div>
 

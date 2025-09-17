@@ -2010,6 +2010,17 @@
         return;
       }
 
+      // Add timeout protection (30 seconds)
+      const timeoutId = setTimeout(() => {
+        logger.error("Initialization timeout - forcing completion of loading states");
+        setLoadingState({
+          user: false,
+          categories: false,
+          extensions: false,
+          events: false
+        });
+        setInitializing(false);
+      }, 30000);
 
       logger.info("Starting application initialization...");
       try {
@@ -2056,8 +2067,8 @@
         // Load Outlook categories
         const categories = await loadOutlookCategories();
         setOutlookCategories(categories);
-        setLoadingState(prev => ({ ...prev, categories: false }));
-        
+        // Note: Don't mark categories as loaded yet - wait for events to load so dynamic categories can be generated
+
         // Create default categories if needed (optional)
         if (categories.length === 0) {
           // No categories found, creating defaults
@@ -2073,9 +2084,15 @@
         // Load calendar events - pass calendar data directly to avoid race condition
         await loadEvents(false, calendars);
         setLoadingState(prev => ({ ...prev, events: false }));
-        
+
+        // Step 5: Mark categories as loaded after events are available (so dynamic categories can be generated)
+        setLoadingState(prev => ({ ...prev, categories: false }));
+
         logger.info("Application initialized successfully");
         setInitializing(false);
+
+        // Clear timeout on successful completion
+        clearTimeout(timeoutId);
 
       } catch (error) {
         logger.error("Error during initialization:", error);
@@ -2087,7 +2104,9 @@
           events: false
         });
         setInitializing(false);
-        
+
+        // Clear timeout on error
+        clearTimeout(timeoutId);
       }
     }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadOutlookCategories, loadSchemaExtensions, loadGraphEvents]);
 
@@ -2558,19 +2577,39 @@
         }
       });
       
+      // Add fallback categories from Outlook when no events are available
+      if (categoriesSet.size === 0 || (categoriesSet.size === 1 && categoriesSet.has('Uncategorized'))) {
+        // Use Outlook categories as fallback when no events or only uncategorized events
+        if (outlookCategories && outlookCategories.length > 0) {
+          outlookCategories.forEach(cat => {
+            if (cat.name && cat.name.trim() !== '') {
+              categoriesSet.add(cat.name.trim());
+            }
+          });
+          logger.debug('Added fallback categories from Outlook:', outlookCategories.length);
+        }
+
+        // Add some default categories if still empty
+        if (categoriesSet.size === 0 || (categoriesSet.size === 1 && categoriesSet.has('Uncategorized'))) {
+          const defaultCategories = ['Administrative', 'Meeting', 'Event', 'Service', 'Education', 'Community'];
+          defaultCategories.forEach(cat => categoriesSet.add(cat));
+          logger.debug('Added default fallback categories');
+        }
+      }
+
       // Convert to array and sort
       const categoriesArray = Array.from(categoriesSet).sort();
-      
-      // Categories extracted from events
-      
+
+      // Categories extracted from events (or fallback categories if no events)
+
       // Add special options
       const finalCategories = [
         'Uncategorized',
         ...categoriesArray.filter(cat => cat !== 'Uncategorized')
       ];
-      
+
       return finalCategories;
-    }, [allEvents]);
+    }, [allEvents, outlookCategories]);
     
     /**
      * TBD
@@ -2861,11 +2900,12 @@
     }, [generalLocations]);
 
     /**
-     * TBD
+     * Get filtered locations for MultiSelect components (EventForm)
+     * Returns only locations from templeEvents__Locations database collection
      */
     const getFilteredLocationsForMultiSelect = useCallback(() => {
-      return dynamicLocations;
-    }, [dynamicLocations]);
+      return getDatabaseLocationNames();
+    }, [getDatabaseLocationNames]);
     
     /**
      * TBD
@@ -2876,13 +2916,17 @@
         let categoryMatch = true;
         let locationMatch = true;
 
-        // CATEGORY FILTERING - Always apply, empty array = show nothing
+        // CATEGORY FILTERING - Show all events if all categories are selected
         if (selectedCategories.length === 0) {
           // No categories selected = show NO events
           categoryMatch = false;
           logger.debug('No categories selected - filtering out all events');
+        } else if (selectedCategories.length === dynamicCategories.length) {
+          // All categories selected = show ALL events regardless of category
+          categoryMatch = true;
+          logger.debug('All categories selected - showing all events');
         } else {
-          // Categories are selected, check if event matches
+          // Partial categories selected, check if event matches
           if (isUncategorizedEvent(event)) {
             categoryMatch = selectedCategories.includes('Uncategorized');
           } else if (dynamicCategories.includes(event.category)) {
@@ -2893,12 +2937,17 @@
           }
         }
 
-        // LOCATION FILTERING - Always apply, empty array = show nothing
+        // LOCATION FILTERING - Show all events if all locations are selected
         if (selectedLocations.length === 0) {
           // No locations selected = show NO events
           locationMatch = false;
-          // No locations selected - filtering out all events
+          logger.debug('No locations selected - filtering out all events');
+        } else if (selectedLocations.length === dynamicLocations.length) {
+          // All locations selected = show ALL events regardless of location
+          locationMatch = true;
+          logger.debug('All locations selected - showing all events');
         } else {
+          // Partial locations selected, check if event matches
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
             locationMatch = selectedLocations.includes('Unspecified');
@@ -2916,7 +2965,7 @@
               .split(/[;,]/)
               .map(loc => loc.trim())
               .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
-                        
+
             if (eventLocations.length === 0) {
               logger.debug('No physical locations found, but event not marked as virtual - check logic');
               locationMatch = false;
@@ -2926,7 +2975,6 @@
                 return selectedLocations.includes(location);
               });
             }
-            
           }
         }
 

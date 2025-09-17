@@ -267,7 +267,7 @@ function App() {
                 <Route path="/room-reservation/resubmit" element={<ResubmissionForm apiToken={apiToken} />} />
                 <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
                 <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
-                <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} />} />
+                <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

@@ -21,6 +21,14 @@ const webAppURL = 'https://emanuel-resourcescheduler-d4echehehaf3dxfg.canadacent
 const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
 const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
 
+// Calendar configuration for room reservations
+const CALENDAR_CONFIG = {
+  SANDBOX_CALENDAR: 'templesandbox@emanuelnyc.org',
+  PRODUCTION_CALENDAR: 'temple@emanuelnyc.org',
+  DEFAULT_MODE: process.env.CALENDAR_MODE || 'sandbox' // Default to sandbox for safety
+};
+
+
 // Middleware
 // Updated CORS configuration to allow requests from your deployed app domain
 app.use(cors({
@@ -111,6 +119,7 @@ let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
+let eventAuditHistoryCollection; // Audit trail for event changes
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -534,6 +543,49 @@ async function createFeatureCategoriesIndexes() {
     console.log('Feature categories indexes created successfully');
   } catch (error) {
     console.error('Error creating feature categories indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the event audit history collection
+ */
+async function createEventAuditHistoryIndexes() {
+  try {
+    console.log('Creating event audit history indexes...');
+
+    // Index for finding audit history by event
+    await eventAuditHistoryCollection.createIndex(
+      { eventId: 1, timestamp: -1 },
+      { name: "event_audit_history", background: true }
+    );
+
+    // Index for finding audit history by user
+    await eventAuditHistoryCollection.createIndex(
+      { userId: 1, timestamp: -1 },
+      { name: "user_audit_history", background: true }
+    );
+
+    // Index for finding audit history by import session
+    await eventAuditHistoryCollection.createIndex(
+      { "metadata.importSessionId": 1, timestamp: -1 },
+      { name: "import_session_audit", background: true, sparse: true }
+    );
+
+    // Index for finding recent changes
+    await eventAuditHistoryCollection.createIndex(
+      { timestamp: -1 },
+      { name: "recent_changes", background: true }
+    );
+
+    // Index for finding changes by type
+    await eventAuditHistoryCollection.createIndex(
+      { changeType: 1, timestamp: -1 },
+      { name: "change_type_history", background: true }
+    );
+
+    console.log('Event audit history indexes created successfully');
+  } catch (error) {
+    console.error('Error creating event audit history indexes:', error);
   }
 }
 
@@ -1022,6 +1074,94 @@ async function seedInitialEventServiceTypes() {
   }
 }
 
+/**
+ * Log an event change to the audit history
+ */
+async function logEventAudit({
+  eventId,
+  userId,
+  changeType, // 'create', 'update', 'delete', 'import'
+  source = 'Unknown',
+  changes = null,
+  changeSet = null,
+  metadata = {}
+}) {
+  try {
+    const auditEntry = {
+      eventId,
+      userId,
+      changeType,
+      source,
+      timestamp: new Date(),
+      metadata: {
+        userAgent: metadata.userAgent || 'API',
+        ipAddress: metadata.ipAddress || 'Unknown',
+        reason: metadata.reason || null,
+        importSessionId: metadata.importSessionId || null,
+        ...metadata
+      }
+    };
+
+    // Add change details if provided
+    if (changes) {
+      auditEntry.changes = changes;
+    }
+
+    if (changeSet && Array.isArray(changeSet)) {
+      auditEntry.changeSet = changeSet;
+    }
+
+    await eventAuditHistoryCollection.insertOne(auditEntry);
+
+    logger.debug('Audit entry created:', {
+      eventId,
+      changeType,
+      source,
+      hasChanges: !!changes,
+      hasChangeSet: !!changeSet
+    });
+  } catch (error) {
+    logger.error('Failed to log audit entry:', error);
+    // Don't throw error - audit logging should not break the main operation
+  }
+}
+
+/**
+ * Compare two objects and generate a changeSet for audit logging
+ */
+function generateChangeSet(oldData, newData, fieldsToTrack = null) {
+  const changeSet = [];
+
+  if (!oldData && !newData) return changeSet;
+
+  const oldObj = oldData || {};
+  const newObj = newData || {};
+
+  // Get all fields to check
+  const allFields = new Set([...Object.keys(oldObj), ...Object.keys(newObj)]);
+
+  // Filter fields if specified
+  const fieldsToCheck = fieldsToTrack ?
+    Array.from(allFields).filter(field => fieldsToTrack.includes(field)) :
+    Array.from(allFields);
+
+  for (const field of fieldsToCheck) {
+    const oldValue = oldObj[field];
+    const newValue = newObj[field];
+
+    // Deep comparison for objects and arrays
+    if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+      changeSet.push({
+        field,
+        oldValue: oldValue === undefined ? null : oldValue,
+        newValue: newValue === undefined ? null : newValue
+      });
+    }
+  }
+
+  return changeSet;
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
@@ -1043,10 +1183,12 @@ async function connectToDatabase() {
     roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
     eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
     featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
-    
+    eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
+
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
     await createCalendarDeltaIndexes();
+    await createEventAuditHistoryIndexes();
     
     // Create indexes for room reservation system
     await createRoomIndexes();
@@ -1164,6 +1306,145 @@ const verifyToken = async (req, res, next) => {
 // ============================================
 // ROUTES
 // ============================================
+
+// ============================================
+// CALENDAR EVENT CREATION FUNCTIONS
+// ============================================
+
+/**
+ * Create a calendar event from an approved room reservation
+ * Uses the user's Graph token from the frontend
+ * @param {Object} reservation - The approved reservation object
+ * @param {string} calendarMode - 'sandbox' or 'production'
+ * @param {string} userGraphToken - User's Graph API token from frontend
+ * @returns {Object} Result object with success status and event details
+ */
+async function createRoomReservationCalendarEvent(reservation, calendarMode, userGraphToken) {
+  const targetCalendar = calendarMode === 'production' 
+    ? CALENDAR_CONFIG.PRODUCTION_CALENDAR 
+    : CALENDAR_CONFIG.SANDBOX_CALENDAR;
+    
+  try {
+    // Validate that user provided a Graph token
+    if (!userGraphToken) {
+      throw new Error('Graph token is required for calendar event creation');
+    }
+    
+    const graphToken = userGraphToken;
+    // Get room names for location
+    const roomNames = [];
+    if (reservation.requestedRooms && reservation.requestedRooms.length > 0) {
+      // Try to get room names from the database
+      try {
+        const roomDocs = await roomsCollection.find({
+          _id: { $in: reservation.requestedRooms.map(id => typeof id === 'string' ? new ObjectId(id) : id) }
+        }).toArray();
+        
+        roomDocs.forEach(room => {
+          if (room.name) roomNames.push(room.name);
+        });
+      } catch (roomError) {
+        logger.warn('Error fetching room names:', roomError);
+        // Fallback to room IDs if name lookup fails
+        roomNames.push(...reservation.requestedRooms);
+      }
+    }
+    
+    // Build event body with reservation details
+    let eventBody = '';
+    if (reservation.eventDescription) {
+      eventBody += `${reservation.eventDescription}\n\n`;
+    }
+    if (reservation.specialRequirements) {
+      eventBody += `Special Requirements: ${reservation.specialRequirements}\n\n`;
+    }
+    if (reservation.attendeeCount) {
+      eventBody += `Expected Attendees: ${reservation.attendeeCount}\n\n`;
+    }
+    eventBody += `Requested by: ${reservation.requesterName} (${reservation.requesterEmail})\n`;
+    eventBody += `Contact: ${reservation.contactEmail || reservation.requesterEmail}\n`;
+    eventBody += `Reservation ID: ${reservation._id}`;
+    
+    // Create the calendar event object
+    const eventData = {
+      subject: reservation.eventTitle || 'Room Reservation',
+      body: {
+        contentType: 'Text',
+        content: eventBody
+      },
+      start: {
+        dateTime: reservation.startDateTime,
+        timeZone: 'America/New_York'
+      },
+      end: {
+        dateTime: reservation.endDateTime,
+        timeZone: 'America/New_York'
+      },
+      location: {
+        displayName: roomNames.length > 0 ? roomNames.join(', ') : 'Temple Location'
+      },
+      attendees: [
+        {
+          emailAddress: {
+            address: reservation.requesterEmail,
+            name: reservation.requesterName
+          }
+        }
+      ],
+      categories: ['Room Reservation'],
+      importance: reservation.priority === 'high' ? 'high' : 'normal'
+    };
+    
+    // Add contact person if different from requester
+    if (reservation.contactEmail && reservation.contactEmail !== reservation.requesterEmail) {
+      eventData.attendees.push({
+        emailAddress: {
+          address: reservation.contactEmail,
+          name: 'Contact Person'
+        }
+      });
+    }
+    
+    // Make the Graph API call to create the event
+    const graphUrl = `https://graph.microsoft.com/v1.0/users/${targetCalendar}/events`;
+    const response = await fetch(graphUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${graphToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(eventData)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Graph API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+    }
+    
+    const createdEvent = await response.json();
+    
+    return {
+      success: true,
+      eventId: createdEvent.id,
+      targetCalendar: targetCalendar,
+      webLink: createdEvent.webLink,
+      subject: createdEvent.subject
+    };
+    
+  } catch (error) {
+    logger.error('Calendar event creation failed:', {
+      reservationId: reservation._id,
+      targetCalendar: targetCalendar,
+      error: error.message
+    });
+    
+    return {
+      success: false,
+      error: error.message,
+      targetCalendar: targetCalendar
+    };
+  }
+}
 
 // ============================================
 // INTERNAL EVENT ROUTES
@@ -3752,6 +4033,249 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
 });
 
 // ============================================
+// EVENT AUDIT HISTORY ENDPOINTS
+// ============================================
+
+/**
+ * Get audit history for a specific event
+ */
+app.get('/api/events/:eventId/audit-history', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { eventId } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
+
+    // Verify user has access to this event
+    const event = await unifiedEventsCollection.findOne({
+      eventId: eventId,
+      userId: userId
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+
+    // Get audit history for this event
+    const auditHistory = await eventAuditHistoryCollection
+      .find({ eventId: eventId })
+      .sort({ timestamp: -1 })
+      .skip(parseInt(offset))
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get total count for pagination
+    const totalCount = await eventAuditHistoryCollection.countDocuments({
+      eventId: eventId
+    });
+
+    res.status(200).json({
+      auditHistory,
+      pagination: {
+        total: totalCount,
+        offset: parseInt(offset),
+        limit: parseInt(limit),
+        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching audit history:', error);
+    res.status(500).json({ error: 'Failed to fetch audit history' });
+  }
+});
+
+/**
+ * Get audit history for an import session
+ */
+app.get('/api/audit/import-session/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { sessionId } = req.params;
+    const { limit = 100, offset = 0 } = req.query;
+
+    // Get audit history for this import session
+    const auditHistory = await eventAuditHistoryCollection
+      .find({
+        userId: userId,
+        'metadata.importSessionId': sessionId
+      })
+      .sort({ timestamp: -1 })
+      .skip(parseInt(offset))
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get total count for pagination
+    const totalCount = await eventAuditHistoryCollection.countDocuments({
+      userId: userId,
+      'metadata.importSessionId': sessionId
+    });
+
+    // Get session summary
+    const sessionSummary = await eventAuditHistoryCollection.aggregate([
+      {
+        $match: {
+          userId: userId,
+          'metadata.importSessionId': sessionId
+        }
+      },
+      {
+        $group: {
+          _id: '$changeType',
+          count: { $sum: 1 },
+          firstTimestamp: { $min: '$timestamp' },
+          lastTimestamp: { $max: '$timestamp' }
+        }
+      }
+    ]).toArray();
+
+    res.status(200).json({
+      sessionId,
+      auditHistory,
+      sessionSummary,
+      pagination: {
+        total: totalCount,
+        offset: parseInt(offset),
+        limit: parseInt(limit),
+        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching import session audit:', error);
+    res.status(500).json({ error: 'Failed to fetch import session audit history' });
+  }
+});
+
+/**
+ * Get recent audit activity for a user
+ */
+app.get('/api/audit/recent', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { limit = 20, changeType, source } = req.query;
+
+    // Build query filter
+    const query = { userId: userId };
+    if (changeType) {
+      query.changeType = changeType;
+    }
+    if (source) {
+      query.source = { $regex: source, $options: 'i' };
+    }
+
+    // Get recent audit entries
+    const auditHistory = await eventAuditHistoryCollection
+      .find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get counts by change type
+    const changeTypeCounts = await eventAuditHistoryCollection.aggregate([
+      { $match: { userId: userId } },
+      {
+        $group: {
+          _id: '$changeType',
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray();
+
+    // Get counts by source
+    const sourceCounts = await eventAuditHistoryCollection.aggregate([
+      { $match: { userId: userId } },
+      {
+        $group: {
+          _id: '$source',
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray();
+
+    res.status(200).json({
+      auditHistory,
+      statistics: {
+        changeTypes: changeTypeCounts,
+        sources: sourceCounts
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching recent audit activity:', error);
+    res.status(500).json({ error: 'Failed to fetch recent audit activity' });
+  }
+});
+
+/**
+ * Filter events by source
+ */
+app.get('/api/events/by-source', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { source, startDate, endDate, limit = 100, offset = 0 } = req.query;
+
+    if (!source) {
+      return res.status(400).json({ error: 'Source parameter is required' });
+    }
+
+    // Build query filter
+    const query = {
+      userId: userId,
+      source: { $regex: source, $options: 'i' },
+      isDeleted: { $ne: true }
+    };
+
+    // Add date range filter if provided
+    if (startDate || endDate) {
+      query['graphData.start.dateTime'] = {};
+      if (startDate) {
+        query['graphData.start.dateTime'].$gte = startDate;
+      }
+      if (endDate) {
+        query['graphData.start.dateTime'].$lte = endDate;
+      }
+    }
+
+    // Get events
+    const events = await unifiedEventsCollection
+      .find(query)
+      .sort({ 'graphData.start.dateTime': 1 })
+      .skip(parseInt(offset))
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get total count
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
+
+    // Transform events to frontend format
+    const transformedEvents = events.map(event => ({
+      ...event.graphData,
+      ...event.internalData,
+      source: event.source,
+      sourceMetadata: event.sourceMetadata,
+      calendarId: event.calendarId,
+      sourceCalendars: event.sourceCalendars,
+      _lastSyncedAt: event.lastSyncedAt
+    }));
+
+    res.status(200).json({
+      events: transformedEvents,
+      pagination: {
+        total: totalCount,
+        offset: parseInt(offset),
+        limit: parseInt(limit),
+        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
+      },
+      source: source
+    });
+
+  } catch (error) {
+    logger.error('Error fetching events by source:', error);
+    res.status(500).json({ error: 'Failed to fetch events by source' });
+  }
+});
+
+// ============================================
 // MIGRATION ENDPOINTS
 // ============================================
 
@@ -5339,6 +5863,821 @@ app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), 
   } catch (error) {
     logger.error('Error in streaming CSV import endpoint:', error);
     res.status(500).json({ error: 'Failed to process CSV file' });
+  }
+});
+
+/**
+ * Admin endpoint - Analyze Excel/CSV file structure for field mapping
+ * Returns column information and suggests field mappings
+ */
+app.post('/api/admin/csv-import/analyze', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    const fileName = req.file.originalname || '';
+    const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+    
+    let csvData = [];
+    let csvHeaders = [];
+    
+    if (isExcel) {
+      // Parse Excel file using xlsx
+      const XLSX = require('xlsx');
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      csvData = XLSX.utils.sheet_to_json(worksheet);
+      
+      // Get headers from first row
+      if (csvData.length > 0) {
+        csvHeaders = Object.keys(csvData[0]);
+      }
+      
+      // Limit to first 10 rows for analysis
+      csvData = csvData.slice(0, 10);
+    } else {
+      // Parse CSV from buffer
+      await new Promise((resolve, reject) => {
+        const stream = Readable.from([req.file.buffer]);
+        stream
+          .pipe(csvParser({
+            skipEmptyLines: true,
+            headers: (headers) => {
+              csvHeaders.push(...headers);
+              return headers;
+            }
+          }))
+          .on('data', (row) => {
+            // Only collect first 10 rows for analysis
+            if (csvData.length < 10) {
+              csvData.push(row);
+            }
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
+    }
+    
+    if (csvData.length === 0) {
+      return res.status(400).json({ error: 'File appears to be empty or invalid' });
+    }
+    
+    // Analyze columns and generate samples
+    const columns = csvHeaders;
+    const samples = {};
+    const totalRows = csvData.length; // This is just the sample size
+    
+    // Generate sample data for each column
+    columns.forEach(column => {
+      samples[column] = csvData.map(row => row[column]).filter(val => val !== null && val !== undefined && val !== '').slice(0, 5);
+    });
+    
+    // Smart field mapping suggestions for Resource Scheduler Excel
+    const COLUMN_PATTERNS = {
+      'rsId': [/^rsId$/i, /rs.*id/i, /resource.*schedule.*id/i, /scheduler.*id/i],
+      'Subject': [/^Subject$/i, /title/i, /event.*name/i, /event.*title/i],
+      'StartDateTime': [/^StartDateTime$/i, /start.*date.*time/i, /start/i],
+      'EndDateTime': [/^EndDateTime$/i, /end.*date.*time/i, /end/i],
+      'StartDate': [/^StartDate$/i, /start.*date/i],
+      'StartTime': [/^StartTime$/i, /start.*time/i],
+      'EndDate': [/^EndDate$/i, /end.*date/i],
+      'EndTime': [/^EndTime$/i, /end.*time/i],
+      'Location': [/^Location$/i, /room/i, /venue/i, /place/i],
+      'Categories': [/^Categories$/i, /categor/i, /type/i],
+      'EventCode': [/^EventCode$/i, /event.*code/i, /code/i],
+      'Description': [/^Description$/i, /desc/i, /notes/i, /details/i],
+      'RequesterName': [/^RequesterName$/i, /requester.*name/i, /requested.*by/i],
+      'RequesterEmail': [/^RequesterEmail$/i, /requester.*email/i, /email/i],
+      'RequesterID': [/^RequesterID$/i, /requester.*id/i],
+      'AllDayEvent': [/^AllDayEvent$/i, /all.*day/i],
+      'IsRecurring': [/^IsRecurring$/i, /recurring/i, /recur/i],
+      'Deleted': [/^Deleted$/i, /deleted/i, /removed/i]
+    };
+    
+    const detectedMappings = {};
+    
+    // Auto-detect field mappings
+    columns.forEach(column => {
+      for (const [targetField, patterns] of Object.entries(COLUMN_PATTERNS)) {
+        for (const pattern of patterns) {
+          if (pattern.test(column)) {
+            detectedMappings[targetField] = column;
+            break;
+          }
+        }
+        if (detectedMappings[targetField]) break;
+      }
+    });
+    
+    logger.debug('File Analysis completed:', {
+      userId,
+      fileType: isExcel ? 'Excel' : 'CSV',
+      columnsDetected: columns.length,
+      sampleRows: csvData.length,
+      detectedMappings: Object.keys(detectedMappings).length
+    });
+    
+    res.json({
+      columns,
+      samples,
+      totalRows: csvData.length, // This is sample size, not actual total
+      detectedMappings,
+      analysisInfo: {
+        sampleSize: csvData.length,
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error analyzing file:', error);
+    res.status(500).json({ error: 'Failed to analyze file: ' + error.message });
+  }
+});
+
+// CSV Import Preview Endpoint
+app.post('/api/admin/csv-import/preview', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    let { fieldMappings } = req.body;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No CSV file uploaded' });
+    }
+    
+    if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
+      return res.status(400).json({ error: 'Field mappings are required for preview' });
+    }
+    
+    // Parse field mappings (may come as string from FormData)
+    if (typeof fieldMappings === 'string') {
+      fieldMappings = JSON.parse(fieldMappings);
+    }
+    
+    // Parse CSV from buffer
+    const csvData = [];
+    const csvHeaders = [];
+    
+    await new Promise((resolve, reject) => {
+      const stream = Readable.from([req.file.buffer]);
+      stream
+        .pipe(csvParser({
+          skipEmptyLines: true,
+          headers: (headers) => {
+            csvHeaders.push(...headers);
+            return headers;
+          }
+        }))
+        .on('data', (row) => {
+          // Collect more rows for preview (first 50)
+          if (csvData.length < 50) {
+            csvData.push(row);
+          }
+        })
+        .on('end', resolve)
+        .on('error', reject);
+    });
+    
+    if (csvData.length === 0) {
+      return res.status(400).json({ error: 'CSV file appears to be empty or invalid' });
+    }
+    
+    // Transform data using field mappings
+    const transformedEvents = [];
+    const validationErrors = [];
+    
+    csvData.forEach((row, index) => {
+      const transformedEvent = {
+        _originalRowIndex: index + 1, // 1-based for user display
+        _originalData: row
+      };
+      
+      const rowErrors = [];
+      
+      // Apply field mappings
+      Object.entries(fieldMappings).forEach(([targetField, mapping]) => {
+        if (mapping.csvColumn && row[mapping.csvColumn] !== undefined) {
+          const rawValue = row[mapping.csvColumn];
+          
+          try {
+            // Transform based on field type
+            switch (targetField) {
+              case 'startDateTime':
+              case 'endDateTime':
+                if (rawValue && rawValue.trim()) {
+                  const parsedDate = new Date(rawValue);
+                  if (isNaN(parsedDate.getTime())) {
+                    rowErrors.push(`Invalid date format in ${targetField}: "${rawValue}"`);
+                    transformedEvent[targetField] = null;
+                  } else {
+                    transformedEvent[targetField] = parsedDate.toISOString();
+                  }
+                } else {
+                  transformedEvent[targetField] = null;
+                }
+                break;
+                
+              case 'setupMinutes':
+              case 'teardownMinutes':
+              case 'attendeeCount':
+              case 'estimatedCost':
+                if (rawValue && rawValue.toString().trim()) {
+                  const numValue = parseFloat(rawValue);
+                  if (isNaN(numValue)) {
+                    rowErrors.push(`Invalid number in ${targetField}: "${rawValue}"`);
+                    transformedEvent[targetField] = null;
+                  } else {
+                    transformedEvent[targetField] = targetField === 'estimatedCost' ? numValue : Math.round(numValue);
+                  }
+                } else {
+                  transformedEvent[targetField] = null;
+                }
+                break;
+                
+              case 'categories':
+                if (rawValue && rawValue.toString().trim()) {
+                  // Split by comma and clean up
+                  transformedEvent[targetField] = rawValue.toString().split(',')
+                    .map(cat => cat.trim())
+                    .filter(cat => cat.length > 0);
+                } else {
+                  transformedEvent[targetField] = [];
+                }
+                break;
+                
+              case 'rsId':
+                if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                  // Convert to string and handle numeric IDs
+                  transformedEvent[targetField] = rawValue.toString();
+                } else {
+                  transformedEvent[targetField] = null;
+                }
+                break;
+                
+              default:
+                // String fields (subject, location, assignedTo, description, etc.)
+                transformedEvent[targetField] = rawValue && rawValue.toString().trim() || null;
+                break;
+            }
+          } catch (err) {
+            rowErrors.push(`Error transforming ${targetField}: ${err.message}`);
+            transformedEvent[targetField] = null;
+          }
+        } else {
+          transformedEvent[targetField] = null;
+        }
+      });
+      
+      // Validate required fields
+      const requiredFields = ['rsId', 'subject', 'startDateTime', 'endDateTime'];
+      requiredFields.forEach(field => {
+        if (!transformedEvent[field]) {
+          rowErrors.push(`Missing required field: ${field}`);
+        }
+      });
+      
+      if (rowErrors.length > 0) {
+        validationErrors.push({
+          rowIndex: index + 1,
+          errors: rowErrors
+        });
+      }
+      
+      transformedEvents.push(transformedEvent);
+    });
+    
+    // Generate preview statistics
+    const previewStats = {
+      totalRows: csvData.length,
+      validRows: transformedEvents.filter(event => 
+        event.rsId && event.subject && event.startDateTime && event.endDateTime
+      ).length,
+      rowsWithErrors: validationErrors.length,
+      fieldsMapped: Object.keys(fieldMappings).length
+    };
+    
+    // Sample of transformed events (first 10 for display)
+    const previewSample = transformedEvents.slice(0, 10).map(event => {
+      // Remove internal fields from preview
+      const { _originalRowIndex, _originalData, ...cleanEvent } = event;
+      return {
+        ...cleanEvent,
+        _preview: {
+          rowIndex: _originalRowIndex,
+          originalSubject: _originalData[fieldMappings.Subject?.csvColumn] || 'N/A',
+          originalStart: _originalData[fieldMappings.StartDateTime?.csvColumn] || 'N/A'
+        }
+      };
+    });
+    
+    logger.debug('CSV Preview generated:', {
+      userId,
+      totalRows: previewStats.totalRows,
+      validRows: previewStats.validRows,
+      errorsFound: previewStats.rowsWithErrors
+    });
+    
+    res.json({
+      statistics: previewStats,
+      sample: previewSample,
+      validationErrors: validationErrors.slice(0, 20), // Limit error display
+      fieldMappings,
+      previewInfo: {
+        timestamp: new Date().toISOString(),
+        sampleSize: Math.min(csvData.length, 10)
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Error previewing CSV import:', error);
+    res.status(500).json({ error: 'Failed to preview CSV import: ' + error.message });
+  }
+});
+
+// Excel/CSV Import Execution Endpoint for templeEvents__Events
+app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    let { fieldMappings, importOptions = {} } = req.body;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
+      return res.status(400).json({ error: 'Field mappings are required for import' });
+    }
+    
+    // Parse field mappings (may come as string from FormData)
+    if (typeof fieldMappings === 'string') {
+      fieldMappings = JSON.parse(fieldMappings);
+    }
+    if (typeof importOptions === 'string') {
+      importOptions = JSON.parse(importOptions);
+    }
+    
+    // Set response headers for streaming
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Transfer-Encoding': 'chunked',
+      'X-Accel-Buffering': 'no'
+    });
+    
+    const streamProgress = (data) => {
+      res.write(JSON.stringify(data) + '\n');
+    };
+    
+    const fileName = req.file.originalname || '';
+    const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+    
+    let csvData = [];
+    let csvHeaders = [];
+    
+    streamProgress({ type: 'info', message: `Parsing ${isExcel ? 'Excel' : 'CSV'} file...` });
+    
+    if (isExcel) {
+      // Parse Excel file
+      const XLSX = require('xlsx');
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      csvData = XLSX.utils.sheet_to_json(worksheet);
+      
+      // Get headers
+      if (csvData.length > 0) {
+        csvHeaders = Object.keys(csvData[0]);
+      }
+    } else {
+      // Parse CSV from buffer
+      await new Promise((resolve, reject) => {
+        const stream = Readable.from([req.file.buffer]);
+        stream
+          .pipe(csvParser({
+            skipEmptyLines: true,
+            headers: (headers) => {
+              csvHeaders.push(...headers);
+              return headers;
+            }
+          }))
+          .on('data', (row) => {
+            csvData.push(row);
+          })
+          .on('end', resolve)
+          .on('error', reject);
+      });
+    }
+    
+    if (csvData.length === 0) {
+      streamProgress({ type: 'error', message: 'File appears to be empty or invalid' });
+      return res.end();
+    }
+    
+    streamProgress({ 
+      type: 'progress', 
+      message: `Parsed ${csvData.length} rows from ${isExcel ? 'Excel' : 'CSV'}`,
+      totalRows: csvData.length 
+    });
+    
+    // Import statistics
+    const stats = {
+      processed: 0,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: []
+    };
+    
+    // Process events in batches
+    const BATCH_SIZE = 10;
+    
+    for (let i = 0; i < csvData.length; i += BATCH_SIZE) {
+      const batch = csvData.slice(i, Math.min(i + BATCH_SIZE, csvData.length));
+      
+      for (const [batchIndex, row] of batch.entries()) {
+        const rowIndex = i + batchIndex + 1;
+        
+        try {
+          // Transform row data for templeEvents__Events collection
+          const importSessionId = req.body.importSessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const now = new Date();
+
+          const transformedEvent = {
+            userId,
+            source: 'Resource Scheduler Import',
+            sourceMetadata: {
+              importType: 'resourceScheduler',
+              importSessionId: importSessionId,
+              importedAt: now,
+              importedBy: userId,
+              originalFilename: req.file.originalname,
+              fileType: isExcel ? 'Excel' : 'CSV'
+            },
+            sourceCalendars: [{
+              calendarId: 'resource-scheduler-import',
+              calendarName: 'Resource Scheduler Import',
+              role: 'imported'
+            }],
+            isDeleted: false,
+            lastSyncedAt: now,
+            lastAccessedAt: now,
+            cachedAt: now,
+            createdAt: now,
+            updatedAt: now,
+            graphData: {
+              importance: 'normal',
+              showAs: 'busy',
+              sensitivity: 'normal',
+              isAllDay: false,
+              lastModifiedDateTime: new Date().toISOString(),
+              createdDateTime: new Date().toISOString()
+            },
+            internalData: {
+              mecCategories: [],
+              setupMinutes: 0,
+              teardownMinutes: 0,
+              registrationNotes: '',
+              assignedTo: '',
+              internalNotes: '',
+              setupStatus: 'pending',
+              estimatedCost: null,
+              actualCost: null,
+              // Resource Scheduler specific fields
+              rsImportSource: 'resourceScheduler',
+              rsImportedAt: now,
+              lastModifiedBy: userId,
+              lastModifiedAt: now,
+              lastModifiedReason: 'Resource Scheduler import'
+            }
+          };
+          
+          // Apply field mappings
+          Object.entries(fieldMappings).forEach(([targetField, mapping]) => {
+            if (mapping.csvColumn && row[mapping.csvColumn] !== undefined) {
+              const rawValue = row[mapping.csvColumn];
+              
+              // Transform based on field type for Resource Scheduler fields
+              switch (targetField) {
+                case 'StartDateTime':
+                case 'EndDateTime':
+                  if (rawValue && rawValue.trim()) {
+                    const parsedDate = new Date(rawValue);
+                    if (!isNaN(parsedDate.getTime())) {
+                      if (targetField === 'StartDateTime') {
+                        transformedEvent.startTime = parsedDate.toISOString();
+                        transformedEvent.graphData.start = { dateTime: parsedDate.toISOString() };
+                      } else {
+                        transformedEvent.endTime = parsedDate.toISOString();
+                        transformedEvent.graphData.end = { dateTime: parsedDate.toISOString() };
+                      }
+                    }
+                  }
+                  break;
+                  
+                case 'Subject':
+                  if (rawValue && rawValue.toString().trim()) {
+                    transformedEvent.subject = rawValue.toString().trim();
+                    transformedEvent.graphData.subject = rawValue.toString().trim();
+                  }
+                  break;
+                  
+                case 'Location':
+                  if (rawValue && rawValue.toString().trim()) {
+                    transformedEvent.location = rawValue.toString().trim();
+                    transformedEvent.graphData.location = { displayName: rawValue.toString().trim() };
+                  }
+                  break;
+                  
+                case 'Categories':
+                  if (rawValue && rawValue.toString().trim()) {
+                    const category = rawValue.toString().trim();
+                    transformedEvent.graphData.categories = [category];
+                    transformedEvent.internalData.mecCategories = [category];
+                  }
+                  break;
+
+                case 'EventCode':
+                  if (rawValue && rawValue.toString().trim()) {
+                    const eventCode = rawValue.toString().trim();
+                    transformedEvent.internalData.rsEventCode = eventCode;
+                    // Also add to categories if not already set
+                    if (!transformedEvent.graphData.categories || transformedEvent.graphData.categories.length === 0) {
+                      transformedEvent.graphData.categories = [eventCode];
+                      transformedEvent.internalData.mecCategories = [eventCode];
+                    }
+                  }
+                  break;
+                  
+                case 'Description':
+                  if (rawValue && rawValue.toString().trim()) {
+                    transformedEvent.graphData.bodyPreview = rawValue.toString().trim();
+                    transformedEvent.internalData.internalNotes = rawValue.toString().trim();
+                  }
+                  break;
+                  
+                case 'RequesterName':
+                  if (rawValue && rawValue.toString().trim()) {
+                    transformedEvent.internalData.requesterName = rawValue.toString().trim();
+                  }
+                  break;
+                  
+                case 'RequesterEmail':
+                  if (rawValue && rawValue.toString().trim()) {
+                    transformedEvent.internalData.requesterEmail = rawValue.toString().trim();
+                  }
+                  break;
+                  
+                case 'RequesterID':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.requesterID = parseInt(rawValue) || 0;
+                  }
+                  break;
+                  
+                case 'AllDayEvent':
+                  if (rawValue !== undefined && rawValue !== null) {
+                    transformedEvent.graphData.isAllDay = rawValue === 1 || rawValue === '1' || rawValue === true;
+                  }
+                  break;
+                  
+                case 'IsRecurring':
+                  if (rawValue !== undefined && rawValue !== null) {
+                    transformedEvent.internalData.isRecurring = rawValue === 1 || rawValue === '1' || rawValue === true;
+                  }
+                  break;
+                  
+                case 'Deleted':
+                  if (rawValue !== undefined && rawValue !== null) {
+                    transformedEvent.isDeleted = rawValue === 1 || rawValue === '1' || rawValue === true;
+                  }
+                  break;
+                  
+                case 'setupMinutes':
+                case 'teardownMinutes':
+                  if (rawValue && rawValue.toString().trim()) {
+                    const numValue = parseFloat(rawValue);
+                    if (!isNaN(numValue)) {
+                      transformedEvent.internalData[targetField] = Math.round(numValue);
+                    }
+                  }
+                  break;
+                  
+                case 'attendeeCount':
+                  if (rawValue && rawValue.toString().trim()) {
+                    const numValue = parseFloat(rawValue);
+                    if (!isNaN(numValue)) {
+                      transformedEvent.internalData.attendeeCount = Math.round(numValue);
+                    }
+                  }
+                  break;
+                  
+                case 'estimatedCost':
+                  if (rawValue && rawValue.toString().trim()) {
+                    const numValue = parseFloat(rawValue);
+                    if (!isNaN(numValue)) {
+                      transformedEvent.internalData.estimatedCost = numValue;
+                    }
+                  }
+                  break;
+                  
+                case 'rsId':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.rsId = rawValue.toString();
+                  }
+                  break;
+
+                case 'StartDate':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.rsStartDate = parseFloat(rawValue) || 0;
+                  }
+                  break;
+
+                case 'StartTime':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.rsStartTime = parseFloat(rawValue) || 0;
+                  }
+                  break;
+
+                case 'EndDate':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.rsEndDate = parseFloat(rawValue) || 0;
+                  }
+                  break;
+
+                case 'EndTime':
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    transformedEvent.internalData.rsEndTime = parseFloat(rawValue) || 0;
+                  }
+                  break;
+              }
+            }
+          });
+          
+          // Validate required fields for Resource Scheduler import
+          if (!transformedEvent.internalData.rsId || !transformedEvent.subject || !transformedEvent.startTime || !transformedEvent.endTime) {
+            stats.errors.push({
+              row: rowIndex,
+              subject: transformedEvent.subject || 'Unknown',
+              error: 'Missing required fields (rsId, Subject, StartDateTime, EndDateTime)'
+            });
+            stats.skipped++;
+          } else {
+            // Generate eventId using Resource Scheduler ID
+            if (!transformedEvent.eventId) {
+              transformedEvent.eventId = `rs-import-${transformedEvent.internalData.rsId}`;
+              transformedEvent.graphData.id = transformedEvent.eventId;
+            }
+            
+            // Check if event already exists (by rsId)
+            const existingEvent = await unifiedEventsCollection.findOne({
+              userId,
+              'internalData.rsId': transformedEvent.internalData.rsId
+            });
+            
+            if (existingEvent && !importOptions.forceOverwrite) {
+              stats.skipped++;
+              streamProgress({ 
+                type: 'progress', 
+                message: `Skipped existing event: ${transformedEvent.subject} (rsId: ${transformedEvent.internalData.rsId})` 
+              });
+            } else {
+              if (existingEvent) {
+                // Generate change set for audit logging
+                const changeSet = generateChangeSet(existingEvent, transformedEvent, [
+                  'subject', 'startTime', 'endTime', 'location', 'source', 'sourceMetadata', 'internalData'
+                ]);
+
+                // Update existing event
+                await unifiedEventsCollection.updateOne(
+                  { _id: existingEvent._id },
+                  {
+                    $set: {
+                      ...transformedEvent,
+                      updatedAt: new Date(),
+                      // Preserve enrichments if requested
+                      ...(importOptions.preserveEnrichments && existingEvent.internalData ? {
+                        'internalData.internalNotes': existingEvent.internalData.internalNotes || transformedEvent.internalData.internalNotes,
+                        'internalData.mecCategories': existingEvent.internalData.mecCategories || transformedEvent.internalData.mecCategories
+                      } : {})
+                    }
+                  }
+                );
+                stats.updated++;
+
+                // Log audit entry for update
+                await logEventAudit({
+                  eventId: transformedEvent.eventId,
+                  userId: userId,
+                  changeType: 'update',
+                  source: 'Resource Scheduler Import',
+                  changeSet: changeSet,
+                  metadata: {
+                    importSessionId: importSessionId,
+                    reason: 'Resource Scheduler import update',
+                    originalFilename: req.file.originalname,
+                    fileType: isExcel ? 'Excel' : 'CSV'
+                  }
+                });
+
+                streamProgress({
+                  type: 'progress',
+                  message: `Updated: ${transformedEvent.subject}`
+                });
+              } else {
+                // Create new event
+                await unifiedEventsCollection.insertOne(transformedEvent);
+                stats.created++;
+
+                // Log audit entry for creation
+                await logEventAudit({
+                  eventId: transformedEvent.eventId,
+                  userId: userId,
+                  changeType: 'create',
+                  source: 'Resource Scheduler Import',
+                  metadata: {
+                    importSessionId: importSessionId,
+                    reason: 'Resource Scheduler import',
+                    originalFilename: req.file.originalname,
+                    fileType: isExcel ? 'Excel' : 'CSV'
+                  }
+                });
+
+                streamProgress({
+                  type: 'progress',
+                  message: `Created: ${transformedEvent.subject}`
+                });
+              }
+            }
+          }
+        } catch (error) {
+          stats.errors.push({
+            row: rowIndex,
+            subject: row[fieldMappings.subject?.csvColumn] || 'Unknown',
+            error: error.message
+          });
+          logger.error(`Error processing row ${rowIndex}:`, error);
+        }
+        
+        stats.processed++;
+        
+        // Update progress every 5 items
+        if (stats.processed % 5 === 0) {
+          streamProgress({
+            type: 'progress',
+            message: `Processed ${stats.processed}/${csvData.length} rows`,
+            processed: stats.processed,
+            created: stats.created,
+            updated: stats.updated,
+            skipped: stats.skipped,
+            errors: stats.errors.length,
+            total: csvData.length
+          });
+        }
+      }
+    }
+    
+    // Send final results
+    streamProgress({
+      type: 'complete',
+      message: 'CSV import completed successfully',
+      statistics: stats,
+      summary: {
+        totalRows: csvData.length,
+        processed: stats.processed,
+        created: stats.created,
+        updated: stats.updated,
+        skipped: stats.skipped,
+        errors: stats.errors.length
+      }
+    });
+    
+    logger.info('CSV import completed:', {
+      userId,
+      totalRows: csvData.length,
+      created: stats.created,
+      updated: stats.updated,
+      skipped: stats.skipped,
+      errors: stats.errors.length
+    });
+    
+    res.end();
+    
+  } catch (error) {
+    logger.error('Error executing CSV import:', error);
+    try {
+      res.write(JSON.stringify({ 
+        type: 'error', 
+        message: 'Failed to execute CSV import: ' + error.message 
+      }) + '\n');
+      res.end();
+    } catch (resError) {
+      logger.error('Error writing error response:', resError);
+    }
   }
 });
 
@@ -8337,7 +9676,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const { id } = req.params;
-    const { notes } = req.body;
+    const { notes, calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, createCalendarEvent = true, graphToken } = req.body;
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
@@ -8388,8 +9727,53 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
       return res.status(404).json({ error: 'Pending reservation not found' });
     }
     
+    // Create calendar event if requested (uses automatic service authentication)
+    let calendarEventResult = null;
+    if (createCalendarEvent) {
+      try {
+        calendarEventResult = await createRoomReservationCalendarEvent(
+          result.value, 
+          calendarMode,
+          graphToken
+        );
+        
+        // Update the reservation with calendar event information
+        if (calendarEventResult.success) {
+          await roomReservationsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            {
+              $set: {
+                calendarEventId: calendarEventResult.eventId,
+                targetCalendar: calendarEventResult.targetCalendar,
+                calendarCreatedAt: new Date()
+              }
+            }
+          );
+        }
+        
+        logger.log('Calendar event created for reservation:', {
+          reservationId: id,
+          eventId: calendarEventResult.eventId,
+          calendar: calendarEventResult.targetCalendar
+        });
+      } catch (calendarError) {
+        logger.error('Failed to create calendar event:', {
+          reservationId: id,
+          error: calendarError.message
+        });
+        // Don't fail the approval if calendar creation fails
+        calendarEventResult = { 
+          success: false, 
+          error: calendarError.message 
+        };
+      }
+    }
+    
     logger.log('Room reservation approved:', { reservationId: id, approvedBy: userEmail });
-    res.json(result.value);
+    res.json({
+      ...result.value,
+      calendarEvent: calendarEventResult
+    });
   } catch (error) {
     logger.error('Error approving reservation:', error);
     res.status(500).json({ error: 'Failed to approve reservation' });
@@ -8464,6 +9848,139 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
   } catch (error) {
     logger.error('Error rejecting reservation:', error);
     res.status(500).json({ error: 'Failed to reject reservation' });
+  }
+});
+
+/**
+ * Delete a room reservation (Admin only)
+ */
+app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get the reservation to check if it exists and for logging
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Delete the reservation
+    const result = await roomReservationsCollection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    logger.log('Room reservation deleted:', { 
+      reservationId: id, 
+      eventTitle: reservation.eventTitle,
+      deletedBy: userEmail,
+      originalStatus: reservation.status
+    });
+    
+    res.json({ 
+      message: 'Reservation deleted successfully', 
+      deletedId: id,
+      eventTitle: reservation.eventTitle
+    });
+  } catch (error) {
+    logger.error('Error deleting reservation:', error);
+    res.status(500).json({ error: 'Failed to delete reservation' });
+  }
+});
+
+/**
+ * Sync/create calendar event for an approved room reservation (Admin only)
+ */
+app.put('/api/admin/room-reservations/:id/sync', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const { calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, graphToken } = req.body;
+    
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Get the reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+    
+    // Only allow sync for approved reservations
+    if (reservation.status !== 'approved') {
+      return res.status(400).json({ error: 'Can only sync calendar events for approved reservations' });
+    }
+    
+    // Create calendar event
+    let calendarEventResult = null;
+    try {
+      calendarEventResult = await createRoomReservationCalendarEvent(
+        reservation,
+        calendarMode,
+        graphToken
+      );
+      
+      // Update the reservation with calendar event information if successful
+      if (calendarEventResult.success) {
+        await roomReservationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              calendarEventId: calendarEventResult.eventId,
+              targetCalendar: calendarEventResult.targetCalendar,
+              calendarCreatedAt: new Date(),
+              calendarSyncedAt: new Date() // Track when it was manually synced
+            }
+          }
+        );
+      }
+      
+      logger.log('Room reservation calendar event synced:', { 
+        reservationId: id, 
+        syncedBy: userEmail,
+        success: calendarEventResult.success,
+        eventId: calendarEventResult.eventId
+      });
+      
+      res.json({
+        message: calendarEventResult.success ? 
+          `Calendar event synced successfully in ${calendarEventResult.targetCalendar}` : 
+          `Calendar event sync failed: ${calendarEventResult.error}`,
+        calendarEvent: calendarEventResult,
+        reservation: reservation
+      });
+      
+    } catch (calendarError) {
+      logger.error('Calendar sync error:', calendarError);
+      res.json({
+        message: 'Reservation found but calendar event sync failed',
+        calendarEvent: { 
+          success: false, 
+          error: calendarError.message 
+        },
+        reservation: reservation
+      });
+    }
+  } catch (error) {
+    logger.error('Error syncing reservation calendar event:', error);
+    res.status(500).json({ error: 'Failed to sync calendar event' });
   }
 });
 
