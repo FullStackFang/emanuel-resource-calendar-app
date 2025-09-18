@@ -1090,6 +1090,49 @@ function generateChangeSet(oldData, newData, fieldsToTrack = null) {
   return changeSet;
 }
 
+/**
+ * Extract plain text from HTML content for clean audit logging
+ * @param {string} htmlContent - HTML content from Microsoft Graph API (may be HTML-encoded)
+ * @returns {string|null} - Clean plain text or null if no content
+ */
+function extractTextFromHtml(htmlContent) {
+  if (!htmlContent || typeof htmlContent !== 'string') {
+    return null;
+  }
+
+  let content = htmlContent;
+
+  // First, decode HTML entities to restore actual HTML tags
+  content = content
+    .replace(/&lt;/g, '<')   // Decode HTML entities first
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+  // Now remove HTML tags and clean up
+  content = content
+    .replace(/<[^>]*>/g, '') // Remove all HTML tags
+    .replace(/&nbsp;/g, ' ') // Replace &nbsp; with spaces
+    .replace(/\s+/g, ' ')    // Replace multiple whitespace with single space
+    .trim();                 // Remove leading/trailing whitespace
+
+  // If we still have HTML-like content, it might be double-encoded
+  if (content.includes('&lt;') || content.includes('&gt;')) {
+    // Try decoding again for double-encoded content
+    content = content
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  return content || null;
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
@@ -2915,61 +2958,398 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
     const { eventId } = req.params;
     const { internalData } = req.body;
     const userId = req.user.userId;
-    
+
     if (!internalData) {
       return res.status(400).json({ error: 'internalData required' });
     }
-    
+
     logger.debug(`Updating internal data for event ${eventId}`, { userId, internalData });
-    
+
+    // Fetch current event data before updating for change detection
+    const currentEvent = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!currentEvent) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Detect changes between old and new internal data
+    const oldInternalData = currentEvent.internalData || {};
+    const changeSet = [];
+
+    // Compare each field in the new internal data
+    for (const [field, newValue] of Object.entries(internalData)) {
+      const oldValue = oldInternalData[field];
+
+      // Skip if values are the same (deep comparison for arrays/objects)
+      if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+        changeSet.push({
+          field: `internalData.${field}`,
+          oldValue: oldValue,
+          newValue: newValue
+        });
+      }
+    }
+
+    // Check for removed fields (fields that existed in old but not in new)
+    for (const [field, oldValue] of Object.entries(oldInternalData)) {
+      if (!(field in internalData)) {
+        changeSet.push({
+          field: `internalData.${field}`,
+          oldValue: oldValue,
+          newValue: undefined
+        });
+      }
+    }
+
     // Update only internal data, preserve everything else
     const result = await unifiedEventsCollection.updateOne(
       { userId: userId, eventId: eventId },
-      { 
-        $set: { 
+      {
+        $set: {
           'internalData': internalData,
           lastAccessedAt: new Date()
-        } 
+        }
       }
     );
-    
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    
+
+    // Log audit entry if there were changes
+    if (changeSet.length > 0) {
+      try {
+        await logEventAudit({
+          eventId: eventId,
+          userId: userId,
+          changeType: 'update',
+          source: 'Manual Edit',
+          changeSet: changeSet,
+          metadata: {
+            userAgent: req.headers['user-agent'] || 'Unknown',
+            ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+            reason: 'Event internal data updated via UI'
+          }
+        });
+
+        logger.debug(`Audit entry created for event ${eventId}`, {
+          changesCount: changeSet.length
+        });
+      } catch (auditError) {
+        logger.error('Failed to create audit entry:', auditError);
+        // Don't fail the request if audit logging fails
+      }
+    } else {
+      logger.debug(`No changes detected for event ${eventId}, skipping audit entry`);
+    }
+
     // Return updated event
     const updatedEvent = await unifiedEventsCollection.findOne({
       userId: userId,
       eventId: eventId
     });
-    
+
     if (!updatedEvent) {
       return res.status(404).json({ error: 'Event not found after update' });
     }
-    
+
     // Transform to frontend format
     const transformedEvent = {
       ...updatedEvent.graphData,
       ...updatedEvent.internalData,
       calendarId: updatedEvent.calendarId,
       sourceCalendars: updatedEvent.sourceCalendars,
-      _hasInternalData: Object.keys(updatedEvent.internalData).some(key => 
-        updatedEvent.internalData[key] && 
+      _hasInternalData: Object.keys(updatedEvent.internalData).some(key =>
+        updatedEvent.internalData[key] &&
         (Array.isArray(updatedEvent.internalData[key]) ? updatedEvent.internalData[key].length > 0 : true)
       ),
       _lastSyncedAt: updatedEvent.lastSyncedAt
     };
-    
+
     logger.debug(`Successfully updated internal data for event ${eventId}`);
-    
+
     res.status(200).json({
       event: transformedEvent,
       message: 'Internal data updated successfully'
     });
-    
+
   } catch (error) {
     logger.error('Error updating event internal data:', error);
     res.status(500).json({ error: 'Failed to update internal data' });
+  }
+});
+
+/**
+ * Unified audit update endpoint - handles both Graph API and internal field updates with comprehensive audit logging
+ */
+app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { graphFields, internalFields, calendarId, graphToken } = req.body;
+    const userId = req.user.userId;
+
+    logger.debug(`Starting unified audit update for event ${eventId}`, {
+      hasGraphFields: !!graphFields,
+      hasInternalFields: !!internalFields,
+      calendarId,
+      hasGraphToken: !!graphToken
+    });
+
+    if (!graphFields && !internalFields) {
+      return res.status(400).json({ error: 'Either graphFields or internalFields must be provided' });
+    }
+
+    // Handle new event creation vs existing event updates
+    let currentEvent = null;
+    let isNewEvent = false;
+
+    if (eventId && eventId !== 'new') {
+      // Fetch current event data for existing events
+      currentEvent = await unifiedEventsCollection.findOne({
+        userId: userId,
+        eventId: eventId
+      });
+
+      if (!currentEvent) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+    } else {
+      // New event creation
+      isNewEvent = true;
+      logger.debug('Processing new event creation');
+    }
+
+    // Capture complete "before" state for audit comparison
+    const beforeState = isNewEvent ? {
+      // New events start with empty/null values
+      subject: null,
+      location: null,
+      start: null,
+      end: null,
+      body: null,
+      categories: null,
+      isAllDay: null,
+      setupMinutes: null,
+      teardownMinutes: null,
+      assignedTo: null,
+      registrationNotes: null
+    } : {
+      // Graph API fields from graphData
+      subject: currentEvent.graphData?.subject,
+      location: currentEvent.graphData?.location?.displayName,
+      start: currentEvent.graphData?.start,
+      end: currentEvent.graphData?.end,
+      body: extractTextFromHtml(currentEvent.graphData?.body?.content),
+      categories: currentEvent.graphData?.categories,
+      isAllDay: currentEvent.graphData?.isAllDay,
+      // Internal fields from internalData
+      setupMinutes: currentEvent.internalData?.setupMinutes,
+      teardownMinutes: currentEvent.internalData?.teardownMinutes,
+      assignedTo: currentEvent.internalData?.assignedTo,
+      registrationNotes: currentEvent.internalData?.registrationNotes
+    };
+
+    let graphUpdateResult = null;
+    let updatedGraphData = currentEvent?.graphData || {};
+
+    // 1. Update Graph API if graphFields provided
+    if (graphFields && graphToken) {
+      try {
+        // Construct batch request for Graph API update
+        const batchBody = {
+          requests: [
+            {
+              id: '1',
+              method: 'PATCH',
+              url: calendarId ?
+                `/me/calendars/${calendarId}/events/${eventId}` :
+                `/me/events/${eventId}`,
+              body: graphFields,
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            }
+          ]
+        };
+
+        logger.debug('Making Graph API batch update:', { batchBody });
+
+        const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(batchBody)
+        });
+
+        if (!graphResponse.ok) {
+          const errorText = await graphResponse.text();
+          logger.error('Graph API batch update failed:', {
+            status: graphResponse.status,
+            statusText: graphResponse.statusText,
+            error: errorText
+          });
+          return res.status(502).json({ error: `Graph API update failed: ${graphResponse.status} ${graphResponse.statusText}` });
+        }
+
+        const batchResult = await graphResponse.json();
+
+        if (batchResult.responses && batchResult.responses.length > 0) {
+          const mainResponse = batchResult.responses[0];
+          if (mainResponse.status >= 200 && mainResponse.status < 300) {
+            graphUpdateResult = mainResponse.body;
+            logger.debug('Graph API update successful:', graphUpdateResult);
+          } else {
+            logger.error('Graph API batch response error:', mainResponse);
+            return res.status(502).json({ error: `Graph API update failed: ${mainResponse.status}` });
+          }
+        }
+
+        // Update local graphData with the new values
+        updatedGraphData = {
+          ...currentEvent.graphData,
+          ...graphUpdateResult
+        };
+
+      } catch (graphError) {
+        logger.error('Graph API update error:', graphError);
+        return res.status(502).json({ error: `Graph API update failed: ${graphError.message}` });
+      }
+    }
+
+    // 2. Update internal fields in database
+    const updateOperations = {};
+
+    if (internalFields) {
+      updateOperations['internalData'] = {
+        ...currentEvent.internalData,
+        ...internalFields
+      };
+    }
+
+    // Always update graphData if we got new data from Graph API
+    if (graphUpdateResult) {
+      updateOperations['graphData'] = updatedGraphData;
+    }
+
+    updateOperations['lastAccessedAt'] = new Date();
+
+    const dbUpdateResult = await unifiedEventsCollection.updateOne(
+      { userId: userId, eventId: eventId },
+      { $set: updateOperations }
+    );
+
+    if (dbUpdateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found in database' });
+    }
+
+    // 3. Generate comprehensive changeSet for audit logging
+    const afterState = {
+      // Graph API fields - use updated values if changed, otherwise current values
+      subject: graphFields?.subject !== undefined ? graphFields.subject : beforeState.subject,
+      location: graphFields?.location?.displayName !== undefined ? graphFields.location.displayName : beforeState.location,
+      start: graphFields?.start !== undefined ? graphFields.start : beforeState.start,
+      end: graphFields?.end !== undefined ? graphFields.end : beforeState.end,
+      body: graphFields?.body?.content !== undefined ? extractTextFromHtml(graphFields.body.content) : beforeState.body,
+      categories: graphFields?.categories !== undefined ? graphFields.categories : beforeState.categories,
+      isAllDay: graphFields?.isAllDay !== undefined ? graphFields.isAllDay : beforeState.isAllDay,
+      // Internal fields
+      setupMinutes: internalFields?.setupMinutes !== undefined ? internalFields.setupMinutes : beforeState.setupMinutes,
+      teardownMinutes: internalFields?.teardownMinutes !== undefined ? internalFields.teardownMinutes : beforeState.teardownMinutes,
+      assignedTo: internalFields?.assignedTo !== undefined ? internalFields.assignedTo : beforeState.assignedTo,
+      registrationNotes: internalFields?.registrationNotes !== undefined ? internalFields.registrationNotes : beforeState.registrationNotes
+    };
+
+    // Generate changeSet by comparing before and after states
+    const changeSet = [];
+
+    for (const [field, afterValue] of Object.entries(afterState)) {
+      const beforeValue = beforeState[field];
+
+      // Deep comparison for complex values
+      if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
+        changeSet.push({
+          field: field,
+          oldValue: beforeValue,
+          newValue: afterValue
+        });
+      }
+    }
+
+    // 4. Create audit entry if there were changes
+    if (changeSet.length > 0) {
+      try {
+        await logEventAudit({
+          eventId: eventId,
+          userId: userId,
+          changeType: 'update',
+          source: 'Unified Form Edit',
+          changeSet: changeSet,
+          metadata: {
+            userAgent: req.headers['user-agent'] || 'Unknown',
+            ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+            reason: 'Event updated via unified audit system',
+            graphFieldsUpdated: !!graphFields,
+            internalFieldsUpdated: !!internalFields
+          }
+        });
+
+        logger.debug(`Unified audit entry created for event ${eventId}`, {
+          changesCount: changeSet.length,
+          changes: changeSet.map(c => c.field)
+        });
+      } catch (auditError) {
+        logger.error('Failed to create unified audit entry:', auditError);
+        // Don't fail the request if audit logging fails
+      }
+    } else {
+      logger.debug(`No changes detected for event ${eventId}, skipping audit entry`);
+    }
+
+    // 5. Return updated event
+    const finalEvent = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!finalEvent) {
+      return res.status(404).json({ error: 'Event not found after update' });
+    }
+
+    // Transform to frontend format
+    const transformedEvent = {
+      ...finalEvent.graphData,
+      ...finalEvent.internalData,
+      calendarId: finalEvent.calendarId,
+      sourceCalendars: finalEvent.sourceCalendars,
+      _hasInternalData: Object.keys(finalEvent.internalData || {}).some(key =>
+        finalEvent.internalData[key] &&
+        (Array.isArray(finalEvent.internalData[key]) ? finalEvent.internalData[key].length > 0 : true)
+      ),
+      _lastSyncedAt: finalEvent.lastSyncedAt
+    };
+
+    logger.debug(`Successfully completed unified update for event ${eventId}`, {
+      graphFieldsUpdated: !!graphFields,
+      internalFieldsUpdated: !!internalFields,
+      auditChangesCount: changeSet.length
+    });
+
+    res.status(200).json({
+      event: transformedEvent,
+      message: 'Event updated successfully with comprehensive audit logging',
+      auditChanges: changeSet.length,
+      graphUpdated: !!graphUpdateResult,
+      internalUpdated: !!internalFields
+    });
+
+  } catch (error) {
+    logger.error('Error in unified audit update:', error);
+    res.status(500).json({ error: 'Failed to update event with audit logging' });
   }
 });
 

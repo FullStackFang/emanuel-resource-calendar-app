@@ -11,6 +11,49 @@ import './EventForm.css';
 // ===== ADD THESE FUNCTIONS AT THE TOP OF EventForm.jsx (outside the component) =====
 
 /**
+ * Extract plain text from HTML content for clean display in form fields
+ * @param {string} htmlContent - HTML content from Microsoft Graph API
+ * @returns {string} - Clean plain text
+ */
+const extractTextFromHtml = (htmlContent) => {
+  if (!htmlContent || typeof htmlContent !== 'string') {
+    return '';
+  }
+
+  let content = htmlContent;
+
+  // First, decode HTML entities to restore actual HTML tags
+  content = content
+    .replace(/&lt;/g, '<')   // Decode HTML entities first
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+  // Now remove HTML tags and clean up
+  content = content
+    .replace(/<[^>]*>/g, '') // Remove all HTML tags
+    .replace(/&nbsp;/g, ' ') // Replace &nbsp; with spaces
+    .replace(/\s+/g, ' ')    // Replace multiple whitespace with single space
+    .trim();                 // Remove leading/trailing whitespace
+
+  // If we still have HTML-like content, it might be double-encoded
+  if (content.includes('&lt;') || content.includes('&gt;')) {
+    // Try decoding again for double-encoded content
+    content = content
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  return content || '';
+};
+
+/**
  * Convert UTC time to display time based on user's timezone
  * @param {string} utcDateString - ISO date string in UTC
  * @param {string} userTz - User's preferred timezone
@@ -318,15 +361,15 @@ function EventForm({
       let description = '';
       if (typeof event.body === 'string') {
         // Body is a plain string (from backend/cache issue)
-        description = event.body;
+        description = extractTextFromHtml(event.body);
         console.log('EventForm DEBUG - body is string, using directly:', description);
       } else if (event.body?.content) {
         // Body is proper object format from Graph API
-        description = event.body.content;
+        description = extractTextFromHtml(event.body.content);
         console.log('EventForm DEBUG - body is object, using content:', description);
       } else if (event.description) {
         // Fallback to description field
-        description = event.description;
+        description = extractTextFromHtml(event.description);
         console.log('EventForm DEBUG - using description field:', description);
       }
 

@@ -2602,86 +2602,126 @@
 
     const patchEventBatch = async (eventId, coreBody, extPayload, calendarId, internalFields) => {
       const targetCalendarId = calendarId || selectedCalendarId;
-      
-      // First, update the Graph event
-      const batchBody = makeBatchBody(eventId, coreBody, extPayload, targetCalendarId);
-      
-      // Debug logging for batch request
-      logger.debug('[patchEventBatch] Sending to Graph API:', {
+
+      // Prepare Graph API fields
+      const graphFields = { ...coreBody };
+
+      // Add schema extensions to Graph fields if provided
+      if (extPayload && Object.keys(extPayload).length > 0) {
+        graphFields.extensions = [];
+        for (const [extId, extProps] of Object.entries(extPayload)) {
+          if (Object.keys(extProps).length > 0) {
+            graphFields.extensions.push({
+              '@odata.type': `microsoft.graph.openTypeExtension`,
+              extensionName: extId,
+              ...extProps
+            });
+          }
+        }
+      }
+
+      // Debug logging for unified audit request
+      logger.debug('[patchEventBatch] Using unified audit endpoint:', {
         eventId,
-        coreBody,
-        extPayload,
-        batchBody: JSON.stringify(batchBody, null, 2)
+        hasGraphFields: Object.keys(graphFields).length > 0,
+        hasInternalFields: !!internalFields && Object.keys(internalFields).length > 0,
+        targetCalendarId,
+        graphFields,
+        internalFields
       });
-      
-      const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+
+      // Ensure we have an API token for the unified audit endpoint
+      if (!apiToken) {
+        throw new Error('API token not available for unified audit update');
+      }
+
+      // Call unified audit update endpoint
+      const response = await fetch(`${API_BASE_URL}/events/${eventId || 'new'}/audit-update`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${graphToken}`,
+          'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(batchBody)
+        body: JSON.stringify({
+          graphFields: Object.keys(graphFields).length > 0 ? graphFields : null,
+          internalFields: internalFields && Object.keys(internalFields).length > 0 ? internalFields : null,
+          calendarId: targetCalendarId,
+          graphToken: graphToken
+        })
       });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error?.message || `Batch call failed: ${resp.status}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('[patchEventBatch] Unified audit update failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`Unified audit update failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
-      
-      // Parse the batch response to get the created/updated event data
-      const batchResponse = await resp.json();
-      let createdEventData = null;
-      
-      if (batchResponse.responses && batchResponse.responses.length > 0) {
-        const mainResponse = batchResponse.responses.find(r => r.id === '1');
-        if (mainResponse && mainResponse.status >= 200 && mainResponse.status < 300) {
-          createdEventData = mainResponse.body;
-          logger.debug('Created/updated event:', createdEventData);
+
+      const result = await response.json();
+      logger.debug('[patchEventBatch] Unified audit update successful:', {
+        auditChanges: result.auditChanges,
+        graphUpdated: result.graphUpdated,
+        internalUpdated: result.internalUpdated,
+        eventId: result.event?.id
+      });
+
+      // For new events, handle the case where we need to create the event first
+      if (!eventId && !result.event?.id) {
+        // Fall back to direct Graph API creation for new events
+        logger.debug('[patchEventBatch] Creating new event via direct Graph API');
+
+        const batchBody = makeBatchBody(null, coreBody, extPayload, targetCalendarId);
+        const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(batchBody)
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error?.message || `New event creation failed: ${resp.status}`);
         }
-      }
-      
-      // Then, save internal fields if provided (only for existing events)
-      if (internalFields && eventDataService.apiToken && eventId) {
-        try {
-          await eventDataService.updateInternalFields(eventId, internalFields);
-          logger.debug('Updated internal fields for event:', eventId, internalFields);
-        } catch (error) {
-          logger.error('Failed to update internal fields:', error);
-          // Don't throw here - Graph update succeeded, internal data is supplementary
-        }
-      }
-      
-      // For new events, fetch complete event data with categories
-      if (createdEventData && createdEventData.id && !eventId) {
-        try {
-          logger.debug('[patchEventBatch] Fetching complete event data for new event:', createdEventData.id);
-          
-          const calendarPath = targetCalendarId ? 
-            `/me/calendars/${targetCalendarId}/events/${createdEventData.id}` : 
-            `/me/events/${createdEventData.id}`;
-          
-          const fetchResponse = await fetch(`https://graph.microsoft.com/v1.0${calendarPath}?$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime`, {
-            headers: {
-              Authorization: `Bearer ${graphToken}`
+
+        const batchResponse = await resp.json();
+        let createdEventData = null;
+
+        if (batchResponse.responses && batchResponse.responses.length > 0) {
+          const mainResponse = batchResponse.responses.find(r => r.id === '1');
+          if (mainResponse && mainResponse.status >= 200 && mainResponse.status < 300) {
+            createdEventData = mainResponse.body;
+            logger.debug('[patchEventBatch] New event created:', createdEventData.id);
+
+            // Now update with internal fields using the new event ID
+            if (internalFields && Object.keys(internalFields).length > 0) {
+              await fetch(`${API_BASE_URL}/events/${createdEventData.id}/audit-update`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  internalFields: internalFields,
+                  calendarId: targetCalendarId,
+                  graphToken: graphToken
+                })
+              });
             }
-          });
-          
-          if (fetchResponse.ok) {
-            const completeEventData = await fetchResponse.json();
-            logger.debug('[patchEventBatch] Complete event data with categories:', completeEventData);
-            
-            // Merge the complete data with the creation response
-            createdEventData = { ...createdEventData, ...completeEventData };
-          } else {
-            logger.warn('[patchEventBatch] Failed to fetch complete event data:', fetchResponse.status);
+
+            return createdEventData;
           }
-        } catch (error) {
-          logger.error('[patchEventBatch] Error fetching complete event data:', error);
-          // Continue with partial data
         }
+
+        throw new Error('Failed to create new event');
       }
-      
-      // Return the created event data for further processing
-      return createdEventData;
+
+      // Return the event data from the unified update
+      return result.event || { id: eventId };
     };
 
     //---------------------------------------------------------------------------
@@ -5143,13 +5183,13 @@
           }
           hideTitle={false}
         >
-          <EventForm 
+          <EventForm
             event={currentEvent}
             categories={(() => {
               const targetCalendarId = getTargetCalendarId();
               const calendarSpecificCategories = getCalendarSpecificCategories(targetCalendarId);
               return calendarSpecificCategories;
-            })()} 
+            })()}
             availableLocations={getFilteredLocationsForMultiSelect()}
             dynamicLocations={dynamicLocations}
             schemaExtensions={schemaExtensions}
@@ -5159,6 +5199,7 @@
             readOnly={modalType === 'view'}
             userTimeZone={userTimezone}
             savingEvent={savingEvent}
+            apiToken={apiToken}
           />
         </Modal>
 

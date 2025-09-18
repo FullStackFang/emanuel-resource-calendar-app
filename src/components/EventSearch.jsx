@@ -819,7 +819,7 @@ function EventSearchInner({
               </div>
               
               {/* Pass shared timezone to EventForm for consistent date/time display */}
-              <EventForm 
+              <EventForm
                 event={selectedEvent}
                 categories={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
                 availableLocations={availableLocations}
@@ -828,6 +828,7 @@ function EventSearchInner({
                 readOnly={false}
                 isLoading={updateEventMutation.isPending}
                 userTimeZone={userTimezone} // Pass shared timezone to form
+                apiToken={apiToken}
               />
             </div>
           ) : (
