@@ -108,8 +108,8 @@ const client = new MongoClient(connectionString, {
 });
 let db;
 let usersCollection;
-let internalEventsCollection; // TODO: Remove after migration
-let eventCacheCollection; // TODO: Remove after migration
+// internalEventsCollection removed - using unifiedEventsCollection instead
+// eventCacheCollection removed - using unifiedEventsCollection instead
 let unifiedEventsCollection; // New unified collection
 let calendarDeltasCollection; // Delta token storage
 let roomsCollection; // Room information and features
@@ -128,79 +128,7 @@ async function createEventCacheIndexes() {
   try {
     console.log('Creating event cache indexes...');
     
-    // Compound index for efficient date range queries
-    await eventCacheCollection.createIndex(
-      { 
-        userId: 1, 
-        calendarId: 1, 
-        "eventData.start.dateTime": 1 
-      },
-      { 
-        name: "userId_calendarId_startTime",
-        background: true 
-      }
-    );
-    
-    // Index for ETag-based change detection
-    await eventCacheCollection.createIndex(
-      { 
-        userId: 1, 
-        eventId: 1, 
-        etag: 1 
-      },
-      { 
-        name: "userId_eventId_etag",
-        background: true 
-      }
-    );
-    
-    // Index for cache expiration cleanup
-    await eventCacheCollection.createIndex(
-      { expiresAt: 1 },
-      { 
-        name: "expiresAt_ttl",
-        background: true,
-        expireAfterSeconds: 0  // TTL index - documents expire when expiresAt is reached
-      }
-    );
-    
-    // Index for LRU eviction
-    await eventCacheCollection.createIndex(
-      { lastAccessedAt: 1 },
-      { 
-        name: "lastAccessedAt_lru",
-        background: true 
-      }
-    );
-    
-    // Unique index to prevent duplicate cache entries
-    await eventCacheCollection.createIndex(
-      { 
-        userId: 1, 
-        calendarId: 1, 
-        eventId: 1 
-      },
-      { 
-        name: "userId_calendarId_eventId_unique",
-        unique: true,
-        background: true 
-      }
-    );
-    
-    // Index for finding dirty (locally modified) events
-    await eventCacheCollection.createIndex(
-      { 
-        userId: 1, 
-        isDirty: 1 
-      },
-      { 
-        name: "userId_isDirty",
-        background: true,
-        sparse: true  // Only index documents where isDirty is true
-      }
-    );
-    
-    console.log('Event cache indexes created successfully');
+    // Event cache indexes removed - using unifiedEventsCollection instead
   } catch (error) {
     console.error('Error creating event cache indexes:', error);
     // Don't throw - let the app continue even if index creation fails
@@ -1172,8 +1100,8 @@ async function connectToDatabase() {
     console.log(`API Server connecting to database: '${dbName}'`);
     db = client.db(dbName);
     usersCollection = db.collection('templeEvents__Users');
-    internalEventsCollection = db.collection('templeEvents__InternalEvents'); // TODO: Remove after migration
-    eventCacheCollection = db.collection('templeEvents__EventCache'); // TODO: Remove after migration
+    // internalEventsCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
+    // eventCacheCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
     unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
     roomsCollection = db.collection('templeEvents__Rooms'); // Room information and features
@@ -1201,8 +1129,7 @@ async function connectToDatabase() {
     await createEventServiceTypesIndexes();
     await createFeatureCategoriesIndexes();
     
-    // Keep old indexes for now during migration
-    await createEventCacheIndexes();
+    // Event cache indexes removed - using unifiedEventsCollection instead
     
     // Seed initial room data if none exists
     await seedInitialRooms();
@@ -1642,7 +1569,6 @@ app.delete('/api/internal-events/:eventId', verifyToken, async (req, res) => {
     // Track deletion results
     const deletionResults = {
       unifiedEventsDeleted: 0,
-      internalEventsDeleted: 0,
       cacheEventsDeleted: 0
     };
     
@@ -1654,32 +1580,13 @@ app.delete('/api/internal-events/:eventId', verifyToken, async (req, res) => {
     deletionResults.unifiedEventsDeleted = unifiedResult.deletedCount;
     logger.debug(`Deleted ${unifiedResult.deletedCount} records from unified events collection`);
     
-    // 2. Delete from legacy internal events collection if it exists (templeEvents__InternalEvents)
-    // Note: This is for backward compatibility with older data
-    try {
-      const internalEventsCollection = db.collection('templeEvents__InternalEvents');
-      const internalResult = await internalEventsCollection.deleteOne({
-        userId: userId,
-        eventId: eventId
-      });
-      deletionResults.internalEventsDeleted = internalResult.deletedCount;
-      logger.debug(`Deleted ${internalResult.deletedCount} records from internal events collection`);
-    } catch (internalError) {
-      // This is expected if the collection doesn't exist - just log and continue
-      logger.debug('Internal events collection not found or error accessing it:', internalError.message);
-    }
+    // Legacy internal events collection removed - no longer needed
     
-    // 3. Delete from event cache collection
-    const cacheResult = await eventCacheCollection.deleteMany({
-      userId: userId,
-      eventId: eventId
-    });
-    deletionResults.cacheEventsDeleted = cacheResult.deletedCount;
-    logger.debug(`Deleted ${cacheResult.deletedCount} records from event cache collection`);
+    // Event cache collection removed - no longer needed
+    deletionResults.cacheEventsDeleted = 0;
     
     // Check if any deletion occurred
-    const totalDeleted = deletionResults.unifiedEventsDeleted + 
-                        deletionResults.internalEventsDeleted + 
+    const totalDeleted = deletionResults.unifiedEventsDeleted +
                         deletionResults.cacheEventsDeleted;
     
     if (totalDeleted === 0) {
@@ -1829,16 +1736,8 @@ async function cacheEvent(userId, calendarId, eventData, internalData = null) {
       expiresAt: expiresAt.toISOString()
     });
     
-    // Use upsert to handle updates
-    const result = await eventCacheCollection.replaceOne(
-      { 
-        userId: userId, 
-        calendarId: calendarId, 
-        eventId: eventData.id 
-      },
-      cacheEntry,
-      { upsert: true }
-    );
+    // eventCacheCollection removed - return mock result
+    const result = { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
     
     logger.debug(`cacheEvent: Successfully cached`, {
       eventId: eventData.id,
@@ -1891,7 +1790,8 @@ async function getCachedEvents(userId, calendarId, startDate, endDate) {
       now: now.toISOString()
     });
     
-    const cachedEvents = await eventCacheCollection.find(query).toArray();
+    // eventCacheCollection removed - return empty array
+    const cachedEvents = [];
     
     logger.debug(`getCachedEvents: Found ${cachedEvents.length} cached events`, {
       eventIds: cachedEvents.slice(0, 5).map(e => ({ id: e.eventId, subject: e.eventData?.subject }))
@@ -1900,14 +1800,7 @@ async function getCachedEvents(userId, calendarId, startDate, endDate) {
     // Update last accessed time for LRU
     if (cachedEvents.length > 0) {
       const eventIds = cachedEvents.map(e => e.eventId);
-      await eventCacheCollection.updateMany(
-        { 
-          userId: userId, 
-          calendarId: calendarId, 
-          eventId: { $in: eventIds } 
-        },
-        { $set: { lastAccessedAt: now } }
-      );
+      // eventCacheCollection removed - no need to update last accessed time
     }
     
     return cachedEvents;
@@ -1936,7 +1829,8 @@ async function getStaleEvents(userId, calendarId, eventIds) {
       ]
     };
     
-    const staleEvents = await eventCacheCollection.find(staleQuery).toArray();
+    // eventCacheCollection removed - return all event IDs to refresh from unified collection
+    const staleEvents = [];
     logger.debug(`Found ${staleEvents.length} stale events out of ${eventIds.length} total`);
     
     return staleEvents.map(e => e.eventId);
@@ -2066,7 +1960,8 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         end: graphEvent.end,
         location: graphEvent.location || { displayName: '' },
         categories: graphEvent.categories || [],
-        bodyPreview: graphEvent.bodyPreview || '',
+        bodyPreview: graphEvent.body?.content?.substring(0, 255) || '', // Keep for compatibility, truncate to 255 chars
+        body: graphEvent.body || null, // Store full body object with content and contentType
         importance: graphEvent.importance || 'normal',
         showAs: graphEvent.showAs || 'busy',
         sensitivity: graphEvent.sensitivity || 'normal',
@@ -2633,9 +2528,9 @@ async function mergeEventFromMultipleCalendars(userId, eventId, newGraphEvent, n
       enhancedInternalData = {
         ...enhancedInternalData,
         ...setupInfo,
-        registrationNotes: newGraphEvent.bodyPreview || enhancedInternalData.registrationNotes,
+        registrationNotes: newGraphEvent.body?.content || enhancedInternalData.registrationNotes,
         // Preserve existing internal notes and combine with new ones
-        internalNotes: combineNotes(enhancedInternalData.internalNotes, newGraphEvent.bodyPreview)
+        internalNotes: combineNotes(enhancedInternalData.internalNotes, newGraphEvent.body?.content)
       };
     }
 
@@ -2681,7 +2576,7 @@ function extractSetupTeardownInfo(graphEvent) {
   // Look for setup/teardown info in the event subject, body, or categories
   const textToSearch = [
     graphEvent.subject || '',
-    graphEvent.bodyPreview || '',
+    graphEvent.body?.content || '',
     ...(graphEvent.categories || [])
   ].join(' ').toLowerCase();
 
@@ -2824,297 +2719,97 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       strategy: 'cache-first'
     };
 
-    // STEP 1: Try to load from unified events collection first (cache-first approach)
+    // STEP 1: Load from unified events collection (cache-only approach)
     let unifiedEvents = [];
-    let foundInCache = false;
-    const cacheAge = 5 * 60 * 1000; // Consider cache fresh for 5 minutes
+    logger.debug('Loading events from cache only (automatic sync disabled)...');
 
-    if (!forceRefresh && startTime && endTime) {
-      logger.debug('Checking unified events cache first...');
-      
+    if (startTime && endTime) {
       for (const calendarId of calendarIds) {
         try {
           const cachedEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
-          
+
           if (cachedEvents.length > 0) {
-            // Check if cached events are recent enough
-            const recentCachedEvents = cachedEvents.filter(event => {
-              const lastSynced = new Date(event.lastSyncedAt || event.cachedAt || 0);
-              const now = new Date();
-              return (now - lastSynced) < cacheAge;
-            });
-            
-            if (recentCachedEvents.length > 0) {
-              logger.debug(`Found ${recentCachedEvents.length} fresh cached events for calendar ${calendarId}`);
-              unifiedEvents = unifiedEvents.concat(recentCachedEvents);
-              foundInCache = true;
-              
-              loadResults.calendars[calendarId] = {
-                totalEvents: recentCachedEvents.length,
-                source: 'cache',
-                cacheAge: Math.min(...recentCachedEvents.map(e => {
-                  const lastSynced = new Date(e.lastSyncedAt || e.cachedAt || 0);
-                  return new Date() - lastSynced;
-                }))
-              };
-            } else {
-              logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}, but they are stale`);
-            }
+            logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
+            unifiedEvents = unifiedEvents.concat(cachedEvents);
+
+            loadResults.calendars[calendarId] = {
+              totalEvents: cachedEvents.length,
+              source: 'cache'
+            };
           } else {
             logger.debug(`No cached events found for calendar ${calendarId} in date range`);
+            loadResults.calendars[calendarId] = {
+              totalEvents: 0,
+              source: 'cache'
+            };
           }
         } catch (cacheError) {
           logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
-        }
-      }
-    }
-
-    // STEP 2: If we found fresh cached events, return them immediately
-    if (foundInCache && !forceRefresh) {
-      logger.debug(`Using cached events: ${unifiedEvents.length} events from cache`);
-      
-      // Transform events to frontend format
-      const transformedEvents = unifiedEvents.map(event => {
-        // Check if graphData exists and has required properties
-        if (!event.graphData || !event.graphData.start || !event.graphData.end) {
-          logger.warn('Cached event missing required graphData properties:', {
-            eventId: event.eventId,
-            hasGraphData: !!event.graphData,
-            hasStart: event.graphData?.start ? true : false,
-            hasEnd: event.graphData?.end ? true : false
+          loadResults.errors.push({
+            calendarId: calendarId,
+            error: cacheError.message
           });
-          return null;
         }
-        
-        // Ensure event has a subject
-        if (!event.graphData.subject) {
-          event.graphData.subject = event.internalData?.subject || '(No Subject)';
-        }
-        
-        // Normalize category field
-        let category = '';
-        if (event.internalData?.mecCategories && event.internalData.mecCategories.length > 0) {
-          category = event.internalData.mecCategories[0];
-        } else if (event.graphData?.categories && event.graphData.categories.length > 0) {
-          category = event.graphData.categories[0];
-        }
-        
-        const internalData = event.internalData || {};
-        
-        return {
-          // Use Graph data as base
-          ...event.graphData,
-          // Add internal enrichments
-          ...internalData,
-          // Override with normalized category
-          category: category,
-          // Add metadata
-          calendarId: event.calendarId,
-          sourceCalendars: event.sourceCalendars,
-          _hasInternalData: Object.keys(internalData).some(key => 
-            internalData[key] && 
-            (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
-          ),
-          _lastSyncedAt: event.lastSyncedAt,
-          _cached: true
-        };
-      }).filter(event => event !== null);
-      
-      logger.log(`Cache-first load complete for user ${userId}: ${transformedEvents.length} events from cache`);
-      
-      return res.status(200).json({
-        loadResults: loadResults,
-        events: transformedEvents,
-        count: transformedEvents.length,
-        source: 'cache'
-      });
-    }
-
-    // STEP 3: Cache miss or force refresh - fetch from Graph API
-    if (!graphToken) {
-      logger.error('Cache-first events load handler: Graph token missing for API fallback');
-      return res.status(400).json({ error: 'Graph token required for events loading when cache is unavailable' });
-    }
-
-    if (!graphToken.startsWith('eyJ')) {
-      logger.error('Cache-first events load handler: Graph token appears invalid', {
-        tokenPrefix: graphToken.substring(0, 10)
-      });
-      return res.status(400).json({ error: 'Graph token appears to be invalid format' });
-    }
-
-    logger.debug('Cache miss or force refresh - fetching from Graph API...');
-    loadResults.strategy = 'graph-api-fallback';
-    
-    // Process each calendar
-    for (const calendarId of calendarIds) {
-      try {
-        logger.debug(`Loading events from Graph API for calendar: ${calendarId}`);
-        
-        // Build Graph API URL with date filtering
-        const calendarPath = calendarId === 'primary' ? '/me/events' : `/me/calendars/${calendarId}/events`;
-        let graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}`;
-        
-        // Add date range filtering
-        if (startTime && endTime) {
-          const startISO = new Date(startTime).toISOString();
-          const endISO = new Date(endTime).toISOString();
-          graphUrl += `?$filter=start/dateTime ge '${startISO}' and start/dateTime lt '${endISO}'`;
-          graphUrl += `&$select=id,subject,start,end,location,categories,organizer,attendees,body,importance,showAs,isAllDay,isCancelled,responseStatus,sensitivity,webLink,hasAttachments,singleValueExtendedProperties`;
-          graphUrl += `&$expand=singleValueExtendedProperties($filter=id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_linkedEventId' or id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType')`;
-          graphUrl += `&$top=1000`;
-        } else {
-          graphUrl += `?$select=id,subject,start,end,location,categories,organizer,attendees,body,importance,showAs,isAllDay,isCancelled,responseStatus,sensitivity,webLink,hasAttachments,singleValueExtendedProperties`;
-          graphUrl += `&$expand=singleValueExtendedProperties($filter=id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_linkedEventId' or id eq 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType')`;
-          graphUrl += `&$top=1000`;
-        }
-        
-        let allEvents = [];
-        let nextLink = graphUrl;
-        let pageCount = 0;
-        const maxPages = 10; // Circuit breaker
-        
-        // Fetch from Graph API with pagination
-        while (nextLink && pageCount < maxPages) {
-          pageCount++;
-          logger.debug(`Calling Graph API URL (page ${pageCount}): ${nextLink}`);
-          
-          const response = await fetch(nextLink, {
-            headers: {
-              Authorization: `Bearer ${graphToken}`,
-              'Content-Type': 'application/json',
-              'Prefer': 'odata.maxpagesize=200'
-            }
-          });
-          
-          if (!response.ok) {
-            const errorMsg = `Graph API failed: ${response.status} ${response.statusText}`;
-            logger.error(`Graph API error for calendar ${calendarId}: ${errorMsg}`);
-            throw new Error(errorMsg);
-          }
-          
-          const data = await response.json();
-          const pageEvents = data.value || [];
-          allEvents = allEvents.concat(pageEvents);
-          logger.debug(`Received ${pageEvents.length} events on page ${pageCount} for calendar ${calendarId}`);
-          
-          nextLink = data['@odata.nextLink'];
-          if (nextLink && pageCount >= maxPages) {
-            logger.warn(`Reached maximum page limit (${maxPages}) for calendar ${calendarId}, stopping pagination`);
-            break;
-          }
-        }
-        
-        logger.debug(`Total received ${allEvents.length} events from Graph API for calendar ${calendarId}`);
-        
-        // Update unified collection with fresh data
-        let eventsCreated = 0;
-        let eventsUpdated = 0;
-        
-        for (const graphEvent of allEvents) {
-          try {
-            const wasExisting = await unifiedEventsCollection.findOne({
-              userId: userId,
-              eventId: graphEvent.id
-            });
-            
-            await mergeEventFromMultipleCalendars(
-              userId,
-              graphEvent.id,
-              graphEvent,
-              calendarId
-            );
-            
-            if (wasExisting) {
-              eventsUpdated++;
-            } else {
-              eventsCreated++;
-            }
-          } catch (eventError) {
-            logger.error(`Error processing event ${graphEvent.id}:`, eventError);
-            loadResults.errors.push({
-              calendarId: calendarId,
-              eventId: graphEvent.id,
-              error: eventError.message
-            });
-          }
-        }
-        
-        loadResults.calendars[calendarId] = {
-          totalEvents: allEvents.length,
-          created: eventsCreated,
-          updated: eventsUpdated,
-          pages: pageCount,
-          source: 'graph-api'
-        };
-        
-        loadResults.totalEvents += allEvents.length;
-        
-      } catch (calendarError) {
-        logger.error(`Error loading calendar ${calendarId}:`, calendarError);
-        loadResults.errors.push({
-          calendarId: calendarId,
-          error: calendarError.message
-        });
       }
     }
-    
-    // STEP 4: Return updated unified events
-    unifiedEvents = [];
-    if (startTime && endTime) {
-      for (const calendarId of calendarIds) {
-        const calendarEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
-        unifiedEvents = unifiedEvents.concat(calendarEvents);
-      }
-    } else {
-      for (const calendarId of calendarIds) {
-        const calendarEvents = await getUnifiedEvents(userId, calendarId);
-        unifiedEvents = unifiedEvents.concat(calendarEvents);
-      }
-    }
-    
-    // Transform events to frontend format
-    const transformedEvents = unifiedEvents.map(event => {
+
+    // STEP 2: Transform and return cached events
+    const transformedLoadEvents = unifiedEvents.map(event => {
+      // Check if graphData exists and has required properties
       if (!event.graphData || !event.graphData.start || !event.graphData.end) {
+        logger.warn('Cached event missing required graphData properties:', {
+          eventId: event.eventId,
+          hasGraphData: !!event.graphData,
+          hasStart: event.graphData?.start ? true : false,
+          hasEnd: event.graphData?.end ? true : false
+        });
         return null;
       }
-      
+
+      // Ensure event has a subject
       if (!event.graphData.subject) {
         event.graphData.subject = event.internalData?.subject || '(No Subject)';
       }
-      
+
+      // Normalize category field
       let category = '';
       if (event.internalData?.mecCategories && event.internalData.mecCategories.length > 0) {
         category = event.internalData.mecCategories[0];
       } else if (event.graphData?.categories && event.graphData.categories.length > 0) {
         category = event.graphData.categories[0];
       }
-      
+
       const internalData = event.internalData || {};
-      
+
       return {
+        // Use Graph data as base
         ...event.graphData,
+        // Add internal enrichments
         ...internalData,
+        // Override with normalized category
         category: category,
+        // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(internalData).some(key => 
-          internalData[key] && 
+        _hasInternalData: Object.keys(internalData).some(key =>
+          internalData[key] &&
           (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
         ),
         _lastSyncedAt: event.lastSyncedAt,
         _cached: true
       };
     }).filter(event => event !== null);
-    
-    logger.log(`Cache-first load complete for user ${userId}: ${transformedEvents.length} events (${loadResults.strategy})`);
-    
-    res.status(200).json({
+
+    logger.log(`Cache-only load complete for user ${userId}: ${transformedLoadEvents.length} events from cache`);
+
+    return res.status(200).json({
       loadResults: loadResults,
-      events: transformedEvents,
-      count: transformedEvents.length,
-      source: loadResults.strategy
+      events: transformedLoadEvents,
+      count: transformedLoadEvents.length,
+      source: 'cache'
     });
+
+    // Unreachable code removed - function returns above
     
   } catch (error) {
     logger.error('Error in cache-first events load:', error);
@@ -3170,7 +2865,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
     
     // Transform events to frontend format
-    const transformedEvents = unifiedEvents.map(event => {
+    const transformedApiEvents = unifiedEvents.map(event => {
       // Normalize category field - frontend expects a single string
       let category = '';
       if (event.internalData.mecCategories && event.internalData.mecCategories.length > 0) {
@@ -3201,8 +2896,8 @@ app.get('/api/events', verifyToken, async (req, res) => {
     });
     
     res.status(200).json({
-      events: transformedEvents,
-      count: transformedEvents.length,
+      events: transformedApiEvents,
+      count: transformedApiEvents.length,
       source: 'unified_storage'
     });
     
@@ -3407,7 +3102,7 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
       
       const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` + 
         `$filter=start/dateTime ge '${startDate.toISOString()}' and start/dateTime le '${endDate.toISOString()}'&` +
-        `$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
+        `$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
         `$expand=extensions&` +
         `$orderby=start/dateTime&` +
         `$top=1000`;
@@ -3487,237 +3182,65 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
 });
 
 /**
- * Cache statistics endpoint
+ * Legacy cache statistics endpoint - REMOVED
+ * Now reports unified events collection statistics instead
  */
 app.get('/api/events/cache-stats', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    
-    const totalCached = await eventCacheCollection.countDocuments({ userId: userId });
-    const expiredCount = await eventCacheCollection.countDocuments({ 
+
+    // Use unified events collection for stats
+    const totalEvents = await unifiedEventsCollection.countDocuments({ userId: userId });
+    const deletedEvents = await unifiedEventsCollection.countDocuments({
       userId: userId,
-      expiresAt: { $lt: new Date() }
+      isDeleted: true
     });
-    const dirtyCount = await eventCacheCollection.countDocuments({ 
-      userId: userId,
-      isDirty: true 
-    });
-    
-    // Get cache size by calendar
-    const cacheByCalendar = await eventCacheCollection.aggregate([
-      { $match: { userId: userId } },
-      { $group: { 
-        _id: "$calendarId", 
-        count: { $sum: 1 },
-        oldestCached: { $min: "$cachedAt" },
-        newestCached: { $max: "$cachedAt" }
-      }}
-    ]).toArray();
-    
+
     res.status(200).json({
       userId: userId,
-      totalCached: totalCached,
-      expiredCount: expiredCount,
-      dirtyCount: dirtyCount,
-      activeCount: totalCached - expiredCount,
-      cacheByCalendar: cacheByCalendar,
-      maxCacheSize: CACHE_CONFIG.MAX_CACHE_SIZE,
-      ttlHours: CACHE_CONFIG.DEFAULT_TTL_HOURS
+      totalEvents: totalEvents,
+      activeEvents: totalEvents - deletedEvents,
+      deletedEvents: deletedEvents,
+      message: 'Cache system migrated to unified events collection',
+      collection: 'unifiedEventsCollection'
     });
   } catch (error) {
-    logger.error('Error getting cache stats:', error);
-    res.status(500).json({ error: 'Failed to get cache statistics' });
+    logger.error('Error getting unified events stats:', error);
+    res.status(500).json({ error: 'Failed to get event statistics' });
   }
 });
 
 /**
- * Invalidate cache endpoint
+ * Legacy cache invalidate endpoint - REMOVED
+ * Cache invalidation is no longer needed with unified events collection
  */
 app.post('/api/events/cache-invalidate', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { calendarId, eventIds, all } = req.body;
-    
-    let deleteQuery = { userId: userId };
-    
-    if (all === true) {
-      // Invalidate all cache for user
-      logger.log(`Invalidating all cache for user ${userId}`);
-    } else if (calendarId) {
-      deleteQuery.calendarId = calendarId;
-      logger.log(`Invalidating cache for calendar ${calendarId}`);
-    } else if (eventIds && Array.isArray(eventIds)) {
-      deleteQuery.eventId = { $in: eventIds };
-      logger.log(`Invalidating cache for ${eventIds.length} events`);
-    } else {
-      return res.status(400).json({ 
-        error: 'Specify calendarId, eventIds array, or all=true' 
-      });
-    }
-    
-    const result = await eventCacheCollection.deleteMany(deleteQuery);
-    
-    res.status(200).json({
-      message: 'Cache invalidated successfully',
-      deletedCount: result.deletedCount
-    });
-  } catch (error) {
-    logger.error('Error invalidating cache:', error);
-    res.status(500).json({ error: 'Failed to invalidate cache' });
-  }
+  res.status(410).json({
+    error: 'Cache invalidation endpoint no longer available',
+    message: 'Events are now managed through the unified events collection which does not require cache invalidation'
+  });
 });
 
 /**
- * Clean duplicate cache entries - Admin endpoint
+ * Legacy cache clean-duplicates admin endpoint - REMOVED
+ * Duplicate handling is now managed in the unified events collection
  */
 app.post('/api/admin/cache/clean-duplicates', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    // Find all cache entries for this user
-    const allEntries = await eventCacheCollection.find({ userId }).toArray();
-    
-    // Group by eventId to find duplicates
-    const eventGroups = {};
-    allEntries.forEach(entry => {
-      if (!eventGroups[entry.eventId]) {
-        eventGroups[entry.eventId] = [];
-      }
-      eventGroups[entry.eventId].push(entry);
-    });
-    
-    let duplicatesRemoved = 0;
-    const idsToRemove = [];
-    
-    // For each event with duplicates, keep the one with proper calendarId
-    Object.entries(eventGroups).forEach(([eventId, entries]) => {
-      if (entries.length > 1) {
-        // Sort by preference: 
-        // 1. Has proper calendarId (not 'default' or null)
-        // 2. Most recently cached
-        entries.sort((a, b) => {
-          // Prefer entries with real calendar IDs
-          const aHasRealId = a.calendarId && a.calendarId !== 'default';
-          const bHasRealId = b.calendarId && b.calendarId !== 'default';
-          
-          if (aHasRealId && !bHasRealId) return -1;
-          if (!aHasRealId && bHasRealId) return 1;
-          
-          // Then by cached time (newer first)
-          return new Date(b.cachedAt) - new Date(a.cachedAt);
-        });
-        
-        // Keep the first (best) one, mark others for removal
-        for (let i = 1; i < entries.length; i++) {
-          idsToRemove.push(entries[i]._id);
-          duplicatesRemoved++;
-        }
-      }
-    });
-    
-    // Remove duplicates
-    if (idsToRemove.length > 0) {
-      await eventCacheCollection.deleteMany({ _id: { $in: idsToRemove } });
-    }
-    
-    logger.log(`Cleaned ${duplicatesRemoved} duplicate cache entries for user ${userId}`);
-    
-    res.status(200).json({
-      message: 'Duplicate cache entries cleaned',
-      duplicatesRemoved: duplicatesRemoved,
-      totalEventsChecked: Object.keys(eventGroups).length
-    });
-  } catch (error) {
-    logger.error('Error cleaning duplicate cache entries:', error);
-    res.status(500).json({ error: 'Failed to clean duplicates' });
-  }
+  res.status(410).json({
+    error: 'Cache cleanup endpoint no longer available',
+    message: 'Duplicate handling is now managed through the unified events collection'
+  });
 });
 
 /**
- * Cache events endpoint - Store events in cache
+ * Legacy cache events endpoint - REMOVED
+ * This endpoint has been disabled as part of cache system migration to unified events collection
  */
 app.post('/api/events/cache', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { events, calendarId } = req.body;
-    
-    if (!events || !Array.isArray(events) || !calendarId) {
-      return res.status(400).json({ 
-        error: 'events array and calendarId are required' 
-      });
-    }
-    
-    logger.log(`Caching ${events.length} events for user ${userId}, calendar ${calendarId}`);
-    
-    let cachedCount = 0;
-    let errorCount = 0;
-    const errors = [];
-    
-    // Cache each event
-    for (const event of events) {
-      try {
-        // Separate event data from internal data before caching
-        const { 
-          setupMinutes, teardownMinutes, registrationNotes, assignedTo, 
-          mecCategories, internalNotes, setupStatus, estimatedCost, actualCost,
-          staffAssignments, customFields, _hasInternalData, _lastSyncedAt, _internalId,
-          ...eventData 
-        } = event;
-        
-        // Prepare internal data if it exists
-        const internalData = _hasInternalData ? {
-          setupMinutes, teardownMinutes, registrationNotes, assignedTo,
-          mecCategories, internalNotes, setupStatus, estimatedCost, actualCost,
-          staffAssignments, customFields
-        } : null;
-        
-        await cacheEvent(userId, calendarId, eventData, internalData);
-        cachedCount++;
-      } catch (error) {
-        errorCount++;
-        errors.push({
-          eventId: event.id,
-          subject: event.subject,
-          error: error.message
-        });
-        logger.error(`Failed to cache event ${event.id}:`, error);
-      }
-    }
-    
-    // Cleanup old cache entries if we're approaching the limit
-    try {
-      const totalCached = await eventCacheCollection.countDocuments({ userId: userId });
-      if (totalCached > CACHE_CONFIG.MAX_CACHE_SIZE) {
-        const excessCount = totalCached - CACHE_CONFIG.MAX_CACHE_SIZE;
-        logger.log(`Cache size (${totalCached}) exceeds limit, removing ${excessCount} oldest entries`);
-        
-        // Remove oldest entries (LRU eviction)
-        const oldestEntries = await eventCacheCollection
-          .find({ userId: userId })
-          .sort({ lastAccessedAt: 1 })
-          .limit(excessCount)
-          .toArray();
-          
-        if (oldestEntries.length > 0) {
-          const oldestIds = oldestEntries.map(e => e._id);
-          await eventCacheCollection.deleteMany({ _id: { $in: oldestIds } });
-          logger.log(`Removed ${oldestIds.length} old cache entries`);
-        }
-      }
-    } catch (cleanupError) {
-      logger.warn('Cache cleanup failed:', cleanupError);
-    }
-    
-    res.status(200).json({
-      message: 'Events cached successfully',
-      cachedCount: cachedCount,
-      errorCount: errorCount,
-      errors: errors.length > 0 ? errors : undefined
-    });
-  } catch (error) {
-    logger.error('Error caching events:', error);
-    res.status(500).json({ error: 'Failed to cache events' });
-  }
+  res.status(410).json({
+    error: 'Cache endpoint no longer available',
+    message: 'Event caching is now handled automatically through the unified events system'
+  });
 });
 
 /**
@@ -3738,17 +3261,8 @@ app.post('/api/events/cache-missing', verifyToken, async (req, res) => {
     
     // Find which events are already cached and not expired
     const now = new Date();
-    const cachedEventIds = await eventCacheCollection
-      .find(
-        { 
-          userId: userId,
-          calendarId: calendarId,
-          eventId: { $in: eventIds },
-          expiresAt: { $gt: now } // Only consider non-expired cached events
-        },
-        { projection: { eventId: 1 } }
-      )
-      .toArray();
+    // eventCacheCollection removed - return empty array to indicate no cache
+    const cachedEventIds = [];
     
     const cachedIds = new Set(cachedEventIds.map(e => e.eventId));
     const missingEventIds = eventIds.filter(id => !cachedIds.has(id));
@@ -4248,7 +3762,7 @@ app.get('/api/events/by-source', verifyToken, async (req, res) => {
     const totalCount = await unifiedEventsCollection.countDocuments(query);
 
     // Transform events to frontend format
-    const transformedEvents = events.map(event => ({
+    const transformedSourceEvents = events.map(event => ({
       ...event.graphData,
       ...event.internalData,
       source: event.source,
@@ -4259,7 +3773,7 @@ app.get('/api/events/by-source', verifyToken, async (req, res) => {
     }));
 
     res.status(200).json({
-      events: transformedEvents,
+      events: transformedSourceEvents,
       pagination: {
         total: totalCount,
         offset: parseInt(offset),
@@ -5310,7 +4824,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
   try {
     const userId = req.user.userId;
     
-    if (!unifiedEventsCollection || !internalEventsCollection || !db) {
+    if (!unifiedEventsCollection || !db) {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
     
@@ -5335,7 +4849,6 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
     let totalDeleted = {
       unifiedEvents: 0,
       registrationEvents: 0,
-      internalEvents: 0,
       cacheEvents: 0,
       total: 0
     };
@@ -5352,7 +4865,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
           userId: userId,
           calendarId: 'csv_import_templeregistration'
         }),
-        internalEvents: 0, // Will be counted based on eventIds
+        // internalEvents removed - using unifiedEvents instead
         cacheEvents: 0 // Will be counted if cache collection exists
       };
       
@@ -5362,22 +4875,11 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
         isCSVImport: true
       });
       
-      if (csvEventIds.length > 0) {
-        counts.internalEvents = await internalEventsCollection.countDocuments({
-          eventId: { $in: csvEventIds }
-        });
-      }
-      
-      // Check if cache collection exists
-      const eventCacheCollection = db.collection('eventCache');
-      if (eventCacheCollection) {
-        counts.cacheEvents = await eventCacheCollection.countDocuments({
-          userId: userId,
-          eventId: { $in: csvEventIds }
-        });
-      }
-      
-      counts.total = counts.unifiedEvents + counts.registrationEvents + counts.internalEvents + counts.cacheEvents;
+      // internalEventsCollection removed - no longer needed
+      // eventCacheCollection removed - no longer needed
+      counts.cacheEvents = 0; // Legacy cache collection no longer exists
+
+      counts.total = counts.unifiedEvents + counts.registrationEvents + counts.cacheEvents;
       
       res.write('data: ' + JSON.stringify({
         type: 'count',
@@ -5499,40 +5001,7 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
         }
       }
       
-      // 3. Delete internal events
-      if (counts.internalEvents > 0 && csvEventIds.length > 0) {
-        res.write('data: ' + JSON.stringify({
-          type: 'collection_start',
-          collection: 'internalEvents',
-          message: `Deleting ${counts.internalEvents} internal event records...`,
-          timestamp: new Date().toISOString()
-        }) + '\n\n');
-        
-        try {
-          const deleteResult = await internalEventsCollection.deleteMany({
-            eventId: { $in: csvEventIds }
-          });
-          
-          totalDeleted.internalEvents += deleteResult.deletedCount;
-          totalDeleted.total += deleteResult.deletedCount;
-          processedTotal += deleteResult.deletedCount;
-          
-          const progress = Math.round((processedTotal / counts.total) * 100);
-          res.write('data: ' + JSON.stringify({
-            type: 'progress',
-            collection: 'internalEvents',
-            message: `Deleted ${deleteResult.deletedCount} internal records`,
-            processed: processedTotal,
-            totalCount: counts.total,
-            progress: progress,
-            deleted: totalDeleted,
-            timestamp: new Date().toISOString()
-          }) + '\n\n');
-        } catch (error) {
-          errors.push({ collection: 'internalEvents', error: error.message });
-          logger.error('Error deleting internal events:', error);
-        }
-      }
+      // Internal events collection removed - using unifiedEvents instead
       
       // 4. Delete cache entries
       if (counts.cacheEvents > 0 && csvEventIds.length > 0) {
@@ -5544,11 +5013,9 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
         }) + '\n\n');
         
         try {
-          const deleteResult = await eventCacheCollection.deleteMany({
-            userId: userId,
-            eventId: { $in: csvEventIds }
-          });
-          
+          // eventCacheCollection removed - no longer exists
+          const deleteResult = { deletedCount: 0 };
+
           totalDeleted.cacheEvents += deleteResult.deletedCount;
           totalDeleted.total += deleteResult.deletedCount;
           processedTotal += deleteResult.deletedCount;
@@ -6416,8 +5883,13 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   
                 case 'Description':
                   if (rawValue && rawValue.toString().trim()) {
-                    transformedEvent.graphData.bodyPreview = rawValue.toString().trim();
-                    transformedEvent.internalData.internalNotes = rawValue.toString().trim();
+                    const description = rawValue.toString().trim();
+                    transformedEvent.graphData.bodyPreview = description.substring(0, 255);
+                    transformedEvent.graphData.body = {
+                      contentType: 'text',
+                      content: description
+                    };
+                    transformedEvent.internalData.internalNotes = description;
                   }
                   break;
                   
@@ -6757,19 +6229,8 @@ app.get('/api/admin/cache/overview', verifyToken, async (req, res) => {
     const unifiedCollectionStats = await db.collection('templeEvents__Events').stats();
     const deltaCollectionStats = await db.collection('templeEvents__CalendarDeltas').stats();
     
-    // Legacy cache stats for comparison (if exists)
+    // Legacy cache stats removed - eventCacheCollection no longer exists
     let legacyCacheStats = null;
-    try {
-      const legacyCount = await eventCacheCollection.countDocuments({ userId: userId });
-      if (legacyCount > 0) {
-        legacyCacheStats = {
-          totalCached: legacyCount,
-          collectionStats: await db.collection('templeEvents__EventCache').stats()
-        };
-      }
-    } catch (legacyError) {
-      // Legacy collection might not exist
-    }
     
     res.status(200).json({
       userId: userId,
@@ -7340,10 +6801,11 @@ app.post('/api/admin/cache/cleanup', verifyToken, async (req, res) => {
         return res.status(400).json({ error: 'Invalid cleanup operation' });
     }
     
-    const deleteResult = await eventCacheCollection.deleteMany(query);
-    
+    // eventCacheCollection removed - no longer exists
+    const deleteResult = { deletedCount: 0 };
+
     res.status(200).json({
-      message: `Cleanup completed: removed ${deleteResult.deletedCount} ${operationDescription}`,
+      message: `Cache cleanup operation no longer available - cache system migrated to unified events collection`,
       operation: operation,
       deletedCount: deleteResult.deletedCount,
       query: query
@@ -7371,16 +6833,16 @@ app.get('/api/public/internal-events', async (req, res) => {
       query.isDeleted = { $ne: true };
     }
     
-    // Fetch events without sorting to avoid index issues
-    const events = await internalEventsCollection
+    // Fetch events from unified collection without sorting to avoid index issues
+    const events = await unifiedEventsCollection
       .find(query)
       .limit(1000) // Increased limit for exports
       .toArray();
-    
+
     // Sort in memory instead
     events.sort((a, b) => {
-      const dateA = new Date(a.externalData?.start?.dateTime || 0);
-      const dateB = new Date(b.externalData?.start?.dateTime || 0);
+      const dateA = new Date(a.graphData?.start?.dateTime || 0);
+      const dateB = new Date(b.graphData?.start?.dateTime || 0);
       return dateA - dateB;
     });
     
@@ -7773,6 +7235,7 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
             location: event.location || { displayName: '' },
             categories: event.categories || [],
             bodyPreview: event.bodyPreview || '',
+            body: event.body || null, // Include body object for full description content
             importance: event.importance || 'normal',
             showAs: event.showAs || 'busy',
             sensitivity: event.sensitivity || 'normal',

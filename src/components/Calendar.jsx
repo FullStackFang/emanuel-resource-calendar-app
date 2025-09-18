@@ -165,12 +165,41 @@
       }
       
       // Setting events
-      
+
+      // DESCRIPTION DEBUG: Log when events are set in state
+      if (newEvents.length > 0) {
+        console.log(`📌 SETTING ${newEvents.length} EVENTS IN STATE`);
+
+        // Analyze body content in the events being set
+        const withBody = newEvents.filter(e => e.body?.content).length;
+        const withPreview = newEvents.filter(e => e.bodyPreview && !e.body?.content).length;
+        const noDescription = newEvents.length - withBody - withPreview;
+
+        console.log(`   📝 With full body: ${withBody}`);
+        console.log(`   📄 With bodyPreview only: ${withPreview}`);
+        console.log(`   ❌ No description: ${noDescription}`);
+
+        // Check for test description events
+        const testEvents = newEvents.filter(e =>
+          e.body?.content?.includes('Test description') ||
+          e.bodyPreview?.includes('Test description') ||
+          e.description?.includes('Test description')
+        );
+        if (testEvents.length > 0) {
+          console.log('setAllEvents DEBUG - Test description events in state:', testEvents.map(e => ({
+            id: e.id,
+            subject: e.subject,
+            bodyContent: e.body?.content,
+            bodyPreview: e.bodyPreview
+          })));
+        }
+      }
+
       // Warn if clearing events
       if (newEvents.length === 0 && allEvents.length > 0) {
         logger.warn('setAllEvents: Clearing all events (was ' + allEvents.length + ' events)');
       }
-      
+
       setAllEventsState(newEvents);
     }, [allEvents]);
 
@@ -1086,7 +1115,19 @@
      *
     */
     const loadGraphEvents = useCallback(async () => {
+      logger.debug("🔍 CALLED: loadGraphEvents");
       if (!graphToken) { return; }
+
+      // FORCE REFRESH DEBUG: Log function entry
+      console.log('Force Refresh DEBUG: loadGraphEvents started', {
+        timestamp: new Date().toISOString(),
+        selectedCalendarId,
+        dateRange: {
+          start: dateRange.start.toISOString(),
+          end: dateRange.end.toISOString()
+        }
+      });
+
       setLoading(true);
       try {
         // 1. Format your dates
@@ -1117,6 +1158,7 @@
           `?$top=50` +
           `&$orderby=start/dateTime desc` +
           `&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'` +
+          `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime` +
           (extFilter
             ? `&$expand=extensions($filter=${encodeURIComponent(extFilter)})`
             : "");
@@ -1132,6 +1174,39 @@
           const js = await resp.json();
           all = all.concat(js.value || []);
           nextLink = js["@odata.nextLink"] || null;
+
+          // FORCE REFRESH DEBUG: Log raw Graph API response
+          if (js.value && js.value.length > 0) {
+            console.log('Force Refresh DEBUG: Raw Graph API response batch', {
+              eventCount: js.value.length,
+              hasNextLink: !!nextLink,
+              sampleEvents: js.value.slice(0, 3).map(event => ({
+                id: event.id,
+                subject: event.subject,
+                hasBody: !!event.body,
+                bodyContent: event.body?.content,
+                bodyContentType: event.body?.contentType,
+                bodyPreview: event.bodyPreview,
+                description: event.description
+              }))
+            });
+
+            // Look specifically for "Test description" events
+            const testEvents = js.value.filter(event =>
+              event.body?.content?.includes('Test description') ||
+              event.bodyPreview?.includes('Test description') ||
+              event.description?.includes('Test description')
+            );
+            if (testEvents.length > 0) {
+              console.log('Force Refresh DEBUG: Found events with "Test description" in raw response:', testEvents.map(event => ({
+                id: event.id,
+                subject: event.subject,
+                bodyContent: event.body?.content,
+                bodyPreview: event.bodyPreview,
+                description: event.description
+              })));
+            }
+          }
         }
     
         // 5. Check for linked registration events and extract setup/teardown data
@@ -1208,6 +1283,16 @@
         const eventsWithRegistration = eventsWithRegistrationData.filter(evt => evt.hasRegistrationEvent);
         // Events with registration data processed
         
+        // FORCE REFRESH DEBUG: Log all events before conversion
+        console.log('Force Refresh DEBUG: Total events before conversion', {
+          totalEvents: eventsWithRegistrationData.length,
+          eventsWithTestDescription: eventsWithRegistrationData.filter(evt =>
+            evt.body?.content?.includes('Test description') ||
+            evt.bodyPreview?.includes('Test description') ||
+            evt.description?.includes('Test description')
+          ).length
+        });
+
         // 6. Normalize into your UI model
         const converted = eventsWithRegistrationData.map(evt => {
           // Extract extension data
@@ -1256,19 +1341,24 @@
             }
           }
           
-          return {
+          // FORCE REFRESH DEBUG: Track body field conversion
+          const convertedEvent = {
             id: evt.id,
             subject: evt.subject,
             // Always store ISO strings with Z to indicate UTC
-            start: { dateTime: evt.start.dateTime.endsWith('Z') ? 
+            start: { dateTime: evt.start.dateTime.endsWith('Z') ?
                     evt.start.dateTime : `${evt.start.dateTime}Z` },
-            end: { dateTime: evt.end.dateTime.endsWith('Z') ? 
+            end: { dateTime: evt.end.dateTime.endsWith('Z') ?
                   evt.end.dateTime : `${evt.end.dateTime}Z` },
             location: { displayName: evt.location?.displayName || "" },
             category: evt.categories?.[0] || "Uncategorized",
+            // CRITICAL: Include body field for descriptions
+            body: evt.body || null,
+            bodyPreview: evt.bodyPreview || '',
+            description: evt.description || '',
             extensions: evt.extensions || [],
             calendarId: eventCalendarId,
-            calendarName: eventCalendarId ? 
+            calendarName: eventCalendarId ?
               availableCalendars.find(c => c.id === eventCalendarId)?.name : null,
             ...extData,
             // Include registration event data if it exists
@@ -1281,6 +1371,24 @@
             registrationStart: evt.registrationStart || null,
             registrationEnd: evt.registrationEnd || null
           };
+
+          // DEBUG: Log specific events with Test description
+          if (evt.body?.content?.includes('Test description') ||
+              evt.bodyPreview?.includes('Test description') ||
+              evt.description?.includes('Test description')) {
+            console.log('Force Refresh DEBUG: Converting event with Test description:', {
+              id: evt.id,
+              subject: evt.subject,
+              originalBody: evt.body,
+              originalBodyPreview: evt.bodyPreview,
+              originalDescription: evt.description,
+              convertedBody: convertedEvent.body,
+              convertedBodyPreview: convertedEvent.bodyPreview,
+              convertedDescription: convertedEvent.description
+            });
+          }
+
+          return convertedEvent;
         });
 
         // Sync events to unified collection first, then enrich with internal data
@@ -1351,6 +1459,31 @@
           }
         }
         
+        // FORCE REFRESH DEBUG: Log final events before setting
+        console.log('Force Refresh DEBUG: Final enriched events before setAllEvents', {
+          totalEvents: enrichedEvents.length,
+          sampleEvents: enrichedEvents.slice(0, 3).map(event => ({
+            id: event.id,
+            subject: event.subject,
+            hasBody: !!event.body,
+            bodyContent: event.body?.content,
+            bodyPreview: event.bodyPreview,
+            description: event.description,
+            _hasInternalData: event._hasInternalData
+          })),
+          eventsWithTestDescription: enrichedEvents.filter(event =>
+            event.body?.content?.includes('Test description') ||
+            event.bodyPreview?.includes('Test description') ||
+            event.description?.includes('Test description')
+          ).map(event => ({
+            id: event.id,
+            subject: event.subject,
+            bodyContent: event.body?.content,
+            bodyPreview: event.bodyPreview,
+            description: event.description
+          }))
+        });
+
         // Events loaded from Graph API
         setAllEvents(enrichedEvents);
 
@@ -1443,8 +1576,9 @@
      * @param {boolean} forceRefresh - Force refresh from Graph API
      */
     const loadEventsWithCache = useCallback(async (forceRefresh = false) => {
+      logger.debug("🔍 CALLED: loadEventsWithCache", { forceRefresh });
       if (!graphToken) {
-        logger.debug("loadEventsWithCache: Missing graph token");
+        logger.debug("loadEventsWithCache: Missing graph token - returning false");
         return false;
       }
 
@@ -1548,8 +1682,9 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null) => {
+      logger.debug("🔍 CALLED: loadEventsUnified", { forceRefresh, hasGraphToken: !!graphToken, hasApiToken: !!apiToken });
       if (!graphToken || !apiToken) {
-        logger.debug("loadEventsUnified: Missing tokens");
+        logger.debug("loadEventsUnified: Missing tokens - returning false");
         return false;
       }
 
@@ -1626,7 +1761,7 @@
           return { id, name: calendar?.name || 'Unknown', isSelected: id === selectedCalendarId };
         });
         
-        logger.debug('loadEventsUnified: Final calendar IDs for sync', { 
+        logger.debug('🔍 FUNCTION CALLED: loadEventsUnified - Final calendar IDs for sync', { 
           calendarIds,
           count: calendarIds.length,
           calendars: calendarDetails
@@ -1646,19 +1781,52 @@
           endTime: end,
           forceRefresh
         });
+
+        if (forceRefresh) {
+          console.log(`⚡ FORCE REFRESH ENABLED - Bypassing cache to get fresh data from Graph API`);
+          console.log(`📍 This will fetch events directly from Microsoft Graph API, not from cache`);
+        }
         
         // Initialize unified event service
         unifiedEventService.setApiToken(apiToken);
         unifiedEventService.setGraphToken(graphToken);
-        
-        // Perform regular events loading (replaces problematic delta sync)
-        const loadResult = await unifiedEventService.loadEvents({
-          calendarIds: calendarIds,
+
+        // DEBUG: Log before backend call
+        logger.debug('🔍 loadEventsUnified: About to call backend unifiedEventService.loadEvents', {
+          calendarIds,
           startTime: start,
           endTime: end,
-          forceRefresh: forceRefresh
+          forceRefresh
         });
-        
+
+        // Perform regular events loading (replaces problematic delta sync)
+        let loadResult;
+        try {
+          loadResult = await unifiedEventService.loadEvents({
+            calendarIds: calendarIds,
+            startTime: start,
+            endTime: end,
+            forceRefresh: forceRefresh
+          });
+
+          // DEBUG: Log immediate result
+          logger.debug('🔍 loadEventsUnified: Backend call returned', {
+            hasResult: !!loadResult,
+            resultType: typeof loadResult,
+            hasEvents: !!(loadResult?.events),
+            eventCount: loadResult?.events?.length || 0
+          });
+        } catch (backendError) {
+          logger.error('🔍 loadEventsUnified: Backend call threw error', backendError);
+          throw backendError;
+        }
+
+        // Check if loadResult is valid
+        if (!loadResult) {
+          logger.error('🔍 loadEventsUnified: Backend returned null/undefined');
+          throw new Error('Backend service returned null/undefined');
+        }
+
         logger.debug('loadEventsUnified: Regular events load completed', {
           source: loadResult.source,
           eventCount: loadResult.count,
@@ -1679,7 +1847,49 @@
           let eventsToDisplay = loadResult.events;
           
           console.log(`📊 RECEIVED ${eventsToDisplay.length} EVENTS FROM BACKEND`);
-          
+          console.log(`📍 Data source: ${loadResult.source || 'unknown'}`);
+
+          // DESCRIPTION DEBUG: Log event body content details
+          if (eventsToDisplay.length > 0) {
+            // Count events with body content
+            const eventsWithBody = eventsToDisplay.filter(e => e.body?.content);
+            const eventsWithBodyPreview = eventsToDisplay.filter(e => e.bodyPreview && !e.body?.content);
+
+            console.log(`📝 Body Content Analysis:`);
+            console.log(`   - Events with full body: ${eventsWithBody.length}/${eventsToDisplay.length}`);
+            console.log(`   - Events with only bodyPreview: ${eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
+            console.log(`   - Events with no description: ${eventsToDisplay.length - eventsWithBody.length - eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
+
+            // Show first few events with their body structure
+            const eventBodySummary = eventsToDisplay.slice(0, 3).map(e => ({
+              subject: e.subject,
+              calendarId: e.calendarId?.substring(0, 20) + '...',
+              start: e.start?.dateTime || e.start?.date,
+              hasBody: !!e.body,
+              bodyContent: e.body?.content?.substring(0, 50),
+              bodyContentType: e.body?.contentType,
+              bodyPreview: e.bodyPreview?.substring(0, 50),
+              description: e.description?.substring(0, 50)
+            }));
+            console.log('📋 Sample events with body data:', eventBodySummary);
+
+            // Look for events with "Test description"
+            const testDescEvents = eventsToDisplay.filter(e =>
+              e.body?.content?.includes('Test description') ||
+              e.bodyPreview?.includes('Test description') ||
+              e.description?.includes('Test description')
+            );
+            if (testDescEvents.length > 0) {
+              console.log('Calendar.jsx DEBUG - Found events with "Test description":', testDescEvents.map(e => ({
+                id: e.id,
+                subject: e.subject,
+                bodyContent: e.body?.content,
+                bodyPreview: e.bodyPreview,
+                description: e.description
+              })));
+            }
+          }
+
           // Log event details for debugging
           if (calendarDebug.isEnabled && eventsToDisplay.length > 0) {
             const eventSummary = eventsToDisplay.slice(0, 5).map(e => ({
@@ -1738,6 +1948,7 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null) => {
+      logger.debug("🔍 CALLED: loadEvents", { forceRefresh, calendarsData: !!calendarsData });
       calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
       
       try {
@@ -2120,8 +2331,27 @@
      */
     const refreshEvents = useCallback(async (forceRefresh = false) => {
       logger.debug('refreshEvents called', { forceRefresh });
+      console.log(`🔄 REFRESH EVENTS TRIGGERED - Force Refresh: ${forceRefresh ? 'YES (bypassing cache)' : 'NO (using cache)'}`);
+
+      const startTime = Date.now();
       await loadEvents(forceRefresh);
-    }, [loadEvents]);
+
+      const duration = Date.now() - startTime;
+      console.log(`✅ REFRESH COMPLETE in ${duration}ms - Loaded ${allEvents.length} events`);
+
+      // Log sample events to check body content
+      if (allEvents.length > 0) {
+        const eventsWithBody = allEvents.filter(e => e.body?.content);
+        console.log(`📊 Events with body content: ${eventsWithBody.length}/${allEvents.length}`);
+
+        if (eventsWithBody.length > 0) {
+          console.log('📝 Sample event with body:', {
+            subject: eventsWithBody[0].subject,
+            bodyContent: eventsWithBody[0].body?.content?.substring(0, 100) + '...'
+          });
+        }
+      }
+    }, [loadEvents, allEvents]);
 
     /**
      * Invalidate cache for current calendar
@@ -2180,40 +2410,53 @@
      * @param {string} eventSubject - The subject of the newly created event for logging
      */
     const retryEventLoadAfterCreation = useCallback(async (eventId, eventSubject) => {
+      // For updates (eventId already exists), just refresh once immediately
+      if (eventId) {
+        logger.debug(`[retryEventLoadAfterCreation] Refreshing after update: ${eventSubject}`);
+        console.log(`🔄 FORCING REFRESH AFTER UPDATE for event: ${eventSubject} (ID: ${eventId})`);
+        try {
+          await loadEvents(true); // Force refresh to show the updated event - this bypasses cache
+          logger.debug(`[retryEventLoadAfterCreation] Refresh complete for updated event: ${eventSubject}`);
+          console.log(`✅ REFRESH COMPLETE - Event should now have updated body content from Graph API`);
+        } catch (error) {
+          logger.error(`[retryEventLoadAfterCreation] Error refreshing after update:`, error);
+          console.error(`❌ REFRESH FAILED after update:`, error);
+          showNotification(`Event updated but refresh failed. Try manual refresh if needed.`, 'warning');
+        }
+        return;
+      }
+
+      // For new events (no eventId yet), use retry logic with delays
+      // This handles propagation delays in Graph API for newly created events
       const maxRetries = 3;
       const baseDelay = 500; // Start with 500ms delay
-      
+
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          logger.debug(`[retryEventLoadAfterCreation] Attempt ${attempt}/${maxRetries} for event: ${eventSubject}`);
-          
+          logger.debug(`[retryEventLoadAfterCreation] Attempt ${attempt}/${maxRetries} for new event: ${eventSubject}`);
+
           // Wait before loading events (exponential backoff: 500ms, 1s, 2s)
           const delay = baseDelay * Math.pow(2, attempt - 1);
           await new Promise(resolve => setTimeout(resolve, delay));
-          
+
           // Reload events from the API
           await loadEvents(true); // Force refresh to ensure we get the latest data
-          
-          // Check if the newly created event is now visible in our event list
-          const newEvent = allEvents.find(event => event.id === eventId);
-          if (newEvent) {
-            logger.debug(`[retryEventLoadAfterCreation] Success! Event found after ${attempt} attempt(s): ${eventSubject}`);
-            return;
-          }
-          
-          logger.debug(`[retryEventLoadAfterCreation] Event not found in attempt ${attempt}, will retry...`);
-          
+
+          // For new events, we just assume success after loading
+          // The stale closure issue prevented proper checking anyway
+          logger.debug(`[retryEventLoadAfterCreation] Loaded events after ${attempt} attempt(s) for: ${eventSubject}`);
+          return;
+
         } catch (error) {
           logger.error(`[retryEventLoadAfterCreation] Error in attempt ${attempt}:`, error);
-          
+
           if (attempt === maxRetries) {
             logger.warn(`[retryEventLoadAfterCreation] Failed to load event after ${maxRetries} attempts. Event may appear after manual refresh.`);
-            // Still show a warning notification to the user
             showNotification(`Event created but may take a moment to appear. Try refreshing if needed.`, 'warning');
           }
         }
       }
-    }, [loadEvents, allEvents, showNotification]);
+    }, [loadEvents, showNotification]); // Removed allEvents from dependencies to avoid stale closure
 
     /**
      * Get the target calendar name for event creation/editing
@@ -2416,7 +2659,7 @@
             `/me/calendars/${targetCalendarId}/events/${createdEventData.id}` : 
             `/me/events/${createdEventData.id}`;
           
-          const fetchResponse = await fetch(`https://graph.microsoft.com/v1.0${calendarPath}?$select=id,subject,start,end,location,organizer,bodyPreview,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime`, {
+          const fetchResponse = await fetch(`https://graph.microsoft.com/v1.0${calendarPath}?$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,lastModifiedDateTime,createdDateTime`, {
             headers: {
               Authorization: `Bearer ${graphToken}`
             }
@@ -3421,7 +3664,30 @@
       
       // Find the enriched version of this event from allEvents (which contains enriched data)
       const enrichedEvent = allEvents.find(enriched => enriched.id === event.id) || event;
-      
+
+      // UNIFIED EVENT DEBUG: Log the complete unified event data
+      console.log('🎯 UNIFIED EVENT CLICKED:', {
+        unifiedEventId: enrichedEvent._id,  // MongoDB Unified Event ID
+        graphEventId: enrichedEvent.id,     // Microsoft Graph Event ID
+        subject: enrichedEvent.subject,
+        calendarId: enrichedEvent.calendarId,
+        // Body and description fields
+        hasBody: !!enrichedEvent.body,
+        bodyContent: enrichedEvent.body?.content?.substring(0, 200),
+        bodyContentType: enrichedEvent.body?.contentType,
+        bodyPreview: enrichedEvent.bodyPreview?.substring(0, 200),
+        description: enrichedEvent.description,
+        // Internal enrichments
+        hasInternalData: enrichedEvent._hasInternalData,
+        setupMinutes: enrichedEvent.setupMinutes,
+        teardownMinutes: enrichedEvent.teardownMinutes,
+        mecCategories: enrichedEvent.mecCategories,
+        assignedTo: enrichedEvent.assignedTo,
+        internalNotes: enrichedEvent.internalNotes,
+        // Full event object for detailed inspection
+        fullEvent: enrichedEvent
+      });
+
       logger.debug('Using enriched event for editing:', {
         originalEvent: event,
         enrichedEvent: enrichedEvent,
@@ -3430,7 +3696,7 @@
         setupMinutes: enrichedEvent.setupMinutes,
         teardownMinutes: enrichedEvent.teardownMinutes
       });
-      
+
       // Directly open edit modal when event is clicked
       setCurrentEvent(enrichedEvent);
       setModalType(userPermissions.editEvents ? 'edit' : 'view');
@@ -3722,7 +3988,8 @@
           end: data.end,
           location: data.location,
           categories: data.categories,
-          isAllDay: data.isAllDay
+          isAllDay: data.isAllDay,
+          body: data.body
         };
         
         // Debug logging for category mapping
@@ -3884,6 +4151,7 @@
                 start: data.start,
                 end: data.end,
                 location: data.location,
+                body: data.body, // Include body field for description content
                 calendarId: targetCalendarId,
                 // Include other properties that might be needed
                 categories: data.categories || [], // Use plural categories array to match Graph API
@@ -4318,8 +4586,10 @@
           setChangingCalendar(false);
         }, 30000); // 30 second timeout
         
-        console.log('[Calendar useEffect] Calling loadEvents...');
-        loadEvents()
+        console.log('[Calendar useEffect] Calling loadEvents with FORCE REFRESH to get fresh body content...');
+        // TEMPORARY: Force refresh to get events with proper body structure
+        // Remove this after all cached events are updated
+        loadEvents(true)  // true = forceRefresh to bypass stale cache
           .then((result) => {
             const duration = Date.now() - startTime;
             console.log('[Calendar useEffect] loadEvents completed:', { result, duration });

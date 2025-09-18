@@ -309,7 +309,29 @@ function EventForm({
         setSetupTime(minutesToTimeString(setupMins));
         setTeardownTime(minutesToTimeString(teardownMins));
       }
-      setEventDescription(event.body?.content || event.description || '');
+      console.log('EventForm DEBUG - event object:', event);
+      console.log('EventForm DEBUG - event.body:', event.body);
+      console.log('EventForm DEBUG - event.body type:', typeof event.body);
+      console.log('EventForm DEBUG - event.description:', event.description);
+
+      // Handle both string and object formats for body field
+      let description = '';
+      if (typeof event.body === 'string') {
+        // Body is a plain string (from backend/cache issue)
+        description = event.body;
+        console.log('EventForm DEBUG - body is string, using directly:', description);
+      } else if (event.body?.content) {
+        // Body is proper object format from Graph API
+        description = event.body.content;
+        console.log('EventForm DEBUG - body is object, using content:', description);
+      } else if (event.description) {
+        // Fallback to description field
+        description = event.description;
+        console.log('EventForm DEBUG - using description field:', description);
+      }
+
+      console.log('EventForm DEBUG - final description:', description);
+      setEventDescription(description);
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
       

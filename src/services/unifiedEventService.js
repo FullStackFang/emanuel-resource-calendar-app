@@ -132,11 +132,44 @@ class UnifiedEventService {
       }
 
       const data = await response.json();
-      logger.debug('UnifiedEventService: Regular events load response', { 
-        source: data.source, 
+      logger.debug('UnifiedEventService: Regular events load response', {
+        source: data.source,
         eventCount: data.count,
         loadResults: data.loadResults
       });
+
+      // DESCRIPTION DEBUG: Log sample events with body content
+      if (data.events && data.events.length > 0) {
+        console.log('UnifiedEventService DEBUG - Total events received:', data.events.length);
+
+        // Log first few events with their body content
+        const sampleEvents = data.events.slice(0, 3).map(event => ({
+          id: event.id,
+          subject: event.subject,
+          hasBody: !!event.body,
+          bodyContent: event.body?.content,
+          bodyContentType: event.body?.contentType,
+          bodyPreview: event.bodyPreview,
+          description: event.description
+        }));
+        console.log('UnifiedEventService DEBUG - Sample events with body data:', sampleEvents);
+
+        // Look specifically for events with "Test description"
+        const testEvents = data.events.filter(event =>
+          event.body?.content?.includes('Test description') ||
+          event.bodyPreview?.includes('Test description') ||
+          event.description?.includes('Test description')
+        );
+        if (testEvents.length > 0) {
+          console.log('UnifiedEventService DEBUG - Found events with "Test description":', testEvents.map(event => ({
+            id: event.id,
+            subject: event.subject,
+            bodyContent: event.body?.content,
+            bodyPreview: event.bodyPreview,
+            description: event.description
+          })));
+        }
+      }
 
       return data;
     } catch (error) {
