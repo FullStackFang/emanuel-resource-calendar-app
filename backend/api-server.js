@@ -1,6 +1,6 @@
 // api-server.js - Express API for MongoDB
 const express = require('express');
-const { MongoClient, ObjectId } = require('mongodb');
+const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
@@ -68,6 +68,33 @@ const upload = multer({
   }
 });
 
+// Configure multer for event attachments (multiple file types)
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB limit for attachments
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept common file types for event attachments
+    const allowedTypes = [
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'text/plain',
+      'text/markdown'
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} not allowed. Supported types: PNG, JPG, GIF, PDF, DOC, DOCX, XLS, XLSX, TXT, MD`), false);
+    }
+  }
+});
+
 // Handle preflight requests explicitly
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin);
@@ -120,6 +147,8 @@ let roomCapabilityTypesCollection; // Configurable room capability definitions
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let eventAuditHistoryCollection; // Audit trail for event changes
+let filesBucket; // GridFS bucket for file storage
+let eventAttachmentsCollection; // Event-file relationship tracking
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -471,6 +500,37 @@ async function createFeatureCategoriesIndexes() {
     console.log('Feature categories indexes created successfully');
   } catch (error) {
     console.error('Error creating feature categories indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the event attachments collection
+ */
+async function createEventAttachmentsIndexes() {
+  try {
+    console.log('Creating event attachments indexes...');
+
+    // Index for finding attachments by eventId
+    await eventAttachmentsCollection.createIndex(
+      { eventId: 1 },
+      { name: "attachments_by_event", background: true }
+    );
+
+    // Index for file metadata queries
+    await eventAttachmentsCollection.createIndex(
+      { gridfsFileId: 1 },
+      { name: "attachments_by_file_id", unique: true, background: true }
+    );
+
+    // Index for uploaded date and user queries
+    await eventAttachmentsCollection.createIndex(
+      { uploadedAt: -1, uploadedBy: 1 },
+      { name: "attachments_by_date_user", background: true }
+    );
+
+    console.log('Event attachments indexes created successfully');
+  } catch (error) {
+    console.error('Error creating event attachments indexes:', error);
   }
 }
 
@@ -1156,10 +1216,15 @@ async function connectToDatabase() {
     featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
     eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
 
+    // Initialize GridFS bucket for file storage
+    filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
+    eventAttachmentsCollection = db.collection('templeEvents__EventAttachments'); // Event-file relationship tracking
+
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
     await createCalendarDeltaIndexes();
     await createEventAuditHistoryIndexes();
+    await createEventAttachmentsIndexes();
     
     // Create indexes for room reservation system
     await createRoomIndexes();
@@ -3350,6 +3415,238 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error in unified audit update:', error);
     res.status(500).json({ error: 'Failed to update event with audit logging' });
+  }
+});
+
+/**
+ * Upload file attachment to an event
+ */
+app.post('/api/events/:eventId/attachments', verifyToken, attachmentUpload.single('file'), async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const userId = req.user.userId;
+    const file = req.file;
+    const { description = '' } = req.body;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    logger.debug(`Uploading attachment for event ${eventId}`, {
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      userId
+    });
+
+    // Verify event exists and user has permission
+    const event = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+
+    // Create a readable stream from the buffer
+    const uploadStream = filesBucket.openUploadStream(file.originalname, {
+      metadata: {
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        uploadedBy: userId,
+        uploadedAt: new Date(),
+        eventId: eventId
+      }
+    });
+
+    // Store file in GridFS
+    const fileId = await new Promise((resolve, reject) => {
+      uploadStream.end(file.buffer, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(uploadStream.id);
+        }
+      });
+    });
+
+    // Create attachment record
+    const attachmentRecord = {
+      eventId: eventId,
+      gridfsFileId: fileId,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      uploadedBy: userId,
+      uploadedAt: new Date(),
+      description: description
+    };
+
+    const insertResult = await eventAttachmentsCollection.insertOne(attachmentRecord);
+
+    // Log audit entry for file upload
+    await logEventAudit({
+      eventId: eventId,
+      userId: userId,
+      changeType: 'update',
+      source: 'File Attachment',
+      changeSet: [{
+        field: 'attachments',
+        oldValue: null,
+        newValue: `Added file: ${file.originalname} (${Math.round(file.size / 1024)}KB)`
+      }],
+      metadata: {
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+        reason: 'File attachment uploaded',
+        fileName: file.originalname,
+        fileSize: file.size
+      }
+    });
+
+    logger.debug(`File uploaded successfully for event ${eventId}`, {
+      fileId: fileId,
+      attachmentId: insertResult.insertedId
+    });
+
+    res.status(201).json({
+      message: 'File uploaded successfully',
+      attachment: {
+        id: insertResult.insertedId,
+        fileId: fileId,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        uploadedAt: attachmentRecord.uploadedAt,
+        description: description,
+        downloadUrl: `/files/${fileId}`
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error uploading file attachment:', error);
+    res.status(500).json({ error: 'Failed to upload file attachment' });
+  }
+});
+
+/**
+ * Get all attachments for an event
+ */
+app.get('/api/events/:eventId/attachments', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Fetching attachments for event ${eventId}`, { userId });
+
+    // Verify event exists and user has permission
+    const event = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+
+    // Get all attachments for this event
+    const attachments = await eventAttachmentsCollection.find({
+      eventId: eventId
+    }).sort({ uploadedAt: -1 }).toArray();
+
+    // Transform attachment data for frontend
+    const attachmentList = attachments.map(attachment => ({
+      id: attachment._id,
+      fileId: attachment.gridfsFileId,
+      fileName: attachment.fileName,
+      fileSize: attachment.fileSize,
+      mimeType: attachment.mimeType,
+      uploadedBy: attachment.uploadedBy,
+      uploadedAt: attachment.uploadedAt,
+      description: attachment.description,
+      downloadUrl: `/files/${attachment.gridfsFileId}`
+    }));
+
+    logger.debug(`Found ${attachmentList.length} attachments for event ${eventId}`);
+
+    res.status(200).json({
+      eventId: eventId,
+      attachments: attachmentList,
+      totalCount: attachmentList.length
+    });
+
+  } catch (error) {
+    logger.error('Error fetching event attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch event attachments' });
+  }
+});
+
+/**
+ * Download a file by its GridFS fileId
+ */
+app.get('/api/files/:fileId', verifyToken, async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Downloading file ${fileId}`, { userId });
+
+    // Convert string to ObjectId
+    let objectId;
+    try {
+      objectId = new ObjectId(fileId);
+    } catch (error) {
+      return res.status(400).json({ error: 'Invalid file ID format' });
+    }
+
+    // Check if attachment exists and user has permission
+    const attachment = await eventAttachmentsCollection.findOne({
+      gridfsFileId: objectId
+    });
+
+    if (!attachment) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Verify user has access to the event (and thus the file)
+    const event = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: attachment.eventId
+    });
+
+    if (!event) {
+      return res.status(403).json({ error: 'Access denied - you do not have permission to download this file' });
+    }
+
+    // Stream file from GridFS
+    const downloadStream = filesBucket.openDownloadStream(objectId);
+
+    // Handle stream errors
+    downloadStream.on('error', (error) => {
+      logger.error('Error streaming file:', error);
+      if (!res.headersSent) {
+        res.status(404).json({ error: 'File not found in storage' });
+      }
+    });
+
+    // Set appropriate headers
+    res.set({
+      'Content-Type': attachment.mimeType || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${attachment.fileName}"`,
+      'Cache-Control': 'private, max-age=3600' // Cache for 1 hour
+    });
+
+    // Stream the file to response
+    downloadStream.pipe(res);
+
+    logger.debug(`File ${fileId} streamed successfully to user ${userId}`);
+
+  } catch (error) {
+    logger.error('Error downloading file:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download file' });
+    }
   }
 });
 

@@ -198,6 +198,13 @@ function EventForm({
   const [showPreview, setShowPreview] = useState(false);
   const [pendingEventData, setPendingEventData] = useState(null);
 
+  // File attachment state
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+
   // Tab state management
   const [activeTab, setActiveTab] = useState('event');
   const [auditHistoryCount, setAuditHistoryCount] = useState(0);
@@ -707,6 +714,194 @@ function EventForm({
     setPendingEventData(null);
   };
 
+  // File attachment functions
+  const loadAttachments = async () => {
+    if (!event?.id || !apiToken) return;
+
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${event.id}/attachments`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAttachments(data.attachments || []);
+      }
+    } catch (error) {
+      console.error('Failed to load attachments:', error);
+    }
+  };
+
+  const handleFileSelect = (files) => {
+    const fileArray = Array.from(files);
+    uploadFiles(fileArray);
+  };
+
+  const uploadFiles = async (files) => {
+    if (!event?.id || !apiToken) {
+      alert('Please save the event first before uploading files');
+      return;
+    }
+
+    for (const file of files) {
+      setUploadingFiles(prev => [...prev, { name: file.name, progress: 0 }]);
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${event.id}/attachments`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: formData
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setAttachments(prev => [...prev, data.attachment]);
+        } else {
+          const errorData = await response.json();
+          alert(`Failed to upload ${file.name}: ${errorData.error}`);
+        }
+      } catch (error) {
+        console.error('Upload error:', error);
+        alert(`Failed to upload ${file.name}`);
+      } finally {
+        setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
+      }
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = e.dataTransfer.files;
+    handleFileSelect(files);
+  };
+
+  const removeAttachment = async (attachmentId, fileName) => {
+    if (!apiToken) return;
+
+    if (!confirm(`Delete ${fileName}?`)) return;
+
+    try {
+      // Note: We'll need to add a DELETE endpoint later
+      // For now, just remove from local state
+      setAttachments(prev => prev.filter(att => att.id !== attachmentId));
+    } catch (error) {
+      console.error('Failed to delete attachment:', error);
+    }
+  };
+
+  const getFileIcon = (mimeType) => {
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType === 'application/pdf') return '📄';
+    if (mimeType.includes('word')) return '📝';
+    if (mimeType.includes('sheet') || mimeType.includes('excel')) return '📊';
+    return '📎';
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const isPreviewable = (mimeType) => {
+    return (
+      mimeType.startsWith('image/') ||
+      mimeType === 'application/pdf' ||
+      mimeType === 'text/plain' ||
+      mimeType === 'text/markdown'
+    );
+  };
+
+  const handlePreviewFile = async (attachment) => {
+    try {
+      // Fetch the file with proper authentication
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}${attachment.downloadUrl}`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load file: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      setPreviewFile({
+        ...attachment,
+        blobUrl: blobUrl
+      });
+      setShowPreviewModal(true);
+    } catch (error) {
+      console.error('Preview failed:', error);
+      alert('Failed to load file preview. Please try downloading the file instead.');
+    }
+  };
+
+  const closePreview = () => {
+    // Clean up blob URL to prevent memory leaks
+    if (previewFile?.blobUrl) {
+      URL.revokeObjectURL(previewFile.blobUrl);
+    }
+    setShowPreviewModal(false);
+    setPreviewFile(null);
+  };
+
+  const handleDownloadFile = async (attachment) => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}${attachment.downloadUrl}`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.statusText}`);
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Failed to download file. Please try again.');
+    }
+  };
+
+  // Load attachments when event changes
+  useEffect(() => {
+    loadAttachments();
+  }, [event?.id, apiToken]);
+
   return (
     <form className="event-form-google" onSubmit={handleSubmit}>
       {/* Event Title */}
@@ -1040,6 +1235,108 @@ function EventForm({
         </div>
       </div>
 
+      {/* File Attachments Row - only show for existing events */}
+      {event && event.id && !readOnly && (
+        <div className="form-row">
+          <div className="form-icon">📎</div>
+          <div className="form-content">
+            <div className="file-upload-section">
+              {/* Drag and Drop Zone */}
+              <div
+                className={`file-drop-zone ${dragOver ? 'drag-over' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById('file-input').click()}
+              >
+                <div className="drop-zone-content">
+                  <div className="drop-zone-icon">📁</div>
+                  <div className="drop-zone-text">
+                    <strong>Drop files here</strong> or <span className="link-text">browse</span>
+                  </div>
+                  <div className="drop-zone-hint">
+                    PNG, JPG, PDF, DOC, XLS, TXT (max 25MB each)
+                  </div>
+                </div>
+              </div>
+
+              {/* Hidden File Input */}
+              <input
+                id="file-input"
+                type="file"
+                multiple
+                accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md"
+                onChange={(e) => handleFileSelect(e.target.files)}
+                style={{ display: 'none' }}
+              />
+
+              {/* Uploading Files */}
+              {uploadingFiles.length > 0 && (
+                <div className="uploading-files">
+                  {uploadingFiles.map((file, index) => (
+                    <div key={index} className="uploading-file">
+                      <span>📤 Uploading {file.name}...</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Attachment List */}
+              {attachments.length > 0 && (
+                <div className="attachments-list">
+                  <div className="attachments-header">
+                    <strong>Attached Files ({attachments.length})</strong>
+                  </div>
+                  {attachments.map((attachment) => (
+                    <div key={attachment.id} className="attachment-item">
+                      <div className="attachment-info">
+                        {isPreviewable(attachment.mimeType) ? (
+                          <button
+                            type="button"
+                            className="file-icon clickable"
+                            onClick={() => handlePreviewFile(attachment)}
+                            title="Click to preview file"
+                          >
+                            {getFileIcon(attachment.mimeType)}
+                          </button>
+                        ) : (
+                          <span className="file-icon">{getFileIcon(attachment.mimeType)}</span>
+                        )}
+                        <div className="file-details">
+                          <div className="file-name">{attachment.fileName}</div>
+                          <div className="file-meta">
+                            {formatFileSize(attachment.fileSize)} •
+                            Uploaded {new Date(attachment.uploadedAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="attachment-actions">
+                        <button
+                          type="button"
+                          className="download-button"
+                          onClick={() => handleDownloadFile(attachment)}
+                          title="Download file"
+                        >
+                          ⬇️
+                        </button>
+                        <button
+                          type="button"
+                          className="remove-button"
+                          onClick={() => removeAttachment(attachment.id, attachment.fileName)}
+                          title="Remove file"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* rsId Row - only show for CSV imported events */}
       {event && (event.rsId !== undefined && event.rsId !== null) && (
         <div className="form-row">
@@ -1113,6 +1410,53 @@ function EventForm({
       {activeTab === 'history' && event && event.id && apiToken && (
         <div className="history-tab-content">
           <EventAuditHistory eventId={event.id} apiToken={apiToken} />
+        </div>
+      )}
+
+      {/* File Preview Modal */}
+      {showPreviewModal && previewFile && (
+        <div className="file-preview-modal-overlay" onClick={closePreview}>
+          <div className="file-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="file-preview-header">
+              <h3>{previewFile.fileName}</h3>
+              <button
+                type="button"
+                className="close-preview-button"
+                onClick={closePreview}
+                title="Close preview"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="file-preview-content">
+              {previewFile.mimeType.startsWith('image/') ? (
+                <img
+                  src={previewFile.blobUrl}
+                  alt={previewFile.fileName}
+                  className="preview-image"
+                />
+              ) : previewFile.mimeType === 'application/pdf' ? (
+                <iframe
+                  src={previewFile.blobUrl}
+                  className="preview-pdf"
+                  title={previewFile.fileName}
+                />
+              ) : (
+                <div className="preview-text">
+                  <p>Preview not available for this file type.</p>
+                  <p>
+                    <button
+                      type="button"
+                      className="download-link"
+                      onClick={() => handleDownloadFile(previewFile)}
+                    >
+                      Download {previewFile.fileName}
+                    </button>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
