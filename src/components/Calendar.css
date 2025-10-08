@@ -147,17 +147,17 @@
 /* NEW: Header Row Layouts */
 .header-top-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 40px;
   flex-wrap: wrap;
 }
 
 .header-bottom-row {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 40px;
   flex-wrap: wrap;
 }
 

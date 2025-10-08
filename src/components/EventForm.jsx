@@ -692,13 +692,12 @@ function EventForm({
       assignedTo: createRegistrationEvent ? assignedTo : '',
       createRegistrationEvent
     };
-    
-    logger.debug("Final event data prepared for preview:", eventData);
+
+    logger.debug("Final event data prepared for save:", eventData);
     // Category debugging removed
-    
-    // Show preview modal instead of directly saving
-    setPendingEventData(eventData);
-    setShowPreview(true);
+
+    // Save directly without preview modal
+    onSave(eventData);
   };
   
   // Handler for confirming save from preview modal
@@ -1380,7 +1379,7 @@ function EventForm({
                 Saving...
               </>
             ) : (
-              'Preview & Save'
+              'Save'
             )}
           </button>
         )}

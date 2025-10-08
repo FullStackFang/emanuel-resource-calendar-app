@@ -1,0 +1,256 @@
+/* src/components/CategoryManagement.css */
+
+.category-management {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.category-management-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.category-management-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.add-category-btn {
+  padding: 10px 20px;
+  background-color: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.add-category-btn:hover {
+  background-color: #106ebe;
+}
+
+.category-management-loading {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.error-message {
+  background-color: #fee;
+  color: #c00;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  border: 1px solid #fcc;
+}
+
+.categories-list {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.categories-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.categories-table thead {
+  background-color: #f8f8f8;
+}
+
+.categories-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.categories-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.categories-table tbody tr:hover {
+  background-color: #f8f8f8;
+}
+
+.color-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.category-name {
+  font-weight: 500;
+  color: #333;
+}
+
+.category-description {
+  color: #666;
+  max-width: 300px;
+}
+
+.category-type-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.category-type-badge.base {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.category-type-badge.dynamic {
+  background-color: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-btn,
+.delete-btn,
+.save-btn,
+.cancel-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.edit-btn {
+  background-color: #0078d4;
+  color: white;
+}
+
+.edit-btn:hover {
+  background-color: #106ebe;
+}
+
+.delete-btn {
+  background-color: #d13438;
+  color: white;
+}
+
+.delete-btn:hover {
+  background-color: #a62d30;
+}
+
+.save-btn {
+  background-color: #107c10;
+  color: white;
+}
+
+.save-btn:hover {
+  background-color: #0d5c0d;
+}
+
+.cancel-btn {
+  background-color: #f3f3f3;
+  color: #333;
+}
+
+.cancel-btn:hover {
+  background-color: #e0e0e0;
+}
+
+.no-categories {
+  padding: 40px;
+  text-align: center;
+  color: #666;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 400px;
+  max-width: 600px;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.form-group input[type="color"] {
+  width: 60px;
+  height: 40px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.form-group textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.delete-confirm {
+  max-width: 400px;
+}
+
+.delete-confirm p {
+  margin-bottom: 20px;
+  color: #666;
+}

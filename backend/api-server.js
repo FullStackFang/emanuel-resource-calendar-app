@@ -146,6 +146,7 @@ let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
+let categoriesCollection; // Event categories (base + dynamic)
 let eventAuditHistoryCollection; // Audit trail for event changes
 let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
@@ -484,22 +485,53 @@ async function createEventServiceTypesIndexes() {
 async function createFeatureCategoriesIndexes() {
   try {
     console.log('Creating feature categories indexes...');
-    
+
     // Unique index for category keys
     await featureCategoriesCollection.createIndex(
       { key: 1 },
       { name: "unique_category_key", unique: true, background: true }
     );
-    
+
     // Index for display order
     await featureCategoriesCollection.createIndex(
       { displayOrder: 1, active: 1 },
       { name: "category_display_order", background: true }
     );
-    
+
     console.log('Feature categories indexes created successfully');
   } catch (error) {
     console.error('Error creating feature categories indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for categories collection
+ */
+async function createCategoriesIndexes() {
+  try {
+    console.log('Creating categories indexes...');
+
+    // Unique index for category names
+    await categoriesCollection.createIndex(
+      { name: 1 },
+      { name: "unique_category_name", unique: true, background: true }
+    );
+
+    // Index for display order
+    await categoriesCollection.createIndex(
+      { displayOrder: 1, active: 1 },
+      { name: "category_display_order", background: true }
+    );
+
+    // Index for type (base vs dynamic)
+    await categoriesCollection.createIndex(
+      { type: 1, active: 1 },
+      { name: "category_type", background: true }
+    );
+
+    console.log('Categories indexes created successfully');
+  } catch (error) {
+    console.error('Error creating categories indexes:', error);
   }
 }
 
@@ -746,6 +778,96 @@ async function seedInitialFeatureCategories() {
     }
   } catch (error) {
     console.error('Error seeding initial feature categories:', error);
+  }
+}
+
+/**
+ * Seed initial event categories if the collection is empty
+ */
+async function seedInitialCategories() {
+  try {
+    const categoryCount = await categoriesCollection.countDocuments();
+    if (categoryCount === 0) {
+      console.log('Seeding initial event categories...');
+
+      const initialCategories = [
+        {
+          name: "Jewish Holidays",
+          type: "base",
+          color: "#1E90FF",
+          displayOrder: 1,
+          active: true,
+          description: "Jewish holiday observances and celebrations",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Services",
+          type: "base",
+          color: "#32CD32",
+          displayOrder: 2,
+          active: true,
+          description: "Religious services and worship",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Education",
+          type: "base",
+          color: "#FFD700",
+          displayOrder: 3,
+          active: true,
+          description: "Educational programs and classes",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Community",
+          type: "base",
+          color: "#FF69B4",
+          displayOrder: 4,
+          active: true,
+          description: "Community events and gatherings",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Administrative",
+          type: "base",
+          color: "#808080",
+          displayOrder: 5,
+          active: true,
+          description: "Administrative and operational events",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Meetings",
+          type: "base",
+          color: "#4169E1",
+          displayOrder: 6,
+          active: true,
+          description: "Committee and board meetings",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: "Youth Programs",
+          type: "base",
+          color: "#FF8C00",
+          displayOrder: 7,
+          active: true,
+          description: "Programs and activities for youth",
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+
+      await categoriesCollection.insertMany(initialCategories);
+      console.log(`Seeded ${initialCategories.length} initial event categories`);
+    }
+  } catch (error) {
+    console.error('Error seeding initial event categories:', error);
   }
 }
 
@@ -1214,6 +1336,7 @@ async function connectToDatabase() {
     roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
     eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
     featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
+    categoriesCollection = db.collection('templeEvents__Categories'); // Event categories (base + dynamic)
     eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
 
     // Initialize GridFS bucket for file storage
@@ -1236,6 +1359,7 @@ async function connectToDatabase() {
     await createRoomCapabilityTypesIndexes();
     await createEventServiceTypesIndexes();
     await createFeatureCategoriesIndexes();
+    await createCategoriesIndexes();
     
     // Event cache indexes removed - using unifiedEventsCollection instead
     
@@ -1244,6 +1368,7 @@ async function connectToDatabase() {
     
     // Seed initial feature configuration data if none exists
     await seedInitialFeatureCategories();
+    await seedInitialCategories();
     await seedInitialRoomCapabilityTypes();
     await seedInitialEventServiceTypes();
     
@@ -3403,6 +3528,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     // Handle new event creation vs existing event updates
     let currentEvent = null;
     let isNewEvent = false;
+    let actualEventId = eventId; // Working copy of eventId that can be updated
 
     if (eventId && eventId !== 'new') {
       // Fetch current event data for existing events
@@ -3453,18 +3579,18 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     let graphUpdateResult = null;
     let updatedGraphData = currentEvent?.graphData || {};
 
-    // 1. Update Graph API if graphFields provided
+    // 1. Update or Create event in Graph API if graphFields provided
     if (graphFields && graphToken) {
       try {
-        // Construct batch request for Graph API update
+        // Construct batch request - use POST for new events, PATCH for existing events
         const batchBody = {
           requests: [
             {
               id: '1',
-              method: 'PATCH',
-              url: calendarId ?
-                `/me/calendars/${calendarId}/events/${eventId}` :
-                `/me/events/${eventId}`,
+              method: isNewEvent ? 'POST' : 'PATCH',
+              url: isNewEvent ?
+                (calendarId ? `/me/calendars/${calendarId}/events` : `/me/events`) :
+                (calendarId ? `/me/calendars/${calendarId}/events/${eventId}` : `/me/events/${eventId}`),
               body: graphFields,
               headers: {
                 'Content-Type': 'application/json'
@@ -3473,7 +3599,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ]
         };
 
-        logger.debug('Making Graph API batch update:', { batchBody });
+        logger.debug(`Making Graph API batch ${isNewEvent ? 'create' : 'update'}:`, { batchBody });
 
         const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
           method: 'POST',
@@ -3486,12 +3612,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
         if (!graphResponse.ok) {
           const errorText = await graphResponse.text();
-          logger.error('Graph API batch update failed:', {
+          logger.error('Graph API batch request failed:', {
             status: graphResponse.status,
             statusText: graphResponse.statusText,
-            error: errorText
+            error: errorText,
+            isNewEvent
           });
-          return res.status(502).json({ error: `Graph API update failed: ${graphResponse.status} ${graphResponse.statusText}` });
+          return res.status(502).json({ error: `Graph API ${isNewEvent ? 'create' : 'update'} failed: ${graphResponse.status} ${graphResponse.statusText}` });
         }
 
         const batchResult = await graphResponse.json();
@@ -3500,16 +3627,25 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           const mainResponse = batchResult.responses[0];
           if (mainResponse.status >= 200 && mainResponse.status < 300) {
             graphUpdateResult = mainResponse.body;
-            logger.debug('Graph API update successful:', graphUpdateResult);
+            logger.debug(`Graph API ${isNewEvent ? 'create' : 'update'} successful:`, {
+              eventId: graphUpdateResult.id,
+              subject: graphUpdateResult.subject
+            });
+
+            // For new events, update the actualEventId with the newly created ID
+            if (isNewEvent && graphUpdateResult.id) {
+              actualEventId = graphUpdateResult.id;
+              logger.debug('New event created with ID:', actualEventId);
+            }
           } else {
             logger.error('Graph API batch response error:', mainResponse);
-            return res.status(502).json({ error: `Graph API update failed: ${mainResponse.status}` });
+            return res.status(502).json({ error: `Graph API ${isNewEvent ? 'create' : 'update'} failed: ${mainResponse.status}` });
           }
         }
 
         // Update local graphData with the new values
         updatedGraphData = {
-          ...currentEvent.graphData,
+          ...(currentEvent?.graphData || {}),
           ...graphUpdateResult
         };
 
@@ -3519,30 +3655,54 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       }
     }
 
-    // 2. Update internal fields in database
-    const updateOperations = {};
+    // 2. Update or insert event in database
+    let dbUpdateResult;
 
-    if (internalFields) {
-      updateOperations['internalData'] = {
-        ...currentEvent.internalData,
-        ...internalFields
+    if (isNewEvent) {
+      // Insert new event document
+      const newEventDoc = {
+        userId: userId,
+        eventId: actualEventId,
+        calendarId: calendarId,
+        graphData: updatedGraphData,
+        internalData: internalFields || {},
+        createdAt: new Date(),
+        lastAccessedAt: new Date(),
+        syncedAt: new Date()
       };
-    }
 
-    // Always update graphData if we got new data from Graph API
-    if (graphUpdateResult) {
-      updateOperations['graphData'] = updatedGraphData;
-    }
+      dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
+      logger.debug('New event inserted into database:', {
+        eventId: actualEventId,
+        insertedId: dbUpdateResult.insertedId
+      });
+    } else {
+      // Update existing event
+      const updateOperations = {};
 
-    updateOperations['lastAccessedAt'] = new Date();
+      if (internalFields) {
+        updateOperations['internalData'] = {
+          ...currentEvent.internalData,
+          ...internalFields
+        };
+      }
 
-    const dbUpdateResult = await unifiedEventsCollection.updateOne(
-      { userId: userId, eventId: eventId },
-      { $set: updateOperations }
-    );
+      // Always update graphData if we got new data from Graph API
+      if (graphUpdateResult) {
+        updateOperations['graphData'] = updatedGraphData;
+      }
 
-    if (dbUpdateResult.matchedCount === 0) {
-      return res.status(404).json({ error: 'Event not found in database' });
+      updateOperations['lastAccessedAt'] = new Date();
+      updateOperations['syncedAt'] = new Date();
+
+      dbUpdateResult = await unifiedEventsCollection.updateOne(
+        { userId: userId, eventId: eventId },
+        { $set: updateOperations }
+      );
+
+      if (dbUpdateResult.matchedCount === 0) {
+        return res.status(404).json({ error: 'Event not found in database' });
+      }
     }
 
     // 3. Generate comprehensive changeSet for audit logging
@@ -3578,25 +3738,26 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       }
     }
 
-    // 4. Create audit entry if there were changes
-    if (changeSet.length > 0) {
+    // 4. Create audit entry if there were changes (or if it's a new event)
+    if (changeSet.length > 0 || isNewEvent) {
       try {
         await logEventAudit({
-          eventId: eventId,
+          eventId: actualEventId,
           userId: userId,
-          changeType: 'update',
-          source: 'Unified Form Edit',
+          changeType: isNewEvent ? 'create' : 'update',
+          source: isNewEvent ? 'Unified Form Create' : 'Unified Form Edit',
           changeSet: changeSet,
           metadata: {
             userAgent: req.headers['user-agent'] || 'Unknown',
             ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
-            reason: 'Event updated via unified audit system',
+            reason: isNewEvent ? 'Event created via unified audit system' : 'Event updated via unified audit system',
             graphFieldsUpdated: !!graphFields,
             internalFieldsUpdated: !!internalFields
           }
         });
 
-        logger.debug(`Unified audit entry created for event ${eventId}`, {
+        logger.debug(`Unified audit entry created for event ${actualEventId}`, {
+          changeType: isNewEvent ? 'create' : 'update',
           changesCount: changeSet.length,
           changes: changeSet.map(c => c.field)
         });
@@ -3605,13 +3766,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         // Don't fail the request if audit logging fails
       }
     } else {
-      logger.debug(`No changes detected for event ${eventId}, skipping audit entry`);
+      logger.debug(`No changes detected for event ${actualEventId}, skipping audit entry`);
     }
 
     // 5. Return updated event
     const finalEvent = await unifiedEventsCollection.findOne({
       userId: userId,
-      eventId: eventId
+      eventId: actualEventId
     });
 
     if (!finalEvent) {
@@ -3631,7 +3792,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       _lastSyncedAt: finalEvent.lastSyncedAt
     };
 
-    logger.debug(`Successfully completed unified update for event ${eventId}`, {
+    logger.debug(`Successfully completed unified update for event ${actualEventId}`, {
       graphFieldsUpdated: !!graphFields,
       internalFieldsUpdated: !!internalFields,
       auditChangesCount: changeSet.length
@@ -11297,11 +11458,143 @@ app.get('/api/feature-categories', async (req, res) => {
     const categories = await featureCategoriesCollection.find({ active: true })
       .sort({ displayOrder: 1 })
       .toArray();
-    
+
     res.json(categories);
   } catch (error) {
     logger.error('Error fetching feature categories:', error);
     res.status(500).json({ error: 'Failed to fetch feature categories' });
+  }
+});
+
+/**
+ * Get all event categories (base + dynamic)
+ */
+app.get('/api/categories', async (req, res) => {
+  try {
+    const categories = await categoriesCollection.find({ active: true })
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    res.json(categories);
+  } catch (error) {
+    logger.error('Error fetching categories:', error);
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+/**
+ * Create a new event category
+ */
+app.post('/api/categories', verifyToken, async (req, res) => {
+  try {
+    const { name, color, description, displayOrder, type } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+
+    // Check for duplicate name
+    const existingCategory = await categoriesCollection.findOne({ name: name.trim() });
+    if (existingCategory) {
+      return res.status(400).json({ error: 'Category with this name already exists' });
+    }
+
+    const newCategory = {
+      name: name.trim(),
+      type: type || 'base',
+      color: color || '#808080',
+      description: description || '',
+      displayOrder: displayOrder || 999,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await categoriesCollection.insertOne(newCategory);
+    const createdCategory = await categoriesCollection.findOne({ _id: result.insertedId });
+
+    res.status(201).json(createdCategory);
+  } catch (error) {
+    logger.error('Error creating category:', error);
+    res.status(500).json({ error: 'Failed to create category' });
+  }
+});
+
+/**
+ * Update an event category
+ */
+app.put('/api/categories/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, color, description, displayOrder, active } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid category ID' });
+    }
+
+    const updateData = {
+      updatedAt: new Date()
+    };
+
+    if (name !== undefined) updateData.name = name.trim();
+    if (color !== undefined) updateData.color = color;
+    if (description !== undefined) updateData.description = description;
+    if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
+    if (active !== undefined) updateData.active = active;
+
+    // If updating name, check for duplicates
+    if (name) {
+      const existingCategory = await categoriesCollection.findOne({
+        name: name.trim(),
+        _id: { $ne: new ObjectId(id) }
+      });
+      if (existingCategory) {
+        return res.status(400).json({ error: 'Category with this name already exists' });
+      }
+    }
+
+    const result = await categoriesCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Error updating category:', error);
+    res.status(500).json({ error: 'Failed to update category' });
+  }
+});
+
+/**
+ * Delete an event category (soft delete by setting active to false)
+ */
+app.delete('/api/categories/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid category ID' });
+    }
+
+    const result = await categoriesCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: { active: false, updatedAt: new Date() } },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    res.json({ message: 'Category deleted successfully', category: result });
+  } catch (error) {
+    logger.error('Error deleting category:', error);
+    res.status(500).json({ error: 'Failed to delete category' });
   }
 });
 

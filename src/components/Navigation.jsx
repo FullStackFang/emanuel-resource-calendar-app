@@ -95,17 +95,8 @@ export default function Navigation({
           {adminExpanded && (
             <ul className="dropdown-menu">
               <li>
-                <NavLink 
-                  to="/admin" 
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Schema Extensions
-                </NavLink>
-              </li>
-              <li>
-                <NavLink 
-                  to="/admin/users" 
+                <NavLink
+                  to="/admin/users"
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
@@ -113,26 +104,8 @@ export default function Navigation({
                 </NavLink>
               </li>
               <li>
-              <NavLink 
-                to="/admin/event-sync" 
-                className={({ isActive }) => isActive ? 'active' : ''}
-                onClick={handleDropdownLinkClick}
-              >
-                Event Sync
-              </NavLink>
-            </li>
-              <li>
-                <NavLink 
-                  to="/admin/cache" 
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Cache Management (Legacy)
-                </NavLink>
-              </li>
-              <li>
-                <NavLink 
-                  to="/admin/events" 
+                <NavLink
+                  to="/admin/events"
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
@@ -140,8 +113,8 @@ export default function Navigation({
                 </NavLink>
               </li>
               <li>
-                <NavLink 
-                  to="/admin/locations" 
+                <NavLink
+                  to="/admin/locations"
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
@@ -149,8 +122,8 @@ export default function Navigation({
                 </NavLink>
               </li>
               <li>
-                <NavLink 
-                  to="/admin/reservation-requests" 
+                <NavLink
+                  to="/admin/reservation-requests"
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
@@ -158,12 +131,21 @@ export default function Navigation({
                 </NavLink>
               </li>
               <li>
-                <NavLink 
-                  to="/admin/feature-management" 
+                <NavLink
+                  to="/admin/feature-management"
                   className={({ isActive }) => isActive ? 'active' : ''}
                   onClick={handleDropdownLinkClick}
                 >
                   Feature Management
+                </NavLink>
+              </li>
+              <li>
+                <NavLink
+                  to="/admin/categories"
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  Category Management
                 </NavLink>
               </li>
             </ul>

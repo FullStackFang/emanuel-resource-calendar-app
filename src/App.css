@@ -977,8 +977,9 @@
   
   .modal-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
+    position: relative;
     padding: 16px 20px;
     border-bottom: 1px solid #e2e8f0;
     flex-shrink: 0;
@@ -991,11 +992,11 @@
     color: var(--primary-color);
     font-size: 18px;
     font-weight: 600;
-    flex: 1;
-    text-align: center;
   }
 
   .modal-close {
+    position: absolute;
+    right: 20px;
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
     border-radius: 6px;

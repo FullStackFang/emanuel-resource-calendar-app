@@ -154,6 +154,7 @@
     const [allEvents, setAllEventsState] = useState([]);
     const [showSearch, setShowSearch] = useState(false);
     const [outlookCategories, setOutlookCategories] = useState([]);
+    const [baseCategories, setBaseCategories] = useState([]); // Base categories from database
     const [schemaExtensions, setSchemaExtensions] = useState([]);
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
@@ -536,67 +537,6 @@
               />
               
               {/* Cache Control Buttons (only show when API token is available) */}
-              {apiToken && (
-                <>
-                  <button 
-                    onClick={() => refreshEvents(false)}
-                    disabled={loading}
-                    style={{
-                      padding: '6px 14px',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '6px',
-                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
-                      color: loading ? '#9ca3af' : '#111827',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      whiteSpace: 'nowrap'
-                    }}
-                    title="Refresh events (cache-first)"
-                  >
-                    {loading ? '⏳' : '🔄'} Refresh
-                  </button>
-                  
-                  <button 
-                    onClick={() => refreshEvents(true)}
-                    disabled={loading}
-                    style={{
-                      padding: '6px 14px',
-                      border: '1px solid #dc2626',
-                      borderRadius: '6px',
-                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
-                      color: loading ? '#9ca3af' : '#dc2626',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                      whiteSpace: 'nowrap'
-                    }}
-                    title="Force refresh from Graph API (bypasses cache)"
-                  >
-                    {loading ? '⏳' : '🚀'} Force Refresh
-                  </button>
-                  
-                  <button 
-                    onClick={handleManualSync}
-                    disabled={loading || !allEvents || allEvents.length === 0}
-                    style={{
-                      padding: '6px 14px',
-                      border: '1px solid #16a34a',
-                      borderRadius: '6px',
-                      backgroundColor: loading ? '#f3f4f6' : '#ffffff',
-                      color: loading || !allEvents || allEvents.length === 0 ? '#9ca3af' : '#16a34a',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: loading || !allEvents || allEvents.length === 0 ? 'not-allowed' : 'pointer',
-                      whiteSpace: 'nowrap'
-                    }}
-                    title="Sync loaded events to database for enrichment"
-                  >
-                    {loading ? '⏳' : '💾'} Sync to Database
-                  </button>
-                </>
-              )}
-              
               <button 
                 className="search-button" 
                 onClick={() => setShowSearch(true)}
@@ -998,6 +938,32 @@
         return [];
       }
     }, [graphToken]);
+
+    /**
+     * Load base categories from database
+     * @returns {Array} Array of base category objects
+     */
+    const loadBaseCategories = useCallback(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/categories`, {
+          headers: {
+            Authorization: `Bearer ${apiToken}`
+          }
+        });
+
+        if (!response.ok) {
+          logger.error('Failed to fetch base categories:', response.status);
+          return [];
+        }
+
+        const categories = await response.json();
+        logger.debug('Loaded base categories:', categories.length);
+        return categories;
+      } catch (err) {
+        logger.error('Error loading base categories:', err);
+        return [];
+      }
+    }, [apiToken]);
 
     /**
      * Load categories from Outlook
@@ -2265,6 +2231,11 @@
           }
         }
         
+        // Load base categories from database
+        const baseCats = await loadBaseCategories();
+        setBaseCategories(baseCats);
+        logger.debug('Loaded base categories during init:', baseCats.length);
+
         // Load Outlook categories
         // Load Outlook categories
         const categories = await loadOutlookCategories();
@@ -2478,61 +2449,28 @@
     }, [selectedCalendarId, availableCalendars]);
 
     /**
-     * Get categories that are specific to a target calendar
-     * @param {string} targetCalendarId - The ID of the target calendar
-     * @returns {Array} Array of category names available for the target calendar
+     * Get categories from the database (base categories only)
+     * @param {string} targetCalendarId - The ID of the target calendar (not used, kept for compatibility)
+     * @returns {Array} Array of category names from the database
      */
     const getCalendarSpecificCategories = useCallback((targetCalendarId) => {
-      // Get all master categories as fallback
-      const masterCategories = outlookCategories.map(cat => cat.name || cat.displayName || cat);
-      
-      if (!targetCalendarId || !allEvents.length) {
-        // If no target calendar or no events, return all master categories
-        return masterCategories.length > 0 ? masterCategories : ['Uncategorized'];
-      }
-      
-      // Find events that belong to the target calendar
-      const calendarEvents = allEvents.filter(event => {
-        // Check if event belongs to target calendar
-        return event.calendarId === targetCalendarId || 
-               (!event.calendarId && targetCalendarId === selectedCalendarId);
-      });
-      
-      // Extract unique categories from calendar events
-      const calendarCategories = new Set();
-      calendarEvents.forEach(event => {
-        if (event.categories && Array.isArray(event.categories)) {
-          event.categories.forEach(cat => {
-            if (cat && cat.trim() !== '') {
-              calendarCategories.add(cat.trim());
-            }
-          });
-        } else if (event.category && event.category.trim() !== '') {
-          calendarCategories.add(event.category.trim());
+      // Return all base categories from database, sorted by displayOrder
+      if (baseCategories && baseCategories.length > 0) {
+        const categoryNames = baseCategories
+          .sort((a, b) => (a.displayOrder || 999) - (b.displayOrder || 999))
+          .map(cat => cat.name);
+
+        // Always include 'Uncategorized' as first option if not present
+        if (!categoryNames.includes('Uncategorized')) {
+          categoryNames.unshift('Uncategorized');
         }
-      });
-      
-      // Convert to array and filter against master categories
-      const calendarCategoriesArray = Array.from(calendarCategories);
-      
-      // Only include categories that exist in both master categories and calendar events
-      const filteredCategories = masterCategories.filter(masterCat => 
-        calendarCategoriesArray.some(calCat => calCat === masterCat)
-      );
-      
-      // Always include 'Uncategorized' as an option
-      if (!filteredCategories.includes('Uncategorized')) {
-        filteredCategories.unshift('Uncategorized');
+
+        return categoryNames;
       }
-      
-      // If no categories found for this calendar, return all master categories
-      // This handles the case where it's a new calendar or calendar with no events
-      if (filteredCategories.length <= 1) { // Only 'Uncategorized'
-        return masterCategories.length > 0 ? masterCategories : ['Uncategorized'];
-      }
-      
-      return filteredCategories.sort();
-    }, [outlookCategories, allEvents, selectedCalendarId]);
+
+      // Fallback if base categories haven't loaded yet
+      return ['Uncategorized'];
+    }, [baseCategories]);
 
     /**
      * Get the target calendar ID for event creation/editing
@@ -2820,15 +2758,25 @@
     }, [allEvents, isVirtualLocation, generalLocations]);
 
     /**
-     * TBD
-     */ 
+     * Get categories: base categories from database + dynamic categories from events
+     */
     const getDynamicCategories = useCallback(() => {
-      // Get unique categories from all events
       const categoriesSet = new Set();
-      
+
+      // First, add all base categories from database
+      if (baseCategories && baseCategories.length > 0) {
+        baseCategories.forEach(cat => {
+          if (cat.name && cat.name.trim() !== '') {
+            categoriesSet.add(cat.name.trim());
+          }
+        });
+        logger.debug('Added base categories from database:', baseCategories.length);
+      }
+
+      // Then add dynamic categories from events
       allEvents.forEach(event => {
         let hasCategory = false;
-        
+
         // Handle Graph API categories (plural array)
         if (event.categories && Array.isArray(event.categories)) {
           event.categories.forEach(cat => {
@@ -2838,22 +2786,22 @@
             }
           });
         }
-        
+
         // Handle legacy category (singular string) - fallback
         if (!hasCategory && event.category && event.category.trim() !== '') {
           categoriesSet.add(event.category.trim());
           hasCategory = true;
         }
-        
+
         // If no category found, add 'Uncategorized'
         if (!hasCategory) {
           categoriesSet.add('Uncategorized');
         }
       });
-      
-      // Add fallback categories from Outlook when no events are available
+
+      // Add fallback categories from Outlook when no base categories and no event categories
       if (categoriesSet.size === 0 || (categoriesSet.size === 1 && categoriesSet.has('Uncategorized'))) {
-        // Use Outlook categories as fallback when no events or only uncategorized events
+        // Use Outlook categories as fallback when no base categories and no events
         if (outlookCategories && outlookCategories.length > 0) {
           outlookCategories.forEach(cat => {
             if (cat.name && cat.name.trim() !== '') {
@@ -2861,13 +2809,6 @@
             }
           });
           logger.debug('Added fallback categories from Outlook:', outlookCategories.length);
-        }
-
-        // Add some default categories if still empty
-        if (categoriesSet.size === 0 || (categoriesSet.size === 1 && categoriesSet.has('Uncategorized'))) {
-          const defaultCategories = ['Administrative', 'Meeting', 'Event', 'Service', 'Education', 'Community'];
-          defaultCategories.forEach(cat => categoriesSet.add(cat));
-          logger.debug('Added default fallback categories');
         }
       }
 
@@ -2883,7 +2824,7 @@
       ];
 
       return finalCategories;
-    }, [allEvents, outlookCategories]);
+    }, [baseCategories, allEvents, outlookCategories]);
     
     /**
      * TBD
@@ -4097,53 +4038,9 @@
             registrationNotes: data.registrationNotes,
             assignedTo: data.assignedTo
           }, targetCalendarId);
-          
-          // Cache the new registration events immediately
-          if (apiToken && registrationResult && targetCalendarId) {
-            setTimeout(async () => {
-              try {
-                eventCacheService.setApiToken(apiToken);
-                
-                // Cache the main event if created
-                if (registrationResult.mainEventId) {
-                  const mainEventForCache = {
-                    id: registrationResult.mainEventId,
-                    subject: data.subject,
-                    start: data.start,
-                    end: data.end,
-                    location: data.location,
-                    calendarId: targetCalendarId,
-                    categories: data.categories || ["Uncategorized"],
-                    extensions: data.extensions || [],
-                    lastModifiedDateTime: new Date().toISOString(),
-                    '@odata.etag': null
-                  };
-                  await eventCacheService.cacheSingleEvent(mainEventForCache, targetCalendarId);
-                  logger.debug('Cached new registration main event:', registrationResult.mainEventId);
-                }
-                
-                // Cache the registration event if created and we have its calendar
-                if (registrationResult.registrationEventId && registrationResult.registrationCalendarId) {
-                  const regEventForCache = {
-                    id: registrationResult.registrationEventId,
-                    subject: `Registration - ${data.subject}`,
-                    start: data.registrationStart || data.start,
-                    end: data.registrationEnd || data.end,
-                    location: data.location,
-                    calendarId: registrationResult.registrationCalendarId,
-                    category: "Registration",
-                    extensions: [],
-                    lastModifiedDateTime: new Date().toISOString(),
-                    '@odata.etag': null
-                  };
-                  await eventCacheService.cacheSingleEvent(regEventForCache, registrationResult.registrationCalendarId);
-                  logger.debug('Cached new registration event:', registrationResult.registrationEventId);
-                }
-              } catch (cacheError) {
-                logger.warn('Failed to cache new registration events:', cacheError);
-              }
-            }, 100);
-          }
+
+          // Registration events are automatically stored in unified events collection
+          // No manual caching needed
         } else {
           // For existing events or events without registration, use normal batch update
           const createdEvent = await patchEventBatch(data.id, core, ext, targetCalendarId, internal);
@@ -4167,38 +4064,10 @@
             }, targetCalendarId);
           }
         }
-        
-        // Cache the specific updated/created event immediately using the data we have
-        if (apiToken && data.id && targetCalendarId) {
-          // Cache immediately in the background
-          setTimeout(async () => {
-            try {
-              eventCacheService.setApiToken(apiToken);
-              
-              // Create event object for caching with the data we know
-              const eventForCache = {
-                id: data.id,
-                subject: data.subject,
-                start: data.start,
-                end: data.end,
-                location: data.location,
-                body: data.body, // Include body field for description content
-                calendarId: targetCalendarId,
-                // Include other properties that might be needed
-                categories: data.categories || [], // Use plural categories array to match Graph API
-                extensions: data.extensions || [],
-                lastModifiedDateTime: new Date().toISOString(),
-                '@odata.etag': data['@odata.etag'] || null
-              };
-              
-              await eventCacheService.cacheSingleEvent(eventForCache, targetCalendarId);
-              logger.debug('Cached updated/created event individually:', data.id, 'in calendar:', targetCalendarId);
-            } catch (cacheError) {
-              logger.warn('Failed to cache updated/created event:', cacheError);
-            }
-          }, 100);
-        }
-        
+
+        // Event is now automatically stored in unified events collection via audit-update endpoint
+        // No manual caching needed
+
         // Reload events with retry logic to ensure newly created event appears
         await retryEventLoadAfterCreation(data.id, data.subject);
         
