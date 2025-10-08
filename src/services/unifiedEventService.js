@@ -138,9 +138,9 @@ class UnifiedEventService {
         loadResults: data.loadResults
       });
 
-      // DESCRIPTION DEBUG: Log sample events with body content
-      if (data.events && data.events.length > 0) {
-        console.log('UnifiedEventService DEBUG - Total events received:', data.events.length);
+      // Detailed logging only in debug mode
+      if (data.events && data.events.length > 0 && logger.isDebugEnabled()) {
+        logger.debug('UnifiedEventService - Total events received:', data.events.length);
 
         // Log first few events with their body content
         const sampleEvents = data.events.slice(0, 3).map(event => ({
@@ -152,7 +152,7 @@ class UnifiedEventService {
           bodyPreview: event.bodyPreview,
           description: event.description
         }));
-        console.log('UnifiedEventService DEBUG - Sample events with body data:', sampleEvents);
+        logger.debug('UnifiedEventService - Sample events with body data:', sampleEvents);
 
         // Look specifically for events with "Test description"
         const testEvents = data.events.filter(event =>
@@ -161,7 +161,7 @@ class UnifiedEventService {
           event.description?.includes('Test description')
         );
         if (testEvents.length > 0) {
-          console.log('UnifiedEventService DEBUG - Found events with "Test description":', testEvents.map(event => ({
+          logger.debug('UnifiedEventService - Found events with "Test description":', testEvents.map(event => ({
             id: event.id,
             subject: event.subject,
             bodyContent: event.body?.content,

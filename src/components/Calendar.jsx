@@ -166,18 +166,18 @@
       
       // Setting events
 
-      // DESCRIPTION DEBUG: Log when events are set in state
-      if (newEvents.length > 0) {
-        console.log(`📌 SETTING ${newEvents.length} EVENTS IN STATE`);
+      // Debug logging for event state updates
+      if (newEvents.length > 0 && logger.isDebugEnabled()) {
+        logger.debug(`📌 SETTING ${newEvents.length} EVENTS IN STATE`);
 
         // Analyze body content in the events being set
         const withBody = newEvents.filter(e => e.body?.content).length;
         const withPreview = newEvents.filter(e => e.bodyPreview && !e.body?.content).length;
         const noDescription = newEvents.length - withBody - withPreview;
 
-        console.log(`   📝 With full body: ${withBody}`);
-        console.log(`   📄 With bodyPreview only: ${withPreview}`);
-        console.log(`   ❌ No description: ${noDescription}`);
+        logger.debug(`   📝 With full body: ${withBody}`);
+        logger.debug(`   📄 With bodyPreview only: ${withPreview}`);
+        logger.debug(`   ❌ No description: ${noDescription}`);
 
         // Check for test description events
         const testEvents = newEvents.filter(e =>
@@ -1767,25 +1767,17 @@
           calendars: calendarDetails
         });
         
-        // Clear console message for what we're loading
+        // Consolidated calendar load message
         const selectedCalendar = calendarsToUse.find(c => c.id === selectedCalendarId);
-        console.log(`\n🔄 ==================== CALENDAR SWITCH ====================`);
-        console.log(`🔍 LOADING EVENTS FROM: ${calendarDetails.map(c => c.name).join(', ')}`);
-        console.log(`📍 SELECTED CALENDAR: ${selectedCalendar?.name || 'None'} (${selectedCalendarId?.substring(0, 20)}...)`);
-        console.log(`📅 DATE RANGE: ${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`);
-        console.log(`==========================================================\n`);
-        
+        const dateRangeStr = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
+        console.log(`📅 Loading: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
+
         logger.debug('loadEventsUnified: Starting unified delta sync', {
           calendarIds,
           startTime: start,
           endTime: end,
           forceRefresh
         });
-
-        if (forceRefresh) {
-          console.log(`⚡ FORCE REFRESH ENABLED - Bypassing cache to get fresh data from Graph API`);
-          console.log(`📍 This will fetch events directly from Microsoft Graph API, not from cache`);
-        }
         
         // Initialize unified event service
         unifiedEventService.setApiToken(apiToken);
@@ -1845,20 +1837,19 @@
           // Backend now returns only events from the selected calendars
           // No need to filter on frontend anymore
           let eventsToDisplay = loadResult.events;
-          
-          console.log(`📊 RECEIVED ${eventsToDisplay.length} EVENTS FROM BACKEND`);
-          console.log(`📍 Data source: ${loadResult.source || 'unknown'}`);
 
-          // DESCRIPTION DEBUG: Log event body content details
-          if (eventsToDisplay.length > 0) {
+          console.log(`📊 ${eventsToDisplay.length} events | Source: ${loadResult.source || 'unknown'}`);
+
+          // Detailed logging only in debug mode
+          if (logger.isDebugEnabled() && eventsToDisplay.length > 0) {
             // Count events with body content
             const eventsWithBody = eventsToDisplay.filter(e => e.body?.content);
             const eventsWithBodyPreview = eventsToDisplay.filter(e => e.bodyPreview && !e.body?.content);
 
-            console.log(`📝 Body Content Analysis:`);
-            console.log(`   - Events with full body: ${eventsWithBody.length}/${eventsToDisplay.length}`);
-            console.log(`   - Events with only bodyPreview: ${eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
-            console.log(`   - Events with no description: ${eventsToDisplay.length - eventsWithBody.length - eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
+            logger.debug(`Body Content Analysis:`);
+            logger.debug(`   - Events with full body: ${eventsWithBody.length}/${eventsToDisplay.length}`);
+            logger.debug(`   - Events with only bodyPreview: ${eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
+            logger.debug(`   - Events with no description: ${eventsToDisplay.length - eventsWithBody.length - eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
 
             // Show first few events with their body structure
             const eventBodySummary = eventsToDisplay.slice(0, 3).map(e => ({
@@ -1871,7 +1862,7 @@
               bodyPreview: e.bodyPreview?.substring(0, 50),
               description: e.description?.substring(0, 50)
             }));
-            console.log('📋 Sample events with body data:', eventBodySummary);
+            logger.debug('Sample events with body data:', eventBodySummary);
 
             // Look for events with "Test description"
             const testDescEvents = eventsToDisplay.filter(e =>
@@ -1880,7 +1871,7 @@
               e.description?.includes('Test description')
             );
             if (testDescEvents.length > 0) {
-              console.log('Calendar.jsx DEBUG - Found events with "Test description":', testDescEvents.map(e => ({
+              logger.debug('Found events with "Test description":', testDescEvents.map(e => ({
                 id: e.id,
                 subject: e.subject,
                 bodyContent: e.body?.content,
@@ -1897,7 +1888,7 @@
               calendarId: e.calendarId?.substring(0, 20) + '...',
               start: e.start?.dateTime || e.start?.date
             }));
-            console.log('📝 Sample events:', eventSummary);
+            logger.debug('Sample events:', eventSummary);
           }
           
           // Log the events we're setting
@@ -2233,7 +2224,7 @@
         setInitializing(false);
       }, 30000);
 
-      logger.info("Starting application initialization...");
+      logger.debug("Starting application initialization...");
       try {
         // Load user profile and permissions first
         const userLoaded = await loadUserProfile();
@@ -2299,7 +2290,7 @@
         // Step 5: Mark categories as loaded after events are available (so dynamic categories can be generated)
         setLoadingState(prev => ({ ...prev, categories: false }));
 
-        logger.info("Application initialized successfully");
+        logger.log("Application initialized successfully");
         setInitializing(false);
 
         // Clear timeout on successful completion
@@ -4587,7 +4578,7 @@
     useEffect(() => {
       // Check if tokens are available for initialization
       if (graphToken && apiToken && initializing) {
-        logger.info("Tokens available, starting initialization");
+        logger.debug("Tokens available, starting initialization");
         initializeApp();
       }
     }, [graphToken, apiToken, initializing, initializeApp]);
@@ -4605,7 +4596,7 @@
 
     // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
-      console.log('[Calendar useEffect] Triggered:', {
+      logger.debug('[Calendar useEffect] Triggered:', {
         hasGraphToken: !!graphToken,
         initializing,
         selectedCalendarId,
@@ -4613,41 +4604,40 @@
         dateRangeString,
         changingCalendar
       });
-      
+
       if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
         const startTime = Date.now();
-        
+
         // Set a timeout to ensure changingCalendar is reset even if loading hangs
         const timeoutId = setTimeout(() => {
-          console.error('[Calendar useEffect] TIMEOUT - Forcing changingCalendar to false');
+          logger.error('[Calendar useEffect] TIMEOUT - Forcing changingCalendar to false');
           calendarDebug.logError('Calendar loading timeout', new Error('Loading took too long'), { selectedCalendarId });
           setChangingCalendar(false);
         }, 30000); // 30 second timeout
-        
-        console.log('[Calendar useEffect] Calling loadEvents with FORCE REFRESH to get fresh body content...');
+
+        logger.debug('[Calendar useEffect] Calling loadEvents with FORCE REFRESH to get fresh body content...');
         // TEMPORARY: Force refresh to get events with proper body structure
         // Remove this after all cached events are updated
         loadEvents(true)  // true = forceRefresh to bypass stale cache
           .then((result) => {
             const duration = Date.now() - startTime;
-            console.log('[Calendar useEffect] loadEvents completed:', { result, duration });
+            logger.debug('[Calendar useEffect] loadEvents completed:', { result, duration });
             calendarDebug.logEventLoadingComplete(selectedCalendarId, allEvents.length, duration);
           })
           .catch((error) => {
-            console.error('[Calendar useEffect] loadEvents failed:', error);
+            logger.error('[Calendar useEffect] loadEvents failed:', error);
             calendarDebug.logError('loadEvents in useEffect', error, { selectedCalendarId });
-            logger.error('Failed to load events:', error);
           })
           .finally(() => {
-            console.log('[Calendar useEffect] Finally block - setting changingCalendar to false');
+            logger.debug('[Calendar useEffect] Finally block - setting changingCalendar to false');
             clearTimeout(timeoutId);
             calendarDebug.logStateChange('changingCalendar', true, false);
             setChangingCalendar(false);
           });
       } else {
-        console.log('[Calendar useEffect] Skipping loadEvents due to missing requirements');
+        logger.debug('[Calendar useEffect] Skipping loadEvents due to missing requirements');
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
