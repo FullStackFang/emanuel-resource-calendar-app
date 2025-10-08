@@ -5,6 +5,7 @@ import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import CSVImport from './CSVImport';
 import CSVImportWithMapping from './CSVImportWithMapping';
+import CSVImportWithCalendar from './CSVImportWithCalendar';
 import EventDetailsModal from './EventDetailsModal';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
@@ -1517,6 +1518,12 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
           🔧 Advanced Import
         </button>
         <button
+          className={`tab ${activeTab === 'rs-import' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rs-import')}
+        >
+          📊 RS Import + Sync
+        </button>
+        <button
           className={`tab ${activeTab === 'migration' ? 'active' : ''}`}
           onClick={() => setActiveTab('migration')}
         >
@@ -1531,6 +1538,7 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         {activeTab === 'events' && renderEvents()}
         {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} availableCalendars={availableCalendars} />}
         {activeTab === 'advanced-import' && <CSVImportWithMapping apiToken={apiToken} />}
+        {activeTab === 'rs-import' && <CSVImportWithCalendar apiToken={apiToken} graphToken={graphToken} />}
         {activeTab === 'migration' && renderMigration()}
       </div>
 

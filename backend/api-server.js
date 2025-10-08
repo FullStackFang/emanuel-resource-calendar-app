@@ -2775,11 +2775,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     const { calendarIds, startTime, endTime, forceRefresh = false } = req.body;
     const userId = req.user.userId;
     const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
-    
+
     // Enhanced validation and logging
     logger.debug('Cache-first events load handler: validating request', {
       userId,
       hasGraphToken: !!graphToken,
+      graphTokenLength: graphToken ? graphToken.length : 0,
+      graphTokenPreview: graphToken ? `${graphToken.substring(0, 20)}...` : 'MISSING',
       calendarIds,
       calendarIdsType: typeof calendarIds,
       calendarIdsIsArray: Array.isArray(calendarIds),
@@ -2789,6 +2791,8 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       forceRefresh,
       requestBody: req.body
     });
+
+    logger.log(`🔍 Graph Token Check: ${graphToken ? '✅ PRESENT (' + graphToken.length + ' chars)' : '❌ MISSING'}`);
     
     if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
       logger.error('Cache-first events load handler: Invalid calendarIds', {
@@ -2824,12 +2828,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       calendars: {},
       totalEvents: 0,
       errors: [],
-      strategy: 'cache-first'
+      strategy: 'hybrid' // Cache + Graph API
     };
 
-    // STEP 1: Load from unified events collection (cache-only approach)
+    // STEP 1: Load from unified events collection (cache)
     let unifiedEvents = [];
-    logger.debug('Loading events from cache only (automatic sync disabled)...');
+    const cachedEventIds = new Set(); // Track which events are in cache
+    logger.debug('Loading events from cache...');
 
     if (startTime && endTime) {
       for (const calendarId of calendarIds) {
@@ -2840,25 +2845,230 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
             unifiedEvents = unifiedEvents.concat(cachedEvents);
 
+            // Track cached event IDs for deduplication
+            cachedEvents.forEach(event => {
+              if (event.eventId) {
+                cachedEventIds.add(event.eventId);
+              }
+            });
+
             loadResults.calendars[calendarId] = {
-              totalEvents: cachedEvents.length,
-              source: 'cache'
+              cachedEvents: cachedEvents.length,
+              source: 'hybrid'
             };
           } else {
             logger.debug(`No cached events found for calendar ${calendarId} in date range`);
             loadResults.calendars[calendarId] = {
-              totalEvents: 0,
-              source: 'cache'
+              cachedEvents: 0,
+              source: 'hybrid'
             };
           }
         } catch (cacheError) {
           logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
           loadResults.errors.push({
             calendarId: calendarId,
-            error: cacheError.message
+            error: cacheError.message,
+            step: 'cache'
           });
         }
       }
+    }
+
+    // STEP 2: Fetch from Graph API and merge with cache
+    logger.log('📡 STEP 2: Fetching events from Graph API...');
+    const newGraphEvents = []; // Events from Graph not in cache
+
+    if (startTime && endTime && graphToken) {
+      logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime}, graphToken: ${!!graphToken})`);
+
+      for (const calendarId of calendarIds) {
+        try {
+          // Build Graph API URL using /events endpoint with $filter (matching working frontend implementation)
+          const calendarPath = calendarId === 'primary'
+            ? '/me/events'
+            : `/me/calendars/${calendarId}/events`;
+
+          let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
+            `$top=250` +
+            `&$orderby=start/dateTime desc` +
+            `&$filter=start/dateTime ge '${new Date(startTime).toISOString()}' and start/dateTime le '${new Date(endTime).toISOString()}'` +
+            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties`;
+
+          logger.log(`🌐 Calling Graph API (/events) for calendar ${calendarId.substring(0, 20)}...`);
+          logger.debug(`Full Graph API URL: ${nextLink}`);
+
+          let graphEvents = [];
+          let pageCount = 0;
+
+          // Fetch all pages
+          while (nextLink) {
+            pageCount++;
+            logger.debug(`Fetching page ${pageCount} from Graph API...`);
+
+            const response = await fetch(nextLink, {
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            logger.debug(`Graph API response status: ${response.status} ${response.statusText}`);
+
+            if (!response.ok) {
+              const errorBody = await response.text();
+              logger.error(`❌ Graph API fetch failed for calendar ${calendarId}`, {
+                status: response.status,
+                statusText: response.statusText,
+                errorBody: errorBody,
+                url: nextLink.substring(0, 100) + '...'
+              });
+              loadResults.errors.push({
+                calendarId: calendarId,
+                error: `Graph API error: ${response.status} - ${errorBody.substring(0, 200)}`,
+                step: 'graph'
+              });
+              break;
+            }
+
+            // Parse JSON response
+            let data;
+            try {
+              data = await response.json();
+            } catch (jsonError) {
+              logger.error(`Failed to parse Graph API JSON response for calendar ${calendarId.substring(0, 20)}...`, {
+                error: jsonError.message
+              });
+              data = { value: [] };
+            }
+
+            const eventsInPage = data.value ? data.value.length : 0;
+            logger.debug(`Page ${pageCount}: ${eventsInPage} events`);
+
+            graphEvents = graphEvents.concat(data.value || []);
+            nextLink = data['@odata.nextLink'] || null;
+
+            if (nextLink) {
+              logger.debug('More pages available, continuing...');
+            }
+          }
+
+          logger.log(`✅ Fetched ${graphEvents.length} total events from Graph API for calendar ${calendarId.substring(0, 20)}... (${pageCount} pages)`);
+
+          // Find new events not in cache
+          const newEvents = graphEvents.filter(graphEvent => !cachedEventIds.has(graphEvent.id));
+          const duplicateCount = graphEvents.length - newEvents.length;
+
+          logger.log(`🔍 Deduplication for calendar ${calendarId.substring(0, 20)}...:`);
+          logger.log(`   📦 Total from Graph API: ${graphEvents.length}`);
+          logger.log(`   ♻️  Already in cache (duplicates): ${duplicateCount}`);
+          logger.log(`   ✨ New events to add: ${newEvents.length}`);
+
+          if (newEvents.length > 0) {
+            logger.log(`📝 Sample new events: ${newEvents.slice(0, 3).map(e => e.subject || 'No Subject').join(', ')}`);
+
+            // Add to unified events array
+            newEvents.forEach(graphEvent => {
+              const unifiedEvent = {
+                eventId: graphEvent.id,
+                userId: userId,
+                source: 'Microsoft Graph',
+                calendarId: calendarId,
+                graphData: {
+                  id: graphEvent.id,
+                  subject: graphEvent.subject,
+                  start: graphEvent.start,
+                  end: graphEvent.end,
+                  location: graphEvent.location,
+                  categories: graphEvent.categories || [],
+                  bodyPreview: graphEvent.body?.content || '',
+                  isAllDay: graphEvent.isAllDay,
+                  importance: graphEvent.importance,
+                  showAs: graphEvent.showAs,
+                  sensitivity: graphEvent.sensitivity,
+                  organizer: graphEvent.organizer,
+                  attendees: graphEvent.attendees || [],
+                  extensions: graphEvent.extensions || [],
+                  singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || []
+                },
+                internalData: {
+                  mecCategories: [],
+                  setupMinutes: 0,
+                  teardownMinutes: 0,
+                  registrationNotes: '',
+                  assignedTo: '',
+                  staffAssignments: [],
+                  internalNotes: '',
+                  setupStatus: 'pending',
+                  estimatedCost: null,
+                  actualCost: null,
+                  customFields: {}
+                },
+                lastModifiedDateTime: new Date(graphEvent.lastModifiedDateTime || new Date()),
+                lastSyncedAt: new Date(),
+                sourceCalendars: [{
+                  calendarId: calendarId,
+                  calendarName: calendarId,
+                  role: 'primary'
+                }],
+                _fromGraph: true // Mark as fresh from Graph
+              };
+
+              unifiedEvents.push(unifiedEvent);
+              newGraphEvents.push(unifiedEvent);
+            });
+          }
+
+          // Update load results
+          if (loadResults.calendars[calendarId]) {
+            loadResults.calendars[calendarId].graphEvents = graphEvents.length;
+            loadResults.calendars[calendarId].newEvents = newEvents.length;
+            loadResults.calendars[calendarId].totalEvents =
+              loadResults.calendars[calendarId].cachedEvents + newEvents.length;
+          }
+        } catch (graphError) {
+          logger.error(`❌ Exception during Graph API fetch for calendar ${calendarId}`, {
+            errorMessage: graphError.message,
+            errorStack: graphError.stack,
+            calendarId: calendarId
+          });
+          loadResults.errors.push({
+            calendarId: calendarId,
+            error: `Exception: ${graphError.message}`,
+            step: 'graph'
+          });
+        }
+      }
+
+      logger.log(`📊 Graph API Fetch Summary: ${newGraphEvents.length} new events added from ${calendarIds.length} calendar(s)`);
+    } else {
+      logger.warn(`⚠️ Skipping Graph API fetch - Missing required data:`);
+      logger.warn(`   - startTime: ${!!startTime}`);
+      logger.warn(`   - endTime: ${!!endTime}`);
+      logger.warn(`   - graphToken: ${!!graphToken}`);
+    }
+
+    // STEP 3: Asynchronously sync new Graph events to cache for future renders
+    if (newGraphEvents.length > 0) {
+      logger.debug(`Syncing ${newGraphEvents.length} new Graph events to cache asynchronously...`);
+
+      // Don't await - let this run in background
+      Promise.all(
+        newGraphEvents.map(event =>
+          upsertUnifiedEvent(
+            userId,
+            event.calendarId,
+            event.graphData,
+            event.internalData,
+            event.sourceCalendars
+          ).catch(err => {
+            logger.warn(`Failed to cache event ${event.eventId}:`, err.message);
+          })
+        )
+      ).then(() => {
+        logger.debug(`Successfully synced ${newGraphEvents.length} events to cache`);
+      }).catch(err => {
+        logger.warn('Error in background cache sync:', err);
+      });
     }
 
     // STEP 2: Transform and return cached events
@@ -2908,13 +3118,36 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       };
     }).filter(event => event !== null);
 
-    logger.log(`Cache-only load complete for user ${userId}: ${transformedLoadEvents.length} events from cache`);
+    // Calculate totals
+    const cachedCount = unifiedEvents.filter(e => !e._fromGraph).length;
+    const graphCount = newGraphEvents.length;
+
+    logger.log(`\n${'='.repeat(60)}`);
+    logger.log(`📊 HYBRID LOAD COMPLETE - Summary`);
+    logger.log(`${'='.repeat(60)}`);
+    logger.log(`👤 User: ${userId}`);
+    logger.log(`📅 Calendars: ${calendarIds.length}`);
+    logger.log(`📦 From Cache: ${cachedCount} events`);
+    logger.log(`🌐 From Graph API: ${graphCount} events (new)`);
+    logger.log(`📋 Total Events: ${transformedLoadEvents.length}`);
+    logger.log(`⚠️  Errors: ${loadResults.errors.length}`);
+    if (loadResults.errors.length > 0) {
+      loadResults.errors.forEach((err, idx) => {
+        logger.error(`   Error ${idx + 1}: ${err.error} (calendar: ${err.calendarId.substring(0, 20)}..., step: ${err.step})`);
+      });
+    }
+    logger.log(`${'='.repeat(60)}\n`);
 
     return res.status(200).json({
       loadResults: loadResults,
       events: transformedLoadEvents,
       count: transformedLoadEvents.length,
-      source: 'cache'
+      source: 'hybrid',
+      breakdown: {
+        cached: cachedCount,
+        fromGraph: graphCount,
+        total: transformedLoadEvents.length
+      }
     });
 
     // Unreachable code removed - function returns above
@@ -6011,6 +6244,53 @@ app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), 
 });
 
 /**
+ * Debug endpoint - Inspect raw CSV file buffer
+ */
+app.post('/api/admin/csv-import/debug', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const buffer = req.file.buffer;
+    const firstBytes = buffer.slice(0, 500);
+    const asString = firstBytes.toString('utf8');
+    const asHex = firstBytes.toString('hex');
+
+    // Check for BOM
+    let hasBOM = false;
+    if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+      hasBOM = true;
+    }
+
+    // Try parsing first few lines manually
+    const lines = asString.split(/\r?\n/);
+    const firstThreeLines = lines.slice(0, 3);
+
+    logger.debug('CSV Debug Info:', {
+      fileSize: buffer.length,
+      hasBOM,
+      firstBytesHex: asHex.substring(0, 50),
+      firstThreeLines,
+      originalName: req.file.originalname
+    });
+
+    res.json({
+      fileSize: buffer.length,
+      hasBOM,
+      firstBytesHex: asHex.substring(0, 100),
+      firstBytesString: asString.substring(0, 200),
+      firstThreeLines,
+      encoding: req.file.encoding,
+      originalName: req.file.originalname
+    });
+  } catch (error) {
+    logger.error('Error debugging CSV:', error);
+    res.status(500).json({ error: 'Failed to debug CSV: ' + error.message });
+  }
+});
+
+/**
  * Admin endpoint - Analyze Excel/CSV file structure for field mapping
  * Returns column information and suggests field mappings
  */
@@ -6046,24 +6326,49 @@ app.post('/api/admin/csv-import/analyze', verifyToken, upload.single('csvFile'),
       // Limit to first 10 rows for analysis
       csvData = csvData.slice(0, 10);
     } else {
-      // Parse CSV from buffer
+      // Parse CSV from buffer - simplified approach
       await new Promise((resolve, reject) => {
-        const stream = Readable.from([req.file.buffer]);
+        let cleanBuffer = req.file.buffer;
+        // Remove UTF-8 BOM if present (EF BB BF)
+        if (cleanBuffer.length >= 3 &&
+            cleanBuffer[0] === 0xEF &&
+            cleanBuffer[1] === 0xBB &&
+            cleanBuffer[2] === 0xBF) {
+          cleanBuffer = cleanBuffer.slice(3);
+          logger.debug('Removed UTF-8 BOM from CSV file');
+        }
+
+        const stream = Readable.from([cleanBuffer]);
+
+        // Use the 'headers' event to capture headers
         stream
-          .pipe(csvParser({
-            skipEmptyLines: true,
-            headers: (headers) => {
-              csvHeaders.push(...headers);
-              return headers;
-            }
+          .pipe(csv({
+            skipEmptyLines: true
           }))
+          .on('headers', (headers) => {
+            // Clean headers - remove BOM and trim
+            csvHeaders = headers.map(h => {
+              if (typeof h === 'string') {
+                return h.replace(/^\uFEFF/, '').replace(/^﻿/, '').trim();
+              }
+              return h;
+            });
+            logger.debug('CSV headers parsed:', csvHeaders);
+          })
           .on('data', (row) => {
             // Only collect first 10 rows for analysis
             if (csvData.length < 10) {
               csvData.push(row);
             }
           })
-          .on('end', resolve)
+          .on('end', () => {
+            // If we still don't have headers, get them from first row
+            if (csvHeaders.length === 0 && csvData.length > 0) {
+              csvHeaders = Object.keys(csvData[0]);
+              logger.debug('Headers from first data row:', csvHeaders);
+            }
+            resolve();
+          })
           .on('error', reject);
       });
     }
@@ -6149,52 +6454,108 @@ app.post('/api/admin/csv-import/preview', verifyToken, upload.single('csvFile'),
   try {
     const userId = req.user.userId;
     let { fieldMappings } = req.body;
-    
+
+    logger.debug('CSV Preview request received:', {
+      userId,
+      fileSize: req.file?.size,
+      fileName: req.file?.originalname,
+      fieldMappingsRaw: fieldMappings
+    });
+
     if (!req.file) {
       return res.status(400).json({ error: 'No CSV file uploaded' });
     }
-    
-    if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
+
+    if (!fieldMappings) {
+      logger.debug('No field mappings provided in request body');
       return res.status(400).json({ error: 'Field mappings are required for preview' });
     }
-    
+
     // Parse field mappings (may come as string from FormData)
     if (typeof fieldMappings === 'string') {
-      fieldMappings = JSON.parse(fieldMappings);
+      try {
+        fieldMappings = JSON.parse(fieldMappings);
+        logger.debug('Parsed field mappings from string:', fieldMappings);
+      } catch (parseError) {
+        logger.error('Failed to parse field mappings JSON:', parseError);
+        return res.status(400).json({ error: 'Invalid field mappings JSON' });
+      }
     }
+
+    if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
+      logger.debug('Field mappings object is empty:', fieldMappings);
+      return res.status(400).json({ error: 'Field mappings are required for preview' });
+    }
+
+    logger.debug('Final field mappings for preview:', fieldMappings);
     
-    // Parse CSV from buffer
+    // Parse CSV from buffer - use same logic as analysis endpoint
     const csvData = [];
-    const csvHeaders = [];
-    
+    let csvHeaders = [];
+
     await new Promise((resolve, reject) => {
-      const stream = Readable.from([req.file.buffer]);
+      let cleanBuffer = req.file.buffer;
+      // Remove UTF-8 BOM if present (EF BB BF)
+      if (cleanBuffer.length >= 3 &&
+          cleanBuffer[0] === 0xEF &&
+          cleanBuffer[1] === 0xBB &&
+          cleanBuffer[2] === 0xBF) {
+        cleanBuffer = cleanBuffer.slice(3);
+        logger.debug('Removed UTF-8 BOM from CSV file (preview)');
+      }
+
+      const stream = Readable.from([cleanBuffer]);
+
+      // Use the 'headers' event to capture headers
       stream
-        .pipe(csvParser({
-          skipEmptyLines: true,
-          headers: (headers) => {
-            csvHeaders.push(...headers);
-            return headers;
-          }
+        .pipe(csv({
+          skipEmptyLines: true
         }))
+        .on('headers', (headers) => {
+          // Clean headers - remove BOM and trim
+          csvHeaders = headers.map(h => {
+            if (typeof h === 'string') {
+              return h.replace(/^\uFEFF/, '').replace(/^﻿/, '').trim();
+            }
+            return h;
+          });
+          logger.debug('CSV headers parsed (preview):', csvHeaders);
+        })
         .on('data', (row) => {
           // Collect more rows for preview (first 50)
           if (csvData.length < 50) {
             csvData.push(row);
           }
         })
-        .on('end', resolve)
+        .on('end', () => {
+          // If we still don't have headers, get them from first row
+          if (csvHeaders.length === 0 && csvData.length > 0) {
+            csvHeaders = Object.keys(csvData[0]);
+            logger.debug('Headers from first data row (preview):', csvHeaders);
+          }
+          resolve();
+        })
         .on('error', reject);
     });
-    
+
+    logger.debug('CSV parsing completed:', {
+      rowsParsed: csvData.length,
+      headersParsed: csvHeaders.length,
+      headers: csvHeaders,
+      firstRowSample: csvData[0]
+    });
+
     if (csvData.length === 0) {
+      logger.debug('CSV data is empty after parsing');
       return res.status(400).json({ error: 'CSV file appears to be empty or invalid' });
     }
-    
+
     // Transform data using field mappings
     const transformedEvents = [];
     const validationErrors = [];
-    
+
+    logger.debug('Starting data transformation with field mappings:', fieldMappings);
+
     csvData.forEach((row, index) => {
       const transformedEvent = {
         _originalRowIndex: index + 1, // 1-based for user display
@@ -6203,10 +6564,10 @@ app.post('/api/admin/csv-import/preview', verifyToken, upload.single('csvFile'),
       
       const rowErrors = [];
       
-      // Apply field mappings
-      Object.entries(fieldMappings).forEach(([targetField, mapping]) => {
-        if (mapping.csvColumn && row[mapping.csvColumn] !== undefined) {
-          const rawValue = row[mapping.csvColumn];
+      // Apply field mappings (same format as main import: {csvColumn: targetField})
+      Object.entries(fieldMappings).forEach(([csvColumn, targetField]) => {
+        if (csvColumn && targetField && row[csvColumn] !== undefined) {
+          const rawValue = row[csvColumn];
           
           try {
             // Transform based on field type
@@ -6403,7 +6764,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
       await new Promise((resolve, reject) => {
         const stream = Readable.from([req.file.buffer]);
         stream
-          .pipe(csvParser({
+          .pipe(csv({
             skipEmptyLines: true,
             headers: (headers) => {
               csvHeaders.push(...headers);
@@ -6822,6 +7183,806 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
       res.write(JSON.stringify({ 
         type: 'error', 
         message: 'Failed to execute CSV import: ' + error.message 
+      }) + '\n');
+      res.end();
+    } catch (resError) {
+      logger.error('Error writing error response:', resError);
+    }
+  }
+});
+
+/**
+ * JSON Import Analysis Endpoint
+ * Analyzes JSON file structure for field mapping
+ */
+app.post('/api/admin/json-import/analyze', verifyToken, upload.single('jsonFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Parse JSON from buffer
+    let jsonData;
+    try {
+      const jsonString = req.file.buffer.toString('utf8');
+      jsonData = JSON.parse(jsonString);
+    } catch (parseError) {
+      return res.status(400).json({ error: 'Invalid JSON file: ' + parseError.message });
+    }
+
+    // Ensure it's an array
+    if (!Array.isArray(jsonData)) {
+      if (typeof jsonData === 'object' && jsonData !== null) {
+        jsonData = [jsonData];
+      } else {
+        return res.status(400).json({ error: 'JSON file must contain an array or object' });
+      }
+    }
+
+    if (jsonData.length === 0) {
+      return res.status(400).json({ error: 'JSON file is empty' });
+    }
+
+    // Get columns from first object
+    const columns = Object.keys(jsonData[0]);
+
+    // Generate samples
+    const samples = {};
+    columns.forEach(column => {
+      samples[column] = jsonData
+        .slice(0, 10)
+        .map(row => row[column])
+        .filter(val => val !== null && val !== undefined && val !== '');
+    });
+
+    // Smart field mapping suggestions
+    const COLUMN_PATTERNS = {
+      'rsId': [/^rsId$/i, /rs.*id/i, /resource.*schedule.*id/i],
+      'Subject': [/^Subject$/i, /title/i, /event.*name/i],
+      'StartDateTime': [/^StartDateTime$/i, /start.*date.*time/i, /start$/i],
+      'EndDateTime': [/^EndDateTime$/i, /end.*date.*time/i, /end$/i],
+      'Location': [/^Location$/i, /room/i, /venue/i],
+      'Categories': [/^Categories$/i, /categor/i, /type/i],
+      'Description': [/^Description$/i, /desc/i, /notes/i],
+      'AllDayEvent': [/^AllDayEvent$/i, /all.*day/i],
+      'Deleted': [/^Deleted$/i, /deleted/i, /removed/i]
+    };
+
+    const detectedMappings = {};
+    columns.forEach(column => {
+      for (const [targetField, patterns] of Object.entries(COLUMN_PATTERNS)) {
+        for (const pattern of patterns) {
+          if (pattern.test(column)) {
+            detectedMappings[targetField] = column;
+            break;
+          }
+        }
+        if (detectedMappings[targetField]) break;
+      }
+    });
+
+    logger.debug('JSON Analysis completed:', {
+      userId,
+      columnsDetected: columns.length,
+      totalRows: jsonData.length,
+      detectedMappings: Object.keys(detectedMappings).length
+    });
+
+    res.json({
+      columns,
+      samples,
+      totalRows: jsonData.length,
+      detectedMappings,
+      analysisInfo: {
+        fileSize: req.file.size,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error analyzing JSON file:', error);
+    res.status(500).json({ error: 'Failed to analyze JSON file: ' + error.message });
+  }
+});
+
+/**
+ * JSON Import with Calendar Sync
+ * Imports events from JSON and optionally syncs to Microsoft 365 calendar
+ */
+app.post('/api/admin/json-import/with-calendar', verifyToken, upload.single('jsonFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    let { fieldMappings, selectedCalendar, importMode = 'update' } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No JSON file uploaded' });
+    }
+
+    // Parse parameters
+    if (typeof fieldMappings === 'string') {
+      fieldMappings = JSON.parse(fieldMappings);
+    }
+
+    if (typeof selectedCalendar === 'string') {
+      selectedCalendar = JSON.parse(selectedCalendar);
+    }
+
+    // Validate required fields
+    if (!fieldMappings.rsId?.csvColumn || !fieldMappings.Subject?.csvColumn ||
+        !fieldMappings.StartDateTime?.csvColumn || !fieldMappings.EndDateTime?.csvColumn) {
+      return res.status(400).json({ error: 'Required field mappings missing (rsId, Subject, StartDateTime, EndDateTime)' });
+    }
+
+    // Parse JSON from buffer
+    let jsonData;
+    try {
+      const jsonString = req.file.buffer.toString('utf8');
+      jsonData = JSON.parse(jsonString);
+    } catch (parseError) {
+      return res.status(400).json({ error: 'Invalid JSON file: ' + parseError.message });
+    }
+
+    if (!Array.isArray(jsonData)) {
+      if (typeof jsonData === 'object' && jsonData !== null) {
+        jsonData = [jsonData];
+      } else {
+        return res.status(400).json({ error: 'JSON file must contain an array or object' });
+      }
+    }
+
+    // Get Graph token if calendar sync is requested
+    let graphToken = null;
+    if (selectedCalendar) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({ error: 'Graph token required for calendar sync' });
+      }
+      graphToken = authHeader.split(' ')[1];
+    }
+
+    const results = {
+      total: jsonData.length,
+      processed: 0,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    // Process each row
+    for (const [index, row] of jsonData.entries()) {
+      try {
+        // Extract values based on field mappings
+        const rsId = row[fieldMappings.rsId.csvColumn];
+        const subject = row[fieldMappings.Subject.csvColumn];
+        const startDateTime = row[fieldMappings.StartDateTime.csvColumn];
+        const endDateTime = row[fieldMappings.EndDateTime.csvColumn];
+        const location = fieldMappings.Location ? row[fieldMappings.Location.csvColumn] : null;
+        const description = fieldMappings.Description ? row[fieldMappings.Description.csvColumn] : null;
+
+        // Skip if essential fields are missing
+        if (!rsId || !subject || !startDateTime || !endDateTime) {
+          results.skipped++;
+          results.errors.push(`Row ${index + 1}: Missing required fields`);
+          continue;
+        }
+
+        // Parse dates
+        const start = new Date(startDateTime);
+        const end = new Date(endDateTime);
+
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          results.errors.push(`Row ${index + 1}: Invalid date format`);
+          results.skipped++;
+          continue;
+        }
+
+        // Create event object
+        const eventData = {
+          userId,
+          source: 'Resource Scheduler Import',
+          rsId: rsId.toString(),
+          internalData: {
+            rsId: rsId.toString(),
+            subject,
+            startDateTime: start.toISOString(),
+            endDateTime: end.toISOString(),
+            location: location || '',
+            description: description || '',
+            importedAt: new Date().toISOString()
+          },
+          graphData: {
+            subject,
+            start: { dateTime: start.toISOString(), timeZone: 'UTC' },
+            end: { dateTime: end.toISOString(), timeZone: 'UTC' },
+            location: location ? { displayName: location } : undefined,
+            body: description ? { content: description, contentType: 'text' } : undefined
+          }
+        };
+
+        // Check if event already exists
+        const existingEvent = await db.collection('templeEvents__Events').findOne({
+          userId,
+          'internalData.rsId': rsId.toString()
+        });
+
+        if (existingEvent) {
+          if (importMode === 'skip') {
+            results.skipped++;
+            continue;
+          }
+          await db.collection('templeEvents__Events').updateOne(
+            { _id: existingEvent._id },
+            { $set: eventData }
+          );
+          results.updated++;
+        } else {
+          await db.collection('templeEvents__Events').insertOne(eventData);
+          results.created++;
+        }
+
+        results.processed++;
+
+      } catch (rowError) {
+        logger.error(`Error processing row ${index + 1}:`, rowError);
+        results.errors.push(`Row ${index + 1}: ${rowError.message}`);
+        results.skipped++;
+      }
+    }
+
+    logger.info('JSON import completed:', results);
+    res.json(results);
+
+  } catch (error) {
+    logger.error('Error in JSON import:', error);
+    res.status(500).json({ error: 'Failed to import JSON file: ' + error.message });
+  }
+});
+
+/**
+ * Enhanced CSV Import with Calendar Selection and Sync
+ * Creates events in both database and optionally syncs to a selected Microsoft 365 calendar
+ */
+app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvFile'), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    let {
+      fieldMappings,
+      importOptions = {},
+      targetCalendarId,
+      syncToCalendar = false,
+      graphToken
+    } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
+      return res.status(400).json({ error: 'Field mappings are required for import' });
+    }
+
+    if (syncToCalendar && !graphToken) {
+      return res.status(400).json({ error: 'Graph token is required for calendar sync' });
+    }
+
+    if (syncToCalendar && !targetCalendarId) {
+      return res.status(400).json({ error: 'Target calendar ID is required for calendar sync' });
+    }
+
+    // Parse field mappings (may come as string from FormData)
+    if (typeof fieldMappings === 'string') {
+      fieldMappings = JSON.parse(fieldMappings);
+    }
+    if (typeof importOptions === 'string') {
+      importOptions = JSON.parse(importOptions);
+    }
+    if (typeof syncToCalendar === 'string') {
+      syncToCalendar = syncToCalendar === 'true';
+    }
+
+    // Set response headers for streaming
+    res.writeHead(200, {
+      'Content-Type': 'text/plain',
+      'Transfer-Encoding': 'chunked',
+      'X-Accel-Buffering': 'no'
+    });
+
+    const streamProgress = (data) => {
+      res.write(JSON.stringify(data) + '\n');
+    };
+
+    const fileName = req.file.originalname || '';
+    const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+    const importSessionId = `rsimport-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    let csvData = [];
+    let csvHeaders = [];
+
+    streamProgress({ type: 'info', message: `Parsing ${isExcel ? 'Excel' : 'CSV'} file...` });
+
+    if (isExcel) {
+      // Parse Excel file
+      const XLSX = require('xlsx');
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+
+      // Convert to JSON
+      csvData = XLSX.utils.sheet_to_json(worksheet);
+
+      // Get headers
+      if (csvData.length > 0) {
+        csvHeaders = Object.keys(csvData[0]);
+      }
+    } else {
+      // Parse CSV from buffer - use same working logic as preview endpoint
+      await new Promise((resolve, reject) => {
+        let cleanBuffer = req.file.buffer;
+        // Remove UTF-8 BOM if present (EF BB BF)
+        if (cleanBuffer.length >= 3 &&
+            cleanBuffer[0] === 0xEF &&
+            cleanBuffer[1] === 0xBB &&
+            cleanBuffer[2] === 0xBF) {
+          cleanBuffer = cleanBuffer.slice(3);
+          logger.debug('Removed UTF-8 BOM from CSV file (import)');
+        }
+
+        const stream = Readable.from([cleanBuffer]);
+
+        // Use the 'headers' event to capture headers
+        stream
+          .pipe(csv({
+            skipEmptyLines: true
+          }))
+          .on('headers', (headers) => {
+            // Clean headers - remove BOM and trim
+            csvHeaders = headers.map(h => {
+              if (typeof h === 'string') {
+                return h.replace(/^\uFEFF/, '').replace(/^﻿/, '').trim();
+              }
+              return h;
+            });
+            logger.debug('CSV headers parsed (import):', csvHeaders);
+          })
+          .on('data', (row) => {
+            csvData.push(row);
+          })
+          .on('end', () => {
+            // If we still don't have headers, get them from first row
+            if (csvHeaders.length === 0 && csvData.length > 0) {
+              csvHeaders = Object.keys(csvData[0]);
+              logger.debug('Headers from first data row (import):', csvHeaders);
+            }
+            resolve();
+          })
+          .on('error', reject);
+      });
+    }
+
+    if (csvData.length === 0) {
+      streamProgress({ type: 'error', message: 'File appears to be empty or invalid' });
+      return res.end();
+    }
+
+    streamProgress({
+      type: 'progress',
+      message: `Parsed ${csvData.length} rows from ${isExcel ? 'Excel' : 'CSV'}`,
+      totalRows: csvData.length
+    });
+
+    // Import statistics
+    const stats = {
+      processed: 0,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      synced: 0,
+      syncFailed: 0,
+      errors: []
+    };
+
+    // Process events in batches for database creation
+    const BATCH_SIZE = 10;
+    const eventsToSync = [];
+
+    for (let i = 0; i < csvData.length; i += BATCH_SIZE) {
+      const batch = csvData.slice(i, Math.min(i + BATCH_SIZE, csvData.length));
+
+      for (const [batchIndex, row] of batch.entries()) {
+        const rowIndex = i + batchIndex + 1;
+
+        try {
+          stats.processed++;
+
+          // Transform row data based on field mappings
+          const now = new Date();
+          const transformedEvent = {
+            userId,
+            source: 'Resource Scheduler Import',
+            sourceMetadata: {
+              importType: 'resourceScheduler',
+              importSessionId: importSessionId,
+              importedAt: now,
+              importedBy: userEmail,
+              originalFilename: req.file.originalname,
+              fileType: isExcel ? 'Excel' : 'CSV',
+              targetCalendarId: targetCalendarId || null,
+              syncToCalendar: syncToCalendar
+            },
+            sourceCalendars: [{
+              calendarId: targetCalendarId || 'resource-scheduler-import',
+              calendarName: targetCalendarId ? 'Target Calendar' : 'Resource Scheduler Import',
+              role: 'imported'
+            }],
+            isDeleted: false,
+            lastSyncedAt: now,
+            lastAccessedAt: now,
+            cachedAt: now,
+            createdAt: now,
+            updatedAt: now,
+            graphData: {
+              importance: 'normal',
+              showAs: 'busy',
+              sensitivity: 'normal',
+              isAllDay: false,
+              lastModifiedDateTime: now.toISOString(),
+              createdDateTime: now.toISOString()
+            },
+            internalData: {
+              mecCategories: [],
+              setupMinutes: 0,
+              teardownMinutes: 0,
+              registrationNotes: '',
+              assignedTo: '',
+              internalNotes: '',
+              setupStatus: 'pending',
+              estimatedCost: null,
+              actualCost: null,
+              rsImportSource: 'resourceScheduler',
+              rsImportSessionId: importSessionId
+            }
+          };
+
+          // Map fields from CSV to event structure
+          let rsId = null;
+          let startDateTime = null;
+          let endDateTime = null;
+
+          for (const [csvColumn, targetField] of Object.entries(fieldMappings)) {
+            const rawValue = row[csvColumn];
+
+            switch (targetField) {
+              case 'rsId':
+                if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                  rsId = rawValue.toString();
+                  transformedEvent.internalData.rsId = rsId;
+                }
+                break;
+
+              case 'subject':
+                if (rawValue) {
+                  transformedEvent.graphData.subject = rawValue;
+                }
+                break;
+
+              case 'startDateTime':
+                if (rawValue) {
+                  startDateTime = new Date(rawValue);
+                  if (!isNaN(startDateTime.getTime())) {
+                    transformedEvent.graphData.start = {
+                      dateTime: startDateTime.toISOString(),
+                      timeZone: 'UTC'
+                    };
+                  }
+                }
+                break;
+
+              case 'endDateTime':
+                if (rawValue) {
+                  endDateTime = new Date(rawValue);
+                  if (!isNaN(endDateTime.getTime())) {
+                    transformedEvent.graphData.end = {
+                      dateTime: endDateTime.toISOString(),
+                      timeZone: 'UTC'
+                    };
+                  }
+                }
+                break;
+
+              case 'location':
+                if (rawValue) {
+                  transformedEvent.graphData.location = {
+                    displayName: rawValue
+                  };
+                }
+                break;
+
+              case 'description':
+                if (rawValue) {
+                  transformedEvent.graphData.body = {
+                    contentType: 'Text',
+                    content: rawValue
+                  };
+                  transformedEvent.graphData.bodyPreview = rawValue.substring(0, 255);
+                }
+                break;
+
+              case 'categories':
+                if (rawValue) {
+                  const categories = rawValue.split(',').map(c => c.trim()).filter(c => c);
+                  transformedEvent.graphData.categories = categories;
+                  transformedEvent.internalData.mecCategories = categories;
+                }
+                break;
+
+              case 'isAllDay':
+                if (rawValue !== undefined) {
+                  transformedEvent.graphData.isAllDay = rawValue === 1 || rawValue === '1' ||
+                                                         rawValue === true || rawValue === 'true';
+                }
+                break;
+
+              case 'attendeeEmails':
+                if (rawValue) {
+                  const emails = rawValue.split(',').map(e => e.trim()).filter(e => e);
+                  transformedEvent.graphData.attendees = emails.map(email => ({
+                    emailAddress: {
+                      address: email,
+                      name: email.split('@')[0]
+                    },
+                    type: 'required'
+                  }));
+                }
+                break;
+
+              case 'isDeleted':
+              case 'Deleted':
+                if (rawValue !== undefined) {
+                  transformedEvent.isDeleted = rawValue === 1 || rawValue === '1' ||
+                                              rawValue === true || rawValue === 'true';
+                }
+                break;
+            }
+          }
+
+          // Validate required fields
+          if (!transformedEvent.graphData.subject) {
+            throw new Error('Subject is required');
+          }
+
+          if (!transformedEvent.graphData.start || !transformedEvent.graphData.end) {
+            throw new Error('Start and end date/time are required');
+          }
+
+          // Generate eventId based on rsId or create new
+          const eventId = rsId ? `rsimport_${rsId}` :
+                         `rsimport_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          transformedEvent.eventId = eventId;
+
+          // Check if event with this rsId already exists
+          let existingEvent = null;
+          if (rsId) {
+            existingEvent = await unifiedEventsCollection.findOne({
+              userId,
+              'internalData.rsId': rsId
+            });
+          }
+
+          if (existingEvent) {
+            // Update existing event
+            const updateResult = await unifiedEventsCollection.updateOne(
+              {
+                userId,
+                'internalData.rsId': rsId
+              },
+              {
+                $set: {
+                  ...transformedEvent,
+                  updatedAt: now
+                }
+              }
+            );
+
+            if (updateResult.modifiedCount > 0) {
+              stats.updated++;
+              streamProgress({
+                type: 'progress',
+                message: `Updated event (row ${rowIndex}): ${transformedEvent.graphData.subject}`,
+                row: rowIndex,
+                action: 'updated'
+              });
+            } else {
+              stats.skipped++;
+            }
+          } else {
+            // Create new event
+            await unifiedEventsCollection.insertOne(transformedEvent);
+            stats.created++;
+
+            streamProgress({
+              type: 'progress',
+              message: `Created event (row ${rowIndex}): ${transformedEvent.graphData.subject}`,
+              row: rowIndex,
+              action: 'created'
+            });
+          }
+
+          // Add to sync queue if calendar sync is enabled and event is not deleted
+          if (syncToCalendar && !transformedEvent.isDeleted) {
+            eventsToSync.push({
+              rowIndex,
+              event: transformedEvent,
+              rsId
+            });
+          }
+
+        } catch (rowError) {
+          stats.errors.push({
+            row: rowIndex,
+            error: rowError.message,
+            data: row
+          });
+
+          streamProgress({
+            type: 'warning',
+            message: `Error in row ${rowIndex}: ${rowError.message}`,
+            row: rowIndex
+          });
+        }
+      }
+    }
+
+    // Sync events to calendar if requested
+    if (syncToCalendar && eventsToSync.length > 0) {
+      streamProgress({
+        type: 'info',
+        message: `Syncing ${eventsToSync.length} events to calendar ${targetCalendarId}...`
+      });
+
+      // Process sync in batches
+      const SYNC_BATCH_SIZE = 5;
+
+      for (let i = 0; i < eventsToSync.length; i += SYNC_BATCH_SIZE) {
+        const syncBatch = eventsToSync.slice(i, Math.min(i + SYNC_BATCH_SIZE, eventsToSync.length));
+
+        for (const { rowIndex, event, rsId } of syncBatch) {
+          try {
+            // Prepare event data for Graph API
+            const graphEventData = {
+              subject: event.graphData.subject,
+              body: event.graphData.body || { contentType: 'Text', content: '' },
+              start: event.graphData.start,
+              end: event.graphData.end,
+              location: event.graphData.location || { displayName: '' },
+              categories: event.graphData.categories || [],
+              isAllDay: event.graphData.isAllDay || false,
+              attendees: event.graphData.attendees || [],
+              importance: event.graphData.importance || 'normal',
+              showAs: event.graphData.showAs || 'busy'
+            };
+
+            // Add rsId as an extended property if it exists
+            if (rsId) {
+              graphEventData.singleValueExtendedProperties = [{
+                id: 'String {00000000-0000-0000-0000-000000000001} Name rsId',
+                value: rsId
+              }];
+            }
+
+            // Make Graph API call to create event
+            const graphUrl = `https://graph.microsoft.com/v1.0/users/${targetCalendarId}/events`;
+            const graphResponse = await fetch(graphUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(graphEventData)
+            });
+
+            if (graphResponse.ok) {
+              const createdEvent = await graphResponse.json();
+
+              // Update the database record with Graph event ID
+              await unifiedEventsCollection.updateOne(
+                {
+                  userId,
+                  eventId: event.eventId
+                },
+                {
+                  $set: {
+                    'sourceMetadata.graphEventId': createdEvent.id,
+                    'sourceMetadata.syncStatus': 'synced',
+                    'sourceMetadata.syncedAt': new Date(),
+                    'graphData.id': createdEvent.id,
+                    'graphData.webLink': createdEvent.webLink
+                  }
+                }
+              );
+
+              stats.synced++;
+              streamProgress({
+                type: 'progress',
+                message: `Synced to calendar (row ${rowIndex}): ${event.graphData.subject}`,
+                row: rowIndex,
+                action: 'synced',
+                eventId: createdEvent.id
+              });
+
+            } else {
+              const errorData = await graphResponse.json();
+              throw new Error(errorData.error?.message || 'Failed to create calendar event');
+            }
+
+          } catch (syncError) {
+            stats.syncFailed++;
+
+            // Update database record with sync failure
+            await unifiedEventsCollection.updateOne(
+              {
+                userId,
+                eventId: event.eventId
+              },
+              {
+                $set: {
+                  'sourceMetadata.syncStatus': 'failed',
+                  'sourceMetadata.syncError': syncError.message,
+                  'sourceMetadata.syncAttemptedAt': new Date()
+                }
+              }
+            );
+
+            streamProgress({
+              type: 'warning',
+              message: `Failed to sync row ${rowIndex}: ${syncError.message}`,
+              row: rowIndex,
+              action: 'sync_failed'
+            });
+          }
+        }
+      }
+    }
+
+    // Final summary
+    streamProgress({
+      type: 'complete',
+      message: 'Import completed successfully',
+      summary: {
+        total: csvData.length,
+        processed: stats.processed,
+        created: stats.created,
+        updated: stats.updated,
+        skipped: stats.skipped,
+        synced: stats.synced,
+        syncFailed: stats.syncFailed,
+        errors: stats.errors.length
+      }
+    });
+
+    logger.info('CSV import with calendar sync completed:', {
+      userId,
+      targetCalendarId,
+      syncToCalendar,
+      totalRows: csvData.length,
+      created: stats.created,
+      updated: stats.updated,
+      synced: stats.synced,
+      syncFailed: stats.syncFailed,
+      errors: stats.errors.length
+    });
+
+    res.end();
+
+  } catch (error) {
+    logger.error('Error executing CSV import with calendar:', error);
+    try {
+      res.write(JSON.stringify({
+        type: 'error',
+        message: 'Failed to execute CSV import: ' + error.message
       }) + '\n');
       res.end();
     } catch (resError) {

@@ -209,7 +209,7 @@ export default function FieldMappingStep({
   };
 
   const renderFieldMappingRow = (field, config) => {
-    const mapping = fieldMappings[field] || {};
+    const mapping = fieldMappings[field] || { csvColumn: null, samples: [] };
     const error = validationErrors[field];
     const hasMapping = mapping.csvColumn !== null;
 
