@@ -162,6 +162,7 @@ export default function RoomReservationReview({
 
       const data = await response.json();
       console.log('[RoomReservationReview] Day availability response:', data);
+      console.log('[RoomReservationReview] Total reservations returned:', data[0]?.conflicts?.reservations?.length || 0);
       setAvailability(data);
     } catch (err) {
       logger.error('Error checking day availability:', err);
@@ -177,6 +178,8 @@ export default function RoomReservationReview({
   }, [formData.requestedRooms, rooms]);
 
   // Check availability when assistant rooms or dates change
+  // NOTE: We only check when DATE changes, not TIME - this ensures all events for the day remain visible
+  // Time changes (like drag operations) should not trigger a new API call
   useEffect(() => {
     if (assistantRooms.length > 0) {
       const roomIds = assistantRooms.map(room => room._id);
@@ -190,7 +193,7 @@ export default function RoomReservationReview({
       const dateToCheck = formData.startDate || getTodayDate();
       checkDayAvailability(roomIds, dateToCheck);
     }
-  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime]);
+  }, [assistantRooms, formData.startDate, formData.endDate]); // Removed formData.startTime and formData.endTime
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -629,6 +632,7 @@ export default function RoomReservationReview({
                 availability={availability}
                 onRoomRemove={handleRemoveAssistantRoom}
                 onEventTimeChange={handleEventTimeChange}
+                currentReservationId={reservation?._id}
               />
             </div>
           </div>
