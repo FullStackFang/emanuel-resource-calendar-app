@@ -88,6 +88,12 @@ export default function SchedulingAssistant({
           console.log(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" from ${reservation.originalStart} to ${reservation.originalEnd}`);
           const reservationId = reservation._id || reservation.id;
 
+          // SKIP the current reservation being edited - it will be shown as the user event instead
+          if (currentReservationId && reservationId === currentReservationId) {
+            console.log(`[SchedulingAssistant] Skipping current reservation from backend: "${reservation.eventTitle}"`);
+            return; // Skip this reservation
+          }
+
           // Check if this event has been manually adjusted
           const manualAdjustment = manuallyAdjustedPositions.current[reservationId];
 
