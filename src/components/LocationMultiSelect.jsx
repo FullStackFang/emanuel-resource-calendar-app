@@ -47,16 +47,12 @@ export default function LocationMultiSelect({
   }, [isOpen]);
 
   const toggleRoom = (room) => {
-    // Toggle room selection (both reservation and scheduling view)
-    const roomAvailability = availability.find(a => a.room._id === room._id);
-    const isAvailable = !roomAvailability || roomAvailability.available;
-    
-    if (isAvailable) {
-      const newSelected = selectedRooms.includes(room._id)
-        ? selectedRooms.filter(id => id !== room._id)
-        : [...selectedRooms, room._id];
-      onRoomSelectionChange(newSelected);
-    }
+    // Toggle room selection - allow selection even with conflicts
+    // Users can see conflicts in the scheduling assistant and work around them
+    const newSelected = selectedRooms.includes(room._id)
+      ? selectedRooms.filter(id => id !== room._id)
+      : [...selectedRooms, room._id];
+    onRoomSelectionChange(newSelected);
   };
 
   const selectAllAvailable = () => {
@@ -125,17 +121,24 @@ export default function LocationMultiSelect({
           </span>
           <div className="trigger-indicators">
             {selectedRooms.length > 0 && (
-              <button
-                type="button"
+              <span
                 onClick={(e) => {
                   e.stopPropagation();
                   clearAll();
                 }}
                 className="clear-button"
                 title="Clear all selections"
+                role="button"
+                tabIndex={0}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation();
+                    clearAll();
+                  }
+                }}
               >
                 ×
-              </button>
+              </span>
             )}
             <span className={`dropdown-arrow ${isOpen ? 'open' : ''}`}>▼</span>
           </div>
@@ -214,7 +217,6 @@ export default function LocationMultiSelect({
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleRoom(room)}
-                            disabled={roomStatus.status === 'busy'}
                           />
                           <span className="checkbox-label">Select</span>
                         </label>

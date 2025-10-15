@@ -124,13 +124,16 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
 
   // Check availability for the entire day for scheduling assistant
   const checkDayAvailability = async (roomIds, date) => {
-    if (!roomIds.length || !date) return;
-    
+    if (!roomIds.length || !date) {
+      console.log('[RoomReservationForm] checkDayAvailability skipped - no rooms or date');
+      return;
+    }
+
     try {
       // Set time range for the entire day (24 hours)
       const startDateTime = `${date}T00:00:00`;
       const endDateTime = `${date}T23:59:59`;
-      
+
       const params = new URLSearchParams({
         startDateTime,
         endDateTime,
@@ -138,18 +141,28 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
         setupTimeMinutes: 0,
         teardownTimeMinutes: 0
       });
-      
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+
+      const url = `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`;
+      console.log('[RoomReservationForm] Fetching day availability:', {
+        url,
+        roomIds,
+        date,
+        startDateTime,
+        endDateTime
+      });
+
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to check day availability');
-      
+
       const data = await response.json();
+      console.log('[RoomReservationForm] Day availability response:', data);
       setAvailability(data);
     } catch (err) {
       logger.error('Error checking day availability:', err);
     }
   };
 
-  // Check availability when assistant rooms change
+  // Check availability when assistant rooms or dates change
   useEffect(() => {
     if (assistantRooms.length > 0) {
       const roomIds = assistantRooms.map(room => room._id);
@@ -164,7 +177,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       const dateToCheck = formData.startDate || getTodayDate();
       checkDayAvailability(roomIds, dateToCheck);
     }
-  }, [assistantRooms, formData.startDate]);
+  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime]);
   
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -196,9 +209,27 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     });
   };
 
+  const handleRemoveAssistantRoom = (room) => {
+    // Remove from both assistant rooms and form data to ensure it persists
+    setAssistantRooms(prev => prev.filter(r => r._id !== room._id));
+    setFormData(prev => ({
+      ...prev,
+      requestedRooms: prev.requestedRooms.filter(id => id !== room._id)
+    }));
+  };
+
   const handleTimeSlotClick = (hour) => {
     // Future enhancement: allow clicking time slots to set event time
     logger.debug('Time slot clicked:', hour);
+  };
+
+  const handleEventTimeChange = ({ startTime, endTime }) => {
+    // Update form times when user drags the event in scheduling assistant
+    setFormData(prev => ({
+      ...prev,
+      startTime,
+      endTime
+    }));
   };
 
   const handleRoomSelectionChange = (newSelectedRooms) => {
@@ -723,6 +754,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 eventEndTime={formData.endTime}
                 availability={availability}
                 onTimeSlotClick={handleTimeSlotClick}
+                onRoomRemove={handleRemoveAssistantRoom}
+                onEventTimeChange={handleEventTimeChange}
               />
             </div>
           </div>

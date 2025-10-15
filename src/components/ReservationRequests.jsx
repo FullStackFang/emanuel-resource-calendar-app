@@ -92,13 +92,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         }
       );
 
-      // Handle 404 - endpoint doesn't exist yet (graceful degradation)
-      if (response.status === 404) {
-        setHoldError(null);
-        setReviewHold(null);
-        return true; // Continue without soft hold
-      }
-
       if (response.status === 423) {
         const data = await response.json();
         setHoldError(`This reservation is currently being reviewed by ${data.reviewingBy}. ` +
@@ -180,12 +173,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         }
       );
 
-      // Handle 404 - endpoint doesn't exist yet (graceful degradation)
-      if (response.status === 404) {
-        setConflicts([]);
-        return;
-      }
-
       if (!response.ok) {
         throw new Error('Failed to check conflicts');
       }
@@ -194,8 +181,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setConflicts(data.conflicts || []);
 
     } catch (error) {
-      logger.warn('Conflict checking not available:', error);
-      setConflicts([]); // Show as no conflicts if endpoint doesn't exist
+      logger.error('Failed to check conflicts:', error);
+      setConflicts([]); // Show as no conflicts on error
     } finally {
       setCheckingConflicts(false);
     }
@@ -223,21 +210,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Open review modal with soft hold acquisition
   const openReviewModal = async (reservation) => {
-    // For pending reservations, try to acquire soft hold (optional - fails gracefully if endpoint doesn't exist)
+    // For pending reservations, try to acquire soft hold
     if (reservation.status === 'pending') {
       try {
         const holdAcquired = await acquireReviewHold(reservation._id);
         if (!holdAcquired && holdError) {
-          // Only block if there's an actual hold error (someone else reviewing)
-          // Don't block if endpoint just doesn't exist yet (404)
-          const is423Error = holdError.includes('currently being reviewed by');
-          if (is423Error) {
+          // Block if someone else is reviewing
+          if (holdError.includes('currently being reviewed by')) {
             return;
           }
         }
       } catch (error) {
-        // Soft hold endpoint doesn't exist yet - continue without it
-        logger.warn('Soft hold not available:', error);
+        // Network error - allow modal to open without hold
+        logger.error('Failed to acquire soft hold:', error);
         setHoldError(null);
       }
     }
@@ -267,14 +252,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setHasChanges(false);
     setSelectedReservation(reservation);
 
-    // Try to check for conflicts (optional - fails gracefully if endpoint doesn't exist)
-    try {
-      await checkConflicts(reservation);
-    } catch (error) {
-      // Conflict check endpoint doesn't exist yet - continue without it
-      logger.warn('Conflict checking not available:', error);
-      setConflicts([]); // Show as no conflicts
-    }
+    // Check for scheduling conflicts
+    await checkConflicts(reservation);
   };
 
   // Close review modal and release hold

@@ -128,6 +128,46 @@ export default function RoomReservationReview({
     }
   };
 
+  // Check availability for the entire day for scheduling assistant
+  const checkDayAvailability = async (roomIds, date) => {
+    if (!roomIds.length || !date) {
+      console.log('[RoomReservationReview] checkDayAvailability skipped - no rooms or date');
+      return;
+    }
+
+    try {
+      // Set time range for the entire day (24 hours)
+      const startDateTime = `${date}T00:00:00`;
+      const endDateTime = `${date}T23:59:59`;
+
+      const params = new URLSearchParams({
+        startDateTime,
+        endDateTime,
+        roomIds: roomIds.join(','),
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0
+      });
+
+      const url = `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`;
+      console.log('[RoomReservationReview] Fetching day availability:', {
+        url,
+        roomIds,
+        date,
+        startDateTime,
+        endDateTime
+      });
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to check day availability');
+
+      const data = await response.json();
+      console.log('[RoomReservationReview] Day availability response:', data);
+      setAvailability(data);
+    } catch (err) {
+      logger.error('Error checking day availability:', err);
+    }
+  };
+
   // Update assistant rooms when selected rooms change
   useEffect(() => {
     const selectedRoomObjects = rooms.filter(room =>
@@ -135,6 +175,22 @@ export default function RoomReservationReview({
     );
     setAssistantRooms(selectedRoomObjects);
   }, [formData.requestedRooms, rooms]);
+
+  // Check availability when assistant rooms or dates change
+  useEffect(() => {
+    if (assistantRooms.length > 0) {
+      const roomIds = assistantRooms.map(room => room._id);
+      const getTodayDate = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      const dateToCheck = formData.startDate || getTodayDate();
+      checkDayAvailability(roomIds, dateToCheck);
+    }
+  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -153,6 +209,16 @@ export default function RoomReservationReview({
     setHasChanges(true);
   };
 
+  const handleRemoveAssistantRoom = (room) => {
+    // Remove from both assistant rooms and form data to ensure it persists
+    setAssistantRooms(prev => prev.filter(r => r._id !== room._id));
+    setFormData(prev => ({
+      ...prev,
+      requestedRooms: prev.requestedRooms.filter(id => id !== room._id)
+    }));
+    setHasChanges(true);
+  };
+
   const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
       return {
@@ -161,6 +227,16 @@ export default function RoomReservationReview({
       };
     }
     return { meetsCapacity: true, issue: null };
+  };
+
+  const handleEventTimeChange = ({ startTime, endTime }) => {
+    // Update form times when user drags the event in scheduling assistant
+    setFormData(prev => ({
+      ...prev,
+      startTime,
+      endTime
+    }));
+    setHasChanges(true);
   };
 
   const handleSaveChanges = async () => {
@@ -551,6 +627,8 @@ export default function RoomReservationReview({
                 eventStartTime={formData.startTime}
                 eventEndTime={formData.endTime}
                 availability={availability}
+                onRoomRemove={handleRemoveAssistantRoom}
+                onEventTimeChange={handleEventTimeChange}
               />
             </div>
           </div>

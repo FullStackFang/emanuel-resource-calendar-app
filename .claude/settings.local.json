@@ -32,7 +32,8 @@
       "WebFetch(domain:learn.microsoft.com)",
       "Bash(git log:*)",
       "WebSearch",
-      "Bash(source .env)"
+      "Bash(source .env)",
+      "Read(//mnt/c/Users/Stephen.Fang/Downloads/**)"
     ],
     "deny": []
   }

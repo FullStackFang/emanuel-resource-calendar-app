@@ -1315,6 +1315,150 @@ function extractTextFromHtml(htmlContent) {
   return content || null;
 }
 
+/**
+ * Generate a changeKey hash for optimistic concurrency control
+ * This creates a version identifier based on key reservation fields
+ * @param {Object} reservation - The reservation object
+ * @returns {string} - 16-character hash representing this version
+ */
+function generateChangeKey(reservation) {
+  const crypto = require('crypto');
+
+  // Include only fields that matter for version tracking
+  const versionData = {
+    eventTitle: reservation.eventTitle,
+    startDateTime: reservation.startDateTime instanceof Date
+      ? reservation.startDateTime.toISOString()
+      : reservation.startDateTime,
+    endDateTime: reservation.endDateTime instanceof Date
+      ? reservation.endDateTime.toISOString()
+      : reservation.endDateTime,
+    requestedRooms: reservation.requestedRooms,
+    setupTimeMinutes: reservation.setupTimeMinutes || 0,
+    teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
+    attendeeCount: reservation.attendeeCount || 0,
+    status: reservation.status,
+    lastModified: reservation.lastModified instanceof Date
+      ? reservation.lastModified.toISOString()
+      : (reservation.lastModified || new Date().toISOString())
+  };
+
+  // Create a stable hash from the version data
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(versionData))
+    .digest('hex')
+    .substring(0, 16);
+}
+
+/**
+ * Check for scheduling conflicts with existing reservations
+ * Considers setup and teardown times when checking overlaps
+ * @param {Object} reservation - The reservation to check
+ * @param {string} excludeId - Optional reservation ID to exclude from conflict check (for updates)
+ * @returns {Promise<Array>} - Array of conflicting reservations
+ */
+async function checkRoomConflicts(reservation, excludeId = null) {
+  try {
+    // Calculate the full time window including setup and teardown
+    const setupMinutes = reservation.setupTimeMinutes || 0;
+    const teardownMinutes = reservation.teardownTimeMinutes || 0;
+
+    const startTime = new Date(reservation.startDateTime);
+    const endTime = new Date(reservation.endDateTime);
+
+    // Extend the time window for conflict checking
+    const effectiveStart = new Date(startTime.getTime() - (setupMinutes * 60 * 1000));
+    const effectiveEnd = new Date(endTime.getTime() + (teardownMinutes * 60 * 1000));
+
+    // Build query to find overlapping reservations
+    const query = {
+      status: { $in: ['pending', 'approved'] }, // Only check against pending and approved
+      requestedRooms: { $in: reservation.requestedRooms }, // Any shared rooms
+      $or: [
+        {
+          // Case 1: Existing reservation starts during our window
+          startDateTime: { $gte: effectiveStart, $lt: effectiveEnd }
+        },
+        {
+          // Case 2: Existing reservation ends during our window
+          endDateTime: { $gt: effectiveStart, $lte: effectiveEnd }
+        },
+        {
+          // Case 3: Existing reservation completely encompasses our window
+          startDateTime: { $lte: effectiveStart },
+          endDateTime: { $gte: effectiveEnd }
+        }
+      ]
+    };
+
+    // Exclude the current reservation if we're checking for updates
+    if (excludeId) {
+      query._id = { $ne: new ObjectId(excludeId) };
+    }
+
+    const conflicts = await roomReservationsCollection.find(query).toArray();
+
+    // Return detailed conflict information
+    return conflicts.map(conflict => ({
+      id: conflict._id.toString(),
+      eventTitle: conflict.eventTitle,
+      startDateTime: conflict.startDateTime,
+      endDateTime: conflict.endDateTime,
+      rooms: conflict.requestedRooms,
+      status: conflict.status,
+      setupTimeMinutes: conflict.setupTimeMinutes || 0,
+      teardownTimeMinutes: conflict.teardownTimeMinutes || 0
+    }));
+  } catch (error) {
+    console.error('Error checking room conflicts:', error);
+    throw error;
+  }
+}
+
+/**
+ * Compare two objects and return a list of changes for the specified fields
+ * Used for building revision history
+ * @param {Object} oldData - The previous version of the data
+ * @param {Object} newData - The new version of the data
+ * @param {Array<string>} fields - The fields to compare
+ * @returns {Array<Object>} - Array of change objects with field, oldValue, newValue
+ */
+function getChanges(oldData, newData, fields) {
+  const changes = [];
+
+  fields.forEach(field => {
+    const oldValue = oldData[field];
+    const newValue = newData[field];
+
+    // Handle different data types appropriately
+    let hasChanged = false;
+
+    if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+      // Array comparison - check if contents differ
+      hasChanged = JSON.stringify(oldValue.sort()) !== JSON.stringify(newValue.sort());
+    } else if (oldValue instanceof Date && newValue instanceof Date) {
+      // Date comparison
+      hasChanged = oldValue.getTime() !== newValue.getTime();
+    } else if (typeof oldValue === 'object' && typeof newValue === 'object' && oldValue !== null && newValue !== null) {
+      // Object comparison
+      hasChanged = JSON.stringify(oldValue) !== JSON.stringify(newValue);
+    } else {
+      // Primitive comparison
+      hasChanged = oldValue !== newValue;
+    }
+
+    if (hasChanged) {
+      changes.push({
+        field,
+        oldValue: oldValue instanceof Date ? oldValue.toISOString() : oldValue,
+        newValue: newValue instanceof Date ? newValue.toISOString() : newValue
+      });
+    }
+  });
+
+  return changes;
+}
+
 // Connect to MongoDB with reconnection logic
 async function connectToDatabase() {
   try {
@@ -10084,24 +10228,32 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       
       status: 'pending',
       priority,
-      
+
       // New resubmission fields
       currentRevision: 1,
       resubmissionAllowed: true,
       communicationHistory: [initialSubmissionEntry],
-      
+
+      // Conflict resolution fields
+      reviewStatus: 'not_reviewing',
+      revisions: [],
+      lastModifiedBy: userEmail,
+
       assignedTo: null,
       reviewNotes: '',
       approvedBy: null,
       actionDate: null,
       rejectionReason: '',
       createdEventIds: [],
-      
+
       submittedAt: new Date(),
       lastModified: new Date(),
       attachments: []
     };
-    
+
+    // Generate changeKey for the new reservation
+    reservation.changeKey = generateChangeKey(reservation);
+
     const result = await roomReservationsCollection.insertOne(reservation);
     const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
     
@@ -10269,28 +10421,36 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       
       status: 'pending',
       priority,
-      
+
       // New resubmission fields
       currentRevision: 1,
       resubmissionAllowed: true,
       communicationHistory: [initialSubmissionEntry],
-      
+
+      // Conflict resolution fields
+      reviewStatus: 'not_reviewing',
+      revisions: [],
+      lastModifiedBy: requesterEmail,
+
       assignedTo: null,
       reviewNotes: '',
       approvedBy: null,
       actionDate: null,
       rejectionReason: '',
       createdEventIds: [],
-      
+
       submittedAt: new Date(),
       lastModified: new Date(),
       attachments: [],
-      
+
       // Token metadata
       tokenUsed: tokenDoc._id,
       sponsoredBy: tokenDoc.createdByEmail
     };
-    
+
+    // Generate changeKey for the new reservation
+    reservation.changeKey = generateChangeKey(reservation);
+
     const result = await roomReservationsCollection.insertOne(reservation);
     const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
     
@@ -10569,6 +10729,41 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       })
     };
     
+    // Track changes for revision history
+    const fieldsToTrack = [
+      'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
+      'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
+      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone', 'priority'
+    ];
+
+    const newData = {
+      eventTitle,
+      eventDescription: eventDescription || '',
+      startDateTime: newStartDateTime,
+      endDateTime: newEndDateTime,
+      attendeeCount: attendeeCount || 0,
+      requestedRooms,
+      requiredFeatures: requiredFeatures || [],
+      specialRequirements: specialRequirements || '',
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
+      department: department || '',
+      phone: phone || '',
+      priority
+    };
+
+    const changes = getChanges(reservation, newData, fieldsToTrack);
+
+    // Create revision entry
+    const revisionEntry = {
+      revisionNumber: newRevisionNumber,
+      timestamp: new Date(),
+      modifiedBy: userEmail,
+      modifiedByName: req.user.name || userEmail,
+      changes: changes,
+      type: 'resubmission'
+    };
+
     // Update reservation with new data and add communication history
     const updateDoc = {
       $set: {
@@ -10585,16 +10780,17 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         phone: phone || '',
         priority,
         contactEmail: contactEmail || null,
-        
+
         // Setup and teardown times
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
-        
+
         // Update status and revision tracking
         status: 'pending',
         currentRevision: newRevisionNumber,
         lastModified: new Date(),
-        
+        lastModifiedBy: userEmail,
+
         // Clear previous action data
         actionDate: null,
         approvedBy: null,
@@ -10602,31 +10798,42 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         actionByEmail: null
       },
       $push: {
-        communicationHistory: resubmissionEntry
+        communicationHistory: resubmissionEntry,
+        revisions: revisionEntry
       }
     };
-    
+
     const result = await roomReservationsCollection.findOneAndUpdate(
       { _id: new ObjectId(reservationId) },
       updateDoc,
       { returnDocument: 'after' }
     );
-    
+
     if (!result.value) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
+
+    // Generate new changeKey after resubmission
+    const newChangeKey = generateChangeKey(result.value);
+    await roomReservationsCollection.updateOne(
+      { _id: new ObjectId(reservationId) },
+      { $set: { changeKey: newChangeKey } }
+    );
+    result.value.changeKey = newChangeKey;
+
     logger.info('Room reservation resubmitted:', {
       reservationId,
       resubmittedBy: userEmail,
       revisionNumber: newRevisionNumber,
-      eventTitle
+      eventTitle,
+      changesApplied: changes.length
     });
-    
+
     res.json({
       message: 'Reservation resubmitted successfully',
       reservation: result.value,
-      revisionNumber: newRevisionNumber
+      revisionNumber: newRevisionNumber,
+      changeKey: newChangeKey
     });
     
   } catch (error) {
@@ -11131,6 +11338,302 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
 });
 
 /**
+ * Start reviewing a room reservation (Admin only)
+ * This creates a soft hold on the reservation to prevent concurrent edits
+ */
+app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get current reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check if already being reviewed by someone else
+    if (reservation.reviewStatus === 'reviewing' && reservation.reviewingBy && reservation.reviewingBy !== userEmail) {
+      return res.status(423).json({
+        error: 'Reservation is currently being reviewed by another user',
+        reviewingBy: reservation.reviewingBy,
+        reviewStartedAt: reservation.reviewStartedAt
+      });
+    }
+
+    // Generate initial changeKey if it doesn't exist
+    const changeKey = reservation.changeKey || generateChangeKey(reservation);
+
+    // Update reservation to mark as being reviewed
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          reviewStatus: 'reviewing',
+          reviewingBy: userEmail,
+          reviewStartedAt: new Date(),
+          changeKey: changeKey,
+          lastModified: new Date()
+        }
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    logger.log('Review started:', { reservationId: id, reviewer: userEmail });
+    res.json({
+      message: 'Review session started',
+      reservation: result,
+      changeKey: changeKey
+    });
+  } catch (error) {
+    logger.error('Error starting review:', error);
+    res.status(500).json({ error: 'Failed to start review session' });
+  }
+});
+
+/**
+ * Release review hold on a room reservation (Admin only)
+ */
+app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get current reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Only allow releasing if you're the reviewer or if no one is reviewing
+    if (reservation.reviewingBy && reservation.reviewingBy !== userEmail) {
+      return res.status(403).json({
+        error: 'Cannot release review hold - reservation is being reviewed by another user',
+        reviewingBy: reservation.reviewingBy
+      });
+    }
+
+    // Release the review hold
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          reviewStatus: 'not_reviewing',
+          lastModified: new Date()
+        },
+        $unset: {
+          reviewingBy: '',
+          reviewStartedAt: ''
+        }
+      },
+      { returnDocument: 'after' }
+    );
+
+    logger.log('Review released:', { reservationId: id, reviewer: userEmail });
+    res.json({
+      message: 'Review session released',
+      reservation: result
+    });
+  } catch (error) {
+    logger.error('Error releasing review:', error);
+    res.status(500).json({ error: 'Failed to release review session' });
+  }
+});
+
+/**
+ * Check for scheduling conflicts with a room reservation (Admin only)
+ */
+app.get('/api/admin/room-reservations/:id/check-conflicts', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get the reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check for conflicts
+    const conflicts = await checkRoomConflicts(reservation, id);
+
+    res.json({
+      hasConflicts: conflicts.length > 0,
+      conflicts: conflicts
+    });
+  } catch (error) {
+    logger.error('Error checking conflicts:', error);
+    res.status(500).json({ error: 'Failed to check conflicts' });
+  }
+});
+
+/**
+ * Update a room reservation with optimistic concurrency control (Admin only)
+ */
+app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+    const ifMatch = req.headers['if-match'];
+    const updates = req.body;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get current reservation
+    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    if (!currentReservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Validate ETag if provided
+    if (ifMatch) {
+      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
+      if (ifMatch !== currentChangeKey) {
+        return res.status(409).json({
+          error: 'Conflict: Reservation has been modified by another user',
+          currentChangeKey: currentChangeKey,
+          providedChangeKey: ifMatch
+        });
+      }
+    }
+
+    // Check if being reviewed by someone else
+    if (currentReservation.reviewStatus === 'reviewing' &&
+        currentReservation.reviewingBy &&
+        currentReservation.reviewingBy !== userEmail) {
+      return res.status(423).json({
+        error: 'Reservation is currently being reviewed by another user',
+        reviewingBy: currentReservation.reviewingBy
+      });
+    }
+
+    // Fields that can be updated
+    const allowedFields = [
+      'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
+      'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
+      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
+      'contactName', 'contactEmail', 'priority', 'reviewNotes'
+    ];
+
+    // Build update document
+    const updateDoc = { $set: {} };
+    allowedFields.forEach(field => {
+      if (updates[field] !== undefined) {
+        updateDoc.$set[field] = updates[field];
+      }
+    });
+
+    // Convert date fields
+    if (updateDoc.$set.startDateTime) {
+      updateDoc.$set.startDateTime = new Date(updateDoc.$set.startDateTime);
+    }
+    if (updateDoc.$set.endDateTime) {
+      updateDoc.$set.endDateTime = new Date(updateDoc.$set.endDateTime);
+    }
+
+    // Track changes for revision history
+    const changes = getChanges(currentReservation, updateDoc.$set, allowedFields);
+
+    if (changes.length > 0) {
+      // Increment revision number
+      const newRevision = (currentReservation.currentRevision || 1) + 1;
+      updateDoc.$set.currentRevision = newRevision;
+
+      // Create revision entry
+      const revisionEntry = {
+        revisionNumber: newRevision,
+        timestamp: new Date(),
+        modifiedBy: userEmail,
+        modifiedByName: req.user.name || userEmail,
+        changes: changes
+      };
+
+      updateDoc.$push = {
+        revisions: revisionEntry
+      };
+    }
+
+    // Update lastModified and lastModifiedBy
+    updateDoc.$set.lastModified = new Date();
+    updateDoc.$set.lastModifiedBy = userEmail;
+
+    // Perform the update
+    const result = await roomReservationsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      updateDoc,
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Generate new changeKey
+    const newChangeKey = generateChangeKey(result);
+    await roomReservationsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { changeKey: newChangeKey } }
+    );
+
+    result.changeKey = newChangeKey;
+
+    logger.log('Reservation updated:', {
+      reservationId: id,
+      updatedBy: userEmail,
+      changes: changes.map(c => c.field)
+    });
+
+    res.json({
+      message: 'Reservation updated successfully',
+      reservation: result,
+      changeKey: newChangeKey,
+      changesApplied: changes.length
+    });
+  } catch (error) {
+    logger.error('Error updating reservation:', error);
+    res.status(500).json({ error: 'Failed to update reservation' });
+  }
+});
+
+/**
  * Approve a room reservation (Admin only)
  */
 app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res) => {
@@ -11138,22 +11641,58 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const { id } = req.params;
-    const { notes, calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, createCalendarEvent = true, graphToken } = req.body;
-    
+    const ifMatch = req.headers['if-match'];
+    const { notes, calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, createCalendarEvent = true, graphToken, ignoreConflicts = false } = req.body;
+
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
     const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    
+
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     // Get the current reservation to determine revision number
     const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
     if (!currentReservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
+
+    // Validate ETag if provided
+    if (ifMatch) {
+      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
+      if (ifMatch !== currentChangeKey) {
+        return res.status(409).json({
+          error: 'Conflict: Reservation has been modified by another user',
+          currentChangeKey: currentChangeKey,
+          providedChangeKey: ifMatch
+        });
+      }
+    }
+
+    // Check for scheduling conflicts unless explicitly ignored
+    let conflictDetails = null;
+    if (!ignoreConflicts) {
+      const conflicts = await checkRoomConflicts(currentReservation, id);
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          error: 'Scheduling conflict detected',
+          conflicts: conflicts,
+          message: 'This reservation conflicts with existing reservations. Set ignoreConflicts=true to approve anyway.'
+        });
+      }
+    } else {
+      // If conflicts were ignored, record them for audit purposes
+      const conflicts = await checkRoomConflicts(currentReservation, id);
+      if (conflicts.length > 0) {
+        conflictDetails = {
+          conflictsDetected: conflicts.length,
+          overriddenBy: userEmail,
+          overriddenAt: new Date()
+        };
+      }
+    }
+
     // Create approval communication history entry
     const approvalEntry = {
       timestamp: new Date(),
@@ -11164,7 +11703,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
       revisionNumber: currentReservation.currentRevision || 1,
       reservationSnapshot: null // No changes to reservation data on approval
     };
-    
+
     const updateDoc = {
       $set: {
         status: 'approved',
@@ -11172,22 +11711,38 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
         actionBy: userId,
         actionByEmail: userEmail,
         lastModified: new Date(),
-        ...(notes && { actionNotes: notes.trim() })
+        lastModifiedBy: userEmail,
+        // Release review hold
+        reviewStatus: 'not_reviewing',
+        ...(notes && { actionNotes: notes.trim() }),
+        ...(conflictDetails && { approvedWithOverride: conflictDetails })
       },
       $push: {
         communicationHistory: approvalEntry
+      },
+      $unset: {
+        reviewingBy: '',
+        reviewStartedAt: ''
       }
     };
-    
+
     const result = await roomReservationsCollection.findOneAndUpdate(
       { _id: new ObjectId(id), status: 'pending' },
       updateDoc,
       { returnDocument: 'after' }
     );
-    
+
     if (!result.value) {
       return res.status(404).json({ error: 'Pending reservation not found' });
     }
+
+    // Generate new changeKey after approval
+    const newChangeKey = generateChangeKey(result.value);
+    await roomReservationsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { changeKey: newChangeKey } }
+    );
+    result.value.changeKey = newChangeKey;
     
     // Create calendar event if requested (uses automatic service authentication)
     let calendarEventResult = null;
@@ -11250,26 +11805,39 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const { id } = req.params;
+    const ifMatch = req.headers['if-match'];
     const { reason } = req.body;
-    
+
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
     const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    
+
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
+
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: 'Rejection reason is required' });
     }
-    
+
     // Get the current reservation to determine revision number
     const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
     if (!currentReservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
+
+    // Validate ETag if provided
+    if (ifMatch) {
+      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
+      if (ifMatch !== currentChangeKey) {
+        return res.status(409).json({
+          error: 'Conflict: Reservation has been modified by another user',
+          currentChangeKey: currentChangeKey,
+          providedChangeKey: ifMatch
+        });
+      }
+    }
+
     // Create rejection communication history entry
     const rejectionEntry = {
       timestamp: new Date(),
@@ -11280,7 +11848,7 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
       revisionNumber: currentReservation.currentRevision || 1,
       reservationSnapshot: null // No changes to reservation data on rejection
     };
-    
+
     const updateDoc = {
       $set: {
         status: 'rejected',
@@ -11288,23 +11856,38 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
         actionBy: userId,
         actionByEmail: userEmail,
         rejectionReason: reason.trim(), // Keep for backward compatibility
-        lastModified: new Date()
+        lastModified: new Date(),
+        lastModifiedBy: userEmail,
+        // Release review hold
+        reviewStatus: 'not_reviewing'
       },
       $push: {
         communicationHistory: rejectionEntry
+      },
+      $unset: {
+        reviewingBy: '',
+        reviewStartedAt: ''
       }
     };
-    
+
     const result = await roomReservationsCollection.findOneAndUpdate(
       { _id: new ObjectId(id), status: 'pending' },
       updateDoc,
       { returnDocument: 'after' }
     );
-    
+
     if (!result.value) {
       return res.status(404).json({ error: 'Pending reservation not found' });
     }
-    
+
+    // Generate new changeKey after rejection
+    const newChangeKey = generateChangeKey(result.value);
+    await roomReservationsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { changeKey: newChangeKey } }
+    );
+    result.value.changeKey = newChangeKey;
+
     logger.log('Room reservation rejected:', { reservationId: id, rejectedBy: userEmail, reason });
     res.json(result.value);
   } catch (error) {
