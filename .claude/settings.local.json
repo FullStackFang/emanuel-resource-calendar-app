@@ -31,7 +31,8 @@
       "Bash(npm run:*)",
       "WebFetch(domain:learn.microsoft.com)",
       "Bash(git log:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(source .env)"
     ],
     "deny": []
   }

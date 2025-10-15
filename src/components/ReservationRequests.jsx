@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
-import CommunicationHistory from './CommunicationHistory';
+import RoomReservationReview from './RoomReservationReview';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -14,11 +14,27 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [page, setPage] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
-  
+
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
   const [createCalendarEvent, setCreateCalendarEvent] = useState(true);
-  
+
+  // Editable form state
+  const [editableData, setEditableData] = useState(null);
+  const [originalChangeKey, setOriginalChangeKey] = useState(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Soft hold state
+  const [reviewHold, setReviewHold] = useState(null);
+  const [holdTimer, setHoldTimer] = useState(null);
+  const [holdError, setHoldError] = useState(null);
+
+  // Conflict detection state
+  const [conflicts, setConflicts] = useState([]);
+  const [checkingConflicts, setCheckingConflicts] = useState(false);
+  const [forceApprove, setForceApprove] = useState(false);
+
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
   
@@ -29,21 +45,30 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       loadAllReservations();
     }
   }, [apiToken]);
-  
+
+  // Cleanup hold timer on unmount
+  useEffect(() => {
+    return () => {
+      if (holdTimer) {
+        clearInterval(holdTimer);
+      }
+    };
+  }, [holdTimer]);
+
   const loadAllReservations = async () => {
     try {
       setLoading(true);
       setError('');
-      
+
       // Load all reservations without pagination or filtering
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
       });
-      
+
       if (!response.ok) throw new Error('Failed to load reservations');
-      
+
       const data = await response.json();
       setAllReservations(data.reservations || []);
     } catch (err) {
@@ -51,6 +76,128 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setError('Failed to load reservation requests');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Acquire soft hold when opening review modal
+  const acquireReviewHold = async (reservationId) => {
+    try {
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/start-review`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+
+      // Handle 404 - endpoint doesn't exist yet (graceful degradation)
+      if (response.status === 404) {
+        setHoldError(null);
+        setReviewHold(null);
+        return true; // Continue without soft hold
+      }
+
+      if (response.status === 423) {
+        const data = await response.json();
+        setHoldError(`This reservation is currently being reviewed by ${data.reviewingBy}. ` +
+                     `The hold will expire in ${data.minutesRemaining} minutes.`);
+        return false;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to acquire review hold');
+      }
+
+      const data = await response.json();
+      const expiresAt = new Date(data.reviewExpiresAt);
+
+      setReviewHold({
+        expiresAt,
+        durationMinutes: data.durationMinutes
+      });
+      setHoldError(null);
+
+      // Set up countdown timer
+      const timer = setInterval(() => {
+        const remaining = expiresAt - Date.now();
+        if (remaining <= 0) {
+          setHoldError('Your review session has expired. Please reopen the modal to continue.');
+          closeReviewModal();
+        }
+      }, 60000); // Check every minute
+
+      setHoldTimer(timer);
+      return true;
+
+    } catch (error) {
+      logger.error('Failed to acquire review hold:', error);
+      // Don't set error for network issues - allow modal to open
+      setHoldError(null);
+      return true;
+    }
+  };
+
+  // Release soft hold when closing modal
+  const releaseReviewHold = async (reservationId) => {
+    if (holdTimer) {
+      clearInterval(holdTimer);
+      setHoldTimer(null);
+    }
+
+    if (!reservationId) return;
+
+    try {
+      await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/release-review`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+    } catch (error) {
+      logger.error('Failed to release hold:', error);
+    }
+
+    setReviewHold(null);
+    setHoldError(null);
+  };
+
+  // Check for scheduling conflicts
+  const checkConflicts = async (reservation) => {
+    try {
+      setCheckingConflicts(true);
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/check-conflicts`,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+
+      // Handle 404 - endpoint doesn't exist yet (graceful degradation)
+      if (response.status === 404) {
+        setConflicts([]);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to check conflicts');
+      }
+
+      const data = await response.json();
+      setConflicts(data.conflicts || []);
+
+    } catch (error) {
+      logger.warn('Conflict checking not available:', error);
+      setConflicts([]); // Show as no conflicts if endpoint doesn't exist
+    } finally {
+      setCheckingConflicts(false);
     }
   };
 
@@ -73,6 +220,158 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setActiveTab(newTab);
     setPage(1);
   };
+
+  // Open review modal with soft hold acquisition
+  const openReviewModal = async (reservation) => {
+    // For pending reservations, try to acquire soft hold (optional - fails gracefully if endpoint doesn't exist)
+    if (reservation.status === 'pending') {
+      try {
+        const holdAcquired = await acquireReviewHold(reservation._id);
+        if (!holdAcquired && holdError) {
+          // Only block if there's an actual hold error (someone else reviewing)
+          // Don't block if endpoint just doesn't exist yet (404)
+          const is423Error = holdError.includes('currently being reviewed by');
+          if (is423Error) {
+            return;
+          }
+        }
+      } catch (error) {
+        // Soft hold endpoint doesn't exist yet - continue without it
+        logger.warn('Soft hold not available:', error);
+        setHoldError(null);
+      }
+    }
+
+    // Initialize editable data
+    setEditableData({
+      eventTitle: reservation.eventTitle || '',
+      eventDescription: reservation.eventDescription || '',
+      startDateTime: reservation.startDateTime,
+      endDateTime: reservation.endDateTime,
+      setupTimeMinutes: reservation.setupTimeMinutes || 0,
+      teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
+      attendeeCount: reservation.attendeeCount || 0,
+      requestedRooms: reservation.requestedRooms || [],
+      specialRequirements: reservation.specialRequirements || '',
+      requesterName: reservation.requesterName || '',
+      requesterEmail: reservation.requesterEmail || '',
+      contactName: reservation.contactName || '',
+      contactEmail: reservation.contactEmail || '',
+      phone: reservation.phone || '',
+      department: reservation.department || '',
+      sponsoredBy: reservation.sponsoredBy || '',
+      isOnBehalfOf: reservation.isOnBehalfOf || false
+    });
+
+    setOriginalChangeKey(reservation.changeKey);
+    setHasChanges(false);
+    setSelectedReservation(reservation);
+
+    // Try to check for conflicts (optional - fails gracefully if endpoint doesn't exist)
+    try {
+      await checkConflicts(reservation);
+    } catch (error) {
+      // Conflict check endpoint doesn't exist yet - continue without it
+      logger.warn('Conflict checking not available:', error);
+      setConflicts([]); // Show as no conflicts
+    }
+  };
+
+  // Close review modal and release hold
+  const closeReviewModal = async () => {
+    if (selectedReservation) {
+      await releaseReviewHold(selectedReservation._id);
+    }
+
+    setSelectedReservation(null);
+    setEditableData(null);
+    setOriginalChangeKey(null);
+    setHasChanges(false);
+    setActionNotes('');
+    setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
+    setCreateCalendarEvent(true);
+    setConflicts([]);
+    setForceApprove(false);
+  };
+
+  // Handle field changes in editable form
+  const handleFieldChange = (field, value) => {
+    setEditableData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    setHasChanges(true);
+
+    // Re-check conflicts if time or room fields changed
+    if (['startDateTime', 'endDateTime', 'setupTimeMinutes', 'teardownTimeMinutes', 'requestedRooms'].includes(field)) {
+      checkConflicts({
+        ...selectedReservation,
+        ...editableData,
+        [field]: value
+      });
+    }
+  };
+
+  // Save changes with ETag validation
+  const handleSaveChanges = async () => {
+    if (!hasChanges) return;
+
+    try {
+      setIsSaving(true);
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${selectedReservation._id}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`,
+            'If-Match': originalChangeKey || ''
+          },
+          body: JSON.stringify(editableData)
+        }
+      );
+
+      if (response.status === 409) {
+        const data = await response.json();
+        const changes = data.changes || [];
+        const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
+
+        const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
+                       `Changes made:\n${changesList}\n\n` +
+                       `Your changes have NOT been saved. Would you like to refresh to see the latest version?\n` +
+                       `(Your changes will be lost)`;
+
+        if (window.confirm(message)) {
+          await loadAllReservations();
+          closeReviewModal();
+        }
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to save changes');
+      }
+
+      const result = await response.json();
+
+      // Update local state
+      setAllReservations(prev => prev.map(r =>
+        r._id === selectedReservation._id ? { ...r, ...editableData, changeKey: result.changeKey } : r
+      ));
+
+      setOriginalChangeKey(result.changeKey);
+      setHasChanges(false);
+      setError('✅ Changes saved successfully');
+      setTimeout(() => setError(''), 3000);
+
+    } catch (error) {
+      logger.error('Error saving changes:', error);
+      setError(`Failed to save changes: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   
   const handleApprove = async (reservation) => {
     try {
@@ -80,14 +379,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         reservationId: reservation._id,
         eventTitle: reservation.eventTitle,
         calendarMode,
-        createCalendarEvent
+        createCalendarEvent,
+        hasConflicts: conflicts.length > 0,
+        forceApprove
       });
 
-      const requestBody = { 
+      const requestBody = {
         notes: actionNotes,
         calendarMode: calendarMode,
         createCalendarEvent: createCalendarEvent,
-        graphToken: graphToken
+        graphToken: graphToken,
+        forceApprove: forceApprove
       };
 
       console.log('📤 Sending approval request:', requestBody);
@@ -96,11 +398,38 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
+          'Authorization': `Bearer ${apiToken}`,
+          'If-Match': originalChangeKey || reservation.changeKey || ''
         },
         body: JSON.stringify(requestBody)
       });
-      
+
+      // Handle ETag conflict (409)
+      if (response.status === 409) {
+        const data = await response.json();
+
+        // Check if it's a scheduling conflict or ETag conflict
+        if (data.error === 'SchedulingConflict') {
+          setConflicts(data.conflicts || []);
+          setError(`⚠️ Cannot approve: ${data.conflicts.length} scheduling conflict(s) detected. ` +
+                  `Please review conflicts below and either modify the reservation or check "Override conflicts" to force approval.`);
+          return;
+        } else if (data.error === 'ConflictError') {
+          const changes = data.changes || [];
+          const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
+
+          const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
+                         `Changes made:\n${changesList}\n\n` +
+                         `Would you like to refresh to see the latest version?`;
+
+          if (window.confirm(message)) {
+            await loadAllReservations();
+            closeReviewModal();
+          }
+          return;
+        }
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ Approval request failed:', response.status, errorText);
@@ -469,7 +798,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <td className="actions">
                   <button
                     className="view-btn"
-                    onClick={() => setSelectedReservation(reservation)}
+                    onClick={() => openReviewModal(reservation)}
                   >
                     {reservation.status === 'pending' ? 'Review' : 'View Details'}
                   </button>
@@ -525,183 +854,64 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {/* Review Modal */}
       {selectedReservation && (
         <div className="review-modal-overlay">
-          <div className="review-modal">
-            <h2>
-              {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'Reservation Details'}
-              {selectedReservation.currentRevision > 1 && (
-                <span className="revision-badge">Revision {selectedReservation.currentRevision}</span>
-              )}
-            </h2>
-            
-            <div className="reservation-details">
-              <div className="detail-row">
-                <label>Event:</label>
-                <div>{selectedReservation.eventTitle}</div>
-              </div>
-              
-              <div className="detail-row">
-                <label>Submitted by:</label>
-                <div>
-                  {selectedReservation.requesterName} ({selectedReservation.requesterEmail})
-                  {selectedReservation.phone && <div>📞 {selectedReservation.phone}</div>}
-                </div>
-              </div>
+          <div className="review-modal" style={{ maxWidth: '1200px', display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
+            {/* Sticky Action Bar at top of modal */}
+            <div className="review-action-bar">
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
+                {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
+              </h2>
 
-              {selectedReservation.isOnBehalfOf && selectedReservation.contactName && (
-                <div className="detail-row">
-                  <label>Contact Person:</label>
-                  <div>
-                    {selectedReservation.contactName} ({selectedReservation.contactEmail})
-                    <div className="delegation-indicator">📋 This request was submitted on behalf of this person</div>
-                  </div>
-                </div>
-              )}
-              
-              <div className="detail-row">
-                <label>Date & Time:</label>
-                <div>
-                  {formatDateTime(selectedReservation.startDateTime)} - {formatDateTime(selectedReservation.endDateTime)}
-                </div>
-              </div>
-              
-              <div className="detail-row">
-                <label>Rooms:</label>
-                <div>
-                  {selectedReservation.requestedRooms.map(roomId => {
-                    const roomDetails = getRoomDetails(roomId);
-                    return roomDetails.location ? 
-                      `${roomDetails.name} (${roomDetails.location})` : 
-                      roomDetails.name;
-                  }).join(', ')}
-                </div>
-              </div>
-              
-              
-              {selectedReservation.specialRequirements && (
-                <div className="detail-row">
-                  <label>Special Requirements:</label>
-                  <div>{selectedReservation.specialRequirements}</div>
-                </div>
-              )}
-            </div>
+              <div className="review-actions">
+                {selectedReservation.status === 'pending' && hasChanges && (
+                  <button
+                    type="button"
+                    className="action-btn save-btn"
+                    onClick={handleSaveChanges}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? 'Saving...' : '💾 Save Changes'}
+                  </button>
+                )}
 
-            {/* Communication History */}
-            {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
-              <CommunicationHistory reservation={selectedReservation} isAdmin={true} />
-            )}
-            
-            {selectedReservation.status === 'pending' && (
-              <div className="action-notes">
-                <label htmlFor="actionNotes">Notes / Rejection Reason:</label>
-                <textarea
-                  id="actionNotes"
-                  value={actionNotes}
-                  onChange={(e) => setActionNotes(e.target.value)}
-                  rows="4"
-                  placeholder="Add any notes or provide a reason for rejection..."
-                />
-              </div>
-            )}
-            
-            {selectedReservation.status === 'pending' && (
-              <div className="calendar-settings">
-                <h4>Calendar Event Settings</h4>
-                
-                <div className="calendar-option">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={createCalendarEvent}
-                      onChange={(e) => setCreateCalendarEvent(e.target.checked)}
-                    />
-                    Create calendar event upon approval
-                  </label>
-                </div>
-                
-                {createCalendarEvent && (
+                {selectedReservation.status === 'pending' && (
                   <>
-                    <div className="calendar-mode-selection">
-                      <label htmlFor="calendarMode">Calendar:</label>
-                      <select
-                        id="calendarMode"
-                        value={calendarMode}
-                        onChange={(e) => setCalendarMode(e.target.value)}
-                        className={calendarMode === 'production' ? 'production-mode' : 'sandbox-mode'}
-                      >
-                        <option value="sandbox">
-                          🧪 Sandbox ({APP_CONFIG.CALENDAR_CONFIG.SANDBOX_CALENDAR})
-                        </option>
-                        <option value="production">
-                          🏛️ Production ({APP_CONFIG.CALENDAR_CONFIG.PRODUCTION_CALENDAR})
-                        </option>
-                      </select>
-                      {calendarMode === 'production' && (
-                        <div className="production-warning">
-                          ⚠️ This will create an event in the live production calendar
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="service-auth-info">
-                      <div className="auth-info-content">
-                        <div className="auth-icon">🔐</div>
-                        <div>
-                          <strong>Automatic Authentication</strong>
-                          <div className="auth-description">
-                            Calendar events are created automatically using secure service authentication. 
-                            No manual tokens required!
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      className="action-btn approve-btn"
+                      onClick={() => handleApprove(selectedReservation)}
+                    >
+                      ✓ Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn reject-btn"
+                      onClick={() => handleReject(selectedReservation)}
+                    >
+                      ✗ Reject
+                    </button>
                   </>
                 )}
-              </div>
-            )}
-            
-            <div className="modal-actions">
-              {selectedReservation.status === 'pending' && (
-                <>
-                  <button
-                    className="approve-btn"
-                    onClick={() => handleApprove(selectedReservation)}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    className="reject-btn"
-                    onClick={() => handleReject(selectedReservation)}
-                  >
-                    Reject
-                  </button>
-                </>
-              )}
-              {selectedReservation.status === 'approved' && (
+
                 <button
-                  className="sync-btn"
-                  onClick={() => handleSync(selectedReservation)}
-                  title="Sync/Create calendar event"
+                  type="button"
+                  className="action-btn cancel-btn"
+                  onClick={closeReviewModal}
                 >
-                  🔄 Sync Calendar
+                  {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
                 </button>
-              )}
-              <button
-                className="delete-btn-modal"
-                onClick={() => handleDelete(selectedReservation)}
-              >
-                🗑️ Delete
-              </button>
-              <button
-                className="cancel-btn"
-                onClick={() => {
-                  setSelectedReservation(null);
-                  setActionNotes('');
-                  setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
-                  setCreateCalendarEvent(true);
-                }}
-              >
-                {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
-              </button>
+              </div>
+            </div>
+
+            {/* Scrollable content area */}
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              <RoomReservationReview
+                reservation={selectedReservation}
+                apiToken={apiToken}
+                onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
+                onReject={(notes) => handleReject(selectedReservation)}
+                onCancel={closeReviewModal}
+                onSave={handleSaveChanges}
+              />
             </div>
           </div>
         </div>

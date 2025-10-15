@@ -768,3 +768,111 @@
   border-color: #c026d3;
   box-shadow: 0 0 0 3px rgba(192, 38, 211, 0.1);
 }
+
+/* Review Action Bar - Sticky at top */
+.review-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: white;
+  border-bottom: 2px solid #e5e7eb;
+  padding: 20px 25px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 0 0 20px 0;
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.review-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.action-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.action-btn.approve-btn {
+  background: #10b981;
+  color: white;
+}
+
+.action-btn.approve-btn:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 185, 129, 0.3);
+}
+
+.action-btn.reject-btn {
+  background: #ef4444;
+  color: white;
+}
+
+.action-btn.reject-btn:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
+}
+
+.action-btn.save-btn {
+  background: #0078d4;
+  color: white;
+}
+
+.action-btn.save-btn:hover:not(:disabled) {
+  background: #106ebe;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 120, 212, 0.3);
+}
+
+.action-btn.cancel-btn {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.action-btn.cancel-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Responsive adjustments for action bar */
+@media (max-width: 768px) {
+  .review-action-bar {
+    flex-direction: column;
+    gap: 15px;
+    align-items: stretch;
+    padding: 15px;
+  }
+
+  .review-action-bar h2 {
+    font-size: 1.1rem !important;
+  }
+
+  .review-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .action-btn {
+    flex: 1;
+    min-width: 120px;
+  }
+}
