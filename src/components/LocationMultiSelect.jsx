@@ -2,18 +2,69 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './LocationMultiSelect.css';
 
-export default function LocationMultiSelect({ 
-  rooms, 
+export default function LocationMultiSelect({
+  rooms,
   availability,
-  selectedRooms, 
+  selectedRooms,
   onRoomSelectionChange,
   checkRoomCapacity,
-  label = "Select Locations"
+  label = "Select Locations",
+  eventStartTime,
+  eventEndTime,
+  eventDate
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef(null);
   const searchRef = useRef(null);
+
+  // Helper function to check if two time ranges overlap
+  const checkTimeOverlap = (start1, end1, start2, end2) => {
+    return start1 < end2 && end1 > start2;
+  };
+
+  // Dynamically calculate if a room has conflicts based on current event time
+  const checkRoomConflicts = (room) => {
+    // If no event time is set, can't determine conflicts
+    if (!eventStartTime || !eventEndTime || !eventDate) {
+      return { hasConflicts: false, conflictCount: 0 };
+    }
+
+    const roomAvailability = availability.find(a => a.room._id === room._id);
+    if (!roomAvailability) {
+      return { hasConflicts: false, conflictCount: 0 };
+    }
+
+    // Parse user's event times
+    const userStart = new Date(`${eventDate}T${eventStartTime}`);
+    const userEnd = new Date(`${eventDate}T${eventEndTime}`);
+
+    let conflictCount = 0;
+
+    // Check reservation conflicts
+    if (roomAvailability.conflicts?.reservations) {
+      roomAvailability.conflicts.reservations.forEach(res => {
+        const resStart = new Date(res.effectiveStart);
+        const resEnd = new Date(res.effectiveEnd);
+        if (checkTimeOverlap(userStart, userEnd, resStart, resEnd)) {
+          conflictCount++;
+        }
+      });
+    }
+
+    // Check calendar event conflicts
+    if (roomAvailability.conflicts?.events) {
+      roomAvailability.conflicts.events.forEach(evt => {
+        const evtStart = new Date(evt.start);
+        const evtEnd = new Date(evt.end);
+        if (checkTimeOverlap(userStart, userEnd, evtStart, evtEnd)) {
+          conflictCount++;
+        }
+      });
+    }
+
+    return { hasConflicts: conflictCount > 0, conflictCount };
+  };
 
   // Filter rooms based on search term
   const filteredRooms = rooms.filter(room => 
@@ -57,12 +108,11 @@ export default function LocationMultiSelect({
 
   const selectAllAvailable = () => {
     const availableRooms = rooms.filter(room => {
-      const roomAvailability = availability.find(a => a.room._id === room._id);
-      const isAvailable = !roomAvailability || roomAvailability.available;
+      const { hasConflicts } = checkRoomConflicts(room);
       const { meetsCapacity } = checkRoomCapacity(room);
-      return isAvailable && meetsCapacity;
+      return !hasConflicts && meetsCapacity;
     });
-    
+
     onRoomSelectionChange(availableRooms.map(room => room._id));
   };
 
@@ -71,11 +121,10 @@ export default function LocationMultiSelect({
   };
 
   const getRoomStatus = (room) => {
-    const roomAvailability = availability.find(a => a.room._id === room._id);
-    const isAvailable = !roomAvailability || roomAvailability.available;
+    const { hasConflicts } = checkRoomConflicts(room);
     const { meetsCapacity } = checkRoomCapacity(room);
 
-    if (!isAvailable) {
+    if (hasConflicts) {
       return { status: 'busy', color: '#dc2626', icon: '⚠️', text: 'Conflicts' };
     } else if (!meetsCapacity) {
       return { status: 'capacity', color: '#f59e0b', icon: '⚠️', text: 'Capacity' };

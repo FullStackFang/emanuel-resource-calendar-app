@@ -7,6 +7,7 @@ export default function SchedulingAssistant({
   selectedDate,
   eventStartTime,
   eventEndTime,
+  eventTitle, // Title of the event being created/edited
   availability,
   onTimeSlotClick,
   onRoomRemove, // Callback to remove a room from selection
@@ -21,6 +22,7 @@ export default function SchedulingAssistant({
   const [dragOffsets, setDragOffsets] = useState({}); // Track drag offset for each event
   const timelineRef = useRef(null);
   const manuallyAdjustedPositions = useRef({}); // Track manually dragged positions: { eventId: { top, startTime, endTime } }
+  const userEventAdjustment = useRef(null); // Track user event's dragged position: { startTime, endTime }
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
 
   const PIXELS_PER_HOUR = 80; // Increased from 40px to 80px for better visibility
@@ -171,7 +173,50 @@ export default function SchedulingAssistant({
       };
     });
 
-    // Calculate conflicts between all events (not just user's event)
+    // Create user event blocks (one per selected room)
+    // This represents the event being created/edited across all locations
+    if (eventStartTime && eventEndTime) {
+      selectedRooms.forEach((room, roomIndex) => {
+        // Check if user event has been manually dragged
+        const adjustment = userEventAdjustment.current;
+
+        let startTime, endTime, position;
+
+        if (adjustment) {
+          // Use the manually adjusted times
+          startTime = adjustment.startTime;
+          endTime = adjustment.endTime;
+          position = calculateEventPosition(startTime, endTime);
+        } else {
+          // Use the times from props (form fields)
+          startTime = new Date(`${effectiveDate}T${eventStartTime}`);
+          endTime = new Date(`${effectiveDate}T${eventEndTime}`);
+          position = calculateEventPosition(startTime, endTime);
+        }
+
+        const roomColor = locationColors[roomIndex % locationColors.length];
+
+        blocks.push({
+          id: 'user-event', // Same ID across all rooms so we can track it globally
+          type: 'user-event',
+          room,
+          roomIndex,
+          color: '#0078d4', // Bright blue for user event
+          baseColor: '#0078d4',
+          eventIndexInRoom: 0, // Always first in visual stacking
+          title: eventTitle || 'Untitled Event',
+          startTime,
+          endTime,
+          organizer: 'You',
+          isUserEvent: true,
+          isDraggable: true,
+          isConflict: false, // Will be calculated below
+          ...position
+        });
+      });
+    }
+
+    // Calculate conflicts between all events (including user event)
     // Group blocks by room for conflict detection
     const blocksByRoom = {};
     blocks.forEach(block => {
@@ -208,7 +253,7 @@ export default function SchedulingAssistant({
 
     setEventBlocks(blocks);
     setRoomStats(stats);
-  }, [availability, selectedRooms, effectiveDate]);
+  }, [availability, selectedRooms, effectiveDate, eventStartTime, eventEndTime]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {
@@ -216,6 +261,12 @@ export default function SchedulingAssistant({
       setActiveRoomIndex(0);
     }
   }, [selectedRooms, activeRoomIndex]);
+
+  // Clear user event adjustment when time props change externally (user typed in form)
+  useEffect(() => {
+    // Clear the drag adjustment so we use the new prop values
+    userEventAdjustment.current = null;
+  }, [eventStartTime, eventEndTime]);
 
   // Calculate event block position based on start/end times
   const calculateEventPosition = (startTime, endTime) => {
@@ -318,12 +369,12 @@ export default function SchedulingAssistant({
     return { left: offsetPercent, width: widthPercent };
   };
 
-  // Handle drag start - only for current reservation
+  // Handle drag start - allow only user events when editing
   const handleEventDragStart = (e, block) => {
-    // Only allow dragging the current reservation
-    if (currentReservationId && block.id !== currentReservationId) {
+    // Block all backend events when editing (only user event is draggable)
+    if (currentReservationId && !block.isUserEvent) {
       e.preventDefault();
-      console.log('[Drag] BLOCKED - Not current reservation:', block.title);
+      console.log('[Drag] BLOCKED - Backend event locked:', block.title);
       return;
     }
 
@@ -354,16 +405,13 @@ export default function SchedulingAssistant({
     }
   };
 
-  // Handle drag end - keep visual position but don't persist to form/database
-  // The visual change persists in the UI so user can see their adjustment
-  // But it's NOT saved to the form state until user clicks "Approve"
+  // Handle drag end - update position and notify parent
   const handleEventDragEnd = () => {
     if (!draggingEventId) return;
 
     const dragOffset = dragOffsets[draggingEventId] || 0;
 
     if (dragOffset !== 0) {
-      // Calculate the new time that would be applied (for logging/debugging)
       const hourOffset = dragOffset / PIXELS_PER_HOUR;
       const draggedBlock = eventBlocks.find(b => b.id === draggingEventId);
 
@@ -378,49 +426,80 @@ export default function SchedulingAssistant({
           return `${hours}:${minutes}`;
         };
 
-        console.log('[Drag] END - Visual position updated (not saved to form):', {
+        console.log('[Drag] END - Event dragged:', {
+          eventId: draggingEventId,
+          isUserEvent: draggedBlock.isUserEvent,
           originalStart: formatTime(draggedBlock.startTime),
           originalEnd: formatTime(draggedBlock.endTime),
-          previewStart: formatTime(newStartTime),
-          previewEnd: formatTime(newEndTime),
+          newStart: formatTime(newStartTime),
+          newEnd: formatTime(newEndTime),
           offsetHours: hourOffset.toFixed(2)
         });
 
-        const newTop = draggedBlock.top + dragOffset;
+        // Handle user event differently - sync across all tabs and update form
+        if (draggedBlock.isUserEvent) {
+          // Store adjustment for user event globally
+          userEventAdjustment.current = {
+            startTime: newStartTime,
+            endTime: newEndTime
+          };
 
-        // Store the manually adjusted position so it persists across re-renders
-        manuallyAdjustedPositions.current[draggingEventId] = {
-          top: newTop,
-          startTime: newStartTime,
-          endTime: newEndTime
-        };
-
-        // Update the event blocks with new visual position
-        // This persists the visual change in the UI, but does NOT update the form state
-        // Changes are saved to database only when user clicks "Approve"
-        setEventBlocks(prev => prev.map(block => {
-          if (block.id === draggingEventId) {
-            return {
-              ...block,
-              top: newTop,
-              // Update time properties for display/conflict checking
-              startTime: newStartTime,
-              endTime: newEndTime
-            };
+          // Notify parent form to update time fields
+          if (onEventTimeChange) {
+            onEventTimeChange({
+              startTime: formatTime(newStartTime),
+              endTime: formatTime(newEndTime)
+            });
           }
-          return block;
-        }));
+
+          // Update all user event blocks across all rooms
+          setEventBlocks(prev => prev.map(block => {
+            if (block.isUserEvent) {
+              const newTop = calculateEventPosition(newStartTime, newEndTime).top;
+              return {
+                ...block,
+                top: newTop,
+                startTime: newStartTime,
+                endTime: newEndTime
+              };
+            }
+            return block;
+          }));
+        } else {
+          // Handle backend reservation events (existing behavior)
+          const newTop = draggedBlock.top + dragOffset;
+
+          // Store the manually adjusted position so it persists across re-renders
+          manuallyAdjustedPositions.current[draggingEventId] = {
+            top: newTop,
+            startTime: newStartTime,
+            endTime: newEndTime
+          };
+
+          // Update only this specific event block
+          setEventBlocks(prev => prev.map(block => {
+            if (block.id === draggingEventId) {
+              return {
+                ...block,
+                top: newTop,
+                startTime: newStartTime,
+                endTime: newEndTime
+              };
+            }
+            return block;
+          }));
+        }
       }
     }
 
-    // Reset drag state (but visual position remains from setEventBlocks above)
+    // Reset drag state
     setDraggingEventId(null);
     setDragOffsets({});
   };
 
   // Render event block with drag capability
   const renderEventBlock = (block, allVisibleBlocks) => {
-    const eventIcon = block.type === 'reservation' ? '📅' : '🗓️';
+    const eventIcon = block.isUserEvent ? '✏️' : (block.type === 'reservation' ? '📅' : '🗓️');
     const borderStyle = block.status === 'pending' ? 'dashed' : 'solid';
     const offset = getOverlapOffset(block, allVisibleBlocks);
 
@@ -430,9 +509,11 @@ export default function SchedulingAssistant({
     // Calculate new position if dragging
     const top = block.top + (isDragging ? dragOffset : 0);
 
-    // Determine if this is the current reservation being edited
+    // Determine if this is the user's event or a backend event
+    const isUserEvent = block.isUserEvent;
     const isCurrentReservation = currentReservationId && block.id === currentReservationId;
-    const isLocked = currentReservationId && !isCurrentReservation;
+    // Lock ALL backend events when editing (only user event is draggable)
+    const isLocked = !isUserEvent && currentReservationId;
 
     if (isDragging) {
       console.log('[Drag] RENDER - block.top:', block.top, 'dragOffset:', dragOffset, 'calculatedTop:', top);
@@ -454,12 +535,21 @@ export default function SchedulingAssistant({
       );
     }
 
-    // Visual styling - different for current vs locked events
+    // Visual styling - different for user event, current reservation, and locked events
     let opacity, cursor, boxShadow, backgroundColor, filter;
 
-    if (isLocked) {
+    if (isUserEvent) {
+      // User event styling - bright, vibrant, always draggable
+      opacity = hasConflict ? 0.95 : 0.9;
+      cursor = isDragging ? 'grabbing' : 'grab';
+      boxShadow = isDragging
+        ? '0 8px 20px rgba(0, 120, 212, 0.5)'
+        : '0 0 0 3px rgba(0, 120, 212, 0.5)'; // Blue glow for user event
+      backgroundColor = block.color;
+      filter = 'none';
+    } else if (isLocked) {
       // Locked event styling - greyed out
-      opacity = 0.3;
+      opacity = 0.75;
       cursor = 'not-allowed';
       boxShadow = 'none';
       backgroundColor = '#999999'; // Grey color
@@ -479,9 +569,11 @@ export default function SchedulingAssistant({
     const currentEventLabel = isCurrentReservation ? '✏️ ' : '';
     const lockedIcon = isLocked ? '🔒 ' : '';
 
-    // Build title/tooltip based on lock status
+    // Build title/tooltip based on event type and lock status
     let title;
-    if (isLocked) {
+    if (isUserEvent) {
+      title = `✏️ ${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\n👆 Drag to reschedule${hasConflict ? '\n⚠️ Time conflicts with other events' : '\n✓ No conflicts at this time'}`;
+    } else if (isLocked) {
       title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nThis event is locked - you can only drag your own reservation.`;
     } else {
       title = `${currentEventLabel}${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n👆 Drag to reschedule your event${hasConflict ? '\n⚠️ Overlaps with other events' : '\n✓ No conflicts'}`;
@@ -490,7 +582,7 @@ export default function SchedulingAssistant({
     return (
       <div
         key={`${block.id}-${block.roomIndex}`}
-        className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isCurrentReservation ? 'current-event' : ''}`}
+        className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isUserEvent ? 'user-event' : ''} ${isCurrentReservation ? 'current-event' : ''}`}
         style={{
           top: `${top}px`,
           height: `${block.height}px`,
@@ -503,7 +595,7 @@ export default function SchedulingAssistant({
           cursor: cursor,
           boxShadow: boxShadow,
           filter: filter,
-          zIndex: isDragging ? 200 : (isCurrentReservation ? 10 : 5),
+          zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : 5)),
           transition: isDragging ? 'none' : 'all 0.2s'
         }}
         draggable={!isLocked}
@@ -679,11 +771,15 @@ export default function SchedulingAssistant({
                 onClick={() => setActiveRoomIndex(index)}
               >
                 <span className="room-tab-name">{room.name}</span>
-                {stats.conflictCount > 0 && (
-                  <span className="room-tab-badge" style={{ backgroundColor: roomColor }}>
-                    {stats.conflictCount}
-                  </span>
-                )}
+                <span
+                  className="room-tab-badge"
+                  style={{
+                    backgroundColor: stats.conflictCount > 0 ? '#dc2626' : '#16a34a'
+                  }}
+                  title={stats.conflictCount > 0 ? `${stats.conflictCount} conflict${stats.conflictCount !== 1 ? 's' : ''}` : 'No conflicts'}
+                >
+                  {stats.conflictCount}
+                </span>
                 <span
                   className="room-tab-close"
                   onClick={handleCloseTab}

@@ -430,124 +430,121 @@ export default function RoomReservationReview({
             </div>
           </div>
 
-          {/* Core Event Times */}
-          <div className="time-group-core">
-            <h3>🕒 Core Event Times</h3>
-            <div className="time-group-help">When the actual event starts and ends</div>
-
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="startDate">Start Date *</label>
-                <input
-                  type="date"
-                  id="startDate"
-                  name="startDate"
-                  value={formData.startDate}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="startTime">Start Time *</label>
-                <input
-                  type="time"
-                  id="startTime"
-                  name="startTime"
-                  value={formData.startTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
+          {/* Date Fields */}
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="startDate">Event Date *</label>
+              <input
+                type="date"
+                id="startDate"
+                name="startDate"
+                value={formData.startDate}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
             </div>
 
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="endDate">End Date *</label>
-                <input
-                  type="date"
-                  id="endDate"
-                  name="endDate"
-                  value={formData.endDate}
-                  onChange={handleInputChange}
-                  min={formData.startDate}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="endTime">End Time *</label>
-                <input
-                  type="time"
-                  id="endTime"
-                  name="endTime"
-                  value={formData.endTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
+            <div className="form-group">
+              <label htmlFor="endDate">End Date *</label>
+              <input
+                type="date"
+                id="endDate"
+                name="endDate"
+                value={formData.endDate}
+                onChange={handleInputChange}
+                min={formData.startDate}
+                disabled={reservation?.status !== 'pending'}
+              />
             </div>
           </div>
 
-          {/* Access & Operations Times */}
-          <div className="time-group-operations">
-            <h3>🚪 Access & Operations Times</h3>
-            <div className="time-group-help">Optional: When doors open/close and setup/cleanup times</div>
-
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="doorOpenTime">Door Open Time</label>
-                <input
-                  type="time"
-                  id="doorOpenTime"
-                  name="doorOpenTime"
-                  value={formData.doorOpenTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="doorCloseTime">Door Close Time</label>
-                <input
-                  type="time"
-                  id="doorCloseTime"
-                  name="doorCloseTime"
-                  value={formData.doorCloseTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
+          {/* Time Fields in Chronological Order */}
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="setupTime">Setup Start Time</label>
+              <input
+                type="time"
+                id="setupTime"
+                name="setupTime"
+                value={formData.setupTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When setup can begin</div>
             </div>
 
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="setupTime">Setup Time</label>
-                <input
-                  type="time"
-                  id="setupTime"
-                  name="setupTime"
-                  value={formData.setupTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
+            <div className="form-group">
+              <label htmlFor="doorOpenTime">Door Open Time</label>
+              <input
+                type="time"
+                id="doorOpenTime"
+                name="doorOpenTime"
+                value={formData.doorOpenTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When attendees can start entering</div>
+            </div>
+          </div>
 
-              <div className="form-group">
-                <label htmlFor="teardownTime">Teardown Time</label>
-                <input
-                  type="time"
-                  id="teardownTime"
-                  name="teardownTime"
-                  value={formData.teardownTime}
-                  onChange={handleInputChange}
-                  disabled={reservation?.status !== 'pending'}
-                />
-              </div>
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="startTime">Event Start Time *</label>
+              <input
+                type="time"
+                id="startTime"
+                name="startTime"
+                value={formData.startTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When the event begins</div>
             </div>
 
-            {/* Internal Notes Section */}
-            <div className="internal-notes-section">
+            <div className="form-group">
+              <label htmlFor="endTime">Event End Time *</label>
+              <input
+                type="time"
+                id="endTime"
+                name="endTime"
+                value={formData.endTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When the event ends</div>
+            </div>
+          </div>
+
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="doorCloseTime">Door Close Time</label>
+              <input
+                type="time"
+                id="doorCloseTime"
+                name="doorCloseTime"
+                value={formData.doorCloseTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When doors will be locked</div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="teardownTime">Teardown End Time</label>
+              <input
+                type="time"
+                id="teardownTime"
+                name="teardownTime"
+                value={formData.teardownTime}
+                onChange={handleInputChange}
+                disabled={reservation?.status !== 'pending'}
+              />
+              <div className="help-text">When cleanup must be completed</div>
+            </div>
+          </div>
+
+          {/* Internal Notes Section */}
+          <div className="internal-notes-section">
               <h4>🔒 Internal Notes (Staff Use Only)</h4>
               <div className="internal-notes-disclaimer">
                 These notes are for internal staff coordination and will not be visible to the requester.
@@ -595,7 +592,6 @@ export default function RoomReservationReview({
                 </div>
               </div>
             </div>
-          </div>
         </section>
 
         {/* Room Selection */}
@@ -629,6 +625,7 @@ export default function RoomReservationReview({
                 selectedDate={formData.startDate}
                 eventStartTime={formData.startTime}
                 eventEndTime={formData.endTime}
+                eventTitle={formData.eventTitle}
                 availability={availability}
                 onRoomRemove={handleRemoveAssistantRoom}
                 onEventTimeChange={handleEventTimeChange}

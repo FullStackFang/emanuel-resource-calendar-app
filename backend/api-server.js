@@ -9907,31 +9907,18 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Filter for active rooms only
     rooms = rooms.filter(room => room.active);
     
-    // Check for overlapping reservations (including their setup/teardown times)
-    // We need to get all reservations that might overlap and then check their extended time windows
-    const potentialReservations = await roomReservationsCollection.find({
+    // Get ALL reservations for the requested time period
+    // Return all events so frontend can display full day schedule and dynamically calculate conflicts
+    const allReservations = await roomReservationsCollection.find({
       status: { $in: ['pending', 'approved'] },
-      // Cast a wider net to catch reservations that might overlap when including buffer times
+      // Get all reservations that fall within the requested date range
       startDateTime: { $lt: new Date(end.getTime() + (8 * 60 * 60 * 1000)) }, // Add 8 hours buffer for query
       endDateTime: { $gt: new Date(start.getTime() - (8 * 60 * 60 * 1000)) }   // Subtract 8 hours buffer for query
     }).toArray();
-    
-    
-    // Filter for actual overlaps considering setup/teardown times
-    const overlappingReservations = potentialReservations.filter(reservation => {
-      const resSetupMinutes = reservation.setupTimeMinutes || 0;
-      const resTeardownMinutes = reservation.teardownTimeMinutes || 0;
-      
-      const resStart = new Date(reservation.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
-      const resEnd = new Date(reservation.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
-      
-      // Check if the extended time windows overlap
-      return resStart < end && resEnd > start;
-    });
-    
-    // Check for overlapping calendar events (in location field)
+
+    // Get ALL calendar events for the requested time period
     const roomNames = rooms.map(room => room.name);
-    const overlappingEvents = await unifiedEventsCollection.find({
+    const allEvents = await unifiedEventsCollection.find({
       isDeleted: false,
       startTime: { $lt: end },
       endTime: { $gt: start },
@@ -9955,22 +9942,24 @@ app.get('/api/rooms/availability', async (req, res) => {
       
       const realRoomId = reverseMapping[room._id];
       
-      const roomReservationConflicts = overlappingReservations.filter(res => 
+      // Get ALL reservations for this room
+      const roomReservations = allReservations.filter(res =>
         res.requestedRooms.includes(room._id) || // Check hardcoded ID
         (realRoomId && res.requestedRooms.includes(realRoomId)) // Check real ObjectId
       );
-      
-      const roomEventConflicts = overlappingEvents.filter(event => 
+
+      // Get ALL events for this room
+      const roomEvents = allEvents.filter(event =>
         event.location && event.location.toLowerCase().includes(room.name.toLowerCase())
       );
-      
-      // Enhanced conflict details for reservations
-      const detailedReservationConflicts = roomReservationConflicts.map(res => {
+
+      // Return detailed reservation data (frontend will calculate conflicts dynamically)
+      const detailedReservationConflicts = roomReservations.map(res => {
         const resSetupMinutes = res.setupTimeMinutes || 0;
         const resTeardownMinutes = res.teardownTimeMinutes || 0;
         const effectiveStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
         const effectiveEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
-        
+
         return {
           id: res._id,
           eventTitle: res.eventTitle,
@@ -9981,121 +9970,33 @@ app.get('/api/rooms/availability', async (req, res) => {
           effectiveStart,
           effectiveEnd,
           setupTimeMinutes: resSetupMinutes,
-          teardownTimeMinutes: resTeardownMinutes,
-          conflictReason: resSetupMinutes > 0 || resTeardownMinutes > 0 ? 
-            'Conflicts with setup/teardown time' : 'Direct time overlap'
+          teardownTimeMinutes: resTeardownMinutes
         };
       });
-      
-      // Enhanced conflict details for calendar events  
-      const detailedEventConflicts = roomEventConflicts.map(event => ({
+
+      // Return detailed event data (frontend will calculate conflicts dynamically)
+      const detailedEventConflicts = roomEvents.map(event => ({
         id: event._id,
         subject: event.subject,
         organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
         start: event.startTime,
         end: event.endTime,
-        location: event.location,
-        conflictReason: 'Calendar event overlap'
+        location: event.location
       }));
-      
-      const isAvailable = detailedReservationConflicts.length === 0 && detailedEventConflicts.length === 0;
-      
+
+      // Frontend calculates conflicts dynamically based on user's current time selection
+      // This allows real-time updates as user drags events in scheduling assistant
       return {
         room,
-        available: isAvailable,
         conflicts: {
           reservations: detailedReservationConflicts,
           events: detailedEventConflicts,
           totalConflicts: detailedReservationConflicts.length + detailedEventConflicts.length
-        },
-        // Availability window being checked (including buffers)
-        requestedWindow: {
-          eventStart,
-          eventEnd,
-          effectiveStart: start,
-          effectiveEnd: end,
-          setupTimeMinutes: setupMinutes,
-          teardownTimeMinutes: teardownMinutes
         }
       };
     });
-    
-    // Generate smart suggestions for unavailable rooms
-    const generateSmartSuggestions = async (room, requestedWindow) => {
-      const suggestions = [];
-      const { eventStart, eventEnd, setupTimeMinutes, teardownTimeMinutes } = requestedWindow;
-      const eventDurationMs = eventEnd.getTime() - eventStart.getTime();
-      
-      // Search for alternative time slots within the same day
-      const dayStart = new Date(eventStart);
-      dayStart.setHours(8, 0, 0, 0); // Start at 8 AM
-      const dayEnd = new Date(eventStart);
-      dayEnd.setHours(22, 0, 0, 0); // End at 10 PM
-      
-      // Check slots in 30-minute intervals
-      for (let time = new Date(dayStart); time <= dayEnd; time.setMinutes(time.getMinutes() + 30)) {
-        const slotStart = new Date(time);
-        const slotEnd = new Date(slotStart.getTime() + eventDurationMs);
-        
-        // Skip if slot would go past day end
-        if (slotEnd > dayEnd) break;
-        
-        // Skip if this is too close to the requested time (within 1 hour)
-        const timeDiff = Math.abs(slotStart.getTime() - eventStart.getTime()) / (1000 * 60);
-        if (timeDiff < 60) continue;
-        
-        // Check if this slot would be available
-        const slotBufferStart = new Date(slotStart.getTime() - (setupTimeMinutes * 60 * 1000));
-        const slotBufferEnd = new Date(slotEnd.getTime() + (teardownTimeMinutes * 60 * 1000));
-        
-        const hasConflict = overlappingReservations.some(res => {
-          if (!res.requestedRooms.includes(room._id.toString())) return false;
-          
-          const resSetupMinutes = res.setupTimeMinutes || 0;
-          const resTeardownMinutes = res.teardownTimeMinutes || 0;
-          const resStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
-          const resEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
-          
-          return resStart < slotBufferEnd && resEnd > slotBufferStart;
-        }) || overlappingEvents.some(event => {
-          if (!event.location || !event.location.toLowerCase().includes(room.name.toLowerCase())) return false;
-          return event.startTime < slotBufferEnd && event.endTime > slotBufferStart;
-        });
-        
-        if (!hasConflict) {
-          const timeUntilSlot = (slotStart.getTime() - eventStart.getTime()) / (1000 * 60 * 60);
-          suggestions.push({
-            startTime: slotStart,
-            endTime: slotEnd,
-            effectiveStartTime: slotBufferStart,
-            effectiveEndTime: slotBufferEnd,
-            hoursFromRequested: Math.round(timeUntilSlot * 10) / 10,
-            recommendation: timeUntilSlot > 0 ? 'Later same day' : 'Earlier same day'
-          });
-          
-          // Limit to 3 suggestions per room
-          if (suggestions.length >= 3) break;
-        }
-      }
-      
-      return suggestions;
-    };
-    
-    // Add suggestions to unavailable rooms
-    const availabilityWithSuggestions = await Promise.all(
-      availability.map(async (roomAvailability) => {
-        if (!roomAvailability.available) {
-          const suggestions = await generateSmartSuggestions(roomAvailability.room, roomAvailability.requestedWindow);
-          return {
-            ...roomAvailability,
-            suggestions
-          };
-        }
-        return roomAvailability;
-      })
-    );
-    
-    res.json(availabilityWithSuggestions);
+
+    res.json(availability);
   } catch (error) {
     logger.error('Error checking room availability:', error);
     res.status(500).json({ error: 'Failed to check room availability' });

@@ -77,11 +77,12 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   }, [isPublic, accounts, hasAutoFilled]);
   
   // Check room availability when dates or buffer times change
+  // Skip this if scheduling assistant is active (has rooms) - use checkDayAvailability instead
   useEffect(() => {
-    if (formData.startDate && formData.startTime && formData.endDate && formData.endTime) {
+    if (formData.startDate && formData.startTime && formData.endDate && formData.endTime && assistantRooms.length === 0) {
       checkAvailability();
     }
-  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.setupTimeMinutes, formData.teardownTimeMinutes, formData.setupTime, formData.teardownTime]);
+  }, [formData.startDate, formData.startTime, formData.endDate, formData.endTime, formData.setupTimeMinutes, formData.teardownTimeMinutes, formData.setupTime, formData.teardownTime, assistantRooms.length]);
   
   const checkAvailability = async () => {
     try {
@@ -162,7 +163,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     }
   };
 
-  // Check availability when assistant rooms or dates change
+  // Check availability when assistant rooms or DATE changes (not times!)
+  // This ensures the scheduling assistant always shows the full day, not just conflicts
   useEffect(() => {
     if (assistantRooms.length > 0) {
       const roomIds = assistantRooms.map(room => room._id);
@@ -177,7 +179,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       const dateToCheck = formData.startDate || getTodayDate();
       checkDayAvailability(roomIds, dateToCheck);
     }
-  }, [assistantRooms, formData.startDate, formData.endDate, formData.startTime, formData.endTime]);
+  }, [assistantRooms, formData.startDate]); // Removed formData.endDate, startTime, endTime
   
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -514,124 +516,117 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
             </div>
           </div>
 
-          {/* Core Event Times */}
-          <div className="time-group-core">
-            <h3>🕒 Core Event Times</h3>
-            <div className="time-group-help">When your actual event starts and ends</div>
-            
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="startDate">Start Date *</label>
-                <input
-                  type="date"
-                  id="startDate"
-                  name="startDate"
-                  value={formData.startDate}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="startTime">Start Time *</label>
-                <input
-                  type="time"
-                  id="startTime"
-                  name="startTime"
-                  value={formData.startTime}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
+          {/* Date Fields */}
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="startDate">Event Date *</label>
+              <input
+                type="date"
+                id="startDate"
+                name="startDate"
+                value={formData.startDate}
+                onChange={handleInputChange}
+                required
+              />
             </div>
-            
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="endDate">End Date *</label>
-                <input
-                  type="date"
-                  id="endDate"
-                  name="endDate"
-                  value={formData.endDate}
-                  onChange={handleInputChange}
-                  min={formData.startDate}
-                  required
-                />
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="endTime">End Time *</label>
-                <input
-                  type="time"
-                  id="endTime"
-                  name="endTime"
-                  value={formData.endTime}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
+
+            <div className="form-group">
+              <label htmlFor="endDate">End Date *</label>
+              <input
+                type="date"
+                id="endDate"
+                name="endDate"
+                value={formData.endDate}
+                onChange={handleInputChange}
+                min={formData.startDate}
+                required
+              />
             </div>
           </div>
 
-          {/* Access & Operations Times */}
-          <div className="time-group-operations">
-            <h3>🚪 Access & Operations Times</h3>
-            <div className="time-group-help">Optional: When doors open/close and setup/cleanup times</div>
-            
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="doorOpenTime">Door Open Time</label>
-                <input
-                  type="time"
-                  id="doorOpenTime"
-                  name="doorOpenTime"
-                  value={formData.doorOpenTime}
-                  onChange={handleInputChange}
-                />
-                <div className="help-text">When attendees can start entering</div>
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="doorCloseTime">Door Close Time</label>
-                <input
-                  type="time"
-                  id="doorCloseTime"
-                  name="doorCloseTime"
-                  value={formData.doorCloseTime}
-                  onChange={handleInputChange}
-                />
-                <div className="help-text">When doors will be locked</div>
-              </div>
-            </div>
-            
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="setupTime">Setup Time</label>
-                <input
-                  type="time"
-                  id="setupTime"
-                  name="setupTime"
-                  value={formData.setupTime}
-                  onChange={handleInputChange}
-                />
-                <div className="help-text">When setup can begin</div>
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="teardownTime">Teardown Time</label>
-                <input
-                  type="time"
-                  id="teardownTime"
-                  name="teardownTime"
-                  value={formData.teardownTime}
-                  onChange={handleInputChange}
-                />
-                <div className="help-text">When cleanup must be completed</div>
-              </div>
+          {/* Time Fields in Chronological Order */}
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="setupTime">Setup Start Time</label>
+              <input
+                type="time"
+                id="setupTime"
+                name="setupTime"
+                value={formData.setupTime}
+                onChange={handleInputChange}
+              />
+              <div className="help-text">When setup can begin</div>
             </div>
 
-            {/* Internal Notes Section */}
-            <div className="internal-notes-section">
+            <div className="form-group">
+              <label htmlFor="doorOpenTime">Door Open Time</label>
+              <input
+                type="time"
+                id="doorOpenTime"
+                name="doorOpenTime"
+                value={formData.doorOpenTime}
+                onChange={handleInputChange}
+              />
+              <div className="help-text">When attendees can start entering</div>
+            </div>
+          </div>
+
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="startTime">Event Start Time *</label>
+              <input
+                type="time"
+                id="startTime"
+                name="startTime"
+                value={formData.startTime}
+                onChange={handleInputChange}
+                required
+              />
+              <div className="help-text">When the event begins</div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="endTime">Event End Time *</label>
+              <input
+                type="time"
+                id="endTime"
+                name="endTime"
+                value={formData.endTime}
+                onChange={handleInputChange}
+                required
+              />
+              <div className="help-text">When the event ends</div>
+            </div>
+          </div>
+
+          <div className="time-field-row">
+            <div className="form-group">
+              <label htmlFor="doorCloseTime">Door Close Time</label>
+              <input
+                type="time"
+                id="doorCloseTime"
+                name="doorCloseTime"
+                value={formData.doorCloseTime}
+                onChange={handleInputChange}
+              />
+              <div className="help-text">When doors will be locked</div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="teardownTime">Teardown End Time</label>
+              <input
+                type="time"
+                id="teardownTime"
+                name="teardownTime"
+                value={formData.teardownTime}
+                onChange={handleInputChange}
+              />
+              <div className="help-text">When cleanup must be completed</div>
+            </div>
+          </div>
+
+          {/* Internal Notes Section */}
+          <div className="internal-notes-section">
               <h4>🔒 Internal Notes (Staff Use Only)</h4>
               <div className="internal-notes-disclaimer">
                 These notes are for internal staff coordination and will not be visible to the requester.
@@ -679,7 +674,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 </div>
               </div>
             </div>
-          </div>
         </section>
         
         {/* Room Selection */}
@@ -712,6 +706,9 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                   onRoomSelectionChange={handleRoomSelectionChange}
                   checkRoomCapacity={checkRoomCapacity}
                   label="Choose locations for your event"
+                  eventStartTime={formData.startTime}
+                  eventEndTime={formData.endTime}
+                  eventDate={formData.startDate}
                 />
               )}
               
@@ -752,6 +749,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 selectedDate={formData.startDate}
                 eventStartTime={formData.startTime}
                 eventEndTime={formData.endTime}
+                eventTitle={formData.eventTitle}
                 availability={availability}
                 onTimeSlotClick={handleTimeSlotClick}
                 onRoomRemove={handleRemoveAssistantRoom}
