@@ -725,11 +725,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               <tr key={reservation._id}>
                 <td className="submitted-date">
                   {new Date(reservation.submittedAt).toLocaleDateString()}
-                  {reservation.currentRevision > 1 && (
-                    <div className="revision-indicator">
-                      📝 Rev {reservation.currentRevision}
-                    </div>
-                  )}
                 </td>
                 <td className="event-details">
                   <strong>{reservation.eventTitle}</strong>
@@ -800,7 +795,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                     className="view-btn"
                     onClick={() => openReviewModal(reservation)}
                   >
-                    {reservation.status === 'pending' ? 'Review' : 'View Details'}
+                    {reservation.status === 'pending' ? 'Review' : 'Details'}
                   </button>
                   {reservation.status === 'approved' && reservation.createdEventIds?.length > 0 && (
                     <button className="view-event-btn">
