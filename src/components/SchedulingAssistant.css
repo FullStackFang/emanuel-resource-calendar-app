@@ -259,16 +259,17 @@
   border-radius: 0 0 8px 8px;
   background: white;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
 }
 
 /* Timeline Container */
 .timeline-container {
-  height: 600px;
+  height: 800px;
   overflow-y: auto;
   overflow-x: hidden;
   border: none;
   border-radius: 0 0 8px 8px;
-  background: #fafafa;
+  background: transparent;
   scroll-behavior: smooth;
 }
 
@@ -295,7 +296,12 @@
 .timeline-grid {
   display: flex;
   position: relative;
-  min-height: 100%;
+  height: 1200px;
+  max-height: 1200px;
+  overflow: hidden;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 .time-labels {
@@ -305,6 +311,7 @@
   border-right: 2px solid #d1d5db;
   position: relative;
   z-index: 10;
+  height: fit-content;
 }
 
 .time-label {

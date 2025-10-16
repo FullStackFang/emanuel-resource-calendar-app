@@ -34,9 +34,9 @@ export default function SchedulingAssistant({
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
   const autoScrollInterval = useRef(null); // Track auto-scroll animation frame
 
-  const PIXELS_PER_HOUR = 50; // 50px per hour shows 12 hours in 600px viewport
-  const START_HOUR = 0;
-  const END_HOUR = 24;
+  const PIXELS_PER_HOUR = 50; // 50px per hour
+  const START_HOUR = 0;  // Start at 12 AM (midnight)
+  const END_HOUR = 24;   // End at 11:59 PM (full 24 hours scrollable)
 
   // Auto-scroll configuration for drag operations
   const SCROLL_HOT_ZONE = 80;        // pixels from edge to trigger auto-scroll
@@ -326,6 +326,11 @@ export default function SchedulingAssistant({
     // Clear the drag adjustment so we use the new prop values
     userEventAdjustment.current = null;
   }, [eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime]);
+
+  // Reset scroll flag when current reservation changes (for navigation between reservations)
+  useEffect(() => {
+    hasScrolledOnce.current = false;
+  }, [currentReservationId]);
 
   // Check if we need carousel arrows (more than 3 tabs)
   useEffect(() => {
@@ -928,12 +933,12 @@ export default function SchedulingAssistant({
       console.log(`[SchedulingAssistant] Initial auto-scroll to earliest event: ${earliestEvent.title} (hour ${targetHour})`);
     }
 
-    // Calculate scroll position to center the target hour
-    const containerHeight = timelineRef.current.clientHeight;
-    const visibleHours = containerHeight / PIXELS_PER_HOUR;
-    const scrollPosition = (targetHour - visibleHours / 2) * PIXELS_PER_HOUR;
+    // Calculate scroll position to show event near top with 2 hours of context before it
+    const hoursBeforeEvent = 2; // Show 2 hours before the event
+    const scrollPosition = (targetHour - hoursBeforeEvent) * PIXELS_PER_HOUR;
 
     // Ensure we don't scroll before the start or past the end
+    const containerHeight = timelineRef.current.clientHeight;
     const maxScroll = (END_HOUR - START_HOUR) * PIXELS_PER_HOUR - containerHeight;
     const clampedScroll = Math.max(0, Math.min(scrollPosition, maxScroll));
 

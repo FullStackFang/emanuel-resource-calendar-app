@@ -2,7 +2,7 @@
 
 .room-reservation-form {
   width: 100%;
-  max-width: 1400px;
+  max-width: 1800px;
   min-width: 320px;
   margin: 0 auto;
   padding: 20px;
@@ -64,17 +64,37 @@
   background: white;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 25px;
+  padding: 18px;
   margin-bottom: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .form-section h2 {
   color: #333;
-  font-size: 1.3rem;
-  margin-bottom: 20px;
-  padding-bottom: 10px;
+  font-size: 1.2rem;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
   border-bottom: 2px solid #e5e7eb;
+}
+
+/* Section Row Layouts for Compact Display */
+.section-row-3col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.section-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.section-row-3col .form-section,
+.section-row-2col .form-section {
+  margin-bottom: 0;
 }
 
 /* Time Groupings */
@@ -127,6 +147,33 @@
 }
 
 .time-field-row:last-child {
+  margin-bottom: 0;
+}
+
+/* Compact time fields - 2 per row */
+.time-fields-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 15px;
+  margin-top: 15px;
+}
+
+.time-fields-stack .form-group {
+  width: 100%;
+}
+
+.time-fields-stack .form-group label {
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+
+.time-fields-stack .form-group input {
+  font-size: 0.95rem;
+}
+
+.time-fields-stack .help-text {
+  font-size: 0.75rem;
+  margin-top: 4px;
   margin-bottom: 0;
 }
 
@@ -268,27 +315,39 @@
   color: #374151;
 }
 
+/* Event Details + Room Selection Side-by-Side Container */
+.event-and-rooms-container {
+  display: grid;
+  grid-template-columns: 30% 70%;
+  gap: 25px;
+  margin-bottom: 20px;
+}
+
+.event-details-compact {
+  /* Styles for the compact left-side event details */
+}
+
 /* Room Selection Layout */
 .room-selection-container {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 2fr 1fr;
   gap: 30px;
   margin-top: 20px;
   width: 100%;
 }
 
+.scheduling-assistant-container {
+  /* Takes up 2/3 of the width (first column) - styling handled in SchedulingAssistant.css */
+}
+
 .room-cards-section {
-  /* Takes up 1/3 of the width */
+  /* Takes up 1/3 of the width (second column) */
 }
 
 .room-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 15px;
-}
-
-.scheduling-assistant-container {
-  /* Takes up 2/3 of the width - styling handled in SchedulingAssistant.css */
 }
 
 /* Selected Rooms Summary */
@@ -614,9 +673,15 @@
 }
 
 /* Responsive Design - Fixed Widths */
-@media (min-width: 1401px) {
+@media (min-width: 1801px) {
   .room-reservation-form {
-    width: 1400px;
+    width: 1800px;
+  }
+}
+
+@media (min-width: 1401px) and (max-width: 1800px) {
+  .room-reservation-form {
+    width: 1600px;
   }
 }
 
@@ -637,12 +702,18 @@
     width: 100%;
     padding: 20px;
   }
-  
+
+  /* Stack event details and room selection vertically on tablets */
+  .event-and-rooms-container {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
   .room-selection-container {
     grid-template-columns: 1fr;
     gap: 20px;
   }
-  
+
   .room-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 15px;
@@ -654,48 +725,65 @@
     width: 100%;
     padding: 15px;
   }
-  
+
+  /* Stack event details and room selection vertically on mobile */
+  .event-and-rooms-container {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
   .form-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .room-selection-container {
     grid-template-columns: 1fr;
     gap: 20px;
   }
-  
+
   .room-grid {
     grid-template-columns: 1fr;
     gap: 12px;
   }
-  
+
   .feature-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .form-actions {
     flex-direction: column;
   }
-  
+
   .submit-btn,
   .cancel-btn {
     width: 100%;
   }
-  
+
   /* Responsive time groupings */
   .time-field-row {
     grid-template-columns: 1fr;
     gap: 10px;
   }
-  
+
+  .time-fields-stack {
+    grid-template-columns: 1fr;
+  }
+
   .time-group-core,
   .time-group-operations {
     padding: 15px;
   }
-  
+
   .time-group-core h3,
   .time-group-operations h3 {
     font-size: 1rem;
+  }
+
+  /* Stack section rows on mobile */
+  .section-row-3col,
+  .section-row-2col {
+    grid-template-columns: 1fr;
+    gap: 15px;
   }
 }
 
