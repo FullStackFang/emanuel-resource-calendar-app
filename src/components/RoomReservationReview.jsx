@@ -5,6 +5,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
+import ReservationAuditHistory from './ReservationAuditHistory';
 import './RoomReservationForm.css';
 
 /**
@@ -17,7 +18,11 @@ export default function RoomReservationReview({
   onApprove,
   onReject,
   onCancel,
-  onSave
+  onSave,
+  onHasChangesChange,
+  onIsSavingChange,
+  onSaveFunctionReady,
+  onLockedEventClick // Callback when a locked reservation is clicked in scheduling assistant
 }) {
   // Initialize form data from reservation
   const [formData, setFormData] = useState({
@@ -56,8 +61,29 @@ export default function RoomReservationReview({
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [timeErrors, setTimeErrors] = useState([]);
+  const [originalChangeKey, setOriginalChangeKey] = useState(null);
 
   const { rooms, loading: roomsLoading } = useRooms();
+
+  // Notify parent when hasChanges or isSaving changes
+  useEffect(() => {
+    if (onHasChangesChange) {
+      onHasChangesChange(hasChanges);
+    }
+  }, [hasChanges, onHasChangesChange]);
+
+  useEffect(() => {
+    if (onIsSavingChange) {
+      onIsSavingChange(isSaving);
+    }
+  }, [isSaving, onIsSavingChange]);
+
+  // Expose save function to parent
+  useEffect(() => {
+    if (onSaveFunctionReady) {
+      onSaveFunctionReady(handleSaveChanges);
+    }
+  }, [onSaveFunctionReady]);
 
   // Initialize form data from reservation
   useEffect(() => {
@@ -93,6 +119,9 @@ export default function RoomReservationReview({
         contactName: reservation.contactName || '',
         isOnBehalfOf: reservation.isOnBehalfOf || false
       });
+
+      // Store original changeKey for optimistic concurrency control
+      setOriginalChangeKey(reservation.changeKey);
     }
   }, [reservation]);
 
@@ -319,7 +348,7 @@ export default function RoomReservationReview({
   };
 
   const handleSaveChanges = async () => {
-    if (!hasChanges || !onSave) return;
+    if (!hasChanges) return;
 
     // Validate times before saving
     if (!validateTimes()) {
@@ -345,10 +374,56 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
 
-      await onSave(updatedData);
+      // Make API call with If-Match header for optimistic concurrency control
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`,
+            'If-Match': originalChangeKey || ''
+          },
+          body: JSON.stringify(updatedData)
+        }
+      );
+
+      // Handle conflict (409)
+      if (response.status === 409) {
+        const data = await response.json();
+        const changes = data.changes || [];
+        const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
+
+        const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
+                       `Changes made:\n${changesList}\n\n` +
+                       `Your changes have NOT been saved. Please refresh to see the latest version.\n` +
+                       `(Your changes will be lost)`;
+
+        alert(message);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to save changes: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // Update originalChangeKey with the new changeKey from server
+      setOriginalChangeKey(result.changeKey);
       setHasChanges(false);
+
+      // Notify parent of successful save (so it can update its changeKey if needed)
+      if (onSave) {
+        onSave(result);
+      }
+
+      // Show success message
+      alert('✅ Changes saved successfully');
+
     } catch (error) {
       logger.error('Error saving changes:', error);
+      alert(`Failed to save changes: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -370,7 +445,8 @@ export default function RoomReservationReview({
         startDateTime,
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
-        actionNotes
+        actionNotes,
+        changeKey: originalChangeKey  // Include changeKey for optimistic concurrency control
       };
 
       delete updatedData.startDate;
@@ -378,7 +454,7 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
 
-      onApprove(updatedData, actionNotes);
+      onApprove(updatedData, actionNotes, originalChangeKey);
     }
   };
 
@@ -739,6 +815,7 @@ export default function RoomReservationReview({
                 onRoomRemove={handleRemoveAssistantRoom}
                 onEventTimeChange={handleEventTimeChange}
                 currentReservationId={reservation?._id}
+                onLockedEventClick={onLockedEventClick}
               />
             </div>
           </div>
@@ -774,6 +851,17 @@ export default function RoomReservationReview({
                 placeholder="Add any notes or provide a reason for rejection..."
               />
             </div>
+          </section>
+        )}
+
+        {/* Reservation History */}
+        {reservation && apiToken && (
+          <section className="form-section">
+            <h2>Reservation History</h2>
+            <ReservationAuditHistory
+              reservationId={reservation._id}
+              apiToken={apiToken}
+            />
           </section>
         )}
       </form>

@@ -33,17 +33,17 @@ const CALENDAR_CONFIG = {
 // Updated CORS configuration to allow requests from your deployed app domain
 app.use(cors({
   origin: [
-    'http://localhost:80', 
-    'http://localhost', 
+    'http://localhost:80',
+    'http://localhost',
     'http://localhost:3000',
     'http://localhost:5173', // Vite dev server
     'https://localhost:5173', // Vite dev server with HTTPS
     process.env.FRONTEND_URL || webAppURL
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token', 'If-Match'],
   credentials: true,
-  exposedHeaders: ['Authorization'],
+  exposedHeaders: ['Authorization', 'ETag'],
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
@@ -99,8 +99,9 @@ const attachmentUpload = multer({
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token, If-Match');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Expose-Headers', 'Authorization, ETag');
   res.sendStatus(204);
 });
 
@@ -148,6 +149,7 @@ let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let categoriesCollection; // Event categories (base + dynamic)
 let eventAuditHistoryCollection; // Audit trail for event changes
+let reservationAuditHistoryCollection; // Audit trail for room reservation changes
 let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
 
@@ -606,6 +608,43 @@ async function createEventAuditHistoryIndexes() {
     console.log('Event audit history indexes created successfully');
   } catch (error) {
     console.error('Error creating event audit history indexes:', error);
+  }
+}
+
+/**
+ * Create indexes for the reservation audit history collection
+ */
+async function createReservationAuditHistoryIndexes() {
+  try {
+    console.log('Creating reservation audit history indexes...');
+
+    // Index for finding audit history by reservation
+    await reservationAuditHistoryCollection.createIndex(
+      { reservationId: 1, timestamp: -1 },
+      { name: "reservation_audit_history", background: true }
+    );
+
+    // Index for finding audit history by user
+    await reservationAuditHistoryCollection.createIndex(
+      { userId: 1, timestamp: -1 },
+      { name: "user_reservation_history", background: true }
+    );
+
+    // Index for finding recent changes
+    await reservationAuditHistoryCollection.createIndex(
+      { timestamp: -1 },
+      { name: "recent_reservation_changes", background: true }
+    );
+
+    // Index for finding changes by type
+    await reservationAuditHistoryCollection.createIndex(
+      { changeType: 1, timestamp: -1 },
+      { name: "reservation_change_type", background: true }
+    );
+
+    console.log('Reservation audit history indexes created successfully');
+  } catch (error) {
+    console.error('Error creating reservation audit history indexes:', error);
   }
 }
 
@@ -1237,6 +1276,60 @@ async function logEventAudit({
 }
 
 /**
+ * Log a room reservation change to the audit history
+ */
+async function logReservationAudit({
+  reservationId,
+  userId,
+  userEmail,
+  changeType, // 'create', 'update', 'approve', 'reject', 'cancel', 'resubmit'
+  source = 'Unknown',
+  changes = null,
+  changeSet = null,
+  metadata = {}
+}) {
+  try {
+    const auditEntry = {
+      reservationId,
+      userId,
+      userEmail,
+      changeType,
+      source,
+      timestamp: new Date(),
+      metadata: {
+        userAgent: metadata.userAgent || 'API',
+        ipAddress: metadata.ipAddress || 'Unknown',
+        reason: metadata.reason || null,
+        previousRevision: metadata.previousRevision || null,
+        ...metadata
+      }
+    };
+
+    // Add change details if provided
+    if (changes) {
+      auditEntry.changes = changes;
+    }
+
+    if (changeSet && Array.isArray(changeSet)) {
+      auditEntry.changeSet = changeSet;
+    }
+
+    await reservationAuditHistoryCollection.insertOne(auditEntry);
+
+    logger.debug('Reservation audit entry created:', {
+      reservationId,
+      changeType,
+      source,
+      hasChanges: !!changes,
+      hasChangeSet: !!changeSet
+    });
+  } catch (error) {
+    logger.error('Failed to log reservation audit entry:', error);
+    // Don't throw error - audit logging should not break the main operation
+  }
+}
+
+/**
  * Compare two objects and generate a changeSet for audit logging
  */
 function generateChangeSet(oldData, newData, fieldsToTrack = null) {
@@ -1482,6 +1575,7 @@ async function connectToDatabase() {
     featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
     categoriesCollection = db.collection('templeEvents__Categories'); // Event categories (base + dynamic)
     eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
+    reservationAuditHistoryCollection = db.collection('templeEvents__ReservationAuditHistory'); // Audit trail for room reservation changes
 
     // Initialize GridFS bucket for file storage
     filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
@@ -1492,11 +1586,12 @@ async function connectToDatabase() {
     await createCalendarDeltaIndexes();
     await createEventAuditHistoryIndexes();
     await createEventAttachmentsIndexes();
-    
+
     // Create indexes for room reservation system
     await createRoomIndexes();
     await createLocationIndexes();
     await createRoomReservationIndexes();
+    await createReservationAuditHistoryIndexes();
     await createReservationTokenIndexes();
     
     // Create indexes for feature configuration system
@@ -10245,14 +10340,29 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
 
     const result = await roomReservationsCollection.insertOne(reservation);
     const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
-    
+
+    // Log audit entry for reservation creation
+    await logReservationAudit({
+      reservationId: result.insertedId,
+      userId: userId,
+      userEmail: userEmail,
+      changeType: 'create',
+      source: 'Space Booking Form',
+      metadata: {
+        eventTitle: eventTitle,
+        rooms: requestedRooms,
+        startDateTime: startDateTime,
+        endDateTime: endDateTime
+      }
+    });
+
     logger.log('Room reservation submitted:', {
       reservationId: result.insertedId,
       requester: userEmail,
       eventTitle,
       rooms: requestedRooms
     });
-    
+
     res.status(201).json(createdReservation);
   } catch (error) {
     logger.error('Error submitting room reservation:', error);
@@ -10491,7 +10601,23 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
     const result = await roomReservationsCollection.insertOne(reservation);
     const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
-    
+
+    // Log audit entry for guest reservation creation
+    await logReservationAudit({
+      reservationId: result.insertedId,
+      userId: tokenDoc.createdBy,
+      userEmail: requesterEmail,
+      changeType: 'create',
+      source: 'Guest Reservation Form',
+      metadata: {
+        eventTitle: eventTitle,
+        rooms: requestedRooms,
+        startDateTime: startDateTime,
+        endDateTime: endDateTime,
+        sponsor: tokenDoc.createdByEmail
+      }
+    });
+
     logger.log('Guest room reservation submitted:', {
       reservationId: result.insertedId,
       requester: requesterEmail,
@@ -10499,7 +10625,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       eventTitle,
       rooms: requestedRooms
     });
-    
+
     res.status(201).json(createdReservation);
   } catch (error) {
     logger.error('Error submitting guest room reservation:', error);
@@ -10588,6 +10714,60 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
 });
 
 /**
+ * Get audit history for a specific room reservation
+ */
+app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { limit = 50, offset = 0 } = req.query;
+
+    // Verify user has access to this reservation
+    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
+
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check permissions
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+
+    if (!canViewAll && reservation.requesterId !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get audit history for this reservation
+    const auditHistory = await reservationAuditHistoryCollection
+      .find({ reservationId: new ObjectId(reservationId) })
+      .sort({ timestamp: -1 })
+      .skip(parseInt(offset))
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get total count for pagination
+    const totalCount = await reservationAuditHistoryCollection.countDocuments({
+      reservationId: new ObjectId(reservationId)
+    });
+
+    res.status(200).json({
+      auditHistory,
+      pagination: {
+        total: totalCount,
+        offset: parseInt(offset),
+        limit: parseInt(limit),
+        hasMore: totalCount > (parseInt(offset) + parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching reservation audit history:', error);
+    res.status(500).json({ error: 'Failed to fetch audit history' });
+  }
+});
+
+/**
  * Cancel a room reservation (users can only cancel their own pending reservations)
  */
 app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
@@ -10632,14 +10812,26 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
     if (updateResult.matchedCount === 0) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
+
+    // Log audit entry for cancellation
+    await logReservationAudit({
+      reservationId: new ObjectId(reservationId),
+      userId: userId,
+      userEmail: req.user.email,
+      changeType: 'cancel',
+      source: 'User Cancellation',
+      metadata: {
+        reason: reason.trim()
+      }
+    });
+
     logger.info('Room reservation cancelled:', {
       reservationId,
       cancelledBy: userId,
       reason: reason
     });
-    
-    res.json({ 
+
+    res.json({
       message: 'Reservation cancelled successfully',
       reservationId,
       status: 'cancelled'
@@ -10867,6 +11059,21 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       { $set: { changeKey: newChangeKey } }
     );
     result.value.changeKey = newChangeKey;
+
+    // Log audit entry for resubmission
+    await logReservationAudit({
+      reservationId: new ObjectId(reservationId),
+      userId: userId,
+      userEmail: userEmail,
+      changeType: 'resubmit',
+      source: 'Resubmission Form',
+      changeSet: changes,
+      metadata: {
+        previousRevision: currentRevision,
+        newRevision: newRevisionNumber,
+        userMessage: userMessage
+      }
+    });
 
     logger.info('Room reservation resubmitted:', {
       reservationId,
@@ -11662,6 +11869,21 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
 
     result.changeKey = newChangeKey;
 
+    // Log audit entry for update if there were changes
+    if (changes.length > 0) {
+      await logReservationAudit({
+        reservationId: new ObjectId(id),
+        userId: userId,
+        userEmail: userEmail,
+        changeType: 'update',
+        source: 'Admin Edit',
+        changeSet: changes,
+        metadata: {
+          revisionNumber: result.currentRevision
+        }
+      });
+    }
+
     logger.log('Reservation updated:', {
       reservationId: id,
       updatedBy: userEmail,
@@ -11790,7 +12012,21 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
       { $set: { changeKey: newChangeKey } }
     );
     result.value.changeKey = newChangeKey;
-    
+
+    // Log audit entry for approval
+    await logReservationAudit({
+      reservationId: new ObjectId(id),
+      userId: userId,
+      userEmail: userEmail,
+      changeType: 'approve',
+      source: 'Admin Review',
+      metadata: {
+        notes: notes,
+        conflictOverride: !!conflictDetails,
+        calendarEventCreated: createCalendarEvent
+      }
+    });
+
     // Create calendar event if requested (uses automatic service authentication)
     let calendarEventResult = null;
     if (createCalendarEvent) {
@@ -11934,6 +12170,18 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
       { $set: { changeKey: newChangeKey } }
     );
     result.value.changeKey = newChangeKey;
+
+    // Log audit entry for rejection
+    await logReservationAudit({
+      reservationId: new ObjectId(id),
+      userId: userId,
+      userEmail: userEmail,
+      changeType: 'reject',
+      source: 'Admin Review',
+      metadata: {
+        reason: reason.trim()
+      }
+    });
 
     logger.log('Room reservation rejected:', { reservationId: id, rejectedBy: userEmail, reason });
     res.json(result.value);

@@ -25,6 +25,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Child component's save function (exposed via callback)
+  const [childSaveFunction, setChildSaveFunction] = useState(null);
+
   // Soft hold state
   const [reviewHold, setReviewHold] = useState(null);
   const [holdTimer, setHoldTimer] = useState(null);
@@ -273,6 +276,41 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setForceApprove(false);
   };
 
+  // Handle locked event click from SchedulingAssistant
+  const handleLockedEventClick = async (reservationId) => {
+    console.log('[ReservationRequests] Locked event clicked:', reservationId);
+
+    // Find the reservation in our list
+    const targetReservation = allReservations.find(r => r._id === reservationId);
+
+    if (!targetReservation) {
+      console.error('[ReservationRequests] Could not find reservation with ID:', reservationId);
+      alert('Could not find the selected reservation. It may have been deleted.');
+      return;
+    }
+
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmMessage = `You have unsaved changes to the current reservation.\n\n` +
+                            `If you navigate to "${targetReservation.eventTitle}", your changes will be lost.\n\n` +
+                            `Do you want to continue?`;
+
+      if (!window.confirm(confirmMessage)) {
+        console.log('[ReservationRequests] Navigation cancelled - user chose to stay');
+        return;
+      }
+    }
+
+    // Close current modal and open the new one
+    console.log('[ReservationRequests] Navigating to reservation:', targetReservation.eventTitle);
+    await closeReviewModal();
+
+    // Small delay to ensure cleanup completes
+    setTimeout(() => {
+      openReviewModal(targetReservation);
+    }, 100);
+  };
+
   // Handle field changes in editable form
   const handleFieldChange = (field, value) => {
     setEditableData(prev => ({
@@ -292,7 +330,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   };
 
   // Save changes with ETag validation
-  const handleSaveChanges = async () => {
+  // This function is now mainly called as a callback from RoomReservationReview
+  // RoomReservationReview handles the actual API call and passes the result here
+  const handleSaveChanges = async (result) => {
+    // If result is provided, it means RoomReservationReview already saved
+    // Just update our local state with the new changeKey
+    if (result && result.changeKey) {
+      setOriginalChangeKey(result.changeKey);
+      setHasChanges(false);
+      setError('✅ Changes saved successfully');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    // Legacy path (in case called without result) - kept for backwards compatibility
     if (!hasChanges) return;
 
     try {
@@ -332,14 +383,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         throw new Error('Failed to save changes');
       }
 
-      const result = await response.json();
+      const saveResult = await response.json();
 
       // Update local state
       setAllReservations(prev => prev.map(r =>
-        r._id === selectedReservation._id ? { ...r, ...editableData, changeKey: result.changeKey } : r
+        r._id === selectedReservation._id ? { ...r, ...editableData, changeKey: saveResult.changeKey } : r
       ));
 
-      setOriginalChangeKey(result.changeKey);
+      setOriginalChangeKey(saveResult.changeKey);
       setHasChanges(false);
       setError('✅ Changes saved successfully');
       setTimeout(() => setError(''), 3000);
@@ -840,7 +891,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   <button
                     type="button"
                     className="action-btn save-btn"
-                    onClick={handleSaveChanges}
+                    onClick={() => childSaveFunction && childSaveFunction()}
                     disabled={isSaving}
                   >
                     {isSaving ? 'Saving...' : '💾 Save Changes'}
@@ -885,6 +936,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 onReject={(notes) => handleReject(selectedReservation)}
                 onCancel={closeReviewModal}
                 onSave={handleSaveChanges}
+                onHasChangesChange={setHasChanges}
+                onIsSavingChange={setIsSaving}
+                onSaveFunctionReady={(saveFunc) => setChildSaveFunction(() => saveFunc)}
+                onLockedEventClick={handleLockedEventClick}
               />
             </div>
           </div>

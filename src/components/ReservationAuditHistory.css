@@ -1,0 +1,403 @@
+/* src/components/ReservationAuditHistory.css */
+
+.reservation-audit-history {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.audit-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.audit-header h4 {
+  margin: 0 0 12px 0;
+  font-size: 1.2rem;
+  color: #1f2937;
+}
+
+.audit-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.legend-icon {
+  font-size: 1.1rem;
+}
+
+/* Timeline Styles */
+.audit-timeline {
+  position: relative;
+}
+
+.audit-timeline::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e5e7eb;
+}
+
+.audit-entry {
+  position: relative;
+  padding-left: 50px;
+  margin-bottom: 20px;
+}
+
+.audit-entry:last-child {
+  margin-bottom: 0;
+}
+
+.audit-entry-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.audit-entry-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.change-type-icon {
+  position: absolute;
+  left: 6px;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  z-index: 1;
+}
+
+.audit-entry-info {
+  flex: 1;
+}
+
+.audit-entry-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.audit-entry-action strong {
+  color: #1f2937;
+  font-size: 1rem;
+}
+
+.audit-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  font-weight: normal;
+}
+
+.audit-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.audit-user {
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.audit-time {
+  color: #9ca3af;
+}
+
+.expand-button {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.expand-button:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.expand-button.expanded {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1e40af;
+}
+
+/* Audit Details */
+.audit-reason,
+.audit-notes,
+.audit-message,
+.audit-revision {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: #92400e;
+}
+
+.audit-notes {
+  background: #dbeafe;
+  border-left-color: #3b82f6;
+  color: #1e40af;
+}
+
+.audit-message {
+  background: #e0e7ff;
+  border-left-color: #6366f1;
+  color: #3730a3;
+}
+
+.audit-revision {
+  background: #f3e8ff;
+  border-left-color: #a855f7;
+  color: #6b21a8;
+}
+
+.audit-details {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.details-header {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+.change-set {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.change-item {
+  background: white;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.change-field {
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.change-values {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.old-value,
+.new-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 150px;
+}
+
+.value-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.old-value .value-label {
+  color: #dc2626;
+}
+
+.new-value .value-label {
+  color: #059669;
+}
+
+.value {
+  padding: 4px 8px;
+  background: #f9fafb;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #374151;
+  word-break: break-word;
+}
+
+.old-value .value {
+  background: #fee2e2;
+  color: #991b1b;
+  text-decoration: line-through;
+}
+
+.new-value .value {
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 500;
+}
+
+.value-arrow {
+  font-size: 1.2rem;
+  color: #9ca3af;
+  font-weight: bold;
+}
+
+/* Loading & Error States */
+.reservation-audit-history-loading,
+.reservation-audit-history-error,
+.reservation-audit-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  color: #6b7280;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.loading-spinner,
+.error-icon,
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+}
+
+.error-icon {
+  color: #dc2626;
+}
+
+.empty-icon {
+  opacity: 0.5;
+}
+
+.reservation-audit-history-error div:first-of-type {
+  color: #dc2626;
+  font-weight: 500;
+}
+
+.empty-subtitle {
+  font-size: 0.9rem;
+  color: #9ca3af;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+.retry-button {
+  margin-top: 15px;
+  padding: 8px 16px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s;
+}
+
+.retry-button:hover {
+  background: #2563eb;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .reservation-audit-history {
+    padding: 15px;
+  }
+
+  .audit-timeline::before {
+    left: 15px;
+  }
+
+  .audit-entry {
+    padding-left: 40px;
+  }
+
+  .change-type-icon {
+    left: 2px;
+    width: 26px;
+    height: 26px;
+    font-size: 0.9rem;
+  }
+
+  .audit-entry-action {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+
+  .audit-entry-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .change-values {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .old-value,
+  .new-value {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .value-arrow {
+    transform: rotate(90deg);
+    margin: 5px 0;
+  }
+
+  .audit-legend {
+    gap: 10px;
+  }
+
+  .legend-item {
+    font-size: 0.75rem;
+  }
+}

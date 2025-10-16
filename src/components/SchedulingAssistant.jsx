@@ -16,7 +16,8 @@ export default function SchedulingAssistant({
   onTimeSlotClick,
   onRoomRemove, // Callback to remove a room from selection
   onEventTimeChange, // Callback to update event times when dragging
-  currentReservationId // ID of the current reservation being reviewed (only this one is draggable)
+  currentReservationId, // ID of the current reservation being reviewed (only this one is draggable)
+  onLockedEventClick // Callback when a locked reservation event is clicked
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -782,7 +783,7 @@ export default function SchedulingAssistant({
       backgroundColor = block.color;
       filter = 'none';
     } else if (isLocked) {
-      // Locked event styling - greyed out
+      // Locked event styling - greyed out with nav button
       opacity = 0.75;
       cursor = 'not-allowed';
       boxShadow = 'none';
@@ -808,7 +809,12 @@ export default function SchedulingAssistant({
     if (isUserEvent) {
       title = `✏️ ${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\n👆 Drag to reschedule${hasConflict ? '\n⚠️ Time conflicts with other events' : '\n✓ No conflicts at this time'}`;
     } else if (isLocked) {
-      title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nThis event is locked - you can only drag your own reservation.`;
+      // Different message for reservations (with nav button) vs calendar events (no nav button)
+      if (block.type === 'reservation') {
+        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n→ Click the arrow button to open this reservation\n(This event is locked - you can only drag your own reservation)`;
+      } else {
+        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nThis calendar event is locked - you can only drag your own reservation.`;
+      }
     } else {
       title = `${currentEventLabel}${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n👆 Drag to reschedule your event${hasConflict ? '\n⚠️ Overlaps with other events' : '\n✓ No conflicts'}`;
     }
@@ -836,13 +842,22 @@ export default function SchedulingAssistant({
         onDragStart={!isLocked ? (e) => handleEventDragStart(e, block) : undefined}
         onDrag={!isLocked ? handleEventDrag : undefined}
         onDragEnd={!isLocked ? handleEventDragEnd : undefined}
-        onClick={() => handleEventBlockClick(block)}
         title={title}
       >
         <div className="event-block-content">
           <div className="event-block-header">
             <span className="event-icon">{lockedIcon}{currentEventLabel}{conflictIndicator}{eventIcon}</span>
             <span className="event-title">{block.title}</span>
+            {/* Navigation button for locked reservations */}
+            {isLocked && block.type === 'reservation' && onLockedEventClick && (
+              <button
+                className="event-nav-button"
+                onClick={(e) => handleNavigateToEvent(e, block.id)}
+                title="Open this reservation"
+              >
+                →
+              </button>
+            )}
           </div>
           <div className="event-time">
             {formatTime(block.startTime)} - {formatTime(block.endTime)}
@@ -928,10 +943,14 @@ export default function SchedulingAssistant({
     hasScrolledOnce.current = true;
   }, [eventBlocks, activeRoomIndex, effectiveDate, draggingEventId, eventStartTime, visibleEventBlocks]); // Keep dependencies but early return prevents re-runs
 
-  // Handle event block click
-  const handleEventBlockClick = (block) => {
-    console.log('[SchedulingAssistant] Event block clicked:', block);
-    // TODO: Open event details modal
+  // Handle navigation button click for locked events
+  const handleNavigateToEvent = (e, reservationId) => {
+    e.stopPropagation(); // Prevent event block click
+    console.log('[SchedulingAssistant] Navigate button clicked for reservation:', reservationId);
+
+    if (onLockedEventClick) {
+      onLockedEventClick(reservationId);
+    }
   };
 
   // Handle time slot click
