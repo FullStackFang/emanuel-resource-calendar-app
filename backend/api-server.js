@@ -9955,10 +9955,40 @@ app.get('/api/rooms/availability', async (req, res) => {
 
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
       const detailedReservationConflicts = roomReservations.map(res => {
-        const resSetupMinutes = res.setupTimeMinutes || 0;
-        const resTeardownMinutes = res.teardownTimeMinutes || 0;
-        const effectiveStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
-        const effectiveEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+        let effectiveStart, effectiveEnd;
+
+        // Smart calculation: Try stored values first, then time-based, then minutes-based
+        if (res.effectiveStart && res.effectiveEnd) {
+          // New reservations have these stored (post time-blocking update)
+          effectiveStart = res.effectiveStart;
+          effectiveEnd = res.effectiveEnd;
+        } else if (res.setupTime || res.teardownTime) {
+          // Calculate from time-based fields
+          const baseStart = new Date(res.startDateTime);
+          const baseEnd = new Date(res.endDateTime);
+
+          if (res.setupTime) {
+            const [setupHours, setupMinutes] = res.setupTime.split(':').map(Number);
+            effectiveStart = new Date(baseStart);
+            effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
+          } else {
+            effectiveStart = baseStart;
+          }
+
+          if (res.teardownTime) {
+            const [teardownHours, teardownMinutes] = res.teardownTime.split(':').map(Number);
+            effectiveEnd = new Date(baseEnd);
+            effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
+          } else {
+            effectiveEnd = baseEnd;
+          }
+        } else {
+          // Fall back to minutes-based calculation (old reservations)
+          const resSetupMinutes = res.setupTimeMinutes || 0;
+          const resTeardownMinutes = res.teardownTimeMinutes || 0;
+          effectiveStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
+          effectiveEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+        }
 
         return {
           id: res._id,
@@ -9969,8 +9999,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           originalEnd: res.endDateTime,
           effectiveStart,
           effectiveEnd,
-          setupTimeMinutes: resSetupMinutes,
-          teardownTimeMinutes: resTeardownMinutes
+          setupTimeMinutes: res.setupTimeMinutes || 0,
+          teardownTimeMinutes: res.teardownTimeMinutes || 0
         };
       });
 
@@ -10055,7 +10085,7 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
           error: 'Contact name and email are required when submitting on behalf of someone else'
         });
       }
-      
+
       // Basic email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(contactEmail)) {
@@ -10064,7 +10094,27 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         });
       }
     }
-    
+
+    // Calculate effective blocking times (setup to teardown)
+    const baseStart = new Date(startDateTime);
+    const baseEnd = new Date(endDateTime);
+
+    // If setup time is provided, use it as the effective start
+    let effectiveStart = baseStart;
+    if (setupTime) {
+      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
+      effectiveStart = new Date(baseStart);
+      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
+    }
+
+    // If teardown time is provided, use it as the effective end
+    let effectiveEnd = baseEnd;
+    if (teardownTime) {
+      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
+      effectiveEnd = new Date(baseEnd);
+      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
+    }
+
     // Helper function to create reservation snapshot
     const createReservationSnapshot = (reservationData) => ({
       eventTitle: reservationData.eventTitle,
@@ -10142,6 +10192,8 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       eventDescription: eventDescription || '',
       startDateTime: new Date(startDateTime),
       endDateTime: new Date(endDateTime),
+      effectiveStart: effectiveStart, // Used for room blocking (includes setup)
+      effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
       attendeeCount: attendeeCount || 0,
 
       requestedRooms,
@@ -10272,7 +10324,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
           error: 'Contact name and email are required when submitting on behalf of someone else'
         });
       }
-      
+
       // Basic email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(contactEmail)) {
@@ -10281,7 +10333,27 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         });
       }
     }
-    
+
+    // Calculate effective blocking times (setup to teardown)
+    const baseStart = new Date(startDateTime);
+    const baseEnd = new Date(endDateTime);
+
+    // If setup time is provided, use it as the effective start
+    let effectiveStart = baseStart;
+    if (setupTime) {
+      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
+      effectiveStart = new Date(baseStart);
+      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
+    }
+
+    // If teardown time is provided, use it as the effective end
+    let effectiveEnd = baseEnd;
+    if (teardownTime) {
+      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
+      effectiveEnd = new Date(baseEnd);
+      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
+    }
+
     // Mark token as used
     await reservationTokensCollection.updateOne(
       { _id: tokenDoc._id },
@@ -10362,8 +10434,10 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       eventDescription: eventDescription || '',
       startDateTime: new Date(startDateTime),
       endDateTime: new Date(endDateTime),
+      effectiveStart: effectiveStart, // Used for room blocking (includes setup)
+      effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
       attendeeCount: attendeeCount || 0,
-      
+
       requestedRooms,
       requiredFeatures: requiredFeatures || [],
       specialRequirements: specialRequirements || '',

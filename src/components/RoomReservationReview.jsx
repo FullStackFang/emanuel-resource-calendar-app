@@ -55,6 +55,7 @@ export default function RoomReservationReview({
   const [assistantRooms, setAssistantRooms] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [timeErrors, setTimeErrors] = useState([]);
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -232,18 +233,96 @@ export default function RoomReservationReview({
     return { meetsCapacity: true, issue: null };
   };
 
-  const handleEventTimeChange = ({ startTime, endTime }) => {
+  // Validate time fields are in chronological order
+  const validateTimes = () => {
+    const errors = [];
+    const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime } = formData;
+
+    // Convert times to comparable numbers (minutes since midnight)
+    const timeToMinutes = (timeStr) => {
+      if (!timeStr) return null;
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+
+    const setup = timeToMinutes(setupTime);
+    const doorOpen = timeToMinutes(doorOpenTime);
+    const eventStart = timeToMinutes(startTime);
+    const eventEnd = timeToMinutes(endTime);
+    const doorClose = timeToMinutes(doorCloseTime);
+    const teardown = timeToMinutes(teardownTime);
+
+    // Check required times exist
+    if (!startTime) {
+      errors.push('Event Start Time is required');
+    }
+    if (!endTime) {
+      errors.push('Event End Time is required');
+    }
+
+    // Validate chronological order (only check if both times exist)
+    if (eventStart !== null && eventEnd !== null && eventStart >= eventEnd) {
+      errors.push('Event End Time must be after Event Start Time');
+    }
+
+    if (setup !== null && doorOpen !== null && setup > doorOpen) {
+      errors.push('Door Open Time must be after Setup Start Time');
+    }
+
+    if (setup !== null && eventStart !== null && setup > eventStart) {
+      errors.push('Event Start Time must be after Setup Start Time');
+    }
+
+    if (doorOpen !== null && eventStart !== null && doorOpen > eventStart) {
+      errors.push('Event Start Time must be after Door Open Time');
+    }
+
+    if (eventEnd !== null && doorClose !== null && eventEnd > doorClose) {
+      errors.push('Door Close Time must be after Event End Time');
+    }
+
+    if (eventEnd !== null && teardown !== null && eventEnd > teardown) {
+      errors.push('Teardown End Time must be after Event End Time');
+    }
+
+    if (doorClose !== null && teardown !== null && doorClose > teardown) {
+      errors.push('Teardown End Time must be after Door Close Time');
+    }
+
+    setTimeErrors(errors);
+    return errors.length === 0;
+  };
+
+  // Validate times whenever time fields change
+  useEffect(() => {
+    if (formData.startTime || formData.endTime) {
+      validateTimes();
+    } else {
+      setTimeErrors([]);
+    }
+  }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime]);
+
+  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime }) => {
     // Update form times when user drags the event in scheduling assistant
     setFormData(prev => ({
       ...prev,
       startTime,
-      endTime
+      endTime,
+      // Update setupTime/teardownTime if provided (they represent the new blocking times)
+      ...(setupTime && { setupTime }),
+      ...(teardownTime && { teardownTime })
     }));
     setHasChanges(true);
   };
 
   const handleSaveChanges = async () => {
     if (!hasChanges || !onSave) return;
+
+    // Validate times before saving
+    if (!validateTimes()) {
+      logger.warn('Cannot save - time validation errors exist');
+      return;
+    }
 
     setIsSaving(true);
     try {
@@ -273,6 +352,12 @@ export default function RoomReservationReview({
   };
 
   const handleApprove = () => {
+    // Validate times before approval
+    if (!validateTimes()) {
+      logger.warn('Cannot approve - time validation errors exist');
+      return;
+    }
+
     if (onApprove) {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
       const endDateTime = `${formData.endDate}T${formData.endTime}`;
@@ -543,6 +628,21 @@ export default function RoomReservationReview({
             </div>
           </div>
 
+          {/* Time Validation Errors */}
+          {timeErrors.length > 0 && (
+            <div className="time-validation-errors">
+              <h4>⚠️ Time Validation Issues:</h4>
+              <ul>
+                {timeErrors.map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+              <p className="validation-help">
+                Times should follow this order: Setup Start → Door Open → Event Start → Event End → Door Close → Teardown End
+              </p>
+            </div>
+          )}
+
           {/* Internal Notes Section */}
           <div className="internal-notes-section">
               <h4>🔒 Internal Notes (Staff Use Only)</h4>
@@ -627,6 +727,8 @@ export default function RoomReservationReview({
                 selectedDate={formData.startDate}
                 eventStartTime={formData.startTime}
                 eventEndTime={formData.endTime}
+                setupTime={formData.setupTime}
+                teardownTime={formData.teardownTime}
                 eventTitle={formData.eventTitle}
                 availability={availability}
                 onRoomRemove={handleRemoveAssistantRoom}

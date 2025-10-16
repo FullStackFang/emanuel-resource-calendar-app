@@ -7,6 +7,8 @@ export default function SchedulingAssistant({
   selectedDate,
   eventStartTime,
   eventEndTime,
+  setupTime, // Setup start time for room blocking
+  teardownTime, // Teardown end time for room blocking
   eventTitle, // Title of the event being created/edited
   availability,
   onTimeSlotClick,
@@ -88,7 +90,7 @@ export default function SchedulingAssistant({
       // Process reservations
       if (roomAvailability.conflicts.reservations) {
         roomAvailability.conflicts.reservations.forEach(reservation => {
-          console.log(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" from ${reservation.originalStart} to ${reservation.originalEnd}`);
+          console.log(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" - Event: ${reservation.originalStart} to ${reservation.originalEnd}, Blocked: ${reservation.effectiveStart} to ${reservation.effectiveEnd}`);
           const reservationId = reservation._id || reservation.id;
 
           // SKIP the current reservation being edited - it will be shown as the user event instead
@@ -112,9 +114,9 @@ export default function SchedulingAssistant({
               height: (manualAdjustment.endTime - manualAdjustment.startTime) / (1000 * 60 * 60) * PIXELS_PER_HOUR
             };
           } else {
-            // Use the original position from API
-            startTime = new Date(reservation.originalStart || reservation.startDateTime);
-            endTime = new Date(reservation.originalEnd || reservation.endDateTime);
+            // Use the effective blocking times from API (includes setup/teardown)
+            startTime = new Date(reservation.effectiveStart);
+            endTime = new Date(reservation.effectiveEnd);
             position = calculateEventPosition(startTime, endTime);
           }
 
@@ -197,10 +199,31 @@ export default function SchedulingAssistant({
           endTime = adjustment.endTime;
           position = calculateEventPosition(startTime, endTime);
         } else {
-          // Use the times from props (form fields)
-          startTime = new Date(`${effectiveDate}T${eventStartTime}`);
-          endTime = new Date(`${effectiveDate}T${eventEndTime}`);
+          // Calculate effective blocking times (setup to teardown)
+          const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
+          const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
+
+          // Use setupTime if provided, otherwise use event start
+          if (setupTime) {
+            const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
+            startTime = new Date(effectiveDate + 'T00:00:00');
+            startTime.setHours(setupHours, setupMinutes, 0, 0);
+          } else {
+            startTime = eventStart;
+          }
+
+          // Use teardownTime if provided, otherwise use event end
+          if (teardownTime) {
+            const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
+            endTime = new Date(effectiveDate + 'T00:00:00');
+            endTime.setHours(teardownHours, teardownMinutes, 0, 0);
+          } else {
+            endTime = eventEnd;
+          }
+
           position = calculateEventPosition(startTime, endTime);
+
+          console.log(`[SchedulingAssistant] User event effective blocking - Event: ${eventStartTime} - ${eventEndTime}, Blocked: ${setupTime || eventStartTime} - ${teardownTime || eventEndTime}`);
         }
 
         const roomColor = locationColors[roomIndex % locationColors.length];
@@ -493,17 +516,48 @@ export default function SchedulingAssistant({
 
         // Handle user event differently - sync across all tabs and update form
         if (draggedBlock.isUserEvent) {
+          // Calculate the event times (excluding setup/teardown) from the dragged blocking times
+          // We need to determine how much setup/teardown buffer was applied
+          const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
+          const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
+
+          // Calculate the original setup and teardown durations
+          const originalBlockStart = draggedBlock.startTime.getTime() - hourOffset * 60 * 60 * 1000; // Undo the drag offset
+          const originalBlockEnd = new Date(originalBlockStart + durationMs).getTime();
+
+          const setupDuration = eventStart.getTime() - originalBlockStart;
+          const teardownDuration = originalBlockEnd - eventEnd.getTime();
+
+          // Apply the same durations to the new position to get the event times
+          const newEventStart = new Date(newStartTime.getTime() + setupDuration);
+          const newEventEnd = new Date(newEndTime.getTime() - teardownDuration);
+
+          console.log('[Drag] User event time calculation:', {
+            originalBlockStart: new Date(originalBlockStart).toLocaleTimeString(),
+            originalBlockEnd: new Date(originalBlockEnd).toLocaleTimeString(),
+            originalEventStart: eventStart.toLocaleTimeString(),
+            originalEventEnd: eventEnd.toLocaleTimeString(),
+            setupDuration: setupDuration / 1000 / 60,
+            teardownDuration: teardownDuration / 1000 / 60,
+            newBlockStart: newStartTime.toLocaleTimeString(),
+            newBlockEnd: newEndTime.toLocaleTimeString(),
+            newEventStart: newEventStart.toLocaleTimeString(),
+            newEventEnd: newEventEnd.toLocaleTimeString()
+          });
+
           // Store adjustment for user event globally
           userEventAdjustment.current = {
             startTime: newStartTime,
             endTime: newEndTime
           };
 
-          // Notify parent form to update time fields
+          // Notify parent form to update ALL time fields (event times AND blocking times)
           if (onEventTimeChange) {
             onEventTimeChange({
-              startTime: formatTime(newStartTime),
-              endTime: formatTime(newEndTime)
+              startTime: formatTime(newEventStart),
+              endTime: formatTime(newEventEnd),
+              setupTime: formatTime(newStartTime), // New blocking start
+              teardownTime: formatTime(newEndTime) // New blocking end
             });
           }
 

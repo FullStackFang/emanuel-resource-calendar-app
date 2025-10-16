@@ -565,6 +565,54 @@
   border-color: #9ca3af;
 }
 
+/* Time Validation Errors */
+.time-validation-errors {
+  margin: 20px 0;
+  padding: 16px;
+  background: #fef2f2;
+  border: 2px solid #f87171;
+  border-left: 4px solid #dc2626;
+  border-radius: 8px;
+}
+
+.time-validation-errors h4 {
+  color: #dc2626;
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-validation-errors ul {
+  margin: 0 0 12px 0;
+  padding-left: 24px;
+  list-style: disc;
+}
+
+.time-validation-errors li {
+  color: #991b1b;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.time-validation-errors li:last-child {
+  margin-bottom: 0;
+}
+
+.validation-help {
+  margin: 0;
+  padding: 10px 12px;
+  background: #fee2e2;
+  border-radius: 4px;
+  color: #7f1d1d;
+  font-size: 0.85rem;
+  font-style: italic;
+  line-height: 1.4;
+}
+
 /* Responsive Design - Fixed Widths */
 @media (min-width: 1401px) {
   .room-reservation-form {
