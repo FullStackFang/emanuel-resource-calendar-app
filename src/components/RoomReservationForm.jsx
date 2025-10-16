@@ -7,7 +7,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import RoomTimeline from './RoomTimeline';
 import SchedulingAssistant from './SchedulingAssistant';
-import LocationMultiSelect from './LocationMultiSelect';
+import LocationListSelect from './LocationListSelect';
 import './RoomReservationForm.css';
 
 export default function RoomReservationForm({ apiToken, isPublic }) {
@@ -699,7 +699,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                   No locations available. Please contact the office for assistance.
                 </div>
               ) : (
-                <LocationMultiSelect
+                <LocationListSelect
                   rooms={allRooms}
                   availability={availability}
                   selectedRooms={formData.requestedRooms}

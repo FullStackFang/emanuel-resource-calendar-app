@@ -4,7 +4,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
-import LocationMultiSelect from './LocationMultiSelect';
+import LocationListSelect from './LocationListSelect';
 import './RoomReservationForm.css';
 
 /**
@@ -607,14 +607,16 @@ export default function RoomReservationReview({
               {roomsLoading ? (
                 <div className="loading-message">Loading locations...</div>
               ) : (
-                <LocationMultiSelect
+                <LocationListSelect
                   rooms={rooms}
                   availability={availability}
                   selectedRooms={formData.requestedRooms}
                   onRoomSelectionChange={handleRoomSelectionChange}
                   checkRoomCapacity={checkRoomCapacity}
                   label="Requested locations"
-                  disabled={reservation?.status !== 'pending'}
+                  eventStartTime={formData.startTime}
+                  eventEndTime={formData.endTime}
+                  eventDate={formData.startDate}
                 />
               )}
             </div>

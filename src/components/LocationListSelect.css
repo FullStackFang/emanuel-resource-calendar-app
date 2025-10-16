@@ -1,0 +1,199 @@
+/* src/components/LocationListSelect.css */
+
+.location-list-select {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Header Section */
+.list-header {
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.list-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px 0;
+}
+
+.list-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+  transition: all 0.2s;
+}
+
+.list-search-input:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+}
+
+.list-action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.list-action-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.list-action-btn:hover {
+  background: #106ebe;
+}
+
+/* Scrollable Container */
+.list-rooms-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+/* Custom scrollbar */
+.list-rooms-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.list-rooms-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.list-rooms-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.list-rooms-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.list-no-results {
+  padding: 40px 20px;
+  text-align: center;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Room Card - Minimalist Clickable Rectangle */
+.list-room-card {
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.list-room-card:hover {
+  background: #f8fafc;
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.list-room-card.selected {
+  background: #eff6ff;
+  border-left: 3px solid #0078d4;
+  border-color: #0078d4;
+  padding-left: 10px; /* Adjust for thicker left border */
+}
+
+.list-room-card.selected:hover {
+  background: #dbeafe;
+}
+
+/* Room Header */
+.list-room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.list-room-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+/* Room Details */
+.list-room-details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.list-room-location {
+  font-weight: 500;
+}
+
+.list-room-capacity {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Selection Summary */
+.list-selection-summary {
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f8fafc;
+  font-size: 0.85rem;
+  color: #374151;
+  text-align: center;
+}
+
+.list-selection-summary strong {
+  color: #0078d4;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .list-header {
+    padding: 12px;
+  }
+
+  .list-title {
+    font-size: 1rem;
+  }
+
+  .list-room-card {
+    padding: 10px;
+  }
+
+  .list-room-name {
+    font-size: 0.95rem;
+  }
+
+  .list-room-details {
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.8rem;
+  }
+}

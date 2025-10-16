@@ -32,36 +32,94 @@
   font-weight: 500;
 }
 
+/* Room Tabs Carousel Wrapper */
+.room-tabs-carousel {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  background: #f9fafb;
+  border-bottom: 2px solid #d1d5db;
+  gap: 0;
+}
+
+.tab-scroll-btn {
+  flex-shrink: 0;
+  width: 45px;
+  /* Match active tab styling exactly */
+  background: white;
+  border: 1px solid #d1d5db;
+  border-bottom-color: white;
+  border-bottom: none;
+  cursor: pointer;
+  font-size: 1.3rem;
+  color: #6b7280;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 14px 0;
+  margin-bottom: -2px;
+  font-weight: 600;
+  box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.08);
+  z-index: 10;
+}
+
+.tab-scroll-btn:hover {
+  color: #0078d4;
+  background: white;
+  border-color: #9ca3af;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tab-scroll-left {
+  border-right: 1px solid #d1d5db;
+  border-radius: 6px 0 0 0;
+  margin-right: 4px;
+}
+
+.tab-scroll-right {
+  border-left: 1px solid #d1d5db;
+  border-radius: 0 6px 0 0;
+  margin-left: 4px;
+}
+
 /* Room Tabs */
 .room-tabs {
   display: flex;
   gap: 4px;
   margin-bottom: 0;
-  border-bottom: 2px solid #d1d5db;
-  overflow-x: auto;
-  background: #f9fafb;
-  padding: 8px 8px 0 8px;
-  border-radius: 8px 8px 0 0;
+  border-bottom: none;
+  overflow: hidden;
+  background: transparent;
+  padding: 8px 0 0 0;
+  flex-wrap: nowrap;
+  flex: 1;
+  position: relative;
 }
 
 .room-tab {
   background: #e5e7eb;
   border: 1px solid #d1d5db;
   border-bottom: none;
-  padding: 12px 20px;
+  padding: 12px 12px;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
   color: #6b7280;
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   position: relative;
   margin-bottom: 0;
-  border-radius: 8px 8px 0 0;
+  border-radius: 6px 6px 0 0;
   box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.05);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .room-tab:hover {
@@ -84,36 +142,42 @@
 
 .room-tab-name {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .room-tab-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 11px;
-  font-size: 0.7rem;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 0.65rem;
   font-weight: 700;
   color: white;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
 }
 
 .room-tab-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: 4px;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
   border-radius: 50%;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   line-height: 1;
   color: #9ca3af;
   transition: all 0.2s;
   cursor: pointer;
   opacity: 0.5;
+  flex-shrink: 0;
 }
 
 .room-tab-close:hover {
@@ -342,8 +406,12 @@
 .event-time {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #ffffff;
+  color: #ffffff !important;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.event-block .event-time {
+  color: #ffffff !important;
 }
 
 .event-organizer {
@@ -353,6 +421,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .event-status {

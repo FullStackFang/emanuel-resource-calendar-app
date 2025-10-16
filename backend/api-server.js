@@ -10026,6 +10026,15 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
+      // Access & Operations Times
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      // Internal Notes
+      setupNotes,
+      doorNotes,
+      eventNotes,
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
@@ -10071,7 +10080,16 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       department: reservationData.department,
       phone: reservationData.phone,
       setupTimeMinutes: reservationData.setupTimeMinutes,
-      teardownTimeMinutes: reservationData.teardownTimeMinutes
+      teardownTimeMinutes: reservationData.teardownTimeMinutes,
+      // Access & Operations Times
+      setupTime: reservationData.setupTime,
+      teardownTime: reservationData.teardownTime,
+      doorOpenTime: reservationData.doorOpenTime,
+      doorCloseTime: reservationData.doorCloseTime,
+      // Internal Notes
+      setupNotes: reservationData.setupNotes,
+      doorNotes: reservationData.doorNotes,
+      eventNotes: reservationData.eventNotes
     });
 
     // Create initial communication history entry
@@ -10096,7 +10114,14 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         department: department || '',
         phone: phone || '',
         setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        setupTime: setupTime || null,
+        teardownTime: teardownTime || null,
+        doorOpenTime: doorOpenTime || null,
+        doorCloseTime: doorCloseTime || null,
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || ''
       })
     };
 
@@ -10107,26 +10132,37 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       requesterEmail: userEmail,
       department: department || '',
       phone: phone || '',
-      
+
       // Delegation fields
       isOnBehalfOf: isOnBehalfOf,
       contactName: isOnBehalfOf ? contactName : null,
       contactEmail: isOnBehalfOf ? contactEmail : null,
-      
+
       eventTitle,
       eventDescription: eventDescription || '',
       startDateTime: new Date(startDateTime),
       endDateTime: new Date(endDateTime),
       attendeeCount: attendeeCount || 0,
-      
+
       requestedRooms,
       requiredFeatures: requiredFeatures || [],
       specialRequirements: specialRequirements || '',
-      
-      // Setup and teardown times
+
+      // Setup and teardown times (legacy minutes)
       setupTimeMinutes: setupTimeMinutes || 0,
       teardownTimeMinutes: teardownTimeMinutes || 0,
-      
+
+      // Access & Operations Times
+      setupTime: setupTime || null,
+      teardownTime: teardownTime || null,
+      doorOpenTime: doorOpenTime || null,
+      doorCloseTime: doorCloseTime || null,
+
+      // Internal Notes (staff use only)
+      setupNotes: setupNotes || '',
+      doorNotes: doorNotes || '',
+      eventNotes: eventNotes || '',
+
       status: 'pending',
       priority,
 
@@ -10207,6 +10243,15 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
+      // Access & Operations Times
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      // Internal Notes
+      setupNotes,
+      doorNotes,
+      eventNotes,
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
@@ -10289,7 +10334,14 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         department: department || '',
         phone: phone || '',
         setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        setupTime: setupTime || null,
+        teardownTime: teardownTime || null,
+        doorOpenTime: doorOpenTime || null,
+        doorCloseTime: doorCloseTime || null,
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || ''
       })
     };
 
@@ -10315,11 +10367,22 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       requestedRooms,
       requiredFeatures: requiredFeatures || [],
       specialRequirements: specialRequirements || '',
-      
-      // Setup and teardown times
+
+      // Setup and teardown times (legacy minutes)
       setupTimeMinutes: setupTimeMinutes || 0,
       teardownTimeMinutes: teardownTimeMinutes || 0,
-      
+
+      // Access & Operations Times
+      setupTime: setupTime || null,
+      teardownTime: teardownTime || null,
+      doorOpenTime: doorOpenTime || null,
+      doorCloseTime: doorCloseTime || null,
+
+      // Internal Notes (staff use only)
+      setupNotes: setupNotes || '',
+      doorNotes: doorNotes || '',
+      eventNotes: eventNotes || '',
+
       status: 'pending',
       priority,
 
@@ -10597,7 +10660,16 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       department: reservationData.department,
       phone: reservationData.phone,
       setupTimeMinutes: reservationData.setupTimeMinutes,
-      teardownTimeMinutes: reservationData.teardownTimeMinutes
+      teardownTimeMinutes: reservationData.teardownTimeMinutes,
+      // Access & Operations Times
+      setupTime: reservationData.setupTime,
+      teardownTime: reservationData.teardownTime,
+      doorOpenTime: reservationData.doorOpenTime,
+      doorCloseTime: reservationData.doorCloseTime,
+      // Internal Notes
+      setupNotes: reservationData.setupNotes,
+      doorNotes: reservationData.doorNotes,
+      eventNotes: reservationData.eventNotes
     });
     
     const newRevisionNumber = currentRevision + 1;

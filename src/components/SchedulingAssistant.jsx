@@ -20,7 +20,10 @@ export default function SchedulingAssistant({
   const [draggingEventId, setDraggingEventId] = useState(null);
   const [dragStartY, setDragStartY] = useState(0);
   const [dragOffsets, setDragOffsets] = useState({}); // Track drag offset for each event
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const timelineRef = useRef(null);
+  const tabsContainerRef = useRef(null);
   const manuallyAdjustedPositions = useRef({}); // Track manually dragged positions: { eventId: { top, startTime, endTime } }
   const userEventAdjustment = useRef(null); // Track user event's dragged position: { startTime, endTime }
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
@@ -243,14 +246,32 @@ export default function SchedulingAssistant({
       block.isConflict = hasConflict;
     });
 
-    // Recalculate stats based on conflicts
+    // Recalculate stats - count only conflicts with user's event
     selectedRooms.forEach(room => {
       const roomBlocks = blocksByRoom[room._id] || [];
-      const conflictingEvents = roomBlocks.filter(b => b.isConflict);
 
-      if (stats[room._id]) {
-        stats[room._id].conflictCount = conflictingEvents.length;
-        stats[room._id].eventCount = roomBlocks.length;
+      // Find the user's event for this room
+      const userEvent = roomBlocks.find(b => b.isUserEvent);
+
+      if (userEvent) {
+        // Count only events that conflict with the user's event
+        const conflictsWithUserEvent = roomBlocks.filter(b =>
+          !b.isUserEvent && // Don't count the user event itself
+          b.startTime < userEvent.endTime &&
+          b.endTime > userEvent.startTime
+        );
+
+        if (stats[room._id]) {
+          stats[room._id].conflictCount = conflictsWithUserEvent.length;
+          stats[room._id].eventCount = roomBlocks.length;
+        }
+      } else {
+        // No user event - show all conflicts
+        const conflictingEvents = roomBlocks.filter(b => b.isConflict);
+        if (stats[room._id]) {
+          stats[room._id].conflictCount = conflictingEvents.length;
+          stats[room._id].eventCount = roomBlocks.length;
+        }
       }
     });
 
@@ -273,6 +294,23 @@ export default function SchedulingAssistant({
     // Clear the drag adjustment so we use the new prop values
     userEventAdjustment.current = null;
   }, [eventStartTime, eventEndTime]);
+
+  // Check if we need carousel arrows (more than 3 tabs)
+  useEffect(() => {
+    const needsCarousel = selectedRooms.length > 3;
+
+    // For infinite carousel, always show both arrows when we have more than 3 tabs
+    setCanScrollLeft(needsCarousel);
+    setCanScrollRight(needsCarousel);
+
+    console.log('[Carousel] Update:', {
+      totalTabs: selectedRooms.length,
+      activeIndex: activeRoomIndex,
+      needsCarousel,
+      canScrollLeft: needsCarousel,
+      canScrollRight: needsCarousel
+    });
+  }, [selectedRooms, activeRoomIndex]);
 
   // Calculate event block position based on start/end times
   const calculateEventPosition = (startTime, endTime) => {
@@ -300,6 +338,17 @@ export default function SchedulingAssistant({
     if (hour < 12) return `${hour} AM`;
     if (hour === 12) return '12 PM';
     return `${hour - 12} PM`;
+  };
+
+  // Navigate carousel left or right (infinite/circular)
+  const scrollTabs = (direction) => {
+    if (direction === 'left') {
+      // Go left (wrap around to end if at beginning)
+      setActiveRoomIndex((prev) => (prev - 1 + selectedRooms.length) % selectedRooms.length);
+    } else if (direction === 'right') {
+      // Go right (wrap around to beginning if at end)
+      setActiveRoomIndex((prev) => (prev + 1) % selectedRooms.length);
+    }
   };
 
   // Generate color variation from a base hex color
@@ -744,8 +793,22 @@ export default function SchedulingAssistant({
 
       {/* Room Tabs */}
       {selectedRooms.length > 0 && (
-        <div className="room-tabs">
-          {selectedRooms.map((room, index) => {
+        <div className="room-tabs-carousel">
+          {canScrollLeft && (
+            <button
+              className="tab-scroll-btn tab-scroll-left"
+              onClick={() => scrollTabs('left')}
+              aria-label="Scroll tabs left"
+            >
+              ‹
+            </button>
+          )}
+
+          <div className="room-tabs" ref={tabsContainerRef}>
+            {/* Show up to 3 tabs, or all tabs if less than 3 */}
+            {Array.from({ length: Math.min(3, selectedRooms.length) }).map((_, offset) => {
+              const index = (activeRoomIndex + offset) % selectedRooms.length;
+              const room = selectedRooms[index];
             const roomColor = locationColors[index % locationColors.length];
             const isActive = index === activeRoomIndex;
             const stats = roomStats[room._id] || { conflictCount: 0 };
@@ -796,6 +859,17 @@ export default function SchedulingAssistant({
               </button>
             );
           })}
+          </div>
+
+          {canScrollRight && (
+            <button
+              className="tab-scroll-btn tab-scroll-right"
+              onClick={() => scrollTabs('right')}
+              aria-label="Scroll tabs right"
+            >
+              ›
+            </button>
+          )}
         </div>
       )}
 
