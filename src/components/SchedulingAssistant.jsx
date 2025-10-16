@@ -29,10 +29,16 @@ export default function SchedulingAssistant({
   const manuallyAdjustedPositions = useRef({}); // Track manually dragged positions: { eventId: { top, startTime, endTime } }
   const userEventAdjustment = useRef(null); // Track user event's dragged position: { startTime, endTime }
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
+  const autoScrollInterval = useRef(null); // Track auto-scroll animation frame
 
   const PIXELS_PER_HOUR = 50; // 50px per hour shows 12 hours in 600px viewport
   const START_HOUR = 0;
   const END_HOUR = 24;
+
+  // Auto-scroll configuration for drag operations
+  const SCROLL_HOT_ZONE = 80;        // pixels from edge to trigger auto-scroll
+  const SCROLL_SPEED_BASE = 8;       // base scroll speed (pixels per frame)
+  const SCROLL_SPEED_MAX = 20;       // max scroll speed at edge
   
   // Use today's date as default if no date is selected (in local timezone)
   const getTodayDate = () => {
@@ -363,6 +369,43 @@ export default function SchedulingAssistant({
     return `${hour - 12} PM`;
   };
 
+  // Auto-scroll timeline when dragging near edges
+  const startAutoScroll = (direction, speed) => {
+    // Clear any existing auto-scroll
+    if (autoScrollInterval.current) {
+      cancelAnimationFrame(autoScrollInterval.current);
+    }
+
+    const scroll = () => {
+      if (!timelineRef.current) return;
+
+      const currentScroll = timelineRef.current.scrollTop;
+      const maxScroll = timelineRef.current.scrollHeight - timelineRef.current.clientHeight;
+
+      // Calculate new scroll position
+      const newScroll = direction === 'up'
+        ? Math.max(0, currentScroll - speed)
+        : Math.min(maxScroll, currentScroll + speed);
+
+      // Apply scroll
+      timelineRef.current.scrollTop = newScroll;
+
+      // Continue scrolling if not at limits
+      if (newScroll > 0 && newScroll < maxScroll) {
+        autoScrollInterval.current = requestAnimationFrame(scroll);
+      }
+    };
+
+    autoScrollInterval.current = requestAnimationFrame(scroll);
+  };
+
+  const stopAutoScroll = () => {
+    if (autoScrollInterval.current) {
+      cancelAnimationFrame(autoScrollInterval.current);
+      autoScrollInterval.current = null;
+    }
+  };
+
   // Navigate carousel left or right (infinite/circular)
   const scrollTabs = (direction) => {
     if (direction === 'left') {
@@ -480,12 +523,40 @@ export default function SchedulingAssistant({
         ...prev,
         [draggingEventId]: deltaY
       }));
+
+      // Auto-scroll detection: check if mouse is near top or bottom edge of timeline viewport
+      if (timelineRef.current) {
+        const rect = timelineRef.current.getBoundingClientRect();
+        const mouseYRelativeToViewport = e.clientY - rect.top;
+
+        // Check top hot zone
+        if (mouseYRelativeToViewport < SCROLL_HOT_ZONE && mouseYRelativeToViewport >= 0) {
+          // Calculate speed: closer to edge = faster scroll
+          const edgeProximity = SCROLL_HOT_ZONE - mouseYRelativeToViewport;
+          const speed = SCROLL_SPEED_BASE + (edgeProximity / SCROLL_HOT_ZONE) * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
+          startAutoScroll('up', speed);
+        }
+        // Check bottom hot zone
+        else if (mouseYRelativeToViewport > (rect.height - SCROLL_HOT_ZONE) && mouseYRelativeToViewport <= rect.height) {
+          // Calculate speed: closer to edge = faster scroll
+          const edgeProximity = mouseYRelativeToViewport - (rect.height - SCROLL_HOT_ZONE);
+          const speed = SCROLL_SPEED_BASE + (edgeProximity / SCROLL_HOT_ZONE) * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
+          startAutoScroll('down', speed);
+        }
+        // Not in hot zone - stop auto-scroll
+        else {
+          stopAutoScroll();
+        }
+      }
     }
   };
 
   // Handle drag end - update position and notify parent
   const handleEventDragEnd = () => {
     if (!draggingEventId) return;
+
+    // Stop any active auto-scroll
+    stopAutoScroll();
 
     const dragOffset = dragOffsets[draggingEventId] || 0;
 
@@ -495,8 +566,28 @@ export default function SchedulingAssistant({
 
       if (draggedBlock) {
         const durationMs = draggedBlock.endTime - draggedBlock.startTime;
-        const newStartTime = new Date(draggedBlock.startTime.getTime() + hourOffset * 60 * 60 * 1000);
-        const newEndTime = new Date(newStartTime.getTime() + durationMs);
+        let newStartTime = new Date(draggedBlock.startTime.getTime() + hourOffset * 60 * 60 * 1000);
+        let newEndTime = new Date(newStartTime.getTime() + durationMs);
+
+        // Clamp times to stay within 0:00 - 23:59:59 on the effective date
+        const dayStart = new Date(effectiveDate + 'T00:00:00');
+        const dayEnd = new Date(effectiveDate + 'T23:59:59');
+
+        // If event would start before midnight, clamp to midnight
+        if (newStartTime < dayStart) {
+          newStartTime = new Date(dayStart);
+          newEndTime = new Date(newStartTime.getTime() + durationMs);
+        }
+        // If event would end after 23:59:59, clamp end to 23:59:59 and adjust start
+        else if (newEndTime > dayEnd) {
+          newEndTime = new Date(dayEnd);
+          newStartTime = new Date(newEndTime.getTime() - durationMs);
+          // If start is still before midnight after adjustment, clamp both
+          if (newStartTime < dayStart) {
+            newStartTime = new Date(dayStart);
+            newEndTime = new Date(dayEnd);
+          }
+        }
 
         const formatTime = (date) => {
           const hours = String(date.getHours()).padStart(2, '0');
