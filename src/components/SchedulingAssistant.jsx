@@ -30,7 +30,7 @@ export default function SchedulingAssistant({
   const userEventAdjustment = useRef(null); // Track user event's dragged position: { startTime, endTime }
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
 
-  const PIXELS_PER_HOUR = 80; // Increased from 40px to 80px for better visibility
+  const PIXELS_PER_HOUR = 50; // 50px per hour shows 12 hours in 600px viewport
   const START_HOUR = 0;
   const END_HOUR = 24;
   
@@ -522,8 +522,8 @@ export default function SchedulingAssistant({
           const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
 
           // Calculate the original setup and teardown durations
-          const originalBlockStart = draggedBlock.startTime.getTime() - hourOffset * 60 * 60 * 1000; // Undo the drag offset
-          const originalBlockEnd = new Date(originalBlockStart + durationMs).getTime();
+          const originalBlockStart = draggedBlock.startTime.getTime(); // This is already the original from state
+          const originalBlockEnd = draggedBlock.endTime.getTime(); // Use actual end time from state
 
           const setupDuration = eventStart.getTime() - originalBlockStart;
           const teardownDuration = originalBlockEnd - eventEnd.getTime();
@@ -927,28 +927,6 @@ export default function SchedulingAssistant({
         </div>
       )}
 
-      {/* Quick Stats for Active Room */}
-      {activeRoomStats && activeRoomStats.eventCount > 0 && (
-        <div className="stats-panel">
-          <div className="stat-item">
-            <span className="stat-icon">📅</span>
-            <span className="stat-value">{activeRoomStats.eventCount}</span>
-            <span className="stat-label">
-              Event{activeRoomStats.eventCount !== 1 ? 's' : ''}
-            </span>
-          </div>
-          {activeRoomStats.conflictCount > 0 && (
-            <div className="stat-item">
-              <span className="stat-icon">⚠️</span>
-              <span className="stat-value">{activeRoomStats.conflictCount}</span>
-              <span className="stat-label">
-                Conflict{activeRoomStats.conflictCount !== 1 ? 's' : ''}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Timeline Container */}
       <div className="timeline-wrapper">
 
@@ -995,6 +973,14 @@ export default function SchedulingAssistant({
           </div>
         </div>
       </div>
+
+      {/* Summary */}
+      {activeRoomStats && activeRoomStats.eventCount > 0 && (
+        <div className="list-selection-summary">
+          <strong>{activeRoomStats.eventCount}</strong> event{activeRoomStats.eventCount !== 1 ? 's' : ''}
+          {activeRoomStats.conflictCount > 0 && ` (${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''})`}
+        </div>
+      )}
 
     </div>
   );
