@@ -462,89 +462,11 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       )}
       
       <form onSubmit={handleSubmit}>
-        {/* Contact Information */}
-        <section className="form-section">
-          <h2>Submitter Information</h2>
-          <div className="form-grid">
-            <div className="form-group">
-              <label htmlFor="requesterName">Your Name *</label>
-              <input
-                type="text"
-                id="requesterName"
-                name="requesterName"
-                value={formData.requesterName}
-                readOnly
-                className="readonly-field"
-                title="This field is automatically filled from your account"
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="requesterEmail">Your Email *</label>
-              <input
-                type="email"
-                id="requesterEmail"
-                name="requesterEmail"
-                value={formData.requesterEmail}
-                readOnly
-                className="readonly-field"
-                title="This field is automatically filled from your account"
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="department">Department</label>
-              <input
-                type="text"
-                id="department"
-                name="department"
-                value={formData.department}
-                onChange={handleInputChange}
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="phone">Phone</label>
-              <input
-                type="tel"
-                id="phone"
-                name="phone"
-                value={formData.phone}
-                onChange={handleInputChange}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Contact Information */}
-        <section className="form-section">
-          <h2>Contact Information</h2>
-          <div className="form-grid">
-            <div className="form-group">
-              <label htmlFor="contactEmail">Contact Person Email</label>
-              <input
-                type="email"
-                id="contactEmail"
-                name="contactEmail"
-                value={formData.contactEmail}
-                onChange={handleInputChange}
-                placeholder="Email for reservation updates"
-              />
-            </div>
-            
-            {formData.contactEmail && (
-              <div className="form-group full-width">
-                <p className="delegation-info">
-                  📧 Reservation updates will be sent to <strong>{formData.contactEmail}</strong>
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-        
-        {/* Event Details */}
-        <section className="form-section">
-          <h2>Event Details</h2>
+        {/* Event Details + Room Selection Side-by-Side */}
+        <div className="event-and-rooms-container">
+          {/* Left side: Event Details (30%) */}
+          <section className="form-section event-details-compact">
+            <h2>Event Details</h2>
           
           {/* Basic Event Information */}
           <div className="form-grid">
@@ -627,8 +549,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
             </div>
           </div>
 
-          {/* Time Fields in Chronological Order */}
-          <div className="time-field-row">
+          {/* Time Fields Stacked in Chronological Order */}
+          <div className="time-fields-stack">
             <div className="form-group">
               <label htmlFor="setupTime">Setup Start Time</label>
               <input
@@ -652,9 +574,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
               />
               <div className="help-text">When attendees can start entering</div>
             </div>
-          </div>
 
-          <div className="time-field-row">
             <div className="form-group">
               <label htmlFor="startTime">Event Start Time *</label>
               <input
@@ -680,9 +600,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
               />
               <div className="help-text">When the event ends</div>
             </div>
-          </div>
 
-          <div className="time-field-row">
             <div className="form-group">
               <label htmlFor="doorCloseTime">Door Close Time</label>
               <input
@@ -723,13 +641,88 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
             </div>
           )}
 
-          {/* Internal Notes Section */}
-          <div className="internal-notes-section">
+          </section>
+
+          {/* Right side: Resource Details (70%) */}
+          <section className="form-section">
+            <h2>Resource Details</h2>
+
+            {checkingAvailability && (
+              <div className="loading-message">Checking availability...</div>
+            )}
+
+            <div className="room-selection-container">
+              {/* Left side: Scheduling Assistant (2/3) */}
+              <div className="scheduling-assistant-container">
+                <SchedulingAssistant
+                  selectedRooms={assistantRooms}
+                  selectedDate={formData.startDate}
+                  eventStartTime={formData.startTime}
+                  eventEndTime={formData.endTime}
+                  setupTime={formData.setupTime}
+                  teardownTime={formData.teardownTime}
+                  doorOpenTime={formData.doorOpenTime}
+                  doorCloseTime={formData.doorCloseTime}
+                  eventTitle={formData.eventTitle}
+                  availability={availability}
+                  onTimeSlotClick={handleTimeSlotClick}
+                  onRoomRemove={handleRemoveAssistantRoom}
+                  onEventTimeChange={handleEventTimeChange}
+                />
+              </div>
+
+              {/* Right side: Location MultiSelect (1/3) */}
+              <div className="room-cards-section">
+                {roomsLoading ? (
+                  <div className="loading-message">Loading locations...</div>
+                ) : allRooms.length === 0 ? (
+                  <div className="no-rooms-message">
+                    No locations available. Please contact the office for assistance.
+                  </div>
+                ) : (
+                  <LocationListSelect
+                    rooms={allRooms}
+                    availability={availability}
+                    selectedRooms={formData.requestedRooms}
+                    onRoomSelectionChange={handleRoomSelectionChange}
+                    checkRoomCapacity={checkRoomCapacity}
+                    label="Requested locations"
+                    eventStartTime={formData.startTime}
+                    eventEndTime={formData.endTime}
+                    eventDate={formData.startDate}
+                  />
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* Additional Information + Submitter Info (2-column) */}
+        <div className="section-row-2col">
+          {/* Left Column: Additional Information */}
+          <section className="form-section">
+            <h2>Additional Information</h2>
+
+            {/* Special Requirements */}
+            <div className="form-group full-width" style={{ marginBottom: '20px' }}>
+              <label htmlFor="specialRequirements">Special Requirements</label>
+              <textarea
+                id="specialRequirements"
+                name="specialRequirements"
+                value={formData.specialRequirements}
+                onChange={handleInputChange}
+                rows="2"
+                placeholder="Additional notes or special setup requirements..."
+              />
+            </div>
+
+            {/* Internal Notes Section */}
+            <div className="internal-notes-section">
               <h4>🔒 Internal Notes (Staff Use Only)</h4>
               <div className="internal-notes-disclaimer">
                 These notes are for internal staff coordination and will not be visible to the requester.
               </div>
-              
+
               <div className="notes-field-row">
                 <div className="form-group">
                   <label htmlFor="setupNotes">Setup Notes</label>
@@ -738,12 +731,11 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                     name="setupNotes"
                     value={formData.setupNotes}
                     onChange={handleInputChange}
-                    rows="2"
-                    placeholder="Internal notes about setup requirements..."
+                    rows="1"
                   />
                 </div>
               </div>
-              
+
               <div className="notes-field-row">
                 <div className="form-group">
                   <label htmlFor="doorNotes">Door/Access Notes</label>
@@ -752,12 +744,11 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                     name="doorNotes"
                     value={formData.doorNotes}
                     onChange={handleInputChange}
-                    rows="2"
-                    placeholder="Internal notes about door access, keys, security..."
+                    rows="1"
                   />
                 </div>
               </div>
-              
+
               <div className="notes-field-row">
                 <div className="form-group">
                   <label htmlFor="eventNotes">Event Notes</label>
@@ -766,87 +757,85 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                     name="eventNotes"
                     value={formData.eventNotes}
                     onChange={handleInputChange}
-                    rows="2"
-                    placeholder="Internal notes about the event, special considerations..."
+                    rows="1"
                   />
                 </div>
               </div>
             </div>
-        </section>
-        
-        {/* Room Selection */}
-        <section className="form-section">
-          <h2>Select Location(s) *</h2>
-          {formData.attendeeCount && (
-            <p className="help-text">
-              Choose "Reserve" to book locations and "View" to see their schedules. Search by name, building, or features.
-            </p>
-          )}
-          
-          {checkingAvailability && (
-            <div className="loading-message">Checking availability...</div>
-          )}
-          
-          <div className="room-selection-container">
-            {/* Left side: Location MultiSelect */}
-            <div className="room-cards-section">
-              {roomsLoading ? (
-                <div className="loading-message">Loading available locations...</div>
-              ) : allRooms.length === 0 ? (
-                <div className="no-rooms-message">
-                  No locations available. Please contact the office for assistance.
-                </div>
-              ) : (
-                <LocationListSelect
-                  rooms={allRooms}
-                  availability={availability}
-                  selectedRooms={formData.requestedRooms}
-                  onRoomSelectionChange={handleRoomSelectionChange}
-                  checkRoomCapacity={checkRoomCapacity}
-                  label="Choose locations for your event"
-                  eventStartTime={formData.startTime}
-                  eventEndTime={formData.endTime}
-                  eventDate={formData.startDate}
-                />
-              )}
-            </div>
+          </section>
 
-            {/* Right side: Scheduling Assistant */}
-            <div className="scheduling-assistant-container">
-              <SchedulingAssistant
-                selectedRooms={assistantRooms}
-                selectedDate={formData.startDate}
-                eventStartTime={formData.startTime}
-                eventEndTime={formData.endTime}
-                setupTime={formData.setupTime}
-                teardownTime={formData.teardownTime}
-                doorOpenTime={formData.doorOpenTime}
-                doorCloseTime={formData.doorCloseTime}
-                eventTitle={formData.eventTitle}
-                availability={availability}
-                onTimeSlotClick={handleTimeSlotClick}
-                onRoomRemove={handleRemoveAssistantRoom}
-                onEventTimeChange={handleEventTimeChange}
-              />
-            </div>
+          {/* Right Column: Submitter Information */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <section className="form-section">
+              <h2>Submitter Information</h2>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label htmlFor="requesterName">Requester Name</label>
+                  <input
+                    type="text"
+                    id="requesterName"
+                    name="requesterName"
+                    value={formData.requesterName}
+                    readOnly
+                    className="readonly-field"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="requesterEmail">Requester Email</label>
+                  <input
+                    type="email"
+                    id="requesterEmail"
+                    name="requesterEmail"
+                    value={formData.requesterEmail}
+                    readOnly
+                    className="readonly-field"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="department">Department</label>
+                  <input
+                    type="text"
+                    id="department"
+                    name="department"
+                    value={formData.department}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="phone">Phone</label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                  />
+                </div>
+
+                <div className="form-group full-width">
+                  <label htmlFor="contactEmail">Contact Person Email</label>
+                  <input
+                    type="email"
+                    id="contactEmail"
+                    name="contactEmail"
+                    value={formData.contactEmail}
+                    onChange={handleInputChange}
+                    placeholder="Email for reservation updates (optional)"
+                  />
+                </div>
+              </div>
+
+              {formData.contactEmail && (
+                <div className="delegation-info" style={{ marginTop: '8px' }}>
+                  📧 Reservation updates will be sent to <strong>{formData.contactEmail}</strong>
+                </div>
+              )}
+            </section>
           </div>
-        </section>
-        
-        {/* Special Requirements */}
-        <section className="form-section">
-          <h2>Special Requirements</h2>
-          <div className="form-group full-width">
-            <label htmlFor="specialRequirements">Additional Notes or Special Setup Requirements</label>
-            <textarea
-              id="specialRequirements"
-              name="specialRequirements"
-              value={formData.specialRequirements}
-              onChange={handleInputChange}
-              rows="4"
-              placeholder="Please describe any special setup needs, equipment requirements, or other important information..."
-            />
-          </div>
-        </section>
+        </div>
         
         {/* Submit */}
         <div className="form-actions">

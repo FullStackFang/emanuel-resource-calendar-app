@@ -350,6 +350,16 @@
   pointer-events: none;
 }
 
+/* Quarter-Hour Lines (15-minute increments) */
+.quarter-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-bottom: 1px dashed #e5e7eb;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Event Blocks */
 .event-block {
   position: absolute;

@@ -478,6 +478,19 @@ export default function SchedulingAssistant({
     });
   };
 
+  // Snap a Date to the nearest 15-minute increment
+  const snapToQuarterHour = (date) => {
+    const minutes = date.getMinutes();
+    const roundedMinutes = Math.round(minutes / 15) * 15;
+
+    const snapped = new Date(date);
+    snapped.setMinutes(roundedMinutes);
+    snapped.setSeconds(0);
+    snapped.setMilliseconds(0);
+
+    return snapped;
+  };
+
   // Detect if an event overlaps with other events in the same room
   const getOverlapOffset = (block, allVisibleBlocks) => {
     // Find all blocks that overlap with this one
@@ -575,6 +588,8 @@ export default function SchedulingAssistant({
       if (draggedBlock) {
         const durationMs = draggedBlock.endTime - draggedBlock.startTime;
         let newStartTime = new Date(draggedBlock.startTime.getTime() + hourOffset * 60 * 60 * 1000);
+        // Snap to nearest 15-minute increment
+        newStartTime = snapToQuarterHour(newStartTime);
         let newEndTime = new Date(newStartTime.getTime() + durationMs);
 
         // Clamp times to stay within 0:00 - 23:59:59 on the effective date
@@ -1115,6 +1130,23 @@ export default function SchedulingAssistant({
                   }}
                 />
               ))}
+
+              {/* Quarter-hour lines (15-minute increments) */}
+              {Array.from({ length: (END_HOUR - START_HOUR) * 4 }).map((_, index) => {
+                // Skip lines that fall on the hour (already drawn above)
+                if (index % 4 === 0) return null;
+
+                const quarterHourPosition = index * (PIXELS_PER_HOUR / 4);
+                return (
+                  <div
+                    key={`quarter-${index}`}
+                    className="quarter-hour-line"
+                    style={{
+                      top: `${quarterHourPosition}px`
+                    }}
+                  />
+                );
+              })}
 
               {/* Event blocks - all draggable */}
               {visibleEventBlocks.map(block => renderEventBlock(block, visibleEventBlocks))}
