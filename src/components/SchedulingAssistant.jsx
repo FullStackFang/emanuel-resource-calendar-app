@@ -9,6 +9,8 @@ export default function SchedulingAssistant({
   eventEndTime,
   setupTime, // Setup start time for room blocking
   teardownTime, // Teardown end time for room blocking
+  doorOpenTime, // Door open time (optional)
+  doorCloseTime, // Door close time (optional)
   eventTitle, // Title of the event being created/edited
   availability,
   onTimeSlotClick,
@@ -309,7 +311,7 @@ export default function SchedulingAssistant({
 
     setEventBlocks(blocks);
     setRoomStats(stats);
-  }, [availability, selectedRooms, effectiveDate, eventStartTime, eventEndTime]);
+  }, [availability, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {
@@ -322,7 +324,7 @@ export default function SchedulingAssistant({
   useEffect(() => {
     // Clear the drag adjustment so we use the new prop values
     userEventAdjustment.current = null;
-  }, [eventStartTime, eventEndTime]);
+  }, [eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime]);
 
   // Check if we need carousel arrows (more than 3 tabs)
   useEffect(() => {
@@ -490,10 +492,10 @@ export default function SchedulingAssistant({
     return { left: offsetPercent, width: widthPercent };
   };
 
-  // Handle drag start - allow only user events when editing
+  // Handle drag start - allow only user events
   const handleEventDragStart = (e, block) => {
-    // Block all backend events when editing (only user event is draggable)
-    if (currentReservationId && !block.isUserEvent) {
+    // Block all backend events (only user event is draggable)
+    if (!block.isUserEvent) {
       e.preventDefault();
       console.log('[Drag] BLOCKED - Backend event locked:', block.title);
       return;
@@ -607,21 +609,39 @@ export default function SchedulingAssistant({
 
         // Handle user event differently - sync across all tabs and update form
         if (draggedBlock.isUserEvent) {
-          // Calculate the event times (excluding setup/teardown) from the dragged blocking times
-          // We need to determine how much setup/teardown buffer was applied
+          // Calculate ALL time offsets from the original event times
           const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
           const eventEnd = new Date(`${effectiveDate}T${eventEndTime}`);
 
-          // Calculate the original setup and teardown durations
-          const originalBlockStart = draggedBlock.startTime.getTime(); // This is already the original from state
-          const originalBlockEnd = draggedBlock.endTime.getTime(); // Use actual end time from state
+          // Calculate the original blocking times (from state)
+          const originalBlockStart = draggedBlock.startTime.getTime();
+          const originalBlockEnd = draggedBlock.endTime.getTime();
 
+          // Calculate durations/offsets for ALL time fields relative to event times
           const setupDuration = eventStart.getTime() - originalBlockStart;
           const teardownDuration = originalBlockEnd - eventEnd.getTime();
 
-          // Apply the same durations to the new position to get the event times
+          // Calculate door time offsets (if they exist)
+          let doorOpenDuration = 0;
+          let doorCloseDuration = 0;
+
+          if (doorOpenTime) {
+            const doorOpen = new Date(`${effectiveDate}T${doorOpenTime}`);
+            doorOpenDuration = eventStart.getTime() - doorOpen.getTime();
+          }
+
+          if (doorCloseTime) {
+            const doorClose = new Date(`${effectiveDate}T${doorCloseTime}`);
+            doorCloseDuration = doorClose.getTime() - eventEnd.getTime();
+          }
+
+          // Apply the same durations to the new position to get ALL new times
           const newEventStart = new Date(newStartTime.getTime() + setupDuration);
           const newEventEnd = new Date(newEndTime.getTime() - teardownDuration);
+
+          // Calculate new door times by applying the same offsets
+          const newDoorOpenTime = doorOpenTime ? new Date(newEventStart.getTime() - doorOpenDuration) : null;
+          const newDoorCloseTime = doorCloseTime ? new Date(newEventEnd.getTime() + doorCloseDuration) : null;
 
           console.log('[Drag] User event time calculation:', {
             originalBlockStart: new Date(originalBlockStart).toLocaleTimeString(),
@@ -630,10 +650,14 @@ export default function SchedulingAssistant({
             originalEventEnd: eventEnd.toLocaleTimeString(),
             setupDuration: setupDuration / 1000 / 60,
             teardownDuration: teardownDuration / 1000 / 60,
+            doorOpenDuration: doorOpenDuration / 1000 / 60,
+            doorCloseDuration: doorCloseDuration / 1000 / 60,
             newBlockStart: newStartTime.toLocaleTimeString(),
             newBlockEnd: newEndTime.toLocaleTimeString(),
             newEventStart: newEventStart.toLocaleTimeString(),
-            newEventEnd: newEventEnd.toLocaleTimeString()
+            newEventEnd: newEventEnd.toLocaleTimeString(),
+            newDoorOpen: newDoorOpenTime ? newDoorOpenTime.toLocaleTimeString() : 'N/A',
+            newDoorClose: newDoorCloseTime ? newDoorCloseTime.toLocaleTimeString() : 'N/A'
           });
 
           // Store adjustment for user event globally
@@ -642,14 +666,24 @@ export default function SchedulingAssistant({
             endTime: newEndTime
           };
 
-          // Notify parent form to update ALL time fields (event times AND blocking times)
+          // Notify parent form to update ALL time fields (event times AND all blocking/access times)
           if (onEventTimeChange) {
-            onEventTimeChange({
+            const updatedTimes = {
               startTime: formatTime(newEventStart),
               endTime: formatTime(newEventEnd),
               setupTime: formatTime(newStartTime), // New blocking start
               teardownTime: formatTime(newEndTime) // New blocking end
-            });
+            };
+
+            // Only include door times if they were originally set
+            if (doorOpenTime && newDoorOpenTime) {
+              updatedTimes.doorOpenTime = formatTime(newDoorOpenTime);
+            }
+            if (doorCloseTime && newDoorCloseTime) {
+              updatedTimes.doorCloseTime = formatTime(newDoorCloseTime);
+            }
+
+            onEventTimeChange(updatedTimes);
           }
 
           // Update all user event blocks across all rooms
@@ -712,8 +746,8 @@ export default function SchedulingAssistant({
     // Determine if this is the user's event or a backend event
     const isUserEvent = block.isUserEvent;
     const isCurrentReservation = currentReservationId && block.id === currentReservationId;
-    // Lock ALL backend events when editing (only user event is draggable)
-    const isLocked = !isUserEvent && currentReservationId;
+    // Lock ALL backend events (only user event is draggable)
+    const isLocked = !isUserEvent;
 
     if (isDragging) {
       console.log('[Drag] RENDER - block.top:', block.top, 'dragOffset:', dragOffset, 'calculatedTop:', top);

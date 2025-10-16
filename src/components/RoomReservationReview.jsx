@@ -302,7 +302,7 @@ export default function RoomReservationReview({
     }
   }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime]);
 
-  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime }) => {
+  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
     // Update form times when user drags the event in scheduling assistant
     setFormData(prev => ({
       ...prev,
@@ -310,7 +310,10 @@ export default function RoomReservationReview({
       endTime,
       // Update setupTime/teardownTime if provided (they represent the new blocking times)
       ...(setupTime && { setupTime }),
-      ...(teardownTime && { teardownTime })
+      ...(teardownTime && { teardownTime }),
+      // Update doorOpenTime/doorCloseTime if provided
+      ...(doorOpenTime && { doorOpenTime }),
+      ...(doorCloseTime && { doorCloseTime })
     }));
     setHasChanges(true);
   };
@@ -729,6 +732,8 @@ export default function RoomReservationReview({
                 eventEndTime={formData.endTime}
                 setupTime={formData.setupTime}
                 teardownTime={formData.teardownTime}
+                doorOpenTime={formData.doorOpenTime}
+                doorCloseTime={formData.doorCloseTime}
                 eventTitle={formData.eventTitle}
                 availability={availability}
                 onRoomRemove={handleRemoveAssistantRoom}

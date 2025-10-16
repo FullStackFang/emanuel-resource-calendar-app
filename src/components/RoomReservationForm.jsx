@@ -226,7 +226,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     logger.debug('Time slot clicked:', hour);
   };
 
-  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime }) => {
+  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
     // Update form times when user drags the event in scheduling assistant
     setFormData(prev => ({
       ...prev,
@@ -234,7 +234,10 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       endTime,
       // Update setupTime/teardownTime if provided (they represent the new blocking times)
       ...(setupTime && { setupTime }),
-      ...(teardownTime && { teardownTime })
+      ...(teardownTime && { teardownTime }),
+      // Update doorOpenTime/doorCloseTime if provided
+      ...(doorOpenTime && { doorOpenTime }),
+      ...(doorCloseTime && { doorCloseTime })
     }));
   };
 
@@ -806,35 +809,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                   eventDate={formData.startDate}
                 />
               )}
-              
-              {/* Selected Rooms Summary */}
-              {formData.requestedRooms.length > 0 && (
-                <div className="selected-rooms-summary">
-                  <div className="summary-section">
-                    <h4>📍 Selected Locations:</h4>
-                    <div className="selected-pills">
-                      {formData.requestedRooms.map(roomId => {
-                        const room = allRooms.find(r => r._id === roomId);
-                        return room ? (
-                          <div key={roomId} className="room-pill reservation-pill">
-                            {room.name}
-                            <button
-                              type="button"
-                              onClick={() => handleRoomSelectionChange(
-                                formData.requestedRooms.filter(id => id !== roomId)
-                              )}
-                              className="pill-remove"
-                              title="Remove location"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Right side: Scheduling Assistant */}
@@ -846,6 +820,8 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
                 eventEndTime={formData.endTime}
                 setupTime={formData.setupTime}
                 teardownTime={formData.teardownTime}
+                doorOpenTime={formData.doorOpenTime}
+                doorCloseTime={formData.doorCloseTime}
                 eventTitle={formData.eventTitle}
                 availability={availability}
                 onTimeSlotClick={handleTimeSlotClick}
