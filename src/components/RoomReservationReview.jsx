@@ -51,10 +51,9 @@ export default function RoomReservationReview({
     teardownTimeMinutes: 0,
     contactEmail: '',
     contactName: '',
-    isOnBehalfOf: false
+    isOnBehalfOf: false,
+    reviewNotes: ''
   });
-
-  const [actionNotes, setActionNotes] = useState('');
   const [availability, setAvailability] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [assistantRooms, setAssistantRooms] = useState([]);
@@ -128,7 +127,8 @@ export default function RoomReservationReview({
         teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
         contactEmail: reservation.contactEmail || '',
         contactName: reservation.contactName || '',
-        isOnBehalfOf: reservation.isOnBehalfOf || false
+        isOnBehalfOf: reservation.isOnBehalfOf || false,
+        reviewNotes: reservation.reviewNotes || ''
       });
 
       // Store original changeKey for optimistic concurrency control
@@ -480,7 +480,6 @@ export default function RoomReservationReview({
         startDateTime,
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
-        actionNotes,
         changeKey: originalChangeKey  // Include changeKey for optimistic concurrency control
       };
 
@@ -489,13 +488,13 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
 
-      onApprove(updatedData, actionNotes, originalChangeKey);
+      onApprove(updatedData, formData.reviewNotes, originalChangeKey);
     }
   };
 
   const handleReject = () => {
     if (onReject) {
-      onReject(actionNotes);
+      onReject(formData.reviewNotes);
     }
   };
 
@@ -763,11 +762,12 @@ export default function RoomReservationReview({
               <div style={{ marginBottom: '20px' }}>
                 <h4 style={{ color: '#333', marginBottom: '10px', fontSize: '1rem' }}>Admin Notes / Rejection Reason</h4>
                 <div className="form-group full-width">
-                  <label htmlFor="actionNotes">Notes</label>
+                  <label htmlFor="reviewNotes">Notes</label>
                   <textarea
-                    id="actionNotes"
-                    value={actionNotes}
-                    onChange={(e) => setActionNotes(e.target.value)}
+                    id="reviewNotes"
+                    name="reviewNotes"
+                    value={formData.reviewNotes}
+                    onChange={handleInputChange}
                     rows="2"
                     placeholder="Add any notes or provide a reason for rejection..."
                   />

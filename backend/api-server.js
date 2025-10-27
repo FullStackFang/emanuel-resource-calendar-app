@@ -11822,7 +11822,9 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
       'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
       'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
-      'contactName', 'contactEmail', 'priority', 'reviewNotes'
+      'contactName', 'contactEmail', 'priority', 'reviewNotes',
+      'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
+      'setupNotes', 'doorNotes', 'eventNotes'
     ];
 
     // Build update document
