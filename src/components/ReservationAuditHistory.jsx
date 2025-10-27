@@ -3,7 +3,7 @@ import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './ReservationAuditHistory.css';
 
-const ReservationAuditHistory = ({ reservationId, apiToken }) => {
+const ReservationAuditHistory = ({ reservationId, apiToken, refreshTrigger }) => {
   const [auditHistory, setAuditHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -11,9 +11,10 @@ const ReservationAuditHistory = ({ reservationId, apiToken }) => {
 
   useEffect(() => {
     if (reservationId && apiToken) {
+      console.log('🔄 Fetching audit history (refreshTrigger:', refreshTrigger, ')');
       fetchAuditHistory();
     }
-  }, [reservationId, apiToken]);
+  }, [reservationId, apiToken, refreshTrigger]);
 
   const fetchAuditHistory = async () => {
     try {

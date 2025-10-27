@@ -1,5 +1,5 @@
 // src/components/ReservationRequests.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
@@ -26,7 +26,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [isSaving, setIsSaving] = useState(false);
 
   // Child component's save function (exposed via callback)
-  const [childSaveFunction, setChildSaveFunction] = useState(null);
+  const childSaveFunctionRef = useRef(null);
+
+  // Memoized callback for receiving the save function from child
+  const handleSaveFunctionReady = useCallback((saveFunc) => {
+    childSaveFunctionRef.current = saveFunc;
+  }, []);
 
   // Soft hold state
   const [reviewHold, setReviewHold] = useState(null);
@@ -334,10 +339,27 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // RoomReservationReview handles the actual API call and passes the result here
   const handleSaveChanges = async (result) => {
     // If result is provided, it means RoomReservationReview already saved
-    // Just update our local state with the new changeKey
+    // Just update our local state with the new changeKey and refresh the data
     if (result && result.changeKey) {
+      console.log('📝 Updating reservation data after save:', result);
+
       setOriginalChangeKey(result.changeKey);
       setHasChanges(false);
+
+      // Update the selected reservation with the saved data
+      if (result.reservation) {
+        console.log('🔄 Updating selectedReservation with saved data');
+        setSelectedReservation(result.reservation);
+
+        // Also update the reservation in allReservations array
+        setAllReservations(prev => {
+          return prev.map(res =>
+            res._id === result.reservation._id ? result.reservation : res
+          );
+        });
+        console.log('✅ Updated allReservations array');
+      }
+
       setError('✅ Changes saved successfully');
       setTimeout(() => setError(''), 3000);
       return;
@@ -887,17 +909,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               </h2>
 
               <div className="review-actions">
-                {selectedReservation.status === 'pending' && hasChanges && (
-                  <button
-                    type="button"
-                    className="action-btn save-btn"
-                    onClick={() => childSaveFunction && childSaveFunction()}
-                    disabled={isSaving}
-                  >
-                    {isSaving ? 'Saving...' : '💾 Save Changes'}
-                  </button>
-                )}
-
                 {selectedReservation.status === 'pending' && (
                   <>
                     <button
@@ -913,6 +924,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                       onClick={() => handleReject(selectedReservation)}
                     >
                       ✗ Reject
+                    </button>
+                    <button
+                      type="button"
+                      className="action-btn save-btn"
+                      onClick={() => {
+                        console.log('🖱️ Save button clicked in parent', { hasChanges, isSaving });
+                        childSaveFunctionRef.current?.();
+                      }}
+                      disabled={!hasChanges || isSaving}
+                      title={!hasChanges ? 'No changes to save' : ''}
+                    >
+                      {isSaving ? 'Saving...' : '💾 Save'}
                     </button>
                   </>
                 )}
@@ -938,7 +961,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 onSave={handleSaveChanges}
                 onHasChangesChange={setHasChanges}
                 onIsSavingChange={setIsSaving}
-                onSaveFunctionReady={(saveFunc) => setChildSaveFunction(() => saveFunc)}
+                onSaveFunctionReady={handleSaveFunctionReady}
                 onLockedEventClick={handleLockedEventClick}
               />
             </div>

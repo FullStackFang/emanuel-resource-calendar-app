@@ -1,5 +1,5 @@
 // src/components/RoomReservationReview.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
@@ -62,6 +62,7 @@ export default function RoomReservationReview({
   const [isSaving, setIsSaving] = useState(false);
   const [timeErrors, setTimeErrors] = useState([]);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
+  const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -78,18 +79,28 @@ export default function RoomReservationReview({
     }
   }, [isSaving, onIsSavingChange]);
 
-  // Expose save function to parent
-  useEffect(() => {
-    if (onSaveFunctionReady) {
-      onSaveFunctionReady(handleSaveChanges);
-    }
-  }, [onSaveFunctionReady]);
-
   // Initialize form data from reservation
   useEffect(() => {
     if (reservation) {
+      console.log('📋 Initializing form data from reservation:', {
+        id: reservation._id,
+        startDateTime: reservation.startDateTime,
+        endDateTime: reservation.endDateTime
+      });
+
       const startDateTime = new Date(reservation.startDateTime);
       const endDateTime = new Date(reservation.endDateTime);
+
+      // Validate dates
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        console.error('❌ Invalid date values in reservation:', {
+          startDateTime: reservation.startDateTime,
+          endDateTime: reservation.endDateTime,
+          parsedStart: startDateTime,
+          parsedEnd: endDateTime
+        });
+        return;
+      }
 
       setFormData({
         requesterName: reservation.requesterName || '',
@@ -263,7 +274,7 @@ export default function RoomReservationReview({
   };
 
   // Validate time fields are in chronological order
-  const validateTimes = () => {
+  const validateTimes = useCallback(() => {
     const errors = [];
     const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime } = formData;
 
@@ -320,7 +331,7 @@ export default function RoomReservationReview({
 
     setTimeErrors(errors);
     return errors.length === 0;
-  };
+  }, [formData]);
 
   // Validate times whenever time fields change
   useEffect(() => {
@@ -329,7 +340,7 @@ export default function RoomReservationReview({
     } else {
       setTimeErrors([]);
     }
-  }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime]);
+  }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime, validateTimes]);
 
   const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
     // Update form times when user drags the event in scheduling assistant
@@ -347,15 +358,23 @@ export default function RoomReservationReview({
     setHasChanges(true);
   };
 
-  const handleSaveChanges = async () => {
-    if (!hasChanges) return;
+  const handleSaveChanges = useCallback(async () => {
+    console.log('💾 Save button clicked', { hasChanges, reservation: reservation?._id });
 
-    // Validate times before saving
-    if (!validateTimes()) {
-      logger.warn('Cannot save - time validation errors exist');
+    if (!hasChanges) {
+      console.log('⚠️ No changes to save, returning early');
       return;
     }
 
+    // Validate times before saving
+    if (!validateTimes()) {
+      console.log('❌ Time validation failed');
+      logger.warn('Cannot save - time validation errors exist');
+      alert('Cannot save: Please fix time validation errors');
+      return;
+    }
+
+    console.log('✅ Validation passed, starting save...');
     setIsSaving(true);
     try {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
@@ -374,6 +393,8 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
 
+      console.log('📤 Sending save request to API...', { reservationId: reservation._id });
+
       // Make API call with If-Match header for optimistic concurrency control
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`,
@@ -388,6 +409,8 @@ export default function RoomReservationReview({
         }
       );
 
+      console.log('📥 API response received:', { status: response.status, ok: response.ok });
+
       // Handle conflict (409)
       if (response.status === 409) {
         const data = await response.json();
@@ -399,6 +422,7 @@ export default function RoomReservationReview({
                        `Your changes have NOT been saved. Please refresh to see the latest version.\n` +
                        `(Your changes will be lost)`;
 
+        console.log('⚠️ Conflict detected (409):', data);
         alert(message);
         return;
       }
@@ -408,26 +432,37 @@ export default function RoomReservationReview({
       }
 
       const result = await response.json();
+      console.log('✅ Save successful:', result);
 
       // Update originalChangeKey with the new changeKey from server
       setOriginalChangeKey(result.changeKey);
       setHasChanges(false);
+
+      // Refresh audit history
+      setAuditRefreshTrigger(prev => prev + 1);
 
       // Notify parent of successful save (so it can update its changeKey if needed)
       if (onSave) {
         onSave(result);
       }
 
-      // Show success message
-      alert('✅ Changes saved successfully');
-
     } catch (error) {
+      console.error('❌ Save error:', error);
       logger.error('Error saving changes:', error);
       alert(`Failed to save changes: ${error.message}`);
     } finally {
       setIsSaving(false);
+      console.log('💾 Save process complete');
     }
-  };
+  }, [hasChanges, validateTimes, formData, reservation, apiToken, originalChangeKey, onSave]);
+
+  // Expose save function to parent
+  useEffect(() => {
+    if (onSaveFunctionReady) {
+      console.log('🔄 Updating save function reference in parent');
+      onSaveFunctionReady(handleSaveChanges);
+    }
+  }, [onSaveFunctionReady, handleSaveChanges]);
 
   const handleApprove = () => {
     // Validate times before approval
@@ -869,6 +904,7 @@ export default function RoomReservationReview({
                 <ReservationAuditHistory
                   reservationId={reservation._id}
                   apiToken={apiToken}
+                  refreshTrigger={auditRefreshTrigger}
                 />
               </section>
             )}

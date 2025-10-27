@@ -1509,6 +1509,20 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 }
 
 /**
+ * Normalize empty values to null for consistent comparison
+ * Treats undefined, null, empty string, and empty arrays as equivalent
+ */
+function normalizeEmptyValue(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (Array.isArray(value) && value.length === 0) {
+    return null;
+  }
+  return value;
+}
+
+/**
  * Compare two objects and return a list of changes for the specified fields
  * Used for building revision history
  * @param {Object} oldData - The previous version of the data
@@ -1520,24 +1534,28 @@ function getChanges(oldData, newData, fields) {
   const changes = [];
 
   fields.forEach(field => {
-    const oldValue = oldData[field];
-    const newValue = newData[field];
+    let oldValue = oldData[field];
+    let newValue = newData[field];
+
+    // Normalize empty values before comparison
+    const normalizedOld = normalizeEmptyValue(oldValue);
+    const normalizedNew = normalizeEmptyValue(newValue);
 
     // Handle different data types appropriately
     let hasChanged = false;
 
-    if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+    if (Array.isArray(normalizedOld) && Array.isArray(normalizedNew)) {
       // Array comparison - check if contents differ
-      hasChanged = JSON.stringify(oldValue.sort()) !== JSON.stringify(newValue.sort());
-    } else if (oldValue instanceof Date && newValue instanceof Date) {
+      hasChanged = JSON.stringify(normalizedOld.sort()) !== JSON.stringify(normalizedNew.sort());
+    } else if (normalizedOld instanceof Date && normalizedNew instanceof Date) {
       // Date comparison
-      hasChanged = oldValue.getTime() !== newValue.getTime();
-    } else if (typeof oldValue === 'object' && typeof newValue === 'object' && oldValue !== null && newValue !== null) {
+      hasChanged = normalizedOld.getTime() !== normalizedNew.getTime();
+    } else if (typeof normalizedOld === 'object' && typeof normalizedNew === 'object' && normalizedOld !== null && normalizedNew !== null) {
       // Object comparison
-      hasChanged = JSON.stringify(oldValue) !== JSON.stringify(newValue);
+      hasChanged = JSON.stringify(normalizedOld) !== JSON.stringify(normalizedNew);
     } else {
-      // Primitive comparison
-      hasChanged = oldValue !== newValue;
+      // Primitive comparison (including null === null)
+      hasChanged = normalizedOld !== normalizedNew;
     }
 
     if (hasChanged) {
@@ -11860,14 +11878,18 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
+    // Extract the document from the result
+    // MongoDB driver may return either the document directly or wrapped in {value: ...}
+    const updatedReservation = result.value || result;
+
     // Generate new changeKey
-    const newChangeKey = generateChangeKey(result);
+    const newChangeKey = generateChangeKey(updatedReservation);
     await roomReservationsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: { changeKey: newChangeKey } }
     );
 
-    result.changeKey = newChangeKey;
+    updatedReservation.changeKey = newChangeKey;
 
     // Log audit entry for update if there were changes
     if (changes.length > 0) {
@@ -11879,7 +11901,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
         source: 'Admin Edit',
         changeSet: changes,
         metadata: {
-          revisionNumber: result.currentRevision
+          revisionNumber: updatedReservation.currentRevision
         }
       });
     }
@@ -11892,7 +11914,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
 
     res.json({
       message: 'Reservation updated successfully',
-      reservation: result,
+      reservation: updatedReservation,
       changeKey: newChangeKey,
       changesApplied: changes.length
     });
