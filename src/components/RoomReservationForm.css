@@ -907,10 +907,9 @@
   box-shadow: 0 0 0 3px rgba(192, 38, 211, 0.1);
 }
 
-/* Review Action Bar - Sticky at top */
+/* Review Action Bar - Fixed at top of container */
 .review-action-bar {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
   background: white;
   border-bottom: 2px solid #e5e7eb;
@@ -919,9 +918,6 @@
   justify-content: space-between;
   align-items: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin: 0 0 20px 0;
-  backdrop-filter: blur(8px);
-  background: rgba(255, 255, 255, 0.98);
 }
 
 .review-actions {

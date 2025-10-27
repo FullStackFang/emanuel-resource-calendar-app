@@ -496,16 +496,47 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
   }
   
   return (
-    <div className="room-reservation-form">
-      <h1>Space Booking Request</h1>
-      
+    <div className="room-reservation-form" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      maxHeight: 'calc(100vh - 90px)',
+      overflow: 'hidden'
+    }}>
       {error && (
         <div className="error-message">
           ❌ {error}
         </div>
       )}
-      
-      <form onSubmit={handleSubmit}>
+
+      {/* Sticky Action Bar at top */}
+      <div className="review-action-bar">
+        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Space Booking Request</h2>
+
+        <div className="review-actions">
+          <button
+            type="submit"
+            form="space-booking-form"
+            className="action-btn submit-btn"
+            disabled={loading || formData.requestedRooms.length === 0 || timeErrors.length > 0}
+          >
+            {loading ? 'Submitting...' : '✓ Submit Request'}
+          </button>
+
+          {!isPublic && (
+            <button
+              type="button"
+              className="action-btn cancel-btn"
+              onClick={() => navigate('/')}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable form content */}
+      <form id="space-booking-form" onSubmit={handleSubmit} style={{ flex: 1, overflow: 'auto', padding: '10px' }}>
         {/* Event Details + Room Selection Side-by-Side */}
         <div className="event-and-rooms-container">
           {/* Left side: Event Details (30%) */}
@@ -879,28 +910,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
               )}
             </section>
           </div>
-        </div>
-        
-        {/* Submit */}
-        <div className="form-actions">
-          <button
-            type="submit"
-            className="submit-btn"
-            disabled={loading || formData.requestedRooms.length === 0 || timeErrors.length > 0}
-          >
-            {loading ? 'Submitting...' : 'Submit Reservation Request'}
-          </button>
-          
-          {!isPublic && (
-            <button
-              type="button"
-              className="cancel-btn"
-              onClick={() => navigate('/')}
-              disabled={loading}
-            >
-              Cancel
-            </button>
-          )}
         </div>
       </form>
     </div>
