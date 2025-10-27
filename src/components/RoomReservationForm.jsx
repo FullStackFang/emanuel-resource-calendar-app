@@ -399,15 +399,6 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       
       setSuccess(true);
       
-      // Redirect after success
-      setTimeout(() => {
-        if (isPublic) {
-          window.location.href = '/'; // Redirect to main page for public users
-        } else {
-          navigate('/'); // Navigate to calendar for authenticated users
-        }
-      }, 3000);
-      
     } catch (err) {
       logger.error('Error submitting reservation:', err);
       setError(err.message || 'Failed to submit reservation request');
@@ -445,7 +436,60 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           <h2>✅ Reservation Request Submitted!</h2>
           <p>Your space booking request has been submitted successfully.</p>
           <p>You will receive a confirmation email once it has been reviewed.</p>
-          <p>Redirecting...</p>
+
+          <div className="form-actions" style={{ marginTop: '30px' }}>
+            <button
+              type="button"
+              className="submit-btn"
+              onClick={() => {
+                if (isPublic) {
+                  window.location.href = '/';
+                } else {
+                  navigate('/');
+                }
+              }}
+            >
+              Return to Calendar
+            </button>
+
+            {!isPublic && (
+              <button
+                type="button"
+                className="cancel-btn"
+                onClick={() => {
+                  setSuccess(false);
+                  setFormData({
+                    requesterName: '',
+                    requesterEmail: '',
+                    department: '',
+                    phone: '',
+                    eventTitle: '',
+                    eventDescription: '',
+                    startDate: '',
+                    startTime: '',
+                    endDate: '',
+                    endTime: '',
+                    doorOpenTime: '',
+                    doorCloseTime: '',
+                    setupTime: '',
+                    teardownTime: '',
+                    setupNotes: '',
+                    doorNotes: '',
+                    eventNotes: '',
+                    attendeeCount: '',
+                    requestedRooms: [],
+                    specialRequirements: '',
+                    priority: 'medium',
+                    setupTimeMinutes: 0,
+                    teardownTimeMinutes: 0,
+                    contactEmail: ''
+                  });
+                }}
+              >
+                Submit Another Request
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );

@@ -871,6 +871,7 @@ export default function SchedulingAssistant({
             {/* Navigation button for locked reservations */}
             {isLocked && block.type === 'reservation' && onLockedEventClick && (
               <button
+                type="button"
                 className="event-nav-button"
                 onClick={(e) => handleNavigateToEvent(e, block.id)}
                 title="Open this reservation"
@@ -1014,6 +1015,7 @@ export default function SchedulingAssistant({
         <div className="room-tabs-carousel">
           {canScrollLeft && (
             <button
+              type="button"
               className="tab-scroll-btn tab-scroll-left"
               onClick={() => scrollTabs('left')}
               aria-label="Scroll tabs left"
@@ -1049,6 +1051,7 @@ export default function SchedulingAssistant({
 
             return (
               <button
+                type="button"
                 key={room._id}
                 className={`room-tab ${isActive ? 'active' : ''}`}
                 style={{
@@ -1081,6 +1084,7 @@ export default function SchedulingAssistant({
 
           {canScrollRight && (
             <button
+              type="button"
               className="tab-scroll-btn tab-scroll-right"
               onClick={() => scrollTabs('right')}
               aria-label="Scroll tabs right"
