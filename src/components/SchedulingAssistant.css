@@ -264,7 +264,7 @@
 
 /* Timeline Container */
 .timeline-container {
-  height: 800px;
+  height: 600px; /* Reduced from 800px for more compact display */
   overflow-y: auto;
   overflow-x: hidden;
   border: none;
@@ -292,13 +292,19 @@
   background: #a8a8a8;
 }
 
+/* When dragging, allow events to extend beyond visible area */
+.timeline-container.dragging-active {
+  overflow-y: visible !important;
+  overflow-x: hidden;
+}
+
 /* Timeline Grid */
 .timeline-grid {
   display: flex;
   position: relative;
-  height: 1200px;
+  height: 1200px; /* Must match 24 hours × 50px/hour for accurate positioning */
   max-height: 1200px;
-  overflow: hidden;
+  overflow: visible; /* Allow events to be visible when scrolling */
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -311,7 +317,9 @@
   border-right: 2px solid #d1d5db;
   position: relative;
   z-index: 10;
-  height: fit-content;
+  height: 1200px; /* Exactly 24 hours × 50px - no extra space */
+  max-height: 1200px;
+  overflow: hidden;
 }
 
 .time-label {
@@ -339,6 +347,8 @@
   flex: 1;
   position: relative;
   background: white;
+  max-height: 1200px; /* Exactly 24 hours × 50px - no extra space */
+  overflow: hidden;
 }
 
 /* Hour Lines */
@@ -391,6 +401,15 @@
     rgba(255, 255, 255, 0.15) 10px,
     rgba(255, 255, 255, 0.15) 20px
   );
+}
+
+/* Show grab cursor on draggable user events */
+.event-block.user-event:not(.locked) {
+  cursor: grab;
+}
+
+.event-block.user-event:not(.locked):active {
+  cursor: grabbing;
 }
 
 .event-block-content {

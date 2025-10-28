@@ -1,5 +1,5 @@
 // src/components/SchedulingAssistant.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import './SchedulingAssistant.css';
 
 export default function SchedulingAssistant({
@@ -23,7 +23,6 @@ export default function SchedulingAssistant({
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
   const [roomStats, setRoomStats] = useState({}); // Stats per room: { roomId: { conflictCount, events } }
   const [draggingEventId, setDraggingEventId] = useState(null);
-  const [dragStartY, setDragStartY] = useState(0);
   const [dragOffsets, setDragOffsets] = useState({}); // Track drag offset for each event
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -33,15 +32,18 @@ export default function SchedulingAssistant({
   const userEventAdjustment = useRef(null); // Track user event's dragged position: { startTime, endTime }
   const hasScrolledOnce = useRef(false); // Track if initial auto-scroll has happened
   const autoScrollInterval = useRef(null); // Track auto-scroll animation frame
+  const dragClickOffset = useRef(0); // Track where on event block user clicked (for accurate cursor tracking)
+  const liveDragOffset = useRef(0); // Track live drag offset during drag (for smooth CSS transform without re-renders)
+  const lastMouseY = useRef(0); // Track last mouse Y position for position updates during auto-scroll
 
   const PIXELS_PER_HOUR = 50; // 50px per hour
   const START_HOUR = 0;  // Start at 12 AM (midnight)
   const END_HOUR = 24;   // End at 11:59 PM (full 24 hours scrollable)
 
   // Auto-scroll configuration for drag operations
-  const SCROLL_HOT_ZONE = 80;        // pixels from edge to trigger auto-scroll
+  const SCROLL_HOT_ZONE = 70;        // pixels from edge to trigger auto-scroll (smaller for more natural feel)
   const SCROLL_SPEED_BASE = 8;       // base scroll speed (pixels per frame)
-  const SCROLL_SPEED_MAX = 20;       // max scroll speed at edge
+  const SCROLL_SPEED_MAX = 25;       // max scroll speed at edge
   
   // Use today's date as default if no date is selected (in local timezone)
   const getTodayDate = () => {
@@ -377,8 +379,85 @@ export default function SchedulingAssistant({
     return `${hour - 12} PM`;
   };
 
+  // Update event position based on mouse Y and current scroll
+  // Called from both handleMouseMove AND auto-scroll loop
+  const updateEventPosition = useCallback((mouseY) => {
+    if (!draggingEventId) return;
+
+    // Find the dragged event block
+    const draggedBlock = eventBlocks.find(b => b.id === draggingEventId);
+    if (!draggedBlock || !timelineRef.current) return;
+
+    // Get timeline bounding rect
+    const timelineRect = timelineRef.current.getBoundingClientRect();
+
+    // Clamp cursor to viewport boundaries - cannot go outside timeline top/bottom
+    const clampedMouseY = Math.max(
+      timelineRect.top,
+      Math.min(mouseY, timelineRect.bottom)
+    );
+
+    // Calculate cursor position within the timeline (accounting for scroll and zoom)
+    const cursorYInViewport = clampedMouseY - timelineRect.top;
+    const cursorYLogical = cursorYInViewport / 0.75; // Account for 75% zoom
+    const currentScroll = timelineRef.current.scrollTop;
+    const cursorYInTimeline = cursorYLogical + currentScroll;
+
+    // Subtract the click offset to get where event top should be
+    const desiredEventTop = cursorYInTimeline - dragClickOffset.current;
+
+    // Calculate time boundaries
+    const eventDurationMs = draggedBlock.endTime - draggedBlock.startTime;
+    const desiredStartTimeMs = (desiredEventTop / PIXELS_PER_HOUR) * 60 * 60 * 1000;
+    const dayStart = new Date(effectiveDate + 'T00:00:00');
+    const dayEnd = new Date(effectiveDate + 'T23:59:59');
+    const desiredStartTime = new Date(dayStart.getTime() + desiredStartTimeMs);
+    const desiredEndTime = new Date(desiredStartTime.getTime() + eventDurationMs);
+
+    // Clamp to time boundaries (12am to 11:59pm)
+    let clampedEventTop = desiredEventTop;
+    const hitTopBoundary = desiredStartTime < dayStart;
+    const hitBottomBoundary = desiredEndTime > dayEnd;
+
+    if (hitTopBoundary) {
+      clampedEventTop = 0;
+    } else if (hitBottomBoundary) {
+      // Clamp to 11:59pm - event must END at or before 11:59:59pm
+      const maxStartTimeHours = 23 + (59/60); // 23:59 in hours
+      const eventDurationHours = draggedBlock.height / PIXELS_PER_HOUR;
+      const maxStartPixels = (maxStartTimeHours - eventDurationHours) * PIXELS_PER_HOUR;
+      clampedEventTop = maxStartPixels;
+    }
+
+    // Calculate offset from original position
+    const finalOffset = clampedEventTop - draggedBlock.top;
+    liveDragOffset.current = finalOffset;
+
+    // Apply CSS transform directly to DOM element (smooth, no React re-render)
+    const draggedElement = document.querySelector(`[data-event-id="${draggingEventId}"]`);
+    if (draggedElement) {
+      draggedElement.style.transform = `translateY(${finalOffset}px)`;
+      draggedElement.style.zIndex = '1000';
+    }
+
+    // Auto-scroll detection (only check, don't call startAutoScroll from here to avoid recursion)
+    // Use clamped position for scroll detection
+    const mouseYRelativeToViewport = clampedMouseY - timelineRect.top;
+    const rectHeight = timelineRect.height;
+
+    // Return scroll info for caller to handle
+    return {
+      hitTopBoundary,
+      hitBottomBoundary,
+      mouseYRelativeToViewport,
+      rectHeight,
+      isAtTopEdge: clampedMouseY === timelineRect.top,
+      isAtBottomEdge: clampedMouseY === timelineRect.bottom
+    };
+  }, [draggingEventId, eventBlocks, timelineRef, effectiveDate, PIXELS_PER_HOUR]);
+
   // Auto-scroll timeline when dragging near edges
-  const startAutoScroll = (direction, speed) => {
+  const startAutoScroll = useCallback((direction, speed) => {
     // Clear any existing auto-scroll
     if (autoScrollInterval.current) {
       cancelAnimationFrame(autoScrollInterval.current);
@@ -398,6 +477,11 @@ export default function SchedulingAssistant({
       // Apply scroll
       timelineRef.current.scrollTop = newScroll;
 
+      // Update event position with stored mouse Y (keeps event following cursor during scroll)
+      if (lastMouseY.current && draggingEventId) {
+        updateEventPosition(lastMouseY.current);
+      }
+
       // Continue scrolling if not at limits
       if (newScroll > 0 && newScroll < maxScroll) {
         autoScrollInterval.current = requestAnimationFrame(scroll);
@@ -405,14 +489,14 @@ export default function SchedulingAssistant({
     };
 
     autoScrollInterval.current = requestAnimationFrame(scroll);
-  };
+  }, [timelineRef, updateEventPosition, draggingEventId]);
 
-  const stopAutoScroll = () => {
+  const stopAutoScroll = useCallback(() => {
     if (autoScrollInterval.current) {
       cancelAnimationFrame(autoScrollInterval.current);
       autoScrollInterval.current = null;
     }
-  };
+  }, []);
 
   // Navigate carousel left or right (infinite/circular)
   const scrollTabs = (direction) => {
@@ -511,75 +595,110 @@ export default function SchedulingAssistant({
     return { left: offsetPercent, width: widthPercent };
   };
 
-  // Handle drag start - allow only user events
-  const handleEventDragStart = (e, block) => {
+  // Handle mouse down - start drag (replaces HTML5 drag API)
+  const handleMouseDown = (e, block) => {
     // Block all backend events (only user event is draggable)
     if (!block.isUserEvent) {
-      e.preventDefault();
       console.log('[Drag] BLOCKED - Backend event locked:', block.title);
       return;
     }
 
-    console.log('[Drag] START - event:', block.title);
+    // Prevent text selection and other default behaviors
+    e.preventDefault();
     e.stopPropagation();
-    setDraggingEventId(block.id);
-    setDragStartY(e.clientY);
 
-    // Store initial position
+    console.log('[Drag] START - event:', block.title);
+
+    // Store where on the event block the user clicked (in logical coordinates)
+    const eventElement = e.currentTarget;
+    const eventRect = eventElement.getBoundingClientRect();
+    const clickOffsetY = e.clientY - eventRect.top; // Viewport coordinates
+    dragClickOffset.current = clickOffsetY / 0.75; // Convert to logical coordinates for zoom
+
+    setDraggingEventId(block.id);
+
+    // Reset offset for this event
+    liveDragOffset.current = 0;
+    lastMouseY.current = e.clientY; // Initialize mouse position
     setDragOffsets(prev => ({
       ...prev,
       [block.id]: 0
     }));
+
+    // Prevent modal scrolling during drag and disable text selection
+    const modal = document.querySelector('.review-modal');
+    if (modal) modal.classList.add('dragging-timeline');
   };
 
-  // Handle dragging
-  const handleEventDrag = (e) => {
+  // Handle mouse move - store position and update event
+  const handleMouseMove = useCallback((e) => {
     if (!draggingEventId) return;
 
-    // Don't skip on clientY === 0, as browsers sometimes report this during drag
-    if (e.clientY !== 0) {
-      const deltaY = e.clientY - dragStartY;
-      console.log('[Drag] MOVE - deltaY:', deltaY, 'clientY:', e.clientY);
-      setDragOffsets(prev => ({
-        ...prev,
-        [draggingEventId]: deltaY
-      }));
+    // Prevent default drag behavior
+    e.preventDefault();
 
-      // Auto-scroll detection: check if mouse is near top or bottom edge of timeline viewport
-      if (timelineRef.current) {
-        const rect = timelineRef.current.getBoundingClientRect();
-        const mouseYRelativeToViewport = e.clientY - rect.top;
+    // Store mouse Y for use during auto-scroll
+    lastMouseY.current = e.clientY;
 
-        // Check top hot zone
-        if (mouseYRelativeToViewport < SCROLL_HOT_ZONE && mouseYRelativeToViewport >= 0) {
-          // Calculate speed: closer to edge = faster scroll
-          const edgeProximity = SCROLL_HOT_ZONE - mouseYRelativeToViewport;
-          const speed = SCROLL_SPEED_BASE + (edgeProximity / SCROLL_HOT_ZONE) * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
-          startAutoScroll('up', speed);
-        }
-        // Check bottom hot zone
-        else if (mouseYRelativeToViewport > (rect.height - SCROLL_HOT_ZONE) && mouseYRelativeToViewport <= rect.height) {
-          // Calculate speed: closer to edge = faster scroll
-          const edgeProximity = mouseYRelativeToViewport - (rect.height - SCROLL_HOT_ZONE);
-          const speed = SCROLL_SPEED_BASE + (edgeProximity / SCROLL_HOT_ZONE) * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
-          startAutoScroll('down', speed);
-        }
-        // Not in hot zone - stop auto-scroll
-        else {
-          stopAutoScroll();
-        }
+    // Update event position and get scroll info
+    const scrollInfo = updateEventPosition(e.clientY);
+    if (!scrollInfo) return;
+
+    const { hitTopBoundary, hitBottomBoundary, mouseYRelativeToViewport, rectHeight, isAtTopEdge, isAtBottomEdge } = scrollInfo;
+
+    // Handle auto-scroll based on scroll info
+    // When cursor is clamped at edge, use max speed for faster scrolling
+    if (!hitTopBoundary && (isAtTopEdge || mouseYRelativeToViewport < SCROLL_HOT_ZONE) && mouseYRelativeToViewport >= 0) {
+      // Near or at top edge - scroll up
+      let speed;
+      if (isAtTopEdge) {
+        // Cursor clamped at top edge - use max speed
+        speed = SCROLL_SPEED_MAX;
+      } else {
+        // Normal hot zone behavior
+        const edgeProximity = SCROLL_HOT_ZONE - mouseYRelativeToViewport;
+        const normalizedProximity = edgeProximity / SCROLL_HOT_ZONE;
+        const easedProximity = Math.pow(normalizedProximity, 2);
+        speed = SCROLL_SPEED_BASE + easedProximity * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
       }
+      startAutoScroll('up', speed);
     }
-  };
+    else if (!hitBottomBoundary && (isAtBottomEdge || mouseYRelativeToViewport > (rectHeight - SCROLL_HOT_ZONE)) && mouseYRelativeToViewport <= rectHeight) {
+      // Near or at bottom edge - scroll down
+      let speed;
+      if (isAtBottomEdge) {
+        // Cursor clamped at bottom edge - use max speed
+        speed = SCROLL_SPEED_MAX;
+      } else {
+        // Normal hot zone behavior
+        const edgeProximity = mouseYRelativeToViewport - (rectHeight - SCROLL_HOT_ZONE);
+        const normalizedProximity = edgeProximity / SCROLL_HOT_ZONE;
+        const easedProximity = Math.pow(normalizedProximity, 2);
+        speed = SCROLL_SPEED_BASE + easedProximity * (SCROLL_SPEED_MAX - SCROLL_SPEED_BASE);
+      }
+      startAutoScroll('down', speed);
+    }
+    else {
+      stopAutoScroll();
+    }
+  }, [draggingEventId, updateEventPosition, SCROLL_HOT_ZONE, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, startAutoScroll, stopAutoScroll]);
 
-  // Handle drag end - update position and notify parent
-  const handleEventDragEnd = () => {
+  // Handle mouse up - end drag (replaces HTML5 drag API)
+  const handleMouseUp = useCallback(() => {
     if (!draggingEventId) return;
 
     // Stop any active auto-scroll
     stopAutoScroll();
 
-    const dragOffset = dragOffsets[draggingEventId] || 0;
+    // Get the live drag offset from ref (used during drag)
+    const dragOffset = liveDragOffset.current;
+
+    // Clean up CSS transform applied during drag
+    const draggedElement = document.querySelector(`[data-event-id="${draggingEventId}"]`);
+    if (draggedElement) {
+      draggedElement.style.transform = '';
+      draggedElement.style.zIndex = '';
+    }
 
     if (dragOffset !== 0) {
       const hourOffset = dragOffset / PIXELS_PER_HOUR;
@@ -747,10 +866,34 @@ export default function SchedulingAssistant({
       }
     }
 
+    // Re-enable modal scrolling
+    const modal = document.querySelector('.review-modal');
+    if (modal) modal.classList.remove('dragging-timeline');
+
     // Reset drag state
+    liveDragOffset.current = 0;
+    lastMouseY.current = 0;
     setDraggingEventId(null);
     setDragOffsets({});
-  };
+  }, [draggingEventId, dragOffsets, eventBlocks, PIXELS_PER_HOUR, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, onEventTimeChange, currentReservationId, stopAutoScroll, setEventBlocks, setDraggingEventId, setDragOffsets, calculateEventPosition, END_HOUR, START_HOUR]);
+
+  // Global mouse event listeners for drag (replaces HTML5 drag API)
+  useEffect(() => {
+    if (draggingEventId) {
+      // Attach global listeners when dragging starts
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+
+      console.log('[Drag] Global mouse listeners attached');
+
+      return () => {
+        // Clean up listeners when dragging stops
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        console.log('[Drag] Global mouse listeners removed');
+      };
+    }
+  }, [draggingEventId, handleMouseMove, handleMouseUp]);
 
   // Render event block with drag capability
   const renderEventBlock = (block, allVisibleBlocks) => {
@@ -761,8 +904,9 @@ export default function SchedulingAssistant({
     const isDragging = draggingEventId === block.id;
     const dragOffset = dragOffsets[block.id] || 0;
 
-    // Calculate new position if dragging
-    const top = block.top + (isDragging ? dragOffset : 0);
+    // Calculate new position - during drag, CSS transform handles position (not top style)
+    // Only apply dragOffset when NOT actively dragging (for final position after drop)
+    const top = block.top + (!isDragging && dragOffset ? dragOffset : 0);
 
     // Determine if this is the user's event or a backend event
     const isUserEvent = block.isUserEvent;
@@ -770,14 +914,12 @@ export default function SchedulingAssistant({
     // Lock ALL backend events (only user event is draggable)
     const isLocked = !isUserEvent;
 
-    if (isDragging) {
-      console.log('[Drag] RENDER - block.top:', block.top, 'dragOffset:', dragOffset, 'calculatedTop:', top);
-    }
-
     // Check for conflicts at current dragged position
     let hasConflict = block.isConflict;
     if (isDragging) {
-      const hourOffset = dragOffset / PIXELS_PER_HOUR;
+      // Use live drag offset from ref (updated during drag without re-renders)
+      const currentDragOffset = liveDragOffset.current;
+      const hourOffset = currentDragOffset / PIXELS_PER_HOUR;
       const durationMs = block.endTime - block.startTime;
       const draggedStart = new Date(block.startTime.getTime() + hourOffset * 60 * 60 * 1000);
       const draggedEnd = new Date(draggedStart.getTime() + durationMs);
@@ -842,6 +984,7 @@ export default function SchedulingAssistant({
     return (
       <div
         key={`${block.id}-${block.roomIndex}`}
+        data-event-id={block.id}
         className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isUserEvent ? 'user-event' : ''} ${isCurrentReservation ? 'current-event' : ''}`}
         style={{
           top: `${top}px`,
@@ -858,10 +1001,7 @@ export default function SchedulingAssistant({
           zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : 5)),
           transition: isDragging ? 'none' : 'all 0.2s'
         }}
-        draggable={!isLocked}
-        onDragStart={!isLocked ? (e) => handleEventDragStart(e, block) : undefined}
-        onDrag={!isLocked ? handleEventDrag : undefined}
-        onDragEnd={!isLocked ? handleEventDragEnd : undefined}
+        onMouseDown={!isLocked ? (e) => handleMouseDown(e, block) : undefined}
         title={title}
       >
         <div className="event-block-content">
@@ -1099,7 +1239,7 @@ export default function SchedulingAssistant({
       <div className="timeline-wrapper">
 
         {/* Scrollable timeline */}
-        <div ref={timelineRef} className="timeline-container">
+        <div ref={timelineRef} className={`timeline-container ${draggingEventId ? 'dragging-active' : ''}`}>
           {/* Time grid background */}
           <div className="timeline-grid">
             <div className="time-labels">

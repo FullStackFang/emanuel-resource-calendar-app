@@ -1,0 +1,442 @@
+/* ==========================================================================
+   Unified Form Layout - Shared Styling for All Forms
+   ========================================================================== */
+
+.unified-form-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+}
+
+/* ==========================================================================
+   Sticky Action Bar
+   ========================================================================== */
+
+.unified-action-bar {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  z-index: 100;
+  background: white;
+  border-bottom: 2px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.action-bar-content {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 16px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.form-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #000;
+  line-height: 1.5;
+}
+
+.unsaved-changes-indicator {
+  color: #f59e0b;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.review-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Action Buttons
+   ========================================================================== */
+
+.action-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
+  height: 32px;
+  min-height: 32px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary Button - Main action (Approve style) */
+.primary-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+/* Danger Button - Destructive actions (Reject style) */
+.danger-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+/* Secondary Button - Alternative actions (Save/Cancel style) */
+.secondary-btn {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Warning Button - Caution actions */
+.warning-btn {
+  background: #f59e0b;
+  color: white;
+  border: none;
+}
+
+.warning-btn:hover:not(:disabled) {
+  background: #d97706;
+}
+
+/* Specific Action Button Classes (matching old form) */
+.approve-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+}
+
+.approve-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+.reject-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+}
+
+.reject-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.save-btn {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.cancel-btn {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.cancel-btn:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* ==========================================================================
+   Scrollable Form Content
+   ========================================================================== */
+
+.unified-form-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #f9fafb;
+}
+
+.form-content-wrapper {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.form-content-wrapper form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: auto; /* Allow form to grow with content */
+}
+
+/* ==========================================================================
+   Form Sections
+   ========================================================================== */
+
+.form-section {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  height: auto; /* Allow sections to grow */
+  min-height: fit-content;
+}
+
+.section-title {
+  margin: 0 0 16px 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1f2937;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+/* Ensure scheduling assistant can grow to full height */
+.room-selection-container,
+.scheduling-assistant-container {
+  height: auto;
+  min-height: 600px; /* Minimum height for scheduling assistant */
+}
+
+.event-and-rooms-container {
+  align-items: start; /* Prevent grid items from stretching */
+}
+
+/* ==========================================================================
+   Form Grid & Fields
+   ========================================================================== */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.form-grid.three-column {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  display: block;
+}
+
+.required-indicator {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group input[type="date"],
+.form-group input[type="time"],
+.form-group input[type="datetime-local"],
+.form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="url"],
+.form-group select,
+.form-group textarea {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #1f2937;
+  background: white;
+  transition: all 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group input:disabled,
+.form-group select:disabled,
+.form-group textarea:disabled {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+}
+
+/* ==========================================================================
+   Checkbox & Radio Styling
+   ========================================================================== */
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radio-option input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.radio-option label {
+  cursor: pointer;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Help Text & Errors
+   ========================================================================== */
+
+.help-text {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.form-group.has-error input,
+.form-group.has-error select,
+.form-group.has-error textarea {
+  border-color: #ef4444;
+}
+
+.form-group.has-error input:focus,
+.form-group.has-error select:focus,
+.form-group.has-error textarea:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.error-message {
+  font-size: 0.75rem;
+  color: #ef4444;
+  font-weight: 500;
+  margin-top: 4px;
+  display: block;
+}
+
+/* ==========================================================================
+   Responsive Design
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .unified-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .review-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .action-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+}
+
+/* ==========================================================================
+   Utility Classes
+   ========================================================================== */
+
+.hidden {
+  display: none;
+}
+
+.visible {
+  display: block;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.mt-0 { margin-top: 0; }
+.mt-1 { margin-top: 8px; }
+.mt-2 { margin-top: 16px; }
+.mt-3 { margin-top: 24px; }
+
+.mb-0 { margin-bottom: 0; }
+.mb-1 { margin-bottom: 8px; }
+.mb-2 { margin-bottom: 16px; }
+.mb-3 { margin-bottom: 24px; }

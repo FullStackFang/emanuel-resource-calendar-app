@@ -1,14 +1,16 @@
 /* src/components/ReservationRequests.css */
 
 .reservation-requests {
-  padding: 20px;
+  padding: 16px;
   max-width: 1400px;
   margin: 0 auto;
+  zoom: 0.8; /* Scale entire page to 80% */
 }
 
 .reservation-requests h1 {
   color: #333;
-  margin-bottom: 30px;
+  margin-bottom: 24px;
+  font-size: 1.5rem;
 }
 
 /* Messages */
@@ -47,7 +49,7 @@
 }
 
 .tab {
-  padding: 12px 20px;
+  padding: 10px 16px;
   border: none;
   background: transparent;
   border-bottom: 3px solid transparent;
@@ -524,18 +526,112 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 0; /* Removed padding to allow modal to be truly full-screen */
 }
 
 .review-modal {
   background: white;
   border-radius: 8px;
-  padding: 30px;
-  max-width: 900px;
+  padding: 10px; /* Further reduced to minimize space and prevent overflow */
+  max-width: 2400px; /* Very large max width, dynamically sized with 95vw inline style */
   width: 100%;
-  max-height: 90vh;
+  max-height: 98vh; /* Increased to 98vh to maximize height and reduce scrolling */
   overflow-y: auto;
+  overflow-x: hidden; /* Prevent horizontal scrollbar */
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box; /* Ensure padding is included in width calculation */
+}
+
+/* Prevent modal scrolling when dragging inside timeline */
+.review-modal.dragging-timeline {
+  overflow: hidden !important;
+}
+
+/* Show grabbing cursor and prevent selection when dragging */
+.review-modal.dragging-timeline * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+/* Override fixed widths from RoomReservationForm when inside modal - must override media queries */
+/* This must come BEFORE zoom to ensure layout is correct before scaling */
+@media (min-width: 1px) {
+  .review-modal .room-reservation-form,
+  .review-modal-overlay .review-modal .room-reservation-form {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    padding: 5px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Scale all content inside modal to 75% while keeping modal window large */
+.review-modal > * {
+  zoom: 0.75;
+}
+
+/* Force flexible layout inside modal */
+.review-modal .event-and-rooms-container {
+  grid-template-columns: minmax(0, 30%) minmax(0, 70%) !important;
+  gap: 12px !important; /* Reduced from 15px for more compact display */
+  margin-bottom: 12px !important;
+}
+
+/* Reduce spacing in form groups for more compact display */
+.review-modal .form-group {
+  margin-bottom: 10px !important; /* Reduced spacing between form fields */
+}
+
+.review-modal .form-grid {
+  gap: 12px !important; /* Reduced gap in form grid */
+}
+
+.review-modal .room-selection-container {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 20px !important; /* Reduced from 30px for more compact display */
+  margin-top: 12px !important; /* Reduced from 20px */
+}
+
+.review-modal .form-section {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 12px !important; /* Reduced from 18px for more compact display */
+  margin-bottom: 12px !important; /* Reduced from 20px */
+}
+
+.review-modal .form-section h2 {
+  font-size: 1.1rem !important; /* Slightly smaller heading */
+  margin-bottom: 10px !important; /* Reduced spacing */
+}
+
+.review-modal .scheduling-assistant {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow-x: hidden;
+  min-height: 400px !important; /* Reduced from 600px */
+  padding: 15px !important; /* Reduced from 20px */
+}
+
+.review-modal .assistant-header {
+  margin-bottom: 10px !important; /* Reduced from 15px */
+  padding-bottom: 10px !important; /* Reduced from 15px */
+}
+
+.review-modal .timeline-wrapper {
+  margin-bottom: 10px !important; /* Reduced from 15px */
+}
+
+.review-modal .scheduling-assistant-container {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .review-modal h2 {

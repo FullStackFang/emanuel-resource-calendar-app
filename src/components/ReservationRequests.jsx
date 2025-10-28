@@ -901,7 +901,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {/* Review Modal */}
       {selectedReservation && (
         <div className="review-modal-overlay">
-          <div className="review-modal" style={{ maxWidth: '95vw', display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
+          <div className="review-modal" style={{ maxWidth: '100vw', display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}>
             {/* Sticky Action Bar at top of modal */}
             <div className="review-action-bar">
               <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
