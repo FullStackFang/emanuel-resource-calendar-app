@@ -153,6 +153,7 @@ let eventAuditHistoryCollection; // Audit trail for event changes
 let reservationAuditHistoryCollection; // Audit trail for room reservation changes
 let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
+let reservationAttachmentsCollection; // Reservation-file relationship tracking
 let systemSettingsCollection; // System-wide settings (calendar config, etc)
 
 /**
@@ -1600,6 +1601,7 @@ async function connectToDatabase() {
     // Initialize GridFS bucket for file storage
     filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
     eventAttachmentsCollection = db.collection('templeEvents__EventAttachments'); // Event-file relationship tracking
+    reservationAttachmentsCollection = db.collection('templeEvents__ReservationAttachments'); // Reservation-file relationship tracking
     systemSettingsCollection = db.collection('templeEvents__SystemSettings'); // System-wide settings
 
     // Create indexes for new unified collections
@@ -4346,7 +4348,82 @@ app.get('/api/events/:eventId/attachments', verifyToken, async (req, res) => {
 });
 
 /**
+ * Delete an event attachment
+ */
+app.delete('/api/events/:eventId/attachments/:attachmentId', verifyToken, async (req, res) => {
+  try {
+    const { eventId, attachmentId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Deleting attachment ${attachmentId} for event ${eventId}`, { userId });
+
+    // Verify event exists and user has permission
+    const event = await unifiedEventsCollection.findOne({
+      userId: userId,
+      eventId: eventId
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+
+    // Find the attachment
+    const attachment = await eventAttachmentsCollection.findOne({
+      _id: new ObjectId(attachmentId),
+      eventId: eventId
+    });
+
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+
+    // Delete the file from GridFS
+    try {
+      await filesBucket.delete(attachment.gridfsFileId);
+    } catch (error) {
+      logger.warn('Failed to delete file from GridFS (may not exist):', error);
+    }
+
+    // Delete the attachment record
+    await eventAttachmentsCollection.deleteOne({
+      _id: new ObjectId(attachmentId)
+    });
+
+    // Log audit entry for file deletion
+    await logEventAudit({
+      eventId: eventId,
+      userId: userId,
+      changeType: 'update',
+      source: 'File Attachment',
+      changeSet: [{
+        field: 'attachments',
+        oldValue: `File: ${attachment.fileName}`,
+        newValue: null
+      }],
+      metadata: {
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+        reason: 'File attachment deleted',
+        fileName: attachment.fileName
+      }
+    });
+
+    logger.debug(`Attachment ${attachmentId} deleted successfully`);
+
+    res.status(200).json({
+      message: 'Attachment deleted successfully',
+      attachmentId: attachmentId
+    });
+
+  } catch (error) {
+    logger.error('Error deleting event attachment:', error);
+    res.status(500).json({ error: 'Failed to delete attachment' });
+  }
+});
+
+/**
  * Download a file by its GridFS fileId
+ * Supports both event and reservation attachments
  */
 app.get('/api/files/:fileId', verifyToken, async (req, res) => {
   try {
@@ -4363,22 +4440,47 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid file ID format' });
     }
 
-    // Check if attachment exists and user has permission
-    const attachment = await eventAttachmentsCollection.findOne({
+    // Check if attachment exists in event attachments
+    let attachment = await eventAttachmentsCollection.findOne({
       gridfsFileId: objectId
     });
+
+    let hasPermission = false;
+
+    if (attachment) {
+      // Verify user has access to the event
+      const event = await unifiedEventsCollection.findOne({
+        userId: userId,
+        eventId: attachment.eventId
+      });
+      hasPermission = !!event;
+    } else {
+      // Check if attachment exists in reservation attachments
+      attachment = await reservationAttachmentsCollection.findOne({
+        gridfsFileId: objectId
+      });
+
+      if (attachment) {
+        // Verify user has access to the reservation
+        const reservation = await roomReservationsCollection.findOne({
+          _id: new ObjectId(attachment.reservationId)
+        });
+
+        if (reservation) {
+          // Check if user is admin or requester
+          const user = await usersCollection.findOne({ email: userId });
+          const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+          const isRequester = reservation.requesterEmail === userId;
+          hasPermission = isAdmin || isRequester;
+        }
+      }
+    }
 
     if (!attachment) {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Verify user has access to the event (and thus the file)
-    const event = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: attachment.eventId
-    });
-
-    if (!event) {
+    if (!hasPermission) {
       return res.status(403).json({ error: 'Access denied - you do not have permission to download this file' });
     }
 
@@ -4410,6 +4512,273 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to download file' });
     }
+  }
+});
+
+// ========================================
+// RESERVATION ATTACHMENTS ENDPOINTS
+// ========================================
+
+/**
+ * Upload file attachment to a reservation
+ */
+app.post('/api/reservations/:reservationId/attachments', verifyToken, attachmentUpload.single('file'), async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+    const userId = req.user.userId;
+    const file = req.file;
+    const { description = '' } = req.body;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    logger.debug(`Uploading attachment for reservation ${reservationId}`, {
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      userId
+    });
+
+    // Verify reservation exists and user has permission (admin or owner)
+    const reservation = await roomReservationsCollection.findOne({
+      _id: new ObjectId(reservationId)
+    });
+
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check if user has permission (admin or is the requester)
+    const user = await usersCollection.findOne({ email: userId });
+    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isRequester = reservation.requesterEmail === userId;
+
+    if (!isAdmin && !isRequester) {
+      return res.status(403).json({ error: 'Access denied - you do not have permission to upload attachments to this reservation' });
+    }
+
+    // Create a readable stream from the buffer
+    const uploadStream = filesBucket.openUploadStream(file.originalname, {
+      metadata: {
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        uploadedBy: userId,
+        uploadedAt: new Date(),
+        reservationId: reservationId,
+        resourceType: 'reservation'
+      }
+    });
+
+    // Store file in GridFS
+    const fileId = await new Promise((resolve, reject) => {
+      uploadStream.end(file.buffer, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(uploadStream.id);
+        }
+      });
+    });
+
+    // Create attachment record
+    const attachmentRecord = {
+      reservationId: reservationId,
+      gridfsFileId: fileId,
+      fileName: file.originalname,
+      fileSize: file.size,
+      mimeType: file.mimetype,
+      uploadedBy: userId,
+      uploadedAt: new Date(),
+      description: description
+    };
+
+    const insertResult = await reservationAttachmentsCollection.insertOne(attachmentRecord);
+
+    // Log audit entry for file upload
+    await logReservationAudit({
+      reservationId: new ObjectId(reservationId),
+      userId: userId,
+      changeType: 'update',
+      source: 'File Attachment',
+      changeSet: [{
+        field: 'attachments',
+        oldValue: null,
+        newValue: `Added file: ${file.originalname} (${Math.round(file.size / 1024)}KB)`
+      }],
+      metadata: {
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+        reason: 'File attachment uploaded',
+        fileName: file.originalname,
+        fileSize: file.size
+      }
+    });
+
+    logger.debug(`File uploaded successfully for reservation ${reservationId}`, {
+      fileId: fileId,
+      attachmentId: insertResult.insertedId
+    });
+
+    res.status(201).json({
+      message: 'File uploaded successfully',
+      attachment: {
+        id: insertResult.insertedId,
+        fileId: fileId,
+        fileName: file.originalname,
+        fileSize: file.size,
+        mimeType: file.mimetype,
+        uploadedAt: attachmentRecord.uploadedAt,
+        description: description,
+        downloadUrl: `/files/${fileId}`
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error uploading reservation attachment:', error);
+    res.status(500).json({ error: 'Failed to upload file attachment' });
+  }
+});
+
+/**
+ * Get all attachments for a reservation
+ */
+app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Fetching attachments for reservation ${reservationId}`, { userId });
+
+    // Verify reservation exists and user has permission
+    const reservation = await roomReservationsCollection.findOne({
+      _id: new ObjectId(reservationId)
+    });
+
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check if user has permission (admin or is the requester)
+    const user = await usersCollection.findOne({ email: userId });
+    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isRequester = reservation.requesterEmail === userId;
+
+    if (!isAdmin && !isRequester) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get all attachments for this reservation
+    const attachments = await reservationAttachmentsCollection.find({
+      reservationId: reservationId
+    }).sort({ uploadedAt: -1 }).toArray();
+
+    // Transform attachment data for frontend
+    const attachmentList = attachments.map(attachment => ({
+      id: attachment._id,
+      fileId: attachment.gridfsFileId,
+      fileName: attachment.fileName,
+      fileSize: attachment.fileSize,
+      mimeType: attachment.mimeType,
+      uploadedBy: attachment.uploadedBy,
+      uploadedAt: attachment.uploadedAt,
+      description: attachment.description,
+      downloadUrl: `/files/${attachment.gridfsFileId}`
+    }));
+
+    logger.debug(`Found ${attachmentList.length} attachments for reservation ${reservationId}`);
+
+    res.status(200).json({
+      reservationId: reservationId,
+      attachments: attachmentList,
+      totalCount: attachmentList.length
+    });
+
+  } catch (error) {
+    logger.error('Error fetching reservation attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch reservation attachments' });
+  }
+});
+
+/**
+ * Delete a reservation attachment
+ */
+app.delete('/api/reservations/:reservationId/attachments/:attachmentId', verifyToken, async (req, res) => {
+  try {
+    const { reservationId, attachmentId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Deleting attachment ${attachmentId} for reservation ${reservationId}`, { userId });
+
+    // Verify reservation exists and user has permission
+    const reservation = await roomReservationsCollection.findOne({
+      _id: new ObjectId(reservationId)
+    });
+
+    if (!reservation) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Check if user has permission (admin or is the requester)
+    const user = await usersCollection.findOne({ email: userId });
+    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isRequester = reservation.requesterEmail === userId;
+
+    if (!isAdmin && !isRequester) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Find the attachment
+    const attachment = await reservationAttachmentsCollection.findOne({
+      _id: new ObjectId(attachmentId),
+      reservationId: reservationId
+    });
+
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+
+    // Delete the file from GridFS
+    try {
+      await filesBucket.delete(attachment.gridfsFileId);
+    } catch (error) {
+      logger.warn('Failed to delete file from GridFS (may not exist):', error);
+    }
+
+    // Delete the attachment record
+    await reservationAttachmentsCollection.deleteOne({
+      _id: new ObjectId(attachmentId)
+    });
+
+    // Log audit entry for file deletion
+    await logReservationAudit({
+      reservationId: new ObjectId(reservationId),
+      userId: userId,
+      changeType: 'update',
+      source: 'File Attachment',
+      changeSet: [{
+        field: 'attachments',
+        oldValue: `File: ${attachment.fileName}`,
+        newValue: null
+      }],
+      metadata: {
+        userAgent: req.headers['user-agent'] || 'Unknown',
+        ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
+        reason: 'File attachment deleted',
+        fileName: attachment.fileName
+      }
+    });
+
+    logger.debug(`Attachment ${attachmentId} deleted successfully`);
+
+    res.status(200).json({
+      message: 'Attachment deleted successfully',
+      attachmentId: attachmentId
+    });
+
+  } catch (error) {
+    logger.error('Error deleting reservation attachment:', error);
+    res.status(500).json({ error: 'Failed to delete attachment' });
   }
 });
 

@@ -1018,3 +1018,48 @@
     min-width: 120px;
   }
 }
+
+/* ===== Nested History Tabs (Attachments/History) ===== */
+.history-tabs-container {
+  margin-bottom: 16px;
+}
+
+.history-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0;
+}
+
+.history-tab {
+  padding: 10px 20px;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: 14px;
+  border: 2px solid transparent;
+  border-bottom: none;
+  position: relative;
+  bottom: -2px;
+}
+
+.history-tab:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.history-tab.active {
+  background: white;
+  color: #1a73e8;
+  border-color: #e5e7eb;
+  border-bottom-color: white;
+  font-weight: 600;
+}
+
+.history-tab-content {
+  padding: 20px 0;
+  min-height: 200px;
+}

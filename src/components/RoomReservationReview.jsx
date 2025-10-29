@@ -7,6 +7,7 @@ import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
 import ReservationAuditHistory from './ReservationAuditHistory';
 import EventAuditHistory from './EventAuditHistory';
+import AttachmentsSection from './AttachmentsSection';
 import './RoomReservationForm.css';
 
 /**
@@ -69,6 +70,9 @@ export default function RoomReservationReview({
   const [timeErrors, setTimeErrors] = useState([]);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
+
+  // Tab state for Attachments/History section
+  const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -905,22 +909,53 @@ export default function RoomReservationReview({
               )}
             </section>
 
-            {/* Reservation History */}
+            {/* Attachments & History Tabs */}
             {reservation && apiToken && (
               <section className="form-section">
-                <h2>Reservation History</h2>
-                {reservation._isNewUnifiedEvent ? (
-                  <EventAuditHistory
-                    eventId={reservation.eventId}
-                    apiToken={apiToken}
-                  />
-                ) : (
-                  <ReservationAuditHistory
-                    reservationId={reservation._id}
-                    apiToken={apiToken}
-                    refreshTrigger={auditRefreshTrigger}
-                  />
-                )}
+                {/* Nested Tab Headers */}
+                <div className="history-tabs-container">
+                  <div className="history-tabs">
+                    <div
+                      className={`history-tab ${activeHistoryTab === 'attachments' ? 'active' : ''}`}
+                      onClick={() => setActiveHistoryTab('attachments')}
+                    >
+                      📎 Attachments
+                    </div>
+                    <div
+                      className={`history-tab ${activeHistoryTab === 'history' ? 'active' : ''}`}
+                      onClick={() => setActiveHistoryTab('history')}
+                    >
+                      📝 History
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tab Content */}
+                <div className="history-tab-content">
+                  {activeHistoryTab === 'attachments' ? (
+                    <AttachmentsSection
+                      resourceId={reservation?.eventId}
+                      resourceType="event"
+                      apiToken={apiToken}
+                      readOnly={reservation?.status !== 'pending'}
+                    />
+                  ) : (
+                    <>
+                      {reservation._isNewUnifiedEvent ? (
+                        <EventAuditHistory
+                          eventId={reservation.eventId}
+                          apiToken={apiToken}
+                        />
+                      ) : (
+                        <ReservationAuditHistory
+                          reservationId={reservation._id}
+                          apiToken={apiToken}
+                          refreshTrigger={auditRefreshTrigger}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
               </section>
             )}
           </div>
