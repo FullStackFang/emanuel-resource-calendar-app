@@ -937,7 +937,7 @@ export default function RoomReservationReview({
                       resourceId={reservation?.eventId}
                       resourceType="event"
                       apiToken={apiToken}
-                      readOnly={reservation?.status !== 'pending'}
+                      readOnly={reservation?.status === 'inactive'}
                     />
                   ) : (
                     <>

@@ -1201,7 +1201,7 @@ export default function UnifiedEventForm({
                         resourceId={reservation?.eventId}
                         resourceType="event"
                         apiToken={apiToken}
-                        readOnly={reservation?.status !== 'pending'}
+                        readOnly={reservation?.status === 'inactive'}
                       />
                     ) : (
                       <ReservationAuditHistory

@@ -174,14 +174,16 @@
 }
 
 .download-button,
-.remove-button {
+.remove-button,
+.cancel-delete-button,
+.confirm-delete-button {
   background: none;
   border: none;
   cursor: pointer;
   font-size: 18px;
   padding: 4px;
   border-radius: 4px;
-  transition: background 0.15s ease;
+  transition: all 0.15s ease;
 }
 
 .download-button:hover {
@@ -190,6 +192,39 @@
 
 .remove-button:hover {
   background: #fee;
+}
+
+/* Inline confirmation buttons */
+.cancel-delete-button,
+.confirm-delete-button {
+  font-size: 13px;
+  padding: 6px 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.cancel-delete-button {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.cancel-delete-button:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.confirm-delete-button {
+  background: #fee;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  margin-left: 4px;
+}
+
+.confirm-delete-button:hover {
+  background: #fca5a5;
+  color: white;
+  border-color: #dc2626;
 }
 
 .attachments-empty {

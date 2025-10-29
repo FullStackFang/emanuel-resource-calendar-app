@@ -18,6 +18,7 @@ export default function AttachmentsSection({
   const [dragOver, setDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState(null);
 
   // Load attachments when component mounts or resourceId changes
   useEffect(() => {
@@ -125,7 +126,8 @@ export default function AttachmentsSection({
   const removeAttachment = async (attachmentId, fileName) => {
     if (!apiToken) return;
 
-    if (!confirm(`Delete ${fileName}?`)) return;
+    // Inline confirmation is handled in the UI, so no confirm() dialog needed
+    setDeletingAttachmentId(null); // Reset confirmation state
 
     try {
       const endpoint = resourceType === 'event'
@@ -335,14 +337,39 @@ export default function AttachmentsSection({
                   ⬇️
                 </button>
                 {!readOnly && (
-                  <button
-                    type="button"
-                    className="remove-button"
-                    onClick={() => removeAttachment(attachment.id, attachment.fileName)}
-                    title="Remove file"
-                  >
-                    🗑️
-                  </button>
+                  <>
+                    {deletingAttachmentId === attachment.id ? (
+                      // Show confirmation buttons
+                      <>
+                        <button
+                          type="button"
+                          className="cancel-delete-button"
+                          onClick={() => setDeletingAttachmentId(null)}
+                          title="Cancel"
+                        >
+                          ❌ Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="confirm-delete-button"
+                          onClick={() => removeAttachment(attachment.id, attachment.fileName)}
+                          title="Confirm delete"
+                        >
+                          ✓ Delete
+                        </button>
+                      </>
+                    ) : (
+                      // Show delete button
+                      <button
+                        type="button"
+                        className="remove-button"
+                        onClick={() => setDeletingAttachmentId(attachment.id)}
+                        title="Remove file"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>
