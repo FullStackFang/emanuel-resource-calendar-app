@@ -344,7 +344,8 @@
   padding-top: 12px;
 }
 
-.cancel-button {
+/* Button styles with higher specificity to override App.css global styles */
+.form-actions .cancel-button {
   padding: 10px 20px;
   background: transparent;
   color: #5f6368;
@@ -355,7 +356,7 @@
   font-weight: 500;
 }
 
-.save-button {
+.form-actions .save-button {
   padding: 10px 20px;
   background: #1a73e8;
   color: white;
@@ -366,16 +367,16 @@
   font-weight: 500;
 }
 
-.save-button:hover {
+.form-actions .save-button:hover {
   background: #1557b0;
 }
 
-.cancel-button:hover {
+.form-actions .cancel-button:hover {
   background: #f1f3f4;
 }
 
 /* Review button styling - matches .view-btn from ReservationRequests */
-.review-button {
+.form-actions .review-button {
   padding: 10px 20px;
   border: none;
   border-radius: 4px;
@@ -387,7 +388,7 @@
   transition: background 0.2s ease;
 }
 
-.review-button:hover {
+.form-actions .review-button:hover {
   background: #106ebe;
 }
 
@@ -701,8 +702,19 @@
 }
 
 /* Delete button styling */
-.delete-button:hover {
-  background-color: #dc2626 !important;
+.form-actions .delete-button {
+  padding: 10px 20px;
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.form-actions .delete-button:hover {
+  background-color: #dc2626;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
 }
@@ -726,7 +738,7 @@
 }
 
 /* Disabled button state for saving */
-.save-button:disabled {
+.form-actions .save-button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
   pointer-events: none;

@@ -1394,19 +1394,10 @@ function EventForm({
           </button>
         )}
         {!readOnly && event && event.id && onDelete && (
-          <button 
-            type="button" 
-            className="delete-button" 
+          <button
+            type="button"
+            className="delete-button"
             onClick={onDelete}
-            style={{
-              backgroundColor: '#ef4444',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              fontWeight: '500'
-            }}
           >
             Delete Event
           </button>
