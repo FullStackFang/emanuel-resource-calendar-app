@@ -1,0 +1,202 @@
+/* src/components/shared/ActionButtons.css */
+/* Shared button styles for action buttons across the application */
+
+/* Base Action Button */
+.shared-action-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.shared-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.shared-action-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.2);
+}
+
+/* Primary Button (Default Action) */
+.shared-action-btn.primary {
+  background: #0078d4;
+  color: white;
+}
+
+.shared-action-btn.primary:hover:not(:disabled) {
+  background: #106ebe;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 120, 212, 0.3);
+}
+
+.shared-action-btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Success Button (Approve, Confirm) */
+.shared-action-btn.success {
+  background: #10b981;
+  color: white;
+}
+
+.shared-action-btn.success:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+.shared-action-btn.success:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Danger Button (Reject, Delete) */
+.shared-action-btn.danger {
+  background: #ef4444;
+  color: white;
+}
+
+.shared-action-btn.danger:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+}
+
+.shared-action-btn.danger:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Secondary Button (Cancel, Close) */
+.shared-action-btn.secondary {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.shared-action-btn.secondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Warning Button */
+.shared-action-btn.warning {
+  background: #f59e0b;
+  color: white;
+}
+
+.shared-action-btn.warning:hover:not(:disabled) {
+  background: #d97706;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.3);
+}
+
+.shared-action-btn.warning:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Ghost Button (Minimal Style) */
+.shared-action-btn.ghost {
+  background: transparent;
+  color: #0078d4;
+  border: none;
+  padding: 8px 16px;
+}
+
+.shared-action-btn.ghost:hover:not(:disabled) {
+  background: #eff6ff;
+}
+
+/* Small Button Variant */
+.shared-action-btn.small {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+}
+
+/* Large Button Variant */
+.shared-action-btn.large {
+  padding: 14px 28px;
+  font-size: 1.125rem;
+}
+
+/* Full Width Button */
+.shared-action-btn.full-width {
+  width: 100%;
+}
+
+/* Icon-Only Button */
+.shared-action-btn.icon-only {
+  padding: 10px;
+  aspect-ratio: 1;
+}
+
+/* Loading State */
+.shared-action-btn.loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.shared-action-btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: spinner 0.6s linear infinite;
+}
+
+@keyframes spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Button Group */
+.shared-button-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.shared-button-group.vertical {
+  flex-direction: column;
+}
+
+.shared-button-group.end {
+  justify-content: flex-end;
+}
+
+.shared-button-group.center {
+  justify-content: center;
+}
+
+.shared-button-group.space-between {
+  justify-content: space-between;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .shared-button-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .shared-action-btn {
+    width: 100%;
+  }
+}

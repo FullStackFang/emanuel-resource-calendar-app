@@ -144,6 +144,7 @@ function EventForm({
   onSave,
   onCancel,
   onDelete,
+  onReview, // New prop for review button handler
   readOnly = false,
   userTimeZone = 'America/New_York', // Default fallback
   savingEvent = false,
@@ -1371,6 +1372,15 @@ function EventForm({
         <button type="button" className="cancel-button" onClick={onCancel}>
           {readOnly ? 'Close' : 'Cancel'}
         </button>
+        {onReview && event && event.id && (
+          <button
+            type="button"
+            className="review-button"
+            onClick={() => onReview(event)}
+          >
+            Review
+          </button>
+        )}
         {!readOnly && (
           <button type="submit" className="save-button" disabled={savingEvent}>
             {savingEvent ? (

@@ -374,6 +374,23 @@
   background: #f1f3f4;
 }
 
+/* Review button styling - matches .view-btn from ReservationRequests */
+.review-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: #0078d4;
+  color: white;
+  transition: background 0.2s ease;
+}
+
+.review-button:hover {
+  background: #106ebe;
+}
+
 /* Read-only view styling */
 .event-form .readonly-display {
   padding: 8px;

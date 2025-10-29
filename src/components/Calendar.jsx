@@ -22,6 +22,10 @@
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
   import calendarDataService from '../services/calendarDataService';
+  import { useReviewModal } from '../hooks/useReviewModal';
+  import ReviewModal from './shared/ReviewModal';
+  import RoomReservationReview from './RoomReservationReview';
+  import { transformEventToFlatStructure } from '../utils/eventTransformers';
   // import { getCalendars } from '../services/graphService';
   import { 
     createLinkedEvents,
@@ -267,6 +271,20 @@
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
     const [, setNotification] = useState({ show: false, message: '', type: 'info' });
+
+    // Review modal hook for handling review functionality
+    const reviewModal = useReviewModal({
+      apiToken,
+      graphToken,
+      onSuccess: () => {
+        // Reload events after successful approval/rejection
+        loadAllEvents();
+      },
+      onError: (error) => {
+        logger.error('Review modal error:', error);
+        alert(error);
+      }
+    });
 
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
@@ -3676,8 +3694,31 @@
     }, [userPermissions.editEvents, allEvents]);
 
     /**
+     * Handle review button click
+     * Opens the review modal for the selected event
+     */
+    const handleReviewClick = useCallback(async (event) => {
+      logger.debug('Review button clicked for event:', event);
+
+      // Close the event form modal
+      setIsModalOpen(false);
+
+      // Use the event data we already have and transform it
+      try {
+        // Transform the event data to flat structure for the review form
+        const transformedEvent = transformEventToFlatStructure(event);
+
+        // Open review modal with the transformed event
+        await reviewModal.openModal(transformedEvent);
+      } catch (error) {
+        logger.error('Error opening review modal:', error);
+        alert('Failed to open review modal: ' + error.message);
+      }
+    }, [reviewModal]);
+
+    /**
      * TBD
-     * @returns 
+     * @returns
      */
     const handleDeleteEvent = () => {
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
@@ -5055,6 +5096,7 @@
             onSave={handleSaveEvent}
             onCancel={() => setIsModalOpen(false)}
             onDelete={userPermissions.deleteEvents ? handleDeleteEvent : null}
+            onReview={handleReviewClick}
             readOnly={modalType === 'view'}
             userTimeZone={userTimezone}
             savingEvent={savingEvent}
@@ -5133,7 +5175,7 @@
         </Modal>
         
         {showSearch && (
-          <EventSearch 
+          <EventSearch
             graphToken={graphToken}
             apiToken={apiToken}
             onEventSelect={handleEventSelect}
@@ -5147,6 +5189,30 @@
             availableCalendars={availableCalendars}
           />
         )}
+
+        {/* Review Modal for Room Reservations and Event Review */}
+        <ReviewModal
+          isOpen={reviewModal.isOpen}
+          title="Review Event"
+          onClose={reviewModal.closeModal}
+          onApprove={reviewModal.handleApprove}
+          onReject={reviewModal.handleReject}
+          onSave={reviewModal.handleSave}
+          isPending={reviewModal.currentItem?.status === 'pending'}
+          hasChanges={reviewModal.hasChanges}
+          isSaving={reviewModal.isSaving}
+          showActionButtons={true}
+        >
+          {reviewModal.currentItem && (
+            <RoomReservationReview
+              reservation={reviewModal.editableData}
+              apiToken={apiToken}
+              graphToken={graphToken}
+              onDataChange={reviewModal.updateData}
+              readOnly={reviewModal.currentItem?.status !== 'pending'}
+            />
+          )}
+        </ReviewModal>
       </div>
     );
   }

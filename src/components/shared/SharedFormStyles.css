@@ -1,0 +1,270 @@
+/* src/components/shared/SharedFormStyles.css */
+/* Common form layout styles shared across multiple components */
+
+/* Form Section Container */
+.shared-form-section {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.shared-form-section h2 {
+  color: #333;
+  margin: 0 0 20px 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 10px;
+}
+
+.shared-form-section h3 {
+  color: #374151;
+  margin: 15px 0 10px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.shared-form-section h4 {
+  color: #6b7280;
+  margin: 12px 0 8px 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+/* Form Grid Layout */
+.shared-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.shared-form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.shared-form-grid.three-column {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* Form Group */
+.shared-form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 15px;
+}
+
+.shared-form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.shared-form-group label {
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+  display: block;
+}
+
+.shared-form-group label.required::after {
+  content: ' *';
+  color: #ef4444;
+}
+
+/* Form Inputs */
+.shared-form-group input[type="text"],
+.shared-form-group input[type="email"],
+.shared-form-group input[type="tel"],
+.shared-form-group input[type="number"],
+.shared-form-group input[type="date"],
+.shared-form-group input[type="time"],
+.shared-form-group input[type="datetime-local"],
+.shared-form-group select,
+.shared-form-group textarea {
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 1rem;
+  background: white;
+  color: #111827;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.shared-form-group input:focus,
+.shared-form-group select:focus,
+.shared-form-group textarea:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+}
+
+.shared-form-group input:disabled,
+.shared-form-group select:disabled,
+.shared-form-group textarea:disabled {
+  background-color: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+  border-color: #e5e7eb;
+}
+
+.shared-form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.shared-form-group .readonly-field {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+  color: #111827;
+  cursor: default;
+}
+
+/* Help Text */
+.shared-form-group .help-text {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.shared-form-group .error-text {
+  font-size: 0.85rem;
+  color: #ef4444;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* Two-Column Section Row */
+.shared-section-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+/* Time Fields Stack (Chronological Order) */
+.shared-time-fields-stack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+
+.shared-time-fields-stack .shared-form-group {
+  margin-bottom: 0;
+}
+
+/* Checkbox and Radio Groups */
+.shared-checkbox-group,
+.shared-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shared-checkbox-group label,
+.shared-radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.shared-checkbox-group input[type="checkbox"],
+.shared-radio-group input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+/* Validation Errors */
+.shared-validation-errors {
+  background: #fef2f2;
+  border: 2px solid #ef4444;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.shared-validation-errors h4 {
+  color: #dc2626;
+  margin: 0 0 10px 0;
+  font-size: 1rem;
+}
+
+.shared-validation-errors ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #991b1b;
+}
+
+.shared-validation-errors li {
+  margin-bottom: 5px;
+}
+
+/* Loading State */
+.shared-loading-message {
+  text-align: center;
+  padding: 20px;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Info Boxes */
+.shared-info-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  color: #1e40af;
+  font-size: 0.95rem;
+}
+
+.shared-warning-box {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  color: #92400e;
+  font-size: 0.95rem;
+}
+
+.shared-error-box {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  color: #991b1b;
+  font-size: 0.95rem;
+}
+
+.shared-success-box {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 15px;
+  color: #166534;
+  font-size: 0.95rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .shared-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shared-section-row-2col {
+    grid-template-columns: 1fr;
+  }
+}

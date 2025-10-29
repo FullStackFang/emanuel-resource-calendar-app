@@ -1,0 +1,225 @@
+/* src/components/shared/ReviewModal.css */
+
+/* Modal Overlay */
+.review-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 0;
+}
+
+/* Modal Container */
+.review-modal {
+  background: white;
+  border-radius: 8px;
+  padding: 10px;
+  max-width: 2400px;
+  width: 100%;
+  max-height: 98vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+}
+
+/* Prevent modal scrolling when dragging inside timeline */
+.review-modal.dragging-timeline {
+  overflow: hidden !important;
+}
+
+/* Show grabbing cursor and prevent selection when dragging */
+.review-modal.dragging-timeline * {
+  cursor: grabbing !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+
+/* Scale all content inside modal to 75% while keeping modal window large */
+.review-modal > * {
+  zoom: 0.75;
+}
+
+/* Sticky Action Bar */
+.review-action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background: white;
+  border-bottom: 2px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -10px -10px 0 -10px; /* Offset modal padding */
+}
+
+/* Action Buttons Container */
+.review-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Action Buttons Base Styles */
+.action-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Approve Button */
+.approve-btn {
+  background: #10b981;
+  color: white;
+}
+
+.approve-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+/* Reject Button */
+.reject-btn {
+  background: #ef4444;
+  color: white;
+}
+
+.reject-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+/* Save Button */
+.save-btn {
+  background: #0078d4;
+  color: white;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #106ebe;
+}
+
+/* Cancel/Close Button */
+.cancel-btn {
+  background: white;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.cancel-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Modal Content Adjustments - Override child component styles when inside modal */
+@media (min-width: 1px) {
+  .review-modal .room-reservation-form,
+  .review-modal-overlay .review-modal .room-reservation-form {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    padding: 5px !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Force flexible layout inside modal */
+.review-modal .event-and-rooms-container {
+  grid-template-columns: minmax(0, 30%) minmax(0, 70%) !important;
+  gap: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+/* Reduce spacing in form groups for more compact display */
+.review-modal .form-group {
+  margin-bottom: 10px !important;
+}
+
+.review-modal .form-grid {
+  gap: 12px !important;
+}
+
+.review-modal .room-selection-container {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+  gap: 20px !important;
+  margin-top: 12px !important;
+}
+
+.review-modal .form-section {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 12px !important;
+  margin-bottom: 12px !important;
+}
+
+.review-modal .form-section h2 {
+  font-size: 1.1rem !important;
+  margin-bottom: 10px !important;
+}
+
+.review-modal .scheduling-assistant {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow-x: hidden;
+  min-height: 600px !important;
+  padding: 20px !important;
+}
+
+.review-modal .assistant-header {
+  margin-bottom: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.review-modal .timeline-wrapper {
+  margin-bottom: 10px !important;
+}
+
+.review-modal .scheduling-assistant-container {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .review-modal {
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .review-action-bar {
+    flex-direction: column;
+    gap: 15px;
+    align-items: stretch;
+  }
+
+  .review-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .action-btn {
+    width: 100%;
+  }
+}
