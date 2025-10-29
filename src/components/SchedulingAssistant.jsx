@@ -17,7 +17,8 @@ export default function SchedulingAssistant({
   onRoomRemove, // Callback to remove a room from selection
   onEventTimeChange, // Callback to update event times when dragging
   currentReservationId, // ID of the current reservation being reviewed (only this one is draggable)
-  onLockedEventClick // Callback when a locked reservation event is clicked
+  onLockedEventClick, // Callback when a locked reservation event is clicked
+  defaultCalendar = '' // Calendar name to display in header
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -1139,7 +1140,12 @@ export default function SchedulingAssistant({
   return (
     <div className="scheduling-assistant">
       <div className="assistant-header">
-        <h3>🗓️ Scheduling Assistant</h3>
+        <h3>
+          🗓️ Scheduling Assistant
+          {defaultCalendar && (
+            <span className="calendar-name-badge"> ({defaultCalendar})</span>
+          )}
+        </h3>
         <div className="selected-date">
           {new Date(effectiveDate + 'T12:00:00').toLocaleDateString('en-US', {
             weekday: 'long',

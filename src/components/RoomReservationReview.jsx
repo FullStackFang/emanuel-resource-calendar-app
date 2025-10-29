@@ -6,6 +6,7 @@ import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
 import ReservationAuditHistory from './ReservationAuditHistory';
+import EventAuditHistory from './EventAuditHistory';
 import './RoomReservationForm.css';
 
 /**
@@ -22,7 +23,13 @@ export default function RoomReservationReview({
   onHasChangesChange,
   onIsSavingChange,
   onSaveFunctionReady,
-  onLockedEventClick // Callback when a locked reservation is clicked in scheduling assistant
+  onLockedEventClick, // Callback when a locked reservation is clicked in scheduling assistant
+  availableCalendars = [],
+  defaultCalendar = '',
+  selectedTargetCalendar = '',
+  onTargetCalendarChange = () => {},
+  createCalendarEvent = true,
+  onCreateCalendarEventChange = () => {}
 }) {
   // Initialize form data from reservation
   const [formData, setFormData] = useState({
@@ -712,6 +719,7 @@ export default function RoomReservationReview({
                 onEventTimeChange={handleEventTimeChange}
                 currentReservationId={reservation?._id}
                 onLockedEventClick={onLockedEventClick}
+                defaultCalendar={defaultCalendar}
               />
             </div>
 
@@ -897,15 +905,84 @@ export default function RoomReservationReview({
               )}
             </section>
 
+            {/* Calendar Configuration for Approval */}
+            {reservation.status === 'pending' && availableCalendars.length > 0 && (
+              <section className="form-section">
+                <h2>Calendar Configuration</h2>
+                <div className="calendar-config-box" style={{
+                  background: '#f8f9fa',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '6px',
+                  padding: '16px',
+                  marginTop: '12px'
+                }}>
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                      <input
+                        type="checkbox"
+                        checked={createCalendarEvent}
+                        onChange={(e) => onCreateCalendarEventChange(e.target.checked)}
+                      />
+                      <span>Create as Calendar Event</span>
+                    </label>
+                  </div>
+
+                  {createCalendarEvent && (
+                    <div className="form-group">
+                      <label htmlFor="target-calendar" style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                        Target Calendar:
+                      </label>
+                      <select
+                        id="target-calendar"
+                        value={selectedTargetCalendar}
+                        onChange={(e) => onTargetCalendarChange(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '14px',
+                          border: '1px solid #ced4da',
+                          borderRadius: '4px',
+                          backgroundColor: 'white'
+                        }}
+                      >
+                        {availableCalendars.map((calendar) => (
+                          <option key={calendar} value={calendar}>
+                            {calendar}
+                            {calendar === defaultCalendar ? ' (Default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedTargetCalendar && (
+                        <div style={{ marginTop: '8px', fontSize: '13px', color: '#6c757d' }}>
+                          {selectedTargetCalendar === defaultCalendar ? (
+                            <span>✓ Using system default calendar</span>
+                          ) : (
+                            <span>⚠️ Override: Using custom calendar for this approval</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* Reservation History */}
             {reservation && apiToken && (
               <section className="form-section">
                 <h2>Reservation History</h2>
-                <ReservationAuditHistory
-                  reservationId={reservation._id}
-                  apiToken={apiToken}
-                  refreshTrigger={auditRefreshTrigger}
-                />
+                {reservation._isNewUnifiedEvent ? (
+                  <EventAuditHistory
+                    eventId={reservation.eventId}
+                    apiToken={apiToken}
+                  />
+                ) : (
+                  <ReservationAuditHistory
+                    reservationId={reservation._id}
+                    apiToken={apiToken}
+                    refreshTrigger={auditRefreshTrigger}
+                  />
+                )}
               </section>
             )}
           </div>

@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import RoomReservationReview from './RoomReservationReview';
+import UnifiedEventForm from './UnifiedEventForm';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -18,6 +19,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
   const [createCalendarEvent, setCreateCalendarEvent] = useState(true);
+  const [availableCalendars, setAvailableCalendars] = useState([]);
+  const [defaultCalendar, setDefaultCalendar] = useState('');
+  const [selectedTargetCalendar, setSelectedTargetCalendar] = useState('');
 
   // Editable form state
   const [editableData, setEditableData] = useState(null);
@@ -43,16 +47,46 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [checkingConflicts, setCheckingConflicts] = useState(false);
   const [forceApprove, setForceApprove] = useState(false);
 
+  // Feature flag: Toggle between old and new review form
+  const [useUnifiedForm, setUseUnifiedForm] = useState(false);
+
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
   
   
+  // Load calendar settings on mount
+  useEffect(() => {
+    if (apiToken) {
+      loadCalendarSettings();
+    }
+  }, [apiToken]);
+
   // Load all reservations once on mount
   useEffect(() => {
     if (apiToken) {
       loadAllReservations();
     }
   }, [apiToken]);
+
+  const loadCalendarSettings = async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-settings`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableCalendars(data.availableCalendars || []);
+        setDefaultCalendar(data.defaultCalendar || '');
+        setSelectedTargetCalendar(data.defaultCalendar || '');
+      }
+    } catch (err) {
+      logger.error('Error loading calendar settings:', err);
+      // Continue without calendar settings - will fall back to hardcoded default
+    }
+  };
 
   // Cleanup hold timer on unmount
   useEffect(() => {
@@ -68,17 +102,67 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setLoading(true);
       setError('');
 
-      // Load all reservations without pagination or filtering
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
+      // Load ONLY from templeEvents__Events (new unified system)
+      const newEventsResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservation-events?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
       });
 
-      if (!response.ok) throw new Error('Failed to load reservations');
+      if (!newEventsResponse.ok) {
+        throw new Error('Failed to load room reservation events');
+      }
 
-      const data = await response.json();
-      setAllReservations(data.reservations || []);
+      // Parse response
+      const newData = await newEventsResponse.json();
+
+      // Transform new events to match old reservation format for display
+      const transformedNewEvents = (newData.events || []).map(event => ({
+        _id: event._id,
+        eventId: event.eventId,
+        eventTitle: event.graphData?.subject || 'Untitled Event',
+        eventDescription: event.graphData?.bodyPreview || '',
+        startDateTime: event.graphData?.start?.dateTime,
+        endDateTime: event.graphData?.end?.dateTime,
+        requestedRooms: event.roomReservationData?.requestedRooms || [],
+        requesterName: event.roomReservationData?.requestedBy?.name || '',
+        requesterEmail: event.roomReservationData?.requestedBy?.email || '',
+        department: event.roomReservationData?.requestedBy?.department || '',
+        phone: event.roomReservationData?.requestedBy?.phone || '',
+        attendeeCount: event.roomReservationData?.attendeeCount || 0,
+        priority: event.roomReservationData?.priority || 'medium',
+        specialRequirements: event.roomReservationData?.specialRequirements || '',
+        status: event.status === 'room-reservation-request' ? 'pending' : event.status,
+        submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
+        changeKey: event.roomReservationData?.changeKey,
+        setupTime: event.roomReservationData?.timing?.setupTime || '',
+        teardownTime: event.roomReservationData?.timing?.teardownTime || '',
+        doorOpenTime: event.roomReservationData?.timing?.doorOpenTime || '',
+        doorCloseTime: event.roomReservationData?.timing?.doorCloseTime || '',
+        setupTimeMinutes: event.roomReservationData?.timing?.setupTimeMinutes || 0,
+        teardownTimeMinutes: event.roomReservationData?.timing?.teardownTimeMinutes || 0,
+        setupNotes: event.roomReservationData?.internalNotes?.setupNotes || '',
+        doorNotes: event.roomReservationData?.internalNotes?.doorNotes || '',
+        eventNotes: event.roomReservationData?.internalNotes?.eventNotes || '',
+        contactName: event.roomReservationData?.contactPerson?.name || '',
+        contactEmail: event.roomReservationData?.contactPerson?.email || '',
+        isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || false,
+        reviewNotes: event.roomReservationData?.reviewNotes || '',
+        _isNewUnifiedEvent: true // Flag to identify source
+      }));
+
+      // Sort by submission date (newest first)
+      transformedNewEvents.sort((a, b) => {
+        const dateA = new Date(a.submittedAt || 0);
+        const dateB = new Date(b.submittedAt || 0);
+        return dateB - dateA;
+      });
+
+      logger.info('Loaded room reservation events:', {
+        count: transformedNewEvents.length
+      });
+
+      setAllReservations(transformedNewEvents);
     } catch (err) {
       logger.error('Error loading reservations:', err);
       setError('Failed to load reservation requests');
@@ -88,7 +172,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   };
 
   // Acquire soft hold when opening review modal
-  const acquireReviewHold = async (reservationId) => {
+  const acquireReviewHold = async (reservationId, isNewUnifiedEvent = false) => {
+    // Skip review hold for new unified events (endpoint not implemented yet)
+    if (isNewUnifiedEvent) {
+      logger.info('Skipping review hold for new unified event');
+      setHoldError(null);
+      return true;
+    }
+
     try {
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/start-review`,
@@ -172,6 +263,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     try {
       setCheckingConflicts(true);
 
+      // Skip conflict check for new unified events (endpoint not implemented yet)
+      if (reservation._isNewUnifiedEvent) {
+        logger.info('Skipping pre-check conflicts for new unified event (checked during approval)');
+        setConflicts([]);
+        return;
+      }
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/check-conflicts`,
         {
@@ -221,7 +319,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     // For pending reservations, try to acquire soft hold
     if (reservation.status === 'pending') {
       try {
-        const holdAcquired = await acquireReviewHold(reservation._id);
+        const holdAcquired = await acquireReviewHold(reservation._id, reservation._isNewUnifiedEvent);
         if (!holdAcquired && holdError) {
           // Block if someone else is reviewing
           if (holdError.includes('currently being reviewed by')) {
@@ -441,12 +539,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         calendarMode: calendarMode,
         createCalendarEvent: createCalendarEvent,
         graphToken: graphToken,
-        forceApprove: forceApprove
+        forceApprove: forceApprove,
+        targetCalendar: selectedTargetCalendar || defaultCalendar
       };
 
       console.log('📤 Sending approval request:', requestBody);
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`, {
+      // Use new endpoint for unified events, old endpoint for legacy reservations
+      const approveEndpoint = reservation._isNewUnifiedEvent
+        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`
+        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`;
+
+      console.log('🔗 Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
+
+      const response = await fetch(approveEndpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -542,7 +648,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
     
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/reject`, {
+      // Use new endpoint for unified events, old endpoint for legacy reservations
+      const rejectEndpoint = reservation._isNewUnifiedEvent
+        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/reject`
+        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/reject`;
+
+      const response = await fetch(rejectEndpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -779,7 +890,21 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   {new Date(reservation.submittedAt).toLocaleDateString()}
                 </td>
                 <td className="event-details">
-                  <strong>{reservation.eventTitle}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <strong>{reservation.eventTitle}</strong>
+                    {reservation._isNewUnifiedEvent && (
+                      <span style={{
+                        background: '#0078d4',
+                        color: 'white',
+                        padding: '2px 6px',
+                        borderRadius: '3px',
+                        fontSize: '0.7rem',
+                        fontWeight: '500'
+                      }}>
+                        ✨ NEW
+                      </span>
+                    )}
+                  </div>
                   {reservation.eventDescription && (
                     <div className="event-desc">{reservation.eventDescription}</div>
                   )}
@@ -904,66 +1029,115 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           <div className="review-modal" style={{ maxWidth: '100vw', display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}>
             {/* Sticky Action Bar at top of modal */}
             <div className="review-action-bar">
-              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
-                {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
+                  {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
+                </h2>
+
+                {/* Feature Flag Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setUseUnifiedForm(!useUnifiedForm)}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '0.75rem',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db',
+                    background: useUnifiedForm ? '#0078d4' : '#f3f4f6',
+                    color: useUnifiedForm ? 'white' : '#374151',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    transition: 'all 0.2s'
+                  }}
+                  title={useUnifiedForm ? 'Switch to Legacy Form' : 'Switch to New Unified Form'}
+                >
+                  {useUnifiedForm ? '✨ New Form' : '📋 Legacy Form'}
+                </button>
+              </div>
 
               <div className="review-actions">
-                {selectedReservation.status === 'pending' && (
+                {/* Only show action buttons for legacy form (unified form has its own) */}
+                {!useUnifiedForm && (
                   <>
+                    {selectedReservation.status === 'pending' && (
+                      <>
+                        <button
+                          type="button"
+                          className="action-btn approve-btn"
+                          onClick={() => handleApprove(selectedReservation)}
+                        >
+                          ✓ Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="action-btn reject-btn"
+                          onClick={() => handleReject(selectedReservation)}
+                        >
+                          ✗ Reject
+                        </button>
+                        <button
+                          type="button"
+                          className="action-btn save-btn"
+                          onClick={() => {
+                            console.log('🖱️ Save button clicked in parent', { hasChanges, isSaving });
+                            childSaveFunctionRef.current?.();
+                          }}
+                          disabled={!hasChanges || isSaving}
+                          title={!hasChanges ? 'No changes to save' : ''}
+                        >
+                          {isSaving ? 'Saving...' : '💾 Save'}
+                        </button>
+                      </>
+                    )}
+
                     <button
                       type="button"
-                      className="action-btn approve-btn"
-                      onClick={() => handleApprove(selectedReservation)}
+                      className="action-btn cancel-btn"
+                      onClick={closeReviewModal}
                     >
-                      ✓ Approve
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn reject-btn"
-                      onClick={() => handleReject(selectedReservation)}
-                    >
-                      ✗ Reject
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn save-btn"
-                      onClick={() => {
-                        console.log('🖱️ Save button clicked in parent', { hasChanges, isSaving });
-                        childSaveFunctionRef.current?.();
-                      }}
-                      disabled={!hasChanges || isSaving}
-                      title={!hasChanges ? 'No changes to save' : ''}
-                    >
-                      {isSaving ? 'Saving...' : '💾 Save'}
+                      {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
                     </button>
                   </>
                 )}
-
-                <button
-                  type="button"
-                  className="action-btn cancel-btn"
-                  onClick={closeReviewModal}
-                >
-                  {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
-                </button>
               </div>
             </div>
 
             {/* Scrollable content area */}
             <div style={{ flex: 1, overflow: 'auto' }}>
-              <RoomReservationReview
-                reservation={selectedReservation}
-                apiToken={apiToken}
-                onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
-                onReject={(notes) => handleReject(selectedReservation)}
-                onCancel={closeReviewModal}
-                onSave={handleSaveChanges}
-                onHasChangesChange={setHasChanges}
-                onIsSavingChange={setIsSaving}
-                onSaveFunctionReady={handleSaveFunctionReady}
-                onLockedEventClick={handleLockedEventClick}
-              />
+              {useUnifiedForm ? (
+                <UnifiedEventForm
+                  mode="reservation"
+                  reservation={selectedReservation}
+                  apiToken={apiToken}
+                  onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
+                  onReject={(notes) => handleReject(selectedReservation)}
+                  onCancel={closeReviewModal}
+                  onSave={handleSaveChanges}
+                  onHasChangesChange={setHasChanges}
+                  onIsSavingChange={setIsSaving}
+                  onSaveFunctionReady={handleSaveFunctionReady}
+                  onLockedEventClick={handleLockedEventClick}
+                />
+              ) : (
+                <RoomReservationReview
+                  reservation={selectedReservation}
+                  apiToken={apiToken}
+                  onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
+                  onReject={(notes) => handleReject(selectedReservation)}
+                  onCancel={closeReviewModal}
+                  onSave={handleSaveChanges}
+                  onHasChangesChange={setHasChanges}
+                  onIsSavingChange={setIsSaving}
+                  onSaveFunctionReady={handleSaveFunctionReady}
+                  onLockedEventClick={handleLockedEventClick}
+                  availableCalendars={availableCalendars}
+                  defaultCalendar={defaultCalendar}
+                  selectedTargetCalendar={selectedTargetCalendar}
+                  onTargetCalendarChange={setSelectedTargetCalendar}
+                  createCalendarEvent={createCalendarEvent}
+                  onCreateCalendarEventChange={setCreateCalendarEvent}
+                />
+              )}
             </div>
           </div>
         </div>

@@ -46,6 +46,14 @@
   margin: 10px 0;
 }
 
+.success-message .success-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
 .loading-message {
   text-align: center;
   color: #666;

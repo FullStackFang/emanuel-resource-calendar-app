@@ -26,6 +26,13 @@
   gap: 8px;
 }
 
+.calendar-name-badge {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #6b7280;
+  font-family: monospace;
+}
+
 .selected-date {
   color: #6b7280;
   font-size: 0.9rem;

@@ -437,7 +437,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           <p>Your space booking request has been submitted successfully.</p>
           <p>You will receive a confirmation email once it has been reviewed.</p>
 
-          <div className="form-actions" style={{ marginTop: '30px' }}>
+          <div className="success-actions" style={{ marginTop: '30px' }}>
             <button
               type="button"
               className="submit-btn"

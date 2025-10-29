@@ -1,4 +1,5 @@
 // api-server.js - Express API for MongoDB
+console.log('🚀 API SERVER FILE LOADED - CODE VERSION 2.0');
 const express = require('express');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
@@ -152,6 +153,7 @@ let eventAuditHistoryCollection; // Audit trail for event changes
 let reservationAuditHistoryCollection; // Audit trail for room reservation changes
 let filesBucket; // GridFS bucket for file storage
 let eventAttachmentsCollection; // Event-file relationship tracking
+let systemSettingsCollection; // System-wide settings (calendar config, etc)
 
 /**
  * Create indexes for the event cache collection for optimal performance
@@ -1598,6 +1600,7 @@ async function connectToDatabase() {
     // Initialize GridFS bucket for file storage
     filesBucket = new GridFSBucket(db, { bucketName: 'templeEvents__Files' });
     eventAttachmentsCollection = db.collection('templeEvents__EventAttachments'); // Event-file relationship tracking
+    systemSettingsCollection = db.collection('templeEvents__SystemSettings'); // System-wide settings
 
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
@@ -3574,17 +3577,68 @@ app.post('/api/events/force-sync', verifyToken, async (req, res) => {
  * Get unified events endpoint
  */
 app.get('/api/events', verifyToken, async (req, res) => {
+  console.log('===== /api/events endpoint hit =====');
   try {
-    const { calendarId, startTime, endTime } = req.query;
+    const { calendarId, startTime, endTime, status, page = 1, limit = 20 } = req.query;
     const userId = req.user.userId;
-    
+    const userEmail = req.user.email;
+
+    // NEW: Handle room-reservation-request filtering
+    if (status === 'room-reservation-request') {
+      console.log('🔍 Filtering for room reservation requests');
+
+      // Build query for room reservations
+      const query = {
+        isDeleted: { $ne: true },
+        status: 'room-reservation-request',
+        roomReservationData: { $exists: true, $ne: null }
+      };
+
+      // Check if user can view all reservations
+      const user = await usersCollection.findOne({ userId });
+      const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+
+      console.log('👤 User info:', { userId, userEmail, canViewAll });
+
+      // Non-admin users can only see their own requests
+      if (!canViewAll) {
+        query['roomReservationData.requestedBy.userId'] = userId;
+      }
+
+      console.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
+
+      // Execute query
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const events = await unifiedEventsCollection
+        .find(query)
+        .sort({ 'graphData.start.dateTime': -1, submittedAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .toArray();
+
+      const totalCount = await unifiedEventsCollection.countDocuments(query);
+
+      console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+
+      return res.json({
+        events,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalCount,
+          totalPages: Math.ceil(totalCount / parseInt(limit))
+        }
+      });
+    }
+
+    // OLD: Original logic for calendar events
     let startDate = null;
     let endDate = null;
     if (startTime && endTime) {
       startDate = new Date(startTime);
       endDate = new Date(endTime);
     }
-    
+
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
     
     // Transform events to frontend format
@@ -3627,6 +3681,64 @@ app.get('/api/events', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error getting unified events:', error);
     res.status(500).json({ error: 'Failed to get events' });
+  }
+});
+
+/**
+ * NEW: Get room reservation request events (dedicated endpoint)
+ * GET /api/room-reservation-events?limit=1000
+ */
+app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
+  console.log('===== /api/room-reservation-events endpoint hit =====');
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Build query for room reservations (all statuses: pending, approved, rejected)
+    const query = {
+      isDeleted: { $ne: true },
+      roomReservationData: { $exists: true, $ne: null }
+    };
+
+    // Check if user can view all reservations
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+
+    console.log('👤 User info:', { userId, userEmail, canViewAll });
+
+    // Non-admin users can only see their own requests
+    if (!canViewAll) {
+      query['roomReservationData.requestedBy.userId'] = userId;
+    }
+
+    console.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
+
+    // Execute query (no sort due to Cosmos DB index limitations)
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const events = await unifiedEventsCollection
+      .find(query)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
+
+    console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+
+    res.json({
+      events,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching room reservation events:', error);
+    res.status(500).json({ error: 'Failed to fetch room reservation events' });
   }
 });
 
@@ -4707,6 +4819,125 @@ app.get('/api/admin/unified/delta-tokens', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error getting delta tokens:', error);
     res.status(500).json({ error: 'Failed to get delta tokens' });
+  }
+});
+
+/**
+ * Admin endpoint - Get calendar configuration settings
+ * Returns the default calendar and list of available calendars
+ */
+app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Load calendar-config.json to get available calendars
+    const fs = require('fs');
+    const path = require('path');
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+
+    // Remove the _instructions field
+    const { _instructions, ...calendars } = calendarConfig;
+
+    // Get current default calendar setting from database
+    let settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+
+    // If no settings exist, create default
+    if (!settings) {
+      settings = {
+        _id: 'calendar-settings',
+        defaultCalendar: 'templesandbox@emanuelnyc.org',
+        lastModifiedBy: 'system',
+        lastModifiedAt: new Date()
+      };
+      await systemSettingsCollection.insertOne(settings);
+    }
+
+    res.json({
+      defaultCalendar: settings.defaultCalendar,
+      availableCalendars: Object.keys(calendars),
+      calendarIds: calendars,
+      lastModifiedBy: settings.lastModifiedBy,
+      lastModifiedAt: settings.lastModifiedAt
+    });
+
+  } catch (error) {
+    logger.error('Error getting calendar settings:', error);
+    res.status(500).json({ error: 'Failed to get calendar settings' });
+  }
+});
+
+/**
+ * Admin endpoint - Update calendar configuration settings
+ * Updates the default calendar for room reservations
+ */
+app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { defaultCalendar } = req.body;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!defaultCalendar || !defaultCalendar.trim()) {
+      return res.status(400).json({ error: 'defaultCalendar is required' });
+    }
+
+    // Validate that the calendar exists in calendar-config.json
+    const fs = require('fs');
+    const path = require('path');
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+
+    if (!calendarConfig[defaultCalendar]) {
+      return res.status(400).json({
+        error: 'Invalid calendar',
+        message: `Calendar "${defaultCalendar}" not found in calendar-config.json`
+      });
+    }
+
+    // Update settings in database
+    const updatedSettings = {
+      _id: 'calendar-settings',
+      defaultCalendar: defaultCalendar.trim(),
+      lastModifiedBy: userEmail,
+      lastModifiedAt: new Date()
+    };
+
+    await systemSettingsCollection.updateOne(
+      { _id: 'calendar-settings' },
+      { $set: updatedSettings },
+      { upsert: true }
+    );
+
+    logger.info('Calendar settings updated:', {
+      defaultCalendar: updatedSettings.defaultCalendar,
+      updatedBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      settings: updatedSettings
+    });
+
+  } catch (error) {
+    logger.error('Error updating calendar settings:', error);
+    res.status(500).json({ error: 'Failed to update calendar settings' });
   }
 });
 
@@ -13296,6 +13527,625 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to create sample events' });
   }
 });
+
+// ============================================================================
+// NEW UNIFIED EVENT API ENDPOINTS
+// These endpoints handle room reservation requests as events in the unified collection
+// Running in parallel with existing /room-reservations endpoints for safe testing
+// ============================================================================
+
+/**
+ * Create a new room reservation request as an event (Authenticated)
+ * POST /api/events/request
+ * Creates an event with status='room-reservation-request' in templeEvents__Events
+ */
+app.post('/api/events/request', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      specialRequirements,
+      department,
+      phone,
+      priority,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      requesterName,
+      requesterEmail
+    } = req.body;
+
+    // Validate required fields
+    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms'
+      });
+    }
+
+    // Validate delegation fields
+    if (isOnBehalfOf && (!contactName || !contactEmail)) {
+      return res.status(400).json({
+        error: 'Contact person name and email required when submitting on behalf of someone else'
+      });
+    }
+
+    // Get room names for location display
+    let roomNames = [];
+    try {
+      logger.debug('Looking up rooms:', { requestedRooms, count: requestedRooms.length });
+
+      // Handle both ObjectId and string formats for room IDs
+      const roomQuery = requestedRooms.map(id => {
+        try {
+          // Try to convert to ObjectId if it's a valid 24-char hex string
+          if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+            return new ObjectId(id);
+          }
+          // Otherwise use as-is (for non-ObjectId string IDs)
+          return id;
+        } catch (err) {
+          logger.warn('Could not convert room ID to ObjectId, using as string:', id);
+          return id;
+        }
+      });
+
+      const rooms = await roomsCollection.find({
+        _id: { $in: roomQuery }
+      }).toArray();
+
+      roomNames = rooms.map(r => r.displayName || r.name || 'Unknown Room');
+      logger.debug('Found rooms:', { count: rooms.length, names: roomNames });
+
+      // If no rooms found, use the IDs as fallback names
+      if (roomNames.length === 0) {
+        logger.warn('No rooms found in database, using IDs as names');
+        roomNames = requestedRooms.map(id => `Room ${id}`);
+      }
+
+    } catch (err) {
+      logger.error('Error looking up rooms:', err);
+      // Fallback: use room IDs as names
+      roomNames = requestedRooms.map(id => `Room ${id}`);
+    }
+
+    // Generate unique event ID
+    const eventId = `evt-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create event document with room reservation data
+    const eventDoc = {
+      eventId,
+      userId,
+      source: 'Room Reservation System',
+      status: 'room-reservation-request', // Key status field
+      isDeleted: false,
+
+      // Minimal graphData structure (not yet a real Graph event)
+      graphData: {
+        subject: eventTitle,
+        start: {
+          dateTime: startDateTime,
+          timeZone: 'America/New_York'
+        },
+        end: {
+          dateTime: endDateTime,
+          timeZone: 'America/New_York'
+        },
+        location: { displayName: roomNames.join('; ') },
+        bodyPreview: eventDescription || '',
+        categories: [],
+        isAllDay: false,
+        importance: priority === 'high' ? 'high' : 'normal',
+        showAs: 'busy',
+        sensitivity: 'normal',
+        attendees: [],
+        organizer: {
+          emailAddress: {
+            name: requesterName || userEmail,
+            address: requesterEmail || userEmail
+          }
+        }
+      },
+
+      // Standard internal enrichments
+      internalData: {
+        mecCategories: [],
+        setupMinutes: setupTimeMinutes || 0,
+        teardownMinutes: teardownTimeMinutes || 0,
+        registrationNotes: '',
+        assignedTo: '',
+        staffAssignments: [],
+        internalNotes: eventNotes || '',
+        setupStatus: 'pending',
+        estimatedCost: null,
+        actualCost: null,
+        customFields: {}
+      },
+
+      // NEW: Room reservation metadata
+      roomReservationData: {
+        requestedBy: {
+          userId,
+          name: requesterName || userEmail,
+          email: requesterEmail || userEmail,
+          department: department || '',
+          phone: phone || ''
+        },
+        contactPerson: isOnBehalfOf ? {
+          name: contactName,
+          email: contactEmail,
+          isOnBehalfOf: true
+        } : null,
+        requestedRooms: requestedRooms,
+        timing: {
+          setupTime: setupTime || '',
+          teardownTime: teardownTime || '',
+          doorOpenTime: doorOpenTime || '',
+          doorCloseTime: doorCloseTime || '',
+          setupTimeMinutes: setupTimeMinutes || 0,
+          teardownTimeMinutes: teardownTimeMinutes || 0
+        },
+        attendeeCount: parseInt(attendeeCount) || 0,
+        priority: priority || 'medium',
+        specialRequirements: specialRequirements || '',
+        internalNotes: {
+          setupNotes: setupNotes || '',
+          doorNotes: doorNotes || '',
+          eventNotes: eventNotes || ''
+        },
+        submittedAt: new Date(),
+        changeKey: generateChangeKey({
+          eventTitle,
+          startDateTime,
+          endDateTime,
+          requestedRooms,
+          attendeeCount,
+          priority
+        }),
+        currentRevision: 1,
+        reviewingBy: null,
+        reviewedBy: null,
+        reviewNotes: '',
+        createdGraphEventIds: [],
+        calendarMode: null
+      },
+
+      lastModifiedDateTime: new Date(),
+      lastSyncedAt: new Date(),
+      calendarId: null, // No calendar yet (pending approval)
+      sourceCalendars: [],
+      sourceMetadata: {},
+      syncStatus: 'pending'
+    };
+
+    const result = await unifiedEventsCollection.insertOne(eventDoc);
+
+    // Create audit history entry
+    await eventAuditHistoryCollection.insertOne({
+      eventId: eventDoc.eventId,
+      reservationId: result.insertedId, // Link to document _id
+      action: 'request_submitted',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: [
+        { field: 'status', oldValue: null, newValue: 'room-reservation-request' },
+        { field: 'eventTitle', oldValue: null, newValue: eventTitle }
+      ],
+      revisionNumber: 1
+    });
+
+    logger.info('Room reservation request created as event:', {
+      eventId: eventDoc.eventId,
+      userId,
+      eventTitle,
+      requestedRooms: roomNames
+    });
+
+    res.json({
+      success: true,
+      eventId: eventDoc.eventId,
+      _id: result.insertedId,
+      message: 'Room reservation request submitted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error creating room reservation request:', {
+      error: error.message,
+      stack: error.stack,
+      userId,
+      eventTitle: req.body.eventTitle
+    });
+    res.status(500).json({
+      error: 'Failed to submit reservation request',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * Approve a room reservation request (Admin only)
+ * PUT /api/admin/events/:id/approve
+ * Changes status from 'room-reservation-request' to 'approved'
+ * Optionally creates Graph calendar event
+ */
+app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const id = req.params.id;
+    const { notes, calendarMode, createCalendarEvent, graphToken, forceApprove, targetCalendar } = req.body;
+
+    // Get event by _id
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Verify status is room-reservation-request
+    if (event.status !== 'room-reservation-request') {
+      return res.status(400).json({
+        error: 'Event is not a pending room reservation request',
+        currentStatus: event.status
+      });
+    }
+
+    // ETag validation (if provided)
+    const providedETag = req.headers['if-match'];
+    if (providedETag && event.roomReservationData?.changeKey !== providedETag) {
+      // Calculate what changed
+      const changes = [];
+      return res.status(409).json({
+        error: 'ConflictError',
+        message: 'Event was modified by another user. Please refresh and try again.',
+        lastModifiedBy: event.roomReservationData?.reviewedBy?.name || 'Unknown',
+        changes
+      });
+    }
+
+    // Check for scheduling conflicts (unless forceApprove)
+    if (!forceApprove && event.roomReservationData?.requestedRooms) {
+      // TODO: Implement conflict detection
+      // For now, skip conflict checking
+    }
+
+    // Create Graph calendar event (if requested)
+    let graphEventId = null;
+    let calendarEventResult = null;
+    let selectedCalendar = null;
+
+    if (createCalendarEvent && graphToken) {
+      try {
+        // Determine target calendar: use override, then database default, then fallback to sandbox
+        if (targetCalendar) {
+          selectedCalendar = targetCalendar;
+        } else {
+          // Get default from database
+          const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+          selectedCalendar = settings?.defaultCalendar || 'templesandbox@emanuelnyc.org';
+        }
+
+        // Create Graph event
+        const graphEventData = {
+          subject: event.graphData.subject,
+          start: event.graphData.start,
+          end: event.graphData.end,
+          location: event.graphData.location,
+          body: {
+            contentType: 'Text',
+            content: event.graphData.bodyPreview || ''
+          },
+          categories: event.graphData.categories || [],
+          importance: event.graphData.importance || 'normal',
+          showAs: event.graphData.showAs || 'busy'
+        };
+
+        const graphResponse = await fetch(
+          `https://graph.microsoft.com/v1.0/users/${selectedCalendar}/events`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(graphEventData)
+          }
+        );
+
+        if (graphResponse.ok) {
+          const createdEvent = await graphResponse.json();
+          graphEventId = createdEvent.id;
+          calendarEventResult = {
+            success: true,
+            eventId: graphEventId,
+            targetCalendar: selectedCalendar
+          };
+          logger.info('Graph calendar event created:', { graphEventId, targetCalendar: selectedCalendar });
+        } else {
+          const errorText = await graphResponse.text();
+          calendarEventResult = {
+            success: false,
+            error: `Graph API error: ${graphResponse.status} - ${errorText}`
+          };
+          logger.error('Failed to create Graph event:', errorText);
+        }
+      } catch (error) {
+        calendarEventResult = {
+          success: false,
+          error: error.message
+        };
+        logger.error('Error creating Graph calendar event:', error);
+      }
+    }
+
+    // Update event status
+    const newChangeKey = generateChangeKey({
+      ...event,
+      status: 'approved',
+      reviewedAt: new Date()
+    });
+
+    const updateDoc = {
+      $set: {
+        status: 'approved',
+        'roomReservationData.reviewedBy': {
+          userId,
+          name: user?.displayName || userEmail,
+          reviewedAt: new Date()
+        },
+        'roomReservationData.reviewNotes': notes || '',
+        'roomReservationData.changeKey': newChangeKey,
+        'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
+        'roomReservationData.reviewingBy': null, // Release soft lock
+        'roomReservationData.calendarMode': calendarMode || CALENDAR_CONFIG.DEFAULT_MODE,
+        lastModifiedDateTime: new Date()
+      }
+    };
+
+    // Add Graph event ID if created
+    if (graphEventId) {
+      updateDoc.$set['graphData.id'] = graphEventId;
+      updateDoc.$set.calendarId = graphEventId;
+      updateDoc.$push = {
+        'roomReservationData.createdGraphEventIds': graphEventId
+      };
+    }
+
+    const updateResult = await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Audit log
+    await eventAuditHistoryCollection.insertOne({
+      eventId: event.eventId,
+      reservationId: event._id,
+      action: 'approved',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: [
+        { field: 'status', oldValue: 'room-reservation-request', newValue: 'approved' },
+        { field: 'reviewNotes', oldValue: '', newValue: notes || '' }
+      ],
+      revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
+    });
+
+    logger.info('Room reservation approved:', {
+      eventId: event.eventId,
+      mongoId: id,
+      approvedBy: userEmail,
+      graphEventCreated: !!graphEventId
+    });
+
+    res.json({
+      success: true,
+      changeKey: newChangeKey,
+      calendarEvent: calendarEventResult,
+      message: 'Reservation approved successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error approving room reservation:', error);
+    res.status(500).json({ error: 'Failed to approve reservation' });
+  }
+});
+
+/**
+ * Reject a room reservation request (Admin only)
+ * PUT /api/admin/events/:id/reject
+ * Changes status from 'room-reservation-request' to 'rejected'
+ */
+app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const id = req.params.id;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    // Get event by _id
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Verify status is room-reservation-request
+    if (event.status !== 'room-reservation-request') {
+      return res.status(400).json({
+        error: 'Event is not a pending room reservation request',
+        currentStatus: event.status
+      });
+    }
+
+    // Update event status
+    const newChangeKey = generateChangeKey({
+      ...event,
+      status: 'rejected',
+      rejectionReason: reason
+    });
+
+    const updateResult = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: 'rejected',
+          'roomReservationData.reviewedBy': {
+            userId,
+            name: user?.displayName || userEmail,
+            reviewedAt: new Date()
+          },
+          'roomReservationData.reviewNotes': reason,
+          'roomReservationData.changeKey': newChangeKey,
+          'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
+          'roomReservationData.reviewingBy': null, // Release soft lock
+          lastModifiedDateTime: new Date()
+        }
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Audit log
+    await eventAuditHistoryCollection.insertOne({
+      eventId: event.eventId,
+      reservationId: event._id,
+      action: 'rejected',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: [
+        { field: 'status', oldValue: 'room-reservation-request', newValue: 'rejected' },
+        { field: 'reviewNotes', oldValue: '', newValue: reason }
+      ],
+      revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
+    });
+
+    logger.info('Room reservation rejected:', {
+      eventId: event.eventId,
+      mongoId: id,
+      rejectedBy: userEmail,
+      reason
+    });
+
+    res.json({
+      success: true,
+      changeKey: newChangeKey,
+      message: 'Reservation rejected successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error rejecting room reservation:', error);
+    res.status(500).json({ error: 'Failed to reject reservation' });
+  }
+});
+
+/**
+ * Get events by status (supports filtering for room-reservation-request)
+ * GET /api/events?status=room-reservation-request
+ */
+app.get('/api/events', verifyToken, async (req, res) => {
+  console.log('===== CODE UPDATE LOADED! =====');
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { status, page = 1, limit = 20 } = req.query;
+
+    // Build query
+    const query = { isDeleted: { $ne: true } };
+
+    if (status) {
+      query.status = status;
+      // If filtering by room-reservation-request, ensure roomReservationData exists
+      if (status === 'room-reservation-request') {
+        query.roomReservationData = { $exists: true, $ne: null };
+      }
+    }
+
+    // Check if user can view all reservations (match old endpoint logic)
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+
+    // Non-admin users can only see their own requests
+    if (!canViewAll && status === 'room-reservation-request') {
+      // Filter by the userId stored in roomReservationData.requestedBy.userId
+      query['roomReservationData.requestedBy.userId'] = userId;
+    }
+
+    console.log('🔍 GET /api/events query:', JSON.stringify(query, null, 2));
+    console.log('👤 User info:', { userId, userEmail, canViewAll });
+
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const events = await unifiedEventsCollection
+      .find(query)
+      .sort({ 'graphData.start.dateTime': -1, submittedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
+
+    console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+
+    res.json({
+      events,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching events:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+// ============================================================================
+// END NEW UNIFIED EVENT API ENDPOINTS
+// ============================================================================
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully');

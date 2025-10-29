@@ -197,7 +197,7 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
                   </span>
                   <div className="audit-entry-info">
                     <div className="audit-entry-action">
-                      <strong>{entry.changeType.charAt(0).toUpperCase() + entry.changeType.slice(1)}</strong>
+                      <strong>{entry.changeType ? (entry.changeType.charAt(0).toUpperCase() + entry.changeType.slice(1)) : (entry.action || 'Update')}</strong>
                       {entry.source && (
                         <span className="audit-source">
                           {getSourceIcon(entry.source)} {entry.source}

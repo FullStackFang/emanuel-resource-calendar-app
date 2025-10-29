@@ -1,5 +1,7 @@
 // src/components/UnifiedEventForm.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
@@ -10,25 +12,30 @@ import ReservationAuditHistory from './ReservationAuditHistory';
 import './RoomReservationForm.css'; // Import original form CSS for layout classes
 
 /**
- * UnifiedEventForm - UNIFIED FORM for both reservations and calendar events
- * Supports two modes:
- * - 'reservation': Room reservation review/editing
- * - 'event': Calendar event editing
+ * UnifiedEventForm - UNIFIED FORM for reservations, events, and new bookings
+ * Supports three modes:
+ * - 'create': New room reservation request (booking form)
+ * - 'reservation': Room reservation review/editing (admin review modal)
+ * - 'event': Calendar event editing (calendar click)
  */
 export default function UnifiedEventForm({
-  mode = 'reservation', // 'reservation' or 'event'
+  mode = 'reservation', // 'create', 'reservation', or 'event'
+  // Common props
+  apiToken,
+  onCancel,
+  // Create mode props
+  isPublic = false,        // Public guest access (no auth required)
+  token,                   // Guest access token for public submissions
   // Reservation-specific props
   reservation,
-  apiToken,
   onApprove,
   onReject,
-  onCancel,
   onSave,
   onHasChangesChange,
   onIsSavingChange,
   onSaveFunctionReady,
   onLockedEventClick,
-  // Event-specific props (for future event mode)
+  // Event-specific props
   event,
   categories,
   availableLocations,
@@ -80,7 +87,32 @@ export default function UnifiedEventForm({
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
 
+  // Create mode specific state
+  const [success, setSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [hasAutoFilled, setHasAutoFilled] = useState(false);
+
   const { rooms, loading: roomsLoading } = useRooms();
+  const navigate = useNavigate();
+  const { accounts } = useMsal();
+
+  // Auto-fill user email/name in create mode (authenticated users only)
+  useEffect(() => {
+    if (mode === 'create' && !isPublic && accounts.length > 0 && !hasAutoFilled) {
+      const userEmail = accounts[0].username;
+      const displayName = accounts[0].name || '';
+
+      setFormData(prev => ({
+        ...prev,
+        requesterEmail: userEmail,
+        requesterName: displayName
+      }));
+
+      setHasAutoFilled(true);
+      logger.debug('Auto-filled user info for authenticated user:', { userEmail, displayName });
+    }
+  }, [mode, isPublic, accounts, hasAutoFilled]);
 
   // Notify parent when hasChanges or isSaving changes
   useEffect(() => {
@@ -466,6 +498,71 @@ export default function UnifiedEventForm({
     }
   }, [onSaveFunctionReady, handleSaveChanges]);
 
+  // Handle new booking submission (create mode)
+  const handleSubmit = useCallback(async (e) => {
+    if (e) e.preventDefault();
+
+    // Validate times before submission
+    if (!validateTimes()) {
+      setSubmitError('Please fix the time validation errors before submitting');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError('');
+
+    try {
+      const startDateTime = `${formData.startDate}T${formData.startTime}`;
+      const endDateTime = `${formData.endDate}T${formData.endTime}`;
+
+      const payload = {
+        ...formData,
+        startDateTime,
+        endDateTime,
+        attendeeCount: parseInt(formData.attendeeCount) || 0
+      };
+
+      // Remove separate date/time fields
+      delete payload.startDate;
+      delete payload.startTime;
+      delete payload.endDate;
+      delete payload.endTime;
+      delete payload.reviewNotes; // Not needed for new submissions
+
+      // Determine endpoint based on public/authenticated access
+      const endpoint = isPublic
+        ? `${APP_CONFIG.API_BASE_URL}/room-reservations/public/${token}`
+        : `${APP_CONFIG.API_BASE_URL}/events/request`;
+
+      logger.debug('Submitting room reservation request:', { endpoint, isPublic });
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiToken && { 'Authorization': `Bearer ${apiToken}` })
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit reservation');
+      }
+
+      const result = await response.json();
+      logger.log('Room reservation submitted successfully:', result);
+
+      setSuccess(true);
+
+    } catch (err) {
+      logger.error('Error submitting reservation:', err);
+      setSubmitError(err.message || 'Failed to submit reservation request');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [validateTimes, formData, isPublic, token, apiToken]);
+
   const handleApprove = () => {
     if (!validateTimes()) {
       logger.warn('Cannot approve - time validation errors exist');
@@ -502,10 +599,27 @@ export default function UnifiedEventForm({
   // Determine if form fields should be disabled
   const isFormDisabled = mode === 'reservation'
     ? reservation?.status !== 'pending'
-    : readOnly;
+    : mode === 'event'
+      ? readOnly
+      : false; // Create mode - always editable
 
   // Configure actions for UnifiedFormLayout based on mode
-  const actions = mode === 'reservation' ? [
+  const actions = mode === 'create' ? [
+    // Create mode actions
+    {
+      label: 'Submit Request',
+      onClick: handleSubmit,
+      className: 'submit-btn',
+      icon: '✓',
+      disabled: submitting || formData.requestedRooms.length === 0 || timeErrors.length > 0
+    },
+    {
+      label: 'Cancel',
+      onClick: onCancel || (() => navigate('/')),
+      className: 'cancel-btn',
+      disabled: submitting
+    }
+  ] : mode === 'reservation' ? [
     {
       label: 'Approve',
       onClick: handleApprove,
@@ -590,11 +704,84 @@ export default function UnifiedEventForm({
   ];
 
   // Determine title based on mode - use event title for more context
-  const formTitle = mode === 'reservation'
-    ? (formData.eventTitle
-        ? `"${formData.eventTitle}" Details`
-        : (reservation?.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'))
-    : (readOnly ? 'View Event' : 'Edit Event');
+  const formTitle = mode === 'create'
+    ? 'Space Booking Request'
+    : mode === 'reservation'
+      ? (formData.eventTitle
+          ? `"${formData.eventTitle}" Details`
+          : (reservation?.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'))
+      : (readOnly ? 'View Event' : 'Edit Event');
+
+  // Success screen for create mode
+  if (mode === 'create' && success) {
+    return (
+      <div className="room-reservation-form">
+        <div className="success-message">
+          <h2>✅ Reservation Request Submitted!</h2>
+          <p>Your space booking request has been submitted successfully.</p>
+          <p>You will receive a confirmation email once it has been reviewed.</p>
+
+          <div className="form-actions" style={{ marginTop: '30px' }}>
+            <button
+              type="button"
+              className="submit-btn"
+              onClick={() => {
+                if (isPublic) {
+                  window.location.href = '/';
+                } else {
+                  navigate('/');
+                }
+              }}
+            >
+              Return to Calendar
+            </button>
+
+            {!isPublic && (
+              <button
+                type="button"
+                className="cancel-btn"
+                onClick={() => {
+                  setSuccess(false);
+                  setFormData({
+                    requesterName: '',
+                    requesterEmail: '',
+                    department: '',
+                    phone: '',
+                    eventTitle: '',
+                    eventDescription: '',
+                    startDate: '',
+                    startTime: '',
+                    endDate: '',
+                    endTime: '',
+                    doorOpenTime: '',
+                    doorCloseTime: '',
+                    setupTime: '',
+                    teardownTime: '',
+                    setupNotes: '',
+                    doorNotes: '',
+                    eventNotes: '',
+                    attendeeCount: '',
+                    requestedRooms: [],
+                    specialRequirements: '',
+                    priority: 'medium',
+                    setupTimeMinutes: 0,
+                    teardownTimeMinutes: 0,
+                    contactEmail: '',
+                    contactName: '',
+                    isOnBehalfOf: false,
+                    reviewNotes: ''
+                  });
+                  setHasAutoFilled(false); // Allow re-autofill
+                }}
+              >
+                Submit Another Request
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <UnifiedFormLayout
@@ -604,6 +791,13 @@ export default function UnifiedEventForm({
       errors={{}}
       headerContent={headerContent}
     >
+      {/* Error message display */}
+      {submitError && (
+        <div className="error-message" style={{ margin: '10px' }}>
+          ❌ {submitError}
+        </div>
+      )}
+
       {/* Custom layout matching original RoomReservationReview */}
       <div className="room-reservation-form" style={{ maxWidth: '100%' }}>
 
@@ -829,20 +1023,24 @@ export default function UnifiedEventForm({
           <section className="form-section">
             <h2>Additional Information</h2>
 
+            {/* Special Requirements - show in create and reservation modes */}
+            {(mode === 'create' || mode === 'reservation') && (
+              <div className="form-group full-width" style={{ marginBottom: '20px' }}>
+                <label htmlFor="specialRequirements">Special Requirements</label>
+                <textarea
+                  id="specialRequirements"
+                  name="specialRequirements"
+                  value={formData.specialRequirements}
+                  onChange={handleInputChange}
+                  rows="2"
+                  placeholder="Additional notes or special setup requirements..."
+                  disabled={isFormDisabled}
+                />
+              </div>
+            )}
+
             {mode === 'reservation' && (
               <>
-                <div className="form-group full-width" style={{ marginBottom: '20px' }}>
-                  <label htmlFor="specialRequirements">Special Requirements</label>
-                  <textarea
-                    id="specialRequirements"
-                    name="specialRequirements"
-                    value={formData.specialRequirements}
-                    onChange={handleInputChange}
-                    rows="2"
-                    placeholder="Additional notes or special setup requirements..."
-                    disabled={isFormDisabled}
-                  />
-                </div>
 
                 <div style={{ marginBottom: '20px' }}>
                   <h4 style={{ color: '#333', marginBottom: '10px', fontSize: '1rem' }}>
@@ -910,34 +1108,38 @@ export default function UnifiedEventForm({
             </div>
           </section>
 
-          {/* Right Column - Contact + History (only in reservation mode) */}
-          {mode === 'reservation' && (
+          {/* Right Column - Contact Info */}
+          {(mode === 'create' || mode === 'reservation') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <section className="form-section">
-                <h2>Submitter Information</h2>
+                <h2>{mode === 'create' ? 'Your Information' : 'Submitter Information'}</h2>
 
                 <div className="form-grid">
                   <div className="form-group">
-                    <label htmlFor="requesterName">Requester Name</label>
+                    <label htmlFor="requesterName">Name *</label>
                     <input
                       type="text"
                       id="requesterName"
                       name="requesterName"
                       value={formData.requesterName}
-                      readOnly
-                      className="readonly-field"
+                      onChange={handleInputChange}
+                      readOnly={mode === 'reservation'}
+                      className={mode === 'reservation' ? 'readonly-field' : ''}
+                      required
                     />
                   </div>
 
                   <div className="form-group">
-                    <label htmlFor="requesterEmail">Requester Email</label>
+                    <label htmlFor="requesterEmail">Email *</label>
                     <input
                       type="email"
                       id="requesterEmail"
                       name="requesterEmail"
                       value={formData.requesterEmail}
-                      readOnly
-                      className="readonly-field"
+                      onChange={handleInputChange}
+                      readOnly={mode === 'reservation'}
+                      className={mode === 'reservation' ? 'readonly-field' : ''}
+                      required
                     />
                   </div>
 
@@ -949,6 +1151,7 @@ export default function UnifiedEventForm({
                       name="department"
                       value={formData.department}
                       onChange={handleInputChange}
+                      disabled={mode === 'reservation' && isFormDisabled}
                     />
                   </div>
 
@@ -960,19 +1163,23 @@ export default function UnifiedEventForm({
                       name="phone"
                       value={formData.phone}
                       onChange={handleInputChange}
+                      disabled={mode === 'reservation' && isFormDisabled}
                     />
                   </div>
                 </div>
               </section>
 
-              <section className="form-section">
-                <h2>Reservation History</h2>
-                <ReservationAuditHistory
-                  reservationId={reservation?._id}
-                  apiToken={apiToken}
-                  refreshTrigger={auditRefreshTrigger}
-                />
-              </section>
+              {/* Reservation History - only in reservation mode */}
+              {mode === 'reservation' && (
+                <section className="form-section">
+                  <h2>Reservation History</h2>
+                  <ReservationAuditHistory
+                    reservationId={reservation?._id}
+                    apiToken={apiToken}
+                    refreshTrigger={auditRefreshTrigger}
+                  />
+                </section>
+              )}
             </div>
           )}
         </div>
