@@ -62,6 +62,7 @@
   padding: 0;
   width: 100%;
   box-sizing: border-box;
+  zoom: 0.8; /* Scale entire page to 80% to match ReservationRequests modal rendering */
 }
 
 /* Calendar Header Section */
