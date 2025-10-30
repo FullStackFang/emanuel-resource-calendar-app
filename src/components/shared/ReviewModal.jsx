@@ -1,5 +1,5 @@
 // src/components/shared/ReviewModal.jsx
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import './ReviewModal.css';
 
 /**
@@ -7,6 +7,7 @@ import './ReviewModal.css';
  *
  * Provides a full-screen modal with:
  * - Sticky action bar at top with approve/reject/save/cancel buttons
+ * - Tabbed interface for organizing content
  * - Scrollable content area
  * - ESC key and overlay click to close
  * - Feature toggle between legacy and unified forms
@@ -29,10 +30,16 @@ export default function ReviewModal({
   // Additional actions
   showFormToggle = false,
   showActionButtons = true,
+  // Tab configuration
+  showTabs = true,
+  attachmentCount = 0,
+  historyCount = 0,
   // Styling
   modalClassName = 'review-modal',
   overlayClassName = 'review-modal-overlay'
 }) {
+  // Tab state
+  const [activeTab, setActiveTab] = useState('details');
   // Close on ESC key
   const handleEscKey = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -146,9 +153,41 @@ export default function ReviewModal({
           )}
         </div>
 
-        {/* Scrollable Content Area */}
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          {children}
+        {/* Tab Navigation */}
+        {showTabs && (
+          <div className="event-type-tabs">
+            <div
+              className={`event-type-tab ${activeTab === 'details' ? 'active' : ''}`}
+              onClick={() => setActiveTab('details')}
+            >
+              Event Details
+            </div>
+            <div
+              className={`event-type-tab ${activeTab === 'additional' ? 'active' : ''}`}
+              onClick={() => setActiveTab('additional')}
+            >
+              Additional Info
+            </div>
+            <div
+              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
+              onClick={() => setActiveTab('attachments')}
+            >
+              {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
+            </div>
+            <div
+              className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => setActiveTab('history')}
+            >
+              {historyCount > 0 ? `History (${historyCount})` : 'History'}
+            </div>
+          </div>
+        )}
+
+        {/* Content Area */}
+        <div style={{ flex: 1 }}>
+          {React.isValidElement(children)
+            ? React.cloneElement(children, { activeTab })
+            : children}
         </div>
       </div>
     </div>

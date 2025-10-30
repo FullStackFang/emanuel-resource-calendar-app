@@ -30,7 +30,8 @@ export default function RoomReservationReview({
   selectedTargetCalendar = '',
   onTargetCalendarChange = () => {},
   createCalendarEvent = true,
-  onCreateCalendarEventChange = () => {}
+  onCreateCalendarEventChange = () => {},
+  activeTab = 'details' // Received from ReviewModal
 }) {
   // Initialize form data from reservation
   const [formData, setFormData] = useState({
@@ -70,9 +71,6 @@ export default function RoomReservationReview({
   const [timeErrors, setTimeErrors] = useState([]);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
-
-  // Tab state for Attachments/History section
-  const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -512,7 +510,8 @@ export default function RoomReservationReview({
   return (
     <div className="room-reservation-form" style={{ maxWidth: '100%', padding: '10px' }}>
       <form onSubmit={(e) => e.preventDefault()}>
-        {/* Event Details + Room Selection Side-by-Side */}
+        {/* Tab: Event Details */}
+        {activeTab === 'details' && (
         <div className="event-and-rooms-container">
           {/* Event Details - Left Side */}
           <section className="form-section event-details-compact">
@@ -747,9 +746,11 @@ export default function RoomReservationReview({
           </div>
           </section>
         </div>
-        {/* End of Event Details + Room Selection Container */}
+        )}
+        {/* End of Event Details Tab */}
 
-        {/* Additional Information + Contact/History (2-column) */}
+        {/* Tab: Additional Info */}
+        {activeTab === 'additional' && (
         <div className="section-row-2col">
           {/* Left Column: Additional Information */}
           <section className="form-section">
@@ -908,58 +909,40 @@ export default function RoomReservationReview({
                 </div>
               )}
             </section>
-
-            {/* Attachments & History Tabs */}
-            {reservation && apiToken && (
-              <section className="form-section">
-                {/* Nested Tab Headers */}
-                <div className="history-tabs-container">
-                  <div className="history-tabs">
-                    <div
-                      className={`history-tab ${activeHistoryTab === 'attachments' ? 'active' : ''}`}
-                      onClick={() => setActiveHistoryTab('attachments')}
-                    >
-                      📎 Attachments
-                    </div>
-                    <div
-                      className={`history-tab ${activeHistoryTab === 'history' ? 'active' : ''}`}
-                      onClick={() => setActiveHistoryTab('history')}
-                    >
-                      📝 History
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tab Content */}
-                <div className="history-tab-content">
-                  {activeHistoryTab === 'attachments' ? (
-                    <AttachmentsSection
-                      resourceId={reservation?.eventId}
-                      resourceType="event"
-                      apiToken={apiToken}
-                      readOnly={reservation?.status === 'inactive'}
-                    />
-                  ) : (
-                    <>
-                      {reservation._isNewUnifiedEvent ? (
-                        <EventAuditHistory
-                          eventId={reservation.eventId}
-                          apiToken={apiToken}
-                        />
-                      ) : (
-                        <ReservationAuditHistory
-                          reservationId={reservation._id}
-                          apiToken={apiToken}
-                          refreshTrigger={auditRefreshTrigger}
-                        />
-                      )}
-                    </>
-                  )}
-                </div>
-              </section>
-            )}
           </div>
         </div>
+        )}
+        {/* End of Additional Info Tab */}
+
+        {/* Tab: Attachments */}
+        {activeTab === 'attachments' && reservation && apiToken && (
+          <div style={{ padding: '20px' }}>
+            <AttachmentsSection
+              resourceId={reservation?.eventId}
+              resourceType="event"
+              apiToken={apiToken}
+              readOnly={reservation?.status === 'inactive'}
+            />
+          </div>
+        )}
+
+        {/* Tab: History */}
+        {activeTab === 'history' && reservation && apiToken && (
+          <div style={{ padding: '20px' }}>
+            {reservation._isNewUnifiedEvent ? (
+              <EventAuditHistory
+                eventId={reservation.eventId}
+                apiToken={apiToken}
+              />
+            ) : (
+              <ReservationAuditHistory
+                reservationId={reservation._id}
+                apiToken={apiToken}
+                refreshTrigger={auditRefreshTrigger}
+              />
+            )}
+          </div>
+        )}
       </form>
     </div>
   );
