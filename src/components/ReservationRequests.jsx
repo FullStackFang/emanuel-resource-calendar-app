@@ -842,30 +842,30 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       
       {/* Tab Navigation */}
       <div className="tabs-container">
-        <div className="tabs">
+        <div className="event-type-tabs">
           <button
-            className={`tab ${activeTab === 'all' ? 'active' : ''}`}
+            className={`event-type-tab ${activeTab === 'all' ? 'active' : ''}`}
             onClick={() => handleTabChange('all')}
           >
             All Requests
             <span className="count">({allReservations.length})</span>
           </button>
           <button
-            className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
+            className={`event-type-tab ${activeTab === 'pending' ? 'active' : ''}`}
             onClick={() => handleTabChange('pending')}
           >
             Pending
             <span className="count">({allReservations.filter(r => r.status === 'pending').length})</span>
           </button>
           <button
-            className={`tab ${activeTab === 'approved' ? 'active' : ''}`}
+            className={`event-type-tab ${activeTab === 'approved' ? 'active' : ''}`}
             onClick={() => handleTabChange('approved')}
           >
             Approved
             <span className="count">({allReservations.filter(r => r.status === 'approved').length})</span>
           </button>
           <button
-            className={`tab ${activeTab === 'rejected' ? 'active' : ''}`}
+            className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}
             onClick={() => handleTabChange('rejected')}
           >
             Rejected

@@ -36,44 +36,43 @@
   color: #666;
 }
 
-/* Tab Navigation */
+/* Tab Navigation - Pill Style */
 .tabs-container {
   margin-bottom: 30px;
-  border-bottom: 2px solid #e5e7eb;
 }
 
-.tabs {
+.event-type-tabs {
   display: flex;
-  gap: 0;
+  gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
 }
 
-.tab {
-  padding: 10px 16px;
+.event-type-tab {
+  padding: 6px 12px;
   border: none;
-  background: transparent;
-  border-bottom: 3px solid transparent;
+  background: #e8f0fe;
+  border-radius: 16px;
   cursor: pointer;
   font-size: 0.95rem;
   font-weight: 500;
-  color: #6b7280;
-  transition: all 0.3s ease;
-  position: relative;
-  min-width: fit-content;
+  color: #1a73e8;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.tab:hover {
-  color: #374151;
-  background: #f9fafb;
+.event-type-tab:hover {
+  background: #1a73e8;
+  color: white;
 }
 
-.tab.active {
-  color: #0078d4;
-  border-bottom-color: #0078d4;
-  background: transparent;
+.event-type-tab.active {
+  background: #1a73e8;
+  color: white;
 }
 
-.tab .count {
+.event-type-tab .count {
   margin-left: 6px;
   font-size: 0.85rem;
   color: inherit;
