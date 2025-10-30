@@ -5,6 +5,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
+import ReviewModal from './shared/ReviewModal';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -13,7 +14,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
-  const [selectedReservation, setSelectedReservation] = useState(null);
   const [actionNotes, setActionNotes] = useState('');
 
   // Calendar event creation settings
@@ -49,6 +49,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Feature flag: Toggle between old and new review form
   const [useUnifiedForm, setUseUnifiedForm] = useState(false);
+
+  // Review modal state
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedReservation, setSelectedReservation] = useState(null);
 
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -314,7 +318,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setPage(1);
   };
 
-  // Open review modal with soft hold acquisition
+  // Open review modal (using ReviewModal component)
   const openReviewModal = async (reservation) => {
     // For pending reservations, try to acquire soft hold
     if (reservation.status === 'pending') {
@@ -357,6 +361,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setOriginalChangeKey(reservation.changeKey);
     setHasChanges(false);
     setSelectedReservation(reservation);
+    setShowReviewModal(true);
 
     // Check for scheduling conflicts
     await checkConflicts(reservation);
@@ -368,6 +373,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       await releaseReviewHold(selectedReservation._id);
     }
 
+    setShowReviewModal(false);
     setSelectedReservation(null);
     setEditableData(null);
     setOriginalChangeKey(null);
@@ -1022,125 +1028,58 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           </button>
         </div>
       )}
-      
-      {/* Review Modal */}
-      {selectedReservation && (
-        <div className="review-modal-overlay">
-          <div className="review-modal" style={{ maxWidth: '100vw', display: 'flex', flexDirection: 'column', maxHeight: '100vh' }}>
-            {/* Sticky Action Bar at top of modal */}
-            <div className="review-action-bar">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
-                  {selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
-                </h2>
 
-                {/* Feature Flag Toggle */}
-                <button
-                  type="button"
-                  onClick={() => setUseUnifiedForm(!useUnifiedForm)}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '0.75rem',
-                    borderRadius: '4px',
-                    border: '1px solid #d1d5db',
-                    background: useUnifiedForm ? '#0078d4' : '#f3f4f6',
-                    color: useUnifiedForm ? 'white' : '#374151',
-                    cursor: 'pointer',
-                    fontWeight: '500',
-                    transition: 'all 0.2s'
-                  }}
-                  title={useUnifiedForm ? 'Switch to Legacy Form' : 'Switch to New Unified Form'}
-                >
-                  {useUnifiedForm ? '✨ New Form' : '📋 Legacy Form'}
-                </button>
-              </div>
-
-              <div className="review-actions">
-                {/* Only show action buttons for legacy form (unified form has its own) */}
-                {!useUnifiedForm && (
-                  <>
-                    {selectedReservation.status === 'pending' && (
-                      <>
-                        <button
-                          type="button"
-                          className="action-btn approve-btn"
-                          onClick={() => handleApprove(selectedReservation)}
-                        >
-                          ✓ Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="action-btn reject-btn"
-                          onClick={() => handleReject(selectedReservation)}
-                        >
-                          ✗ Reject
-                        </button>
-                        <button
-                          type="button"
-                          className="action-btn save-btn"
-                          onClick={() => {
-                            console.log('🖱️ Save button clicked in parent', { hasChanges, isSaving });
-                            childSaveFunctionRef.current?.();
-                          }}
-                          disabled={!hasChanges || isSaving}
-                          title={!hasChanges ? 'No changes to save' : ''}
-                        >
-                          {isSaving ? 'Saving...' : '💾 Save'}
-                        </button>
-                      </>
-                    )}
-
-                    <button
-                      type="button"
-                      className="action-btn cancel-btn"
-                      onClick={closeReviewModal}
-                    >
-                      {selectedReservation.status === 'pending' ? 'Cancel' : 'Close'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Scrollable content area */}
-            <div style={{ flex: 1, overflow: 'auto' }}>
-              {useUnifiedForm ? (
-                <UnifiedEventForm
-                  mode="reservation"
-                  reservation={selectedReservation}
-                  apiToken={apiToken}
-                  onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
-                  onReject={(notes) => handleReject(selectedReservation)}
-                  onCancel={closeReviewModal}
-                  onSave={handleSaveChanges}
-                  onHasChangesChange={setHasChanges}
-                  onIsSavingChange={setIsSaving}
-                  onSaveFunctionReady={handleSaveFunctionReady}
-                  onLockedEventClick={handleLockedEventClick}
-                />
-              ) : (
-                <RoomReservationReview
-                  reservation={selectedReservation}
-                  apiToken={apiToken}
-                  onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
-                  onReject={(notes) => handleReject(selectedReservation)}
-                  onCancel={closeReviewModal}
-                  onSave={handleSaveChanges}
-                  onHasChangesChange={setHasChanges}
-                  onIsSavingChange={setIsSaving}
-                  onSaveFunctionReady={handleSaveFunctionReady}
-                  onLockedEventClick={handleLockedEventClick}
-                  availableCalendars={availableCalendars}
-                  defaultCalendar={defaultCalendar}
-                  selectedTargetCalendar={selectedTargetCalendar}
-                  onTargetCalendarChange={setSelectedTargetCalendar}
-                  createCalendarEvent={createCalendarEvent}
-                  onCreateCalendarEventChange={setCreateCalendarEvent}
-                />
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Review Modal (using ReviewModal component) */}
+      {showReviewModal && selectedReservation && (
+        <ReviewModal
+          isOpen={showReviewModal}
+          title={selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
+          onClose={closeReviewModal}
+          onApprove={() => handleApprove(selectedReservation)}
+          onReject={() => handleReject(selectedReservation)}
+          onSave={handleSaveChanges}
+          isPending={selectedReservation?.status === 'pending'}
+          hasChanges={hasChanges}
+          isSaving={isSaving}
+          showFormToggle={true}
+          useUnifiedForm={useUnifiedForm}
+          onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}
+        >
+          {useUnifiedForm ? (
+            <UnifiedEventForm
+              mode="reservation"
+              reservation={selectedReservation}
+              apiToken={apiToken}
+              onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
+              onReject={(notes) => handleReject(selectedReservation)}
+              onCancel={closeReviewModal}
+              onSave={handleSaveChanges}
+              onHasChangesChange={setHasChanges}
+              onIsSavingChange={setIsSaving}
+              onSaveFunctionReady={handleSaveFunctionReady}
+              onLockedEventClick={handleLockedEventClick}
+            />
+          ) : (
+            <RoomReservationReview
+              reservation={selectedReservation}
+              apiToken={apiToken}
+              onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
+              onReject={(notes) => handleReject(selectedReservation)}
+              onCancel={closeReviewModal}
+              onSave={handleSaveChanges}
+              onHasChangesChange={setHasChanges}
+              onIsSavingChange={setIsSaving}
+              onSaveFunctionReady={handleSaveFunctionReady}
+              onLockedEventClick={handleLockedEventClick}
+              availableCalendars={availableCalendars}
+              defaultCalendar={defaultCalendar}
+              selectedTargetCalendar={selectedTargetCalendar}
+              onTargetCalendarChange={setSelectedTargetCalendar}
+              createCalendarEvent={createCalendarEvent}
+              onCreateCalendarEventChange={setCreateCalendarEvent}
+            />
+          )}
+        </ReviewModal>
       )}
     </div>
   );
