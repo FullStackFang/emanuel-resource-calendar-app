@@ -898,18 +898,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <td className="event-details">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <strong>{reservation.eventTitle}</strong>
-                    {reservation._isNewUnifiedEvent && (
-                      <span style={{
-                        background: '#0078d4',
-                        color: 'white',
-                        padding: '2px 6px',
-                        borderRadius: '3px',
-                        fontSize: '0.7rem',
-                        fontWeight: '500'
-                      }}>
-                        ✨ NEW
-                      </span>
-                    )}
+                    {reservation._isNewUnifiedEvent}
                   </div>
                   {reservation.eventDescription && (
                     <div className="event-desc">{reservation.eventDescription}</div>
