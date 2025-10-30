@@ -912,7 +912,7 @@ export default function SchedulingAssistant({
     // Determine if this is the user's event or a backend event
     const isUserEvent = block.isUserEvent;
     const isCurrentReservation = currentReservationId && block.id === currentReservationId;
-    // Lock ALL backend events (only user event is draggable)
+    // Lock ALL backend events (only user events are draggable)
     const isLocked = !isUserEvent;
 
     // Check for conflicts at current dragged position
@@ -937,7 +937,7 @@ export default function SchedulingAssistant({
     let opacity, cursor, boxShadow, backgroundColor, filter;
 
     if (isUserEvent) {
-      // User event styling - bright, vibrant, always draggable
+      // User event styling - bright, vibrant, draggable
       opacity = hasConflict ? 0.95 : 0.9;
       cursor = isDragging ? 'grabbing' : 'grab';
       boxShadow = isDragging

@@ -186,6 +186,96 @@
   margin-bottom: 0;
 }
 
+/* All-Day Event Toggle - Google Style */
+.all-day-toggle-wrapper {
+  margin: 12px 0 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.all-day-toggle {
+  padding: 8px 20px;
+  border-radius: 18px;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.all-day-toggle:hover:not(:disabled) {
+  background: #d2e3fc;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(26, 115, 232, 0.2);
+}
+
+.all-day-toggle.active {
+  background: #1a73e8;
+  color: white;
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.3);
+}
+
+.all-day-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.all-day-toggle-help {
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Scheduling Assistant - Disabled/Greyed Out State */
+.scheduling-assistant-disabled {
+  position: relative;
+  pointer-events: none;
+}
+
+.scheduling-assistant-disabled::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+}
+
+.scheduling-assistant-disabled-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  background: white;
+  padding: 20px 40px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.scheduling-assistant-disabled-message h4 {
+  margin: 0 0 8px 0;
+  color: #374151;
+  font-size: 16px;
+}
+
+.scheduling-assistant-disabled-message p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
 /* Form Layout */
 .form-grid {
   display: grid;

@@ -76,7 +76,8 @@ export default function UnifiedEventForm({
     contactEmail: '',
     contactName: '',
     isOnBehalfOf: false,
-    reviewNotes: ''
+    reviewNotes: '',
+    isAllDayEvent: false
   });
 
   const [availability, setAvailability] = useState([]);
@@ -349,8 +350,15 @@ export default function UnifiedEventForm({
   // Validate time fields are in chronological order
   const validateTimes = useCallback(() => {
     const errors = [];
-    const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime } = formData;
+    const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime, startDate, endDate } = formData;
 
+    // Helper to create full datetime for comparison
+    const createDateTime = (date, timeStr) => {
+      if (!date || !timeStr) return null;
+      return new Date(`${date}T${timeStr}`);
+    };
+
+    // Helper for same-day time comparison (for setup/teardown on same day)
     const timeToMinutes = (timeStr) => {
       if (!timeStr) return null;
       const [hours, minutes] = timeStr.split(':').map(Number);
@@ -359,15 +367,20 @@ export default function UnifiedEventForm({
 
     const setup = timeToMinutes(setupTime);
     const doorOpen = timeToMinutes(doorOpenTime);
-    const eventStart = timeToMinutes(startTime);
-    const eventEnd = timeToMinutes(endTime);
+    const eventStartMinutes = timeToMinutes(startTime);
+    const eventEndMinutes = timeToMinutes(endTime);
     const doorClose = timeToMinutes(doorCloseTime);
     const teardown = timeToMinutes(teardownTime);
+
+    // Create full datetime objects for start and end
+    const eventStartDateTime = createDateTime(startDate, startTime);
+    const eventEndDateTime = createDateTime(endDate, endTime);
 
     if (!startTime) errors.push('Event Start Time is required');
     if (!endTime) errors.push('Event End Time is required');
 
-    if (eventStart !== null && eventEnd !== null && eventStart >= eventEnd) {
+    // Compare full datetimes instead of just times
+    if (eventStartDateTime && eventEndDateTime && eventStartDateTime >= eventEndDateTime) {
       errors.push('Event End Time must be after Event Start Time');
     }
 
@@ -375,19 +388,19 @@ export default function UnifiedEventForm({
       errors.push('Door Open Time must be after Setup Start Time');
     }
 
-    if (setup !== null && eventStart !== null && setup > eventStart) {
+    if (setup !== null && eventStartMinutes !== null && setup > eventStartMinutes) {
       errors.push('Event Start Time must be after Setup Start Time');
     }
 
-    if (doorOpen !== null && eventStart !== null && doorOpen > eventStart) {
+    if (doorOpen !== null && eventStartMinutes !== null && doorOpen > eventStartMinutes) {
       errors.push('Event Start Time must be after Door Open Time');
     }
 
-    if (eventEnd !== null && doorClose !== null && eventEnd > doorClose) {
+    if (eventEndMinutes !== null && doorClose !== null && eventEndMinutes > doorClose) {
       errors.push('Door Close Time must be after Event End Time');
     }
 
-    if (eventEnd !== null && teardown !== null && eventEnd > teardown) {
+    if (eventEndMinutes !== null && teardown !== null && eventEndMinutes > teardown) {
       errors.push('Teardown End Time must be after Event End Time');
     }
 
@@ -893,6 +906,19 @@ export default function UnifiedEventForm({
               </div>
             </div>
 
+            {/* All Day Event Toggle */}
+            <div className="all-day-toggle-wrapper">
+              <button
+                type="button"
+                className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
+                onClick={() => setFormData(prev => ({ ...prev, isAllDayEvent: !prev.isAllDayEvent }))}
+                disabled={isFormDisabled}
+              >
+                {formData.isAllDayEvent ? '✓ ' : ''}All Day Event
+              </button>
+              <span className="all-day-toggle-help">Display as all-day in calendar</span>
+            </div>
+
             {/* Time Fields Stacked */}
             <div className="time-fields-stack">
               <div className="form-group">
@@ -981,7 +1007,13 @@ export default function UnifiedEventForm({
 
             <div className="room-selection-container">
               {/* Scheduling Assistant + Room List */}
-              <div className="scheduling-assistant-container">
+              <div className={`scheduling-assistant-container ${formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''}`}>
+                {formData.isAllDayEvent && (
+                  <div className="scheduling-assistant-disabled-message">
+                    <h4>All Day Event</h4>
+                    <p>Time-specific scheduling not needed for all-day events</p>
+                  </div>
+                )}
                 {assistantRooms.length > 0 ? (
                   <SchedulingAssistant
                     selectedRooms={assistantRooms}
@@ -998,6 +1030,7 @@ export default function UnifiedEventForm({
                     onEventTimeChange={handleEventTimeChange}
                     currentReservationId={reservation?._id}
                     onLockedEventClick={onLockedEventClick}
+                    isAllDayEvent={formData.isAllDayEvent}
                   />
                 ) : (
                   <p style={{ textAlign: 'center', color: '#6b7280', padding: '20px' }}>

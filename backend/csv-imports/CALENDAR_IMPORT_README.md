@@ -12,7 +12,7 @@ Simple CSV import for Resource Scheduler data that uses calendar names instead o
 2. **Run the import**
    ```bash
    cd backend
-   node quick-csv-import.js "Temple Emanu-El Sandbox"
+   node quick-csv-import.js "TempleEventsSandbox@emanuelnyc.org" --file="Rsched_Export2.csv"
    ```
 
 That's it! The script will:
