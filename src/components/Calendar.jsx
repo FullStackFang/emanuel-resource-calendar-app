@@ -5209,7 +5209,7 @@
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
-              readOnly={reviewModal.currentItem?.status !== 'pending'}
+              readOnly={false}
             />
           )}
         </ReviewModal>

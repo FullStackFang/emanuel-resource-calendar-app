@@ -1022,7 +1022,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {showReviewModal && selectedReservation && (
         <ReviewModal
           isOpen={showReviewModal}
-          title={selectedReservation.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'}
+          title={`Review ${selectedReservation.eventTitle || 'Reservation Request'}`}
           onClose={closeReviewModal}
           onApprove={() => handleApprove(selectedReservation)}
           onReject={() => handleReject(selectedReservation)}
