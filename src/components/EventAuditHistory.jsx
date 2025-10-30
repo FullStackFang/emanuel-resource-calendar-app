@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { RotatingLines } from 'react-loader-spinner';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './EventAuditHistory.css';
@@ -137,7 +138,13 @@ const EventAuditHistory = ({ eventId, apiToken }) => {
   if (loading) {
     return (
       <div className="audit-history-loading">
-        <div className="loading-spinner">⏳</div>
+        <RotatingLines
+          strokeColor="#007bff"
+          strokeWidth="5"
+          animationDuration="0.75"
+          width="40"
+          visible={true}
+        />
         <div>Loading event history...</div>
       </div>
     );

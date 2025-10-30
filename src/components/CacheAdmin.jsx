@@ -781,14 +781,14 @@ export default function CacheAdmin({ apiToken }) {
             disabled={testRunning}
             className="test-btn"
           >
-            {testRunning ? '⏳ Running...' : '🚀 Run Basic Test'}
+            {testRunning ? 'Running...' : '🚀 Run Basic Test'}
           </button>
           <button
             onClick={() => runPerformanceTest('detailed')}
             disabled={testRunning}
             className="test-btn"
           >
-            {testRunning ? '⏳ Running...' : '📊 Run Detailed Test'}
+            {testRunning ? 'Running...' : '📊 Run Detailed Test'}
           </button>
         </div>
 

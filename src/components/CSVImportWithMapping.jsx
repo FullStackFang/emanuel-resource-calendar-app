@@ -470,7 +470,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
             disabled={!mappingValid || previewing}
             className="generate-preview-btn"
           >
-            {previewing ? '⏳ Generating...' : '🔄 Generate Preview'}
+            {previewing ? 'Generating...' : '🔄 Generate Preview'}
           </button>
         </div>
 

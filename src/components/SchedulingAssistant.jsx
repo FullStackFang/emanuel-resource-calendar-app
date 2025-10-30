@@ -1141,7 +1141,7 @@ export default function SchedulingAssistant({
     <div className="scheduling-assistant">
       <div className="assistant-header">
         <h3>
-          🗓️ Scheduling Assistant
+          🗓️ Selected Rooms & Scheduling Assistant
           {defaultCalendar && (
             <span className="calendar-name-badge"> ({defaultCalendar})</span>
           )}

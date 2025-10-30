@@ -1,5 +1,6 @@
 // CSV Import Component for Unified Events Admin
 import React, { useState, useRef } from 'react';
+import { RotatingLines } from 'react-loader-spinner';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './Admin.css';
@@ -605,7 +606,15 @@ export default function CSVImport({ apiToken, availableCalendars = [] }) {
         <div className="upload-content">
           {importing ? (
             <>
-              <div className="upload-spinner">⏳</div>
+              <div className="upload-spinner">
+                <RotatingLines
+                  strokeColor="#007bff"
+                  strokeWidth="5"
+                  animationDuration="0.75"
+                  width="40"
+                  visible={true}
+                />
+              </div>
               <div className="upload-text">Streaming CSV import...</div>
             </>
           ) : (
