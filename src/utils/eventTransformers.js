@@ -20,8 +20,17 @@ export function transformEventToFlatStructure(event) {
   const isCalendarEvent = event.subject && !event.graphData;
 
   return {
-    _id: event._id,
+    // === STANDARDIZED ID PROPERTIES ===
+    // Main UI identifier - used for component keys and general identification
+    id: event.id || event.eventId || event._id,
+    // Explicit eventId for API calls - primary business identifier
     eventId: event.eventId || event.id,
+    // Microsoft Graph API ID (only exists if published to Outlook)
+    graphEventId: event.graphData?.id || (isCalendarEvent ? event.id : null),
+    // Boolean flag indicating if event is published to Outlook calendar
+    hasGraphId: !!(event.graphData?.id || (isCalendarEvent && event.id && !event.id.startsWith('evt-request-'))),
+    // MongoDB document ID for reference
+    _id: event._id,
 
     // Handle both calendar events (direct properties) and reservation events (nested graphData)
     eventTitle: isCalendarEvent ? event.subject : (event.graphData?.subject || 'Untitled Event'),

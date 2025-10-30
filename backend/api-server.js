@@ -3491,6 +3491,10 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         ...event.graphData,
         // Add internal enrichments
         ...internalData,
+        // Explicitly include ID fields (ensures they're not overwritten)
+        eventId: event.eventId,                          // Internal unique ID (UUID)
+        id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
+        graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
         // Override with normalized category
         category: category,
         // Add metadata
@@ -3660,13 +3664,17 @@ app.get('/api/events', verifyToken, async (req, res) => {
         ...event.graphData,
         // Add internal enrichments
         ...event.internalData,
+        // Explicitly include ID fields (ensures they're not overwritten)
+        eventId: event.eventId,                          // Internal unique ID (UUID)
+        id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
+        graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
         // Override with normalized category
         category: category,
         // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(event.internalData).some(key => 
-          event.internalData[key] && 
+        _hasInternalData: Object.keys(event.internalData).some(key =>
+          event.internalData[key] &&
           (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
         ),
         _lastSyncedAt: event.lastSyncedAt,
@@ -5693,6 +5701,10 @@ app.get('/api/events/by-source', verifyToken, async (req, res) => {
     const transformedSourceEvents = events.map(event => ({
       ...event.graphData,
       ...event.internalData,
+      // Explicitly include ID fields
+      eventId: event.eventId,                          // Internal unique ID (UUID)
+      id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
+      graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
       source: event.source,
       sourceMetadata: event.sourceMetadata,
       calendarId: event.calendarId,

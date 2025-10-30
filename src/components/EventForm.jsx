@@ -1372,11 +1372,12 @@ function EventForm({
         <button type="button" className="cancel-button" onClick={onCancel}>
           {readOnly ? 'Close' : 'Cancel'}
         </button>
-        {onReview && event && event.id && (
+        {onReview && event && (event.id || event.eventId) && (
           <button
             type="button"
             className="review-button"
             onClick={() => onReview(event)}
+            title={event.hasGraphId ? "Review event (published to Outlook)" : "Review event (internal only)"}
           >
             Review
           </button>

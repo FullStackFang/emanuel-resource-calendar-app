@@ -156,6 +156,8 @@
     
     // Core calendar data
     const [allEvents, setAllEventsState] = useState([]);
+    // Ref to always have access to current allEvents in callbacks (prevents stale closure)
+    const allEventsRef = useRef(allEvents);
     const [showSearch, setShowSearch] = useState(false);
     const [outlookCategories, setOutlookCategories] = useState([]);
     const [baseCategories, setBaseCategories] = useState([]); // Base categories from database
@@ -206,6 +208,11 @@
       }
 
       setAllEventsState(newEvents);
+    }, [allEvents]);
+
+    // Update ref whenever allEvents changes to prevent stale closures in callbacks
+    useEffect(() => {
+      allEventsRef.current = allEvents;
     }, [allEvents]);
 
     // UI state
@@ -3650,10 +3657,18 @@
      */
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
+
+      // DEBUG: Log the clicked event and current allEvents state
+      console.log('🔍 DEBUG: Event clicked - eventId:', event.eventId, 'Subject:', event.subject);
+      console.log('🔍 DEBUG: allEventsRef.current length:', allEventsRef.current.length);
+      console.log('🔍 DEBUG: Available eventIds:', allEventsRef.current.map(e => ({ eventId: e.eventId, subject: e.subject })));
+
       logger.debug('Event clicked:', event);
-      
-      // Find the enriched version of this event from allEvents (which contains enriched data)
-      const enrichedEvent = allEvents.find(enriched => enriched.id === event.id) || event;
+
+      // Find the enriched version of this event using eventId (internal unique ID)
+      const enrichedEvent = allEventsRef.current.find(enriched => enriched.eventId === event.eventId) || event;
+
+      console.log('🔍 DEBUG: Found enriched event:', enrichedEvent.subject, 'eventId:', enrichedEvent.eventId);
 
       // UNIFIED EVENT DEBUG: Log the complete unified event data
       console.log('🎯 UNIFIED EVENT CLICKED:', {
@@ -3687,11 +3702,31 @@
         teardownMinutes: enrichedEvent.teardownMinutes
       });
 
+      // Construct event object with explicit ID properties for EventForm
+      const eventForForm = {
+        ...enrichedEvent,
+        // Ensure all ID properties are set correctly
+        eventId: enrichedEvent.eventId,                     // Internal unique ID (UUID) - always exists
+        id: enrichedEvent.id || enrichedEvent.eventId,      // For backward compatibility
+        graphId: enrichedEvent.graphId || null,             // Graph/Outlook ID (null if not published)
+        hasGraphId: !!enrichedEvent.graphId,                // Boolean: published to Outlook?
+        _id: enrichedEvent._id                              // MongoDB document ID
+      };
+
+      logger.debug('Opening event form with IDs:', {
+        'event.id': eventForForm.id,
+        'event.eventId': eventForForm.eventId,
+        'event.graphEventId': eventForForm.graphEventId,
+        'event.hasGraphId': eventForForm.hasGraphId,
+        'event._id': eventForForm._id,
+        'Will show review button?': !!(eventForForm.id)
+      });
+
       // Directly open edit modal when event is clicked
-      setCurrentEvent(enrichedEvent);
+      setCurrentEvent(eventForForm);
       setModalType('edit');
       setIsModalOpen(true);
-    }, [userPermissions.editEvents, allEvents]);
+    }, [userPermissions.editEvents]); // Removed allEvents from deps - using allEventsRef.current instead
 
     /**
      * Handle review button click
