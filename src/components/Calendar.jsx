@@ -5193,7 +5193,7 @@
         {/* Review Modal for Room Reservations and Event Review */}
         <ReviewModal
           isOpen={reviewModal.isOpen}
-          title="Review Event"
+          title={`Review ${reviewModal.editableData?.eventTitle || 'Event'}`}
           onClose={reviewModal.closeModal}
           onApprove={reviewModal.handleApprove}
           onReject={reviewModal.handleReject}

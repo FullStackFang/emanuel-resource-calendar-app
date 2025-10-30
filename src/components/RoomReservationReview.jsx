@@ -24,6 +24,7 @@ export default function RoomReservationReview({
   onHasChangesChange,
   onIsSavingChange,
   onSaveFunctionReady,
+  onDataChange, // Callback to update parent's editableData for real-time title updates
   onLockedEventClick, // Callback when a locked reservation is clicked in scheduling assistant
   availableCalendars = [],
   defaultCalendar = '',
@@ -248,11 +249,17 @@ export default function RoomReservationReview({
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
+    const updatedData = {
+      ...formData,
       [name]: value
-    }));
+    };
+    setFormData(updatedData);
     setHasChanges(true);
+
+    // Notify parent of data change for real-time updates (e.g., modal title)
+    if (onDataChange) {
+      onDataChange(updatedData);
+    }
   };
 
   const handleRoomSelectionChange = (newSelectedRooms) => {
