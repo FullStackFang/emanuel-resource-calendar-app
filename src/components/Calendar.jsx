@@ -3689,7 +3689,7 @@
 
       // Directly open edit modal when event is clicked
       setCurrentEvent(enrichedEvent);
-      setModalType(userPermissions.editEvents ? 'edit' : 'view');
+      setModalType('edit');
       setIsModalOpen(true);
     }, [userPermissions.editEvents, allEvents]);
 
@@ -5210,6 +5210,7 @@
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
               readOnly={false}
+              isAdmin={userPermissions.isAdmin}
             />
           )}
         </ReviewModal>

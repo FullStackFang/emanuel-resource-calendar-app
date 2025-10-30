@@ -26,6 +26,7 @@ export default function RoomReservationReview({
   onSaveFunctionReady,
   onDataChange, // Callback to update parent's editableData for real-time title updates
   onLockedEventClick, // Callback when a locked reservation is clicked in scheduling assistant
+  isAdmin = false, // Admin users can edit regardless of status
   availableCalendars = [],
   defaultCalendar = '',
   selectedTargetCalendar = '',
@@ -544,7 +545,7 @@ export default function RoomReservationReview({
                 name="eventTitle"
                 value={formData.eventTitle}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
             </div>
 
@@ -556,7 +557,7 @@ export default function RoomReservationReview({
                 value={formData.eventDescription}
                 onChange={handleInputChange}
                 rows="3"
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
             </div>
 
@@ -569,7 +570,7 @@ export default function RoomReservationReview({
                 value={formData.attendeeCount}
                 onChange={handleInputChange}
                 min="1"
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
             </div>
 
@@ -580,7 +581,7 @@ export default function RoomReservationReview({
                 name="priority"
                 value={formData.priority}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -599,7 +600,7 @@ export default function RoomReservationReview({
                 name="startDate"
                 value={formData.startDate}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
             </div>
 
@@ -612,7 +613,7 @@ export default function RoomReservationReview({
                 value={formData.endDate}
                 onChange={handleInputChange}
                 min={formData.startDate}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
             </div>
           </div>
@@ -623,7 +624,7 @@ export default function RoomReservationReview({
               type="button"
               className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
               onClick={() => setFormData(prev => ({ ...prev, isAllDayEvent: !prev.isAllDayEvent }))}
-              disabled={reservation?.status !== 'pending'}
+              disabled={!isAdmin && reservation?.status !== 'pending'}
             >
               {formData.isAllDayEvent ? '✓ ' : ''}All Day Event
             </button>
@@ -640,7 +641,7 @@ export default function RoomReservationReview({
                 name="setupTime"
                 value={formData.setupTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When setup can begin</div>
             </div>
@@ -653,7 +654,7 @@ export default function RoomReservationReview({
                 name="doorOpenTime"
                 value={formData.doorOpenTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When attendees can start entering</div>
             </div>
@@ -666,7 +667,7 @@ export default function RoomReservationReview({
                 name="startTime"
                 value={formData.startTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When the event begins</div>
             </div>
@@ -679,7 +680,7 @@ export default function RoomReservationReview({
                 name="endTime"
                 value={formData.endTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When the event ends</div>
             </div>
@@ -692,7 +693,7 @@ export default function RoomReservationReview({
                 name="doorCloseTime"
                 value={formData.doorCloseTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When doors will be locked</div>
             </div>
@@ -705,7 +706,7 @@ export default function RoomReservationReview({
                 name="teardownTime"
                 value={formData.teardownTime}
                 onChange={handleInputChange}
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
               />
               <div className="help-text">When cleanup must be completed</div>
             </div>
@@ -803,7 +804,7 @@ export default function RoomReservationReview({
                 value={formData.specialRequirements}
                 onChange={handleInputChange}
                 rows="2"
-                disabled={reservation?.status !== 'pending'}
+                disabled={!isAdmin && reservation?.status !== 'pending'}
                 placeholder="Additional notes or special setup requirements..."
               />
             </div>
@@ -842,7 +843,7 @@ export default function RoomReservationReview({
                     value={formData.setupNotes}
                     onChange={handleInputChange}
                     rows="1"
-                    disabled={reservation?.status !== 'pending'}
+                    disabled={!isAdmin && reservation?.status !== 'pending'}
                   />
                 </div>
               </div>
@@ -856,7 +857,7 @@ export default function RoomReservationReview({
                     value={formData.doorNotes}
                     onChange={handleInputChange}
                     rows="1"
-                    disabled={reservation?.status !== 'pending'}
+                    disabled={!isAdmin && reservation?.status !== 'pending'}
                   />
                 </div>
               </div>
@@ -870,7 +871,7 @@ export default function RoomReservationReview({
                     value={formData.eventNotes}
                     onChange={handleInputChange}
                     rows="1"
-                    disabled={reservation?.status !== 'pending'}
+                    disabled={!isAdmin && reservation?.status !== 'pending'}
                   />
                 </div>
               </div>
