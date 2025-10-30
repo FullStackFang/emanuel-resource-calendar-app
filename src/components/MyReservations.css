@@ -1,14 +1,15 @@
 /* src/components/MyReservations.css */
 
 .my-reservations {
-  padding: 20px;
+  padding: 16px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .my-reservations h1 {
   color: #333;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
+  font-size: 1.5rem;
 }
 
 /* Messages */
@@ -30,7 +31,7 @@
 
 /* Tab Navigation */
 .tabs-container {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
   border-bottom: 2px solid #e5e7eb;
 }
 
@@ -41,12 +42,12 @@
 }
 
 .tab {
-  padding: 12px 20px;
+  padding: 10px 16px;
   border: none;
   background: transparent;
   border-bottom: 3px solid transparent;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   font-weight: 500;
   color: #6b7280;
   transition: all 0.3s ease;
@@ -67,7 +68,7 @@
 
 .tab .count {
   margin-left: 6px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: inherit;
   opacity: 0.7;
 }
@@ -116,7 +117,7 @@
 
 .reservations-table th {
   background: #f9fafb;
-  padding: 12px;
+  padding: 10px;
   text-align: left;
   font-weight: 600;
   color: #374151;
@@ -165,7 +166,7 @@
 }
 
 .reservations-table td {
-  padding: 12px;
+  padding: 10px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
 }
@@ -248,7 +249,7 @@
 .room-badge {
   background: #e5e7eb;
   color: #374151;
-  padding: 4px 8px;
+  padding: 3px 6px;
   border-radius: 4px;
   font-size: 0.8rem;
   margin: 2px 0;
@@ -258,7 +259,7 @@
 /* Status and Priority Badges */
 .status-badge,
 .priority-badge {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 500;
@@ -332,10 +333,10 @@
 .view-btn,
 .cancel-btn,
 .resubmit-btn {
-  padding: 6px 12px;
+  padding: 5px 10px;
   border: none;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
