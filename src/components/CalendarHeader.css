@@ -1,0 +1,391 @@
+/* src/components/CalendarHeader.css */
+/* Minimalist toolbar-style calendar header */
+
+/* Main Header Container */
+.calendar-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+/* Controls Container */
+.calendar-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ============================================
+   TOP ROW - Navigation & View Selector
+   ============================================ */
+
+.header-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Navigation Group */
+.navigation-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px;
+  height: 40px;
+}
+
+.navigation .nav-button {
+  height: 36px;
+  padding: 0 16px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.navigation .nav-button:hover {
+  background: #ffffff;
+  color: #111827;
+}
+
+.navigation .nav-button:active {
+  transform: scale(0.98);
+}
+
+/* Date Picker Button */
+.date-picker-wrapper {
+  position: relative;
+}
+
+.date-picker-input {
+  height: 36px;
+  padding: 0 16px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.date-picker-input:hover {
+  background: #ffffff;
+  color: #111827;
+}
+
+/* Current Date Range Display */
+.current-range {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  padding: 0 20px;
+  white-space: nowrap;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+/* View Selector (Day/Week/Month) */
+.view-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px;
+  height: 40px;
+}
+
+.view-selector button {
+  height: 36px;
+  padding: 0 20px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.view-selector button:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.view-selector button.active {
+  background: #ffffff;
+  color: #2563eb;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================
+   BOTTOM ROW - Settings & Grouping
+   ============================================ */
+
+.header-bottom-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Settings Group */
+.settings-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Calendar Selector Wrapper */
+.calendar-selector-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+/* Unified Select Styling for all dropdowns */
+.calendar-selector-wrapper .calendar-selector,
+.time-zone-selector .timezone-select,
+.week-start-selector .week-start-select {
+  height: 40px;
+  padding: 10px 32px 10px 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  width: 200px;
+  max-width: 200px;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+/* Calendar selector needs text truncation for long names */
+.calendar-selector-wrapper .calendar-selector {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.calendar-selector-wrapper .calendar-selector:hover,
+.time-zone-selector .timezone-select:hover,
+.week-start-selector .week-start-select:hover {
+  border-color: #d1d5db;
+  background-color: #f9fafb;
+}
+
+.calendar-selector-wrapper .calendar-selector:focus,
+.time-zone-selector .timezone-select:focus,
+.week-start-selector .week-start-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.calendar-selector-wrapper .calendar-selector:disabled,
+.time-zone-selector .timezone-select:disabled,
+.week-start-selector .week-start-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: #f9fafb;
+}
+
+/* View Mode Selector (Group by Category/Location) */
+.view-mode-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 2px;
+  height: 40px;
+}
+
+.view-mode-selector button {
+  height: 36px;
+  padding: 0 20px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.view-mode-selector button:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.view-mode-selector button.active {
+  background: #ffffff;
+  color: #2563eb;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+
+/* Tablet and below */
+@media (max-width: 992px) {
+  .calendar-header {
+    padding: 10px 12px;
+  }
+
+  .header-top-row,
+  .header-bottom-row {
+    justify-content: center;
+  }
+
+  .current-range {
+    font-size: 13px;
+    height: 34px;
+  }
+
+  .navigation .nav-button,
+  .date-picker-input,
+  .view-selector button,
+  .view-mode-selector button {
+    height: 34px;
+    font-size: 12px;
+    padding: 0 14px;
+  }
+
+  .calendar-selector-wrapper .calendar-selector,
+  .time-zone-selector .timezone-select,
+  .week-start-selector .week-start-select {
+    height: 38px;
+    padding: 9px 32px 9px 14px;
+    font-size: 12px;
+    width: 180px;
+    max-width: 180px;
+  }
+
+  .navigation,
+  .view-selector,
+  .view-mode-selector {
+    height: 38px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .calendar-header {
+    padding: 8px 10px;
+  }
+
+  .calendar-controls {
+    gap: 10px;
+  }
+
+  .header-top-row,
+  .header-bottom-row {
+    gap: 8px;
+  }
+
+  .navigation-group {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .navigation {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .current-range {
+    text-align: center;
+    width: 100%;
+  }
+
+  .view-selector,
+  .view-mode-selector {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .settings-group {
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .calendar-selector-wrapper .calendar-selector,
+  .time-zone-selector .timezone-select,
+  .week-start-selector .week-start-select {
+    width: 160px;
+    max-width: 160px;
+  }
+}
+
+/* Small mobile */
+@media (max-width: 480px) {
+  .navigation .nav-button span,
+  .date-picker-input span {
+    display: none;
+  }
+
+  .navigation .nav-button,
+  .date-picker-input {
+    padding: 0 8px;
+  }
+
+  .view-selector button,
+  .view-mode-selector button {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .current-range {
+    font-size: 12px;
+    padding: 0 12px;
+  }
+}

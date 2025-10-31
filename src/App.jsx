@@ -226,12 +226,7 @@ function App() {
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
-              <Navigation 
-                selectedCalendarId={selectedCalendarId}
-                availableCalendars={availableCalendars}
-                onCalendarChange={handleCalendarChange}
-                changingCalendar={changingCalendar}
-              />
+              <Navigation />
               <Routes>
                 <Route path="/" element={
                   <Calendar 

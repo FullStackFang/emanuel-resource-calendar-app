@@ -35,14 +35,15 @@
   } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
-  import { 
-    TimezoneSelector, 
-    formatEventTime, 
+  import {
+    TimezoneSelector,
+    formatEventTime,
     formatDateHeader,
     formatDateRangeForAPI,
     calculateEndDate,
-    snapToStartOfWeek 
+    snapToStartOfWeek
   } from '../utils/timezoneUtils';
+  import CalendarHeader from './CalendarHeader';
 
   // API endpoint - use the full URL to your API server
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -53,71 +54,7 @@
    * CONSTANTS AND CONFIGURATION
    *****************************************************************************/
   const categories = [
-  ]; 
-
-
-  const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
-    const handleDateChange = (date) => {
-      if (date) {
-        onDateChange(date);
-      }
-    };
-  
-    const formatDisplayDate = () => {
-      const options = { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
-      };
-      return currentDate.toLocaleDateString('en-US', options);
-    };
-  
-    return (
-      <div className="date-picker-wrapper">
-        <DatePicker
-          selected={currentDate}
-          onChange={handleDateChange}
-          dateFormat="MMM d, yyyy"
-          customInput={
-            <button 
-              className="date-picker-input"
-              type="button"
-              title="Click to select a specific date"
-            >
-              📅 {formatDisplayDate()}
-            </button>
-          }
-          showPopperArrow={false}
-          popperPlacement="bottom-start"
-          // Remove or simplify the popperModifiers configuration
-          popperModifiers={undefined}
-          // Alternative: Remove popperModifiers entirely
-          // popperModifiers={undefined}
-          
-          // Show month/year dropdowns for easier navigation
-          showMonthDropdown
-          showYearDropdown
-          dropdownMode="select"
-          yearDropdownItemNumber={10}
-          scrollableYearDropdown
-          
-          // Add these props for better stability
-          shouldCloseOnSelect={true}
-          disabledKeyboardNavigation={false}
-          
-          // Optional: Add portal rendering to avoid z-index issues
-          withPortal={false}
-          
-          // Optional: Add custom popper container
-          popperContainer={({ children }) => (
-            <div className="react-datepicker-popper-container">
-              {children}
-            </div>
-          )}
-        />
-      </div>
-    );
-  };
+  ];
 
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
@@ -4705,180 +4642,74 @@
       <div className="calendar-container">
         {(loading || initializing) && <LoadingOverlay/>}
         
-        {/* REORGANIZED HEADER */}
-        <div className="calendar-header">
-          <div className="calendar-controls">
-            
-            {/* TOP ROW - Main Navigation and View Controls */}
-            <div className="header-top-row">
-              {/* Navigation Controls */}
-              <div className="navigation-group">
-                <div className="navigation">
-                  <button onClick={handlePrevious}>Previous</button>
-                  <button onClick={handleToday}>Today</button>
-                  
-                  <DatePickerButton 
-                    currentDate={currentDate}
-                    onDateChange={handleDatePickerChange}
-                    viewType={viewType}
-                  />
-                  
-                  <button onClick={handleNext}>Next</button>
-                </div>
-                
-                <div className="current-range">
-                  {viewType === 'day' 
-                    ? currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-                    : viewType === 'month'
-                      ? currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) 
-                      : `${dateRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${dateRange.end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                  }
-                </div>
-              </div>
+        {/* Calendar Header */}
+        <CalendarHeader
+          viewType={viewType}
+          currentDate={currentDate}
+          dateRange={dateRange}
+          onViewChange={(newView) => {
+            handleViewChange(newView);
+            updateUserProfilePreferences({ defaultView: newView });
+          }}
+          onDateChange={handleDatePickerChange}
+          onNavigate={(action) => {
+            if (action === 'previous') handlePrevious();
+            else if (action === 'next') handleNext();
+            else if (action === 'today') handleToday();
+          }}
+          timezone={userTimezone}
+          weekStart={userPermissions.startOfWeek}
+          onTimezoneChange={(newTz) => {
+            logger.debug('Timezone dropdown changed to:', newTz);
+            hasUserManuallyChangedTimezone.current = true;
+            setUserTimezone(newTz);
+          }}
+          onWeekStartChange={(e) => {
+            const newValue = e.target.value;
 
-              {/* View Selector */}
-              <div className="view-selector">
-                <button 
-                  className={viewType === 'day' ? 'active' : ''} 
-                  onClick={() => {
-                      handleViewChange('day');
-                      updateUserProfilePreferences({ defaultView: 'day' });
-                    }
-                  }
-                >
-                  Day
-                </button>
-                <button 
-                  className={viewType === 'week' ? 'active' : ''} 
-                  onClick={() => {
-                      handleViewChange('week');
-                      updateUserProfilePreferences({ defaultView: 'week' });
-                    }
-                  }
-                >
-                  Week
-                </button>
-                <button 
-                  className={viewType === 'month' ? 'active' : ''} 
-                  onClick={() => {
-                      handleViewChange('month');
-                      updateUserProfilePreferences({ defaultView: 'month' });
-                    }
-                  }
-                >
-                  Month
-                </button>
-              </div>
+            setUserPermissions(prev => ({
+              ...prev,
+              startOfWeek: newValue
+            }));
+            updateUserProfilePreferences({ startOfWeek: newValue });
 
-            </div>
+            if (viewType === 'week') {
+              const currentStartDate = new Date(dateRange.start);
+              let newStart;
 
-            {/* BOTTOM ROW - Settings and Group Controls */}
-            <div className="header-bottom-row">
-              {/* Settings Group */}
-              <div className="settings-group">
-                <div className="time-zone-selector">
-                  <TimezoneSelector
-                    value={userTimezone}
-                    onChange={(newTz) => {
-                      logger.debug('Timezone dropdown changed to:', newTz);
-                      hasUserManuallyChangedTimezone.current = true; 
-                      setUserTimezone(newTz);
-                    }}
-                    showLabel={false}
-                    className="timezone-select"
-                  />
-                </div>
-                
-                <div className="week-start-selector">
-                  <select
-                    value={userPermissions.startOfWeek}
-                    onChange={(e) => {
-                      const newValue = e.target.value;
-                      
-                      setUserPermissions(prev => ({
-                        ...prev,
-                        startOfWeek: newValue
-                      }));
-                      updateUserProfilePreferences({ startOfWeek: newValue });
-                      
-                      if (viewType === 'week') {
-                        const currentStartDate = new Date(dateRange.start);
-                        let newStart;
-                        
-                        if (newValue === 'Monday' && userPermissions.startOfWeek === 'Sunday') {
-                          newStart = new Date(currentStartDate);
-                          newStart.setDate(currentStartDate.getDate() + 1);
-                        } 
-                        else if (newValue === 'Sunday' && userPermissions.startOfWeek === 'Monday') {
-                          newStart = new Date(currentStartDate);
-                          newStart.setDate(currentStartDate.getDate() - 1);
-                        }
-                        else {
-                          newStart = currentStartDate;
-                        }
-                        
-                        const newEnd = calculateEndDate(newStart, 'week');
-                        
-                        setDateRange({
-                          start: newStart,
-                          end: newEnd
-                        });
-                      }
-                    }}
-                  >
-                    <option value="Sunday">Sunday start of Week</option>
-                    <option value="Monday">Monday start of Week</option>
-                  </select>
-                </div>
+              if (newValue === 'Monday' && userPermissions.startOfWeek === 'Sunday') {
+                newStart = new Date(currentStartDate);
+                newStart.setDate(currentStartDate.getDate() + 1);
+              }
+              else if (newValue === 'Sunday' && userPermissions.startOfWeek === 'Monday') {
+                newStart = new Date(currentStartDate);
+                newStart.setDate(currentStartDate.getDate() - 1);
+              }
+              else {
+                newStart = currentStartDate;
+              }
 
-                {/* Div Zoom Controls
-                <div className="zoom-controls">
-                  <button onClick={() => {
-                      handleZoom('out');
-                      const newZoom = zoomLevel - 10;
-                      updateUserProfilePreferences({ preferredZoomLevel: newZoom });
-                    }
-                  } title="Zoom Out">−</button>
-                  <span>{zoomLevel}%</span>
-                  <button onClick={() => {
-                      handleZoom('in');
-                      updateUserProfilePreferences({ preferredZoomLevel: zoomLevel + 10 });
-                    }
-                  } title="Zoom In">+</button>
-                </div>
-                */}
-              </div>
+              const newEnd = calculateEndDate(newStart, 'week');
 
-              {/* View mode selectors - Hide in month view */}
-              {viewType !== 'month' && (
-                <div className="view-mode-selector">
-                  <button 
-                    className={groupBy === 'categories' ? 'active' : ''} 
-                    onClick={async () => {
-                      setLoading(true);
-                      setGroupBy('categories');
-                      await updateUserProfilePreferences({ defaultGroupBy: 'categories' });
-                      setLoading(false);
-                    }}
-                  >
-                    Group by Category
-                  </button>
-                  <button 
-                    className={groupBy === 'locations' ? 'active' : ''} 
-                    onClick={async () => {
-                      setLoading(true);
-                      setGroupBy('locations');
-                      await updateUserProfilePreferences({ defaultGroupBy: 'locations' });
-                      setLoading(false);
-                    }}
-                  >
-                    Group by Location
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+              setDateRange({
+                start: newStart,
+                end: newEnd
+              });
+            }
+          }}
+          groupBy={groupBy}
+          onGroupByChange={async (mode) => {
+            setLoading(true);
+            setGroupBy(mode);
+            await updateUserProfilePreferences({ defaultGroupBy: mode });
+            setLoading(false);
+          }}
+          selectedCalendarId={selectedCalendarId}
+          availableCalendars={availableCalendars}
+          onCalendarChange={setSelectedCalendarId}
+          changingCalendar={changingCalendar}
+          updateUserProfilePreferences={updateUserProfilePreferences}
+        />
 
         {/* Mode Toggle with Action Buttons */}
         {renderModeToggle()}
