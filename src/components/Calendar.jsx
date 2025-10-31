@@ -3628,20 +3628,28 @@
         _id: enrichedEvent._id                              // MongoDB document ID
       };
 
-      logger.debug('Opening event form with IDs:', {
+      logger.debug('Opening review modal directly with event:', {
         'event.id': eventForForm.id,
         'event.eventId': eventForForm.eventId,
         'event.graphEventId': eventForForm.graphEventId,
         'event.hasGraphId': eventForForm.hasGraphId,
-        'event._id': eventForForm._id,
-        'Will show review button?': !!(eventForForm.id)
+        'event._id': eventForForm._id
       });
 
-      // Directly open edit modal when event is clicked
-      setCurrentEvent(eventForForm);
-      setModalType('edit');
-      setIsModalOpen(true);
-    }, [userPermissions.editEvents]); // Removed allEvents from deps - using allEventsRef.current instead
+      // Bypass event details modal - go directly to review modal
+      (async () => {
+        try {
+          // Transform the event data to flat structure for the review form
+          const transformedEvent = transformEventToFlatStructure(eventForForm);
+
+          // Open review modal directly
+          await reviewModal.openModal(transformedEvent);
+        } catch (error) {
+          logger.error('Error opening review modal:', error);
+          alert('Failed to open review modal: ' + error.message);
+        }
+      })();
+    }, [reviewModal]); // Updated dependency for direct review modal access
 
     /**
      * Handle review button click
