@@ -1126,7 +1126,7 @@ export default function SchedulingAssistant({
     return (
       <div className="scheduling-assistant">
         <div className="assistant-header">
-          <h3>📅 Scheduling Assistant</h3>
+          <h3>📅 Selected Rooms & Scheduling Assistant</h3>
           <p>Select locations to view their availability</p>
         </div>
         <div className="empty-assistant">

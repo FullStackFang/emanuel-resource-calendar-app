@@ -584,6 +584,28 @@ export default function RoomReservationFormBase({
             )}
 
             <div className="room-selection-container">
+              <div className="room-cards-section">
+                {roomsLoading ? (
+                  <div className="loading-message">Loading locations...</div>
+                ) : rooms.length === 0 ? (
+                  <div className="no-rooms-message">
+                    No locations available. Please contact the office for assistance.
+                  </div>
+                ) : (
+                  <LocationListSelect
+                    rooms={rooms}
+                    availability={availability}
+                    selectedRooms={formData.requestedRooms}
+                    onRoomSelectionChange={handleRoomSelectionChange}
+                    checkRoomCapacity={checkRoomCapacity}
+                    label="Requested locations"
+                    eventStartTime={formData.startTime}
+                    eventEndTime={formData.endTime}
+                    eventDate={formData.startDate}
+                  />
+                )}
+              </div>
+
               <div className={`scheduling-assistant-container ${formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''}`}>
                 {formData.isAllDayEvent && (
                   <div className="scheduling-assistant-disabled-message">
@@ -610,28 +632,6 @@ export default function RoomReservationFormBase({
                   defaultCalendar={defaultCalendar}
                   isAllDayEvent={formData.isAllDayEvent}
                 />
-              </div>
-
-              <div className="room-cards-section">
-                {roomsLoading ? (
-                  <div className="loading-message">Loading locations...</div>
-                ) : rooms.length === 0 ? (
-                  <div className="no-rooms-message">
-                    No locations available. Please contact the office for assistance.
-                  </div>
-                ) : (
-                  <LocationListSelect
-                    rooms={rooms}
-                    availability={availability}
-                    selectedRooms={formData.requestedRooms}
-                    onRoomSelectionChange={handleRoomSelectionChange}
-                    checkRoomCapacity={checkRoomCapacity}
-                    label="Requested locations"
-                    eventStartTime={formData.startTime}
-                    eventEndTime={formData.endTime}
-                    eventDate={formData.startDate}
-                  />
-                )}
               </div>
             </div>
           </section>
