@@ -39,6 +39,16 @@
   font-weight: 500;
 }
 
+.assistant-header .preview-content-inline {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-top: 5px;
+}
+
+.assistant-header .preview-content-inline strong {
+  font-weight: 600;
+}
+
 /* Room Tabs Carousel Wrapper */
 .room-tabs-carousel {
   position: relative;

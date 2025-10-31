@@ -1154,6 +1154,18 @@ export default function SchedulingAssistant({
             day: 'numeric'
           })}
         </div>
+        {setupTime && teardownTime && (
+          <div className="preview-content-inline">
+            <strong>Event: {setupTime} - {teardownTime}</strong>
+          </div>
+        )}
+        {selectedRooms.length > 0 && (
+          <div className="preview-content-inline">
+            <strong>
+              {selectedRooms.length} {selectedRooms.length === 1 ? 'room' : 'rooms'}: {selectedRooms.map(r => r.name).join(', ')}
+            </strong>
+          </div>
+        )}
       </div>
 
       {/* Room Tabs */}
