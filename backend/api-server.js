@@ -2431,7 +2431,7 @@ async function resetDeltaToken(userId, calendarId) {
 async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData = {}, sourceCalendars = []) {
   try {
     const now = new Date();
-    
+
     // Ensure sourceCalendars includes current calendar
     const updatedSourceCalendars = [...sourceCalendars];
     if (!updatedSourceCalendars.find(sc => sc.calendarId === calendarId)) {
@@ -2441,11 +2441,20 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         role: calendarId.includes('TempleRegistration') ? 'shared' : 'primary'
       });
     }
-    
+
+    // Find existing event by Graph ID to get its internal eventId (UUID)
+    const existingEvent = await unifiedEventsCollection.findOne({
+      userId: userId,
+      'graphData.id': graphEvent.id
+    });
+
+    // Use existing UUID eventId or generate new one
+    const eventId = existingEvent?.eventId || crypto.randomUUID();
+
     const unifiedEvent = {
       userId: userId,
       calendarId: calendarId,
-      eventId: graphEvent.id,
+      eventId: eventId, // Internal UUID (preserved or newly generated)
       
       // Graph API data (source of truth)
       graphData: {
@@ -2515,7 +2524,8 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         });
         locationId = locationResult.locationId;
         logger.debug('Processed location for event', {
-          eventId: graphEvent.id,
+          eventId: eventId, // Internal UUID
+          graphId: graphEvent.id, // Graph ID
           locationName: graphEvent.location.displayName,
           locationId: locationId,
           wasCreated: locationResult.wasCreated
@@ -2532,17 +2542,19 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     }
     
     // Use upsert to handle updates while preserving internal data
+    // Query by internal eventId (UUID) since we already retrieved/generated it
     const result = await unifiedEventsCollection.replaceOne(
-      { 
-        userId: userId, 
-        eventId: graphEvent.id 
+      {
+        userId: userId,
+        eventId: eventId // Use internal UUID, not Graph ID
       },
       unifiedEvent,
       { upsert: true }
     );
-    
+
     logger.debug(`Upserted unified event: ${graphEvent.subject}`, {
-      eventId: graphEvent.id,
+      eventId: eventId, // Internal UUID
+      graphId: graphEvent.id, // Graph ID
       matched: result.matchedCount,
       modified: result.modifiedCount,
       upserted: result.upsertedCount
@@ -3232,10 +3244,10 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
             unifiedEvents = unifiedEvents.concat(cachedEvents);
 
-            // Track cached event IDs for deduplication
+            // Track cached event IDs for deduplication (use Graph ID, not internal eventId)
             cachedEvents.forEach(event => {
-              if (event.eventId) {
-                cachedEventIds.add(event.eventId);
+              if (event.graphData?.id) {
+                cachedEventIds.add(event.graphData.id);  // Use Graph ID for comparison
               }
             });
 
@@ -3353,10 +3365,35 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           if (newEvents.length > 0) {
             logger.log(`📝 Sample new events: ${newEvents.slice(0, 3).map(e => e.subject || 'No Subject').join(', ')}`);
 
+            // Query database for existing events by graphData.id to get their eventIds
+            const graphEventIds = newEvents.map(e => e.id);
+            const existingEventsInDb = await unifiedEventsCollection.find({
+              userId: userId,
+              'graphData.id': { $in: graphEventIds }
+            }).toArray();
+
+            // Create a map of graphData.id → eventId for quick lookup
+            const graphIdToEventIdMap = new Map();
+            existingEventsInDb.forEach(event => {
+              graphIdToEventIdMap.set(event.graphData.id, event.eventId);
+            });
+
+            logger.debug(`Found ${existingEventsInDb.length} existing events in database out of ${newEvents.length} new events`);
+
             // Add to unified events array
             newEvents.forEach(graphEvent => {
+              // Check if this event already exists in database by graphData.id
+              const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
+              const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
+
+              if (existingEventId) {
+                logger.debug(`Using existing eventId for ${graphEvent.subject}: ${eventId}`);
+              } else {
+                logger.debug(`Generated new eventId for ${graphEvent.subject}: ${eventId}`);
+              }
+
               const unifiedEvent = {
-                eventId: graphEvent.id,
+                eventId: eventId, // Use existing UUID or generate new one
                 userId: userId,
                 source: 'Microsoft Graph',
                 calendarId: calendarId,

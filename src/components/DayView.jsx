@@ -240,8 +240,8 @@ const DayView = memo(({
                       const transparentColor = hexToRgba(eventColor, bgAlpha);
                       
                       return (
-                        <div 
-                          key={event.id} 
+                        <div
+                          key={event.eventId} 
                           className="event-item"
                           style={{
                             backgroundColor: transparentColor,

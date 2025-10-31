@@ -1712,30 +1712,7 @@
             logger.warn('loadEventsUnified: No available calendars found');
           }
         }
-        
-        // Only include TempleRegistration if it's the selected calendar or if no specific calendar is selected
-        const templeRegistrationCalendar = calendarsToUse.find(cal => 
-          cal.name?.toLowerCase().includes('templeregistration') || 
-          cal.owner?.address?.toLowerCase().includes('templeregistration')
-        );
-        
-        if (templeRegistrationCalendar && 
-            (!selectedCalendarId || selectedCalendarId === templeRegistrationCalendar.id)) {
-          // Only add TempleRegistration if it's specifically selected or no calendar is selected
-          if (!calendarIds.includes(templeRegistrationCalendar.id)) {
-            calendarIds.push(templeRegistrationCalendar.id);
-            logger.debug('loadEventsUnified: Added TempleRegistration calendar', { 
-              id: templeRegistrationCalendar.id,
-              reason: selectedCalendarId ? 'specifically selected' : 'no calendar selected'
-            });
-          }
-        } else if (selectedCalendarId && templeRegistrationCalendar) {
-          logger.debug('loadEventsUnified: Skipping TempleRegistration calendar (different calendar selected)', {
-            selectedCalendarId,
-            templeRegistrationId: templeRegistrationCalendar.id
-          });
-        }
-        
+
         // Final validation of calendar IDs
         if (calendarIds.length === 0) {
           logger.error('loadEventsUnified: No calendar IDs resolved', {
@@ -3673,6 +3650,7 @@
       // UNIFIED EVENT DEBUG: Log the complete unified event data
       console.log('🎯 UNIFIED EVENT CLICKED:', {
         unifiedEventId: enrichedEvent._id,  // MongoDB Unified Event ID
+        eventId: enrichedEvent.eventId,       // Internal unique ID (UUID)
         graphEventId: enrichedEvent.id,     // Microsoft Graph Event ID
         subject: enrichedEvent.subject,
         calendarId: enrichedEvent.calendarId,
