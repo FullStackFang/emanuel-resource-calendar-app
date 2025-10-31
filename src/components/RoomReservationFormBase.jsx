@@ -133,6 +133,16 @@ export default function RoomReservationFormBase({
     return Math.floor(diffMs / (1000 * 60));
   };
 
+  // Helper function to format time string from HH:MM (24-hour) to "H:MM AM/PM" (12-hour)
+  const formatTimeString = (timeStr) => {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${period}`;
+  };
+
   // Check room availability
   const checkAvailability = async () => {
     try {
@@ -579,6 +589,32 @@ export default function RoomReservationFormBase({
           <section className="form-section">
             <h2>Resource Details</h2>
 
+            {(formData.setupTime || formData.requestedRooms.length > 0) && (
+              <div className="event-summary-pill">
+                {formData.setupTime && formData.teardownTime && (
+                  <span className="summary-time">
+                    {formatTimeString(formData.setupTime)} to {formatTimeString(formData.teardownTime)}
+                  </span>
+                )}
+                {formData.setupTime && formData.teardownTime && formData.requestedRooms.length > 0 && (
+                  <span className="summary-separator">•</span>
+                )}
+                {formData.requestedRooms.length > 0 && (
+                  <span className="summary-rooms" title={
+                    formData.requestedRooms
+                      .map(roomId => rooms.find(r => r._id === roomId)?.name || roomId)
+                      .join(', ')
+                  }>
+                    {formData.requestedRooms.length} {formData.requestedRooms.length === 1 ? 'room' : 'rooms'}: {
+                      formData.requestedRooms
+                        .map(roomId => rooms.find(r => r._id === roomId)?.name || roomId)
+                        .join(', ')
+                    }
+                  </span>
+                )}
+              </div>
+            )}
+
             {checkingAvailability && (
               <div className="loading-message">Checking availability...</div>
             )}
@@ -631,6 +667,8 @@ export default function RoomReservationFormBase({
                   onLockedEventClick={onLockedEventClick}
                   defaultCalendar={defaultCalendar}
                   isAllDayEvent={formData.isAllDayEvent}
+                  organizerName={formData.requesterName}
+                  organizerEmail={formData.requesterEmail}
                 />
               </div>
             </div>

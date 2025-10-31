@@ -18,7 +18,9 @@ export default function SchedulingAssistant({
   onEventTimeChange, // Callback to update event times when dragging
   currentReservationId, // ID of the current reservation being reviewed (only this one is draggable)
   onLockedEventClick, // Callback when a locked reservation event is clicked
-  defaultCalendar = '' // Calendar name to display in header
+  defaultCalendar = '', // Calendar name to display in header
+  organizerName = '', // Organizer name for user events
+  organizerEmail = '' // Organizer email for user events
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -251,7 +253,7 @@ export default function SchedulingAssistant({
           title: eventTitle || 'Untitled Event',
           startTime,
           endTime,
-          organizer: 'You',
+          organizer: organizerName || organizerEmail || 'You',
           isUserEvent: true,
           isDraggable: true,
           isConflict: false, // Will be calculated below
@@ -561,6 +563,16 @@ export default function SchedulingAssistant({
       minute: '2-digit',
       hour12: true
     });
+  };
+
+  // Format time string from HH:MM (24-hour) to "H:MM AM/PM" (12-hour)
+  const formatTimeString = (timeStr) => {
+    if (!timeStr) return '';
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${minutes} ${period}`;
   };
 
   // Snap a Date to the nearest 15-minute increment
@@ -1154,18 +1166,6 @@ export default function SchedulingAssistant({
             day: 'numeric'
           })}
         </div>
-        {setupTime && teardownTime && (
-          <div className="preview-content-inline">
-            <strong>Event: {setupTime} - {teardownTime}</strong>
-          </div>
-        )}
-        {selectedRooms.length > 0 && (
-          <div className="preview-content-inline">
-            <strong>
-              {selectedRooms.length} {selectedRooms.length === 1 ? 'room' : 'rooms'}: {selectedRooms.map(r => r.name).join(', ')}
-            </strong>
-          </div>
-        )}
       </div>
 
       {/* Room Tabs */}
