@@ -9,19 +9,47 @@ export default function LocationReview({ apiToken }) {
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'all', 'merge'
-  
+  const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'all', 'merge', 'assignment'
+
   // Merge wizard state
   const [showMergeWizard, setShowMergeWizard] = useState(false);
   const [mergeSource, setMergeSource] = useState(null);
   const [mergeTarget, setMergeTarget] = useState(null);
   const [mergeAliases, setMergeAliases] = useState(true);
-  
+
   // Selected items for bulk operations
   const [selectedLocations, setSelectedLocations] = useState(new Set());
-  
+
+  // Assignment tab state
+  const [unassignedStrings, setUnassignedStrings] = useState([]);
+  const [selectedLocationIds, setSelectedLocationIds] = useState({});
+  const [assigningString, setAssigningString] = useState(null);
+
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Detect if a location string contains multiple locations (comma-separated)
+  const isMultiLocationString = (locationString) => {
+    // Check if it has commas (likely multiple locations)
+    const hasCommas = locationString.includes(',');
+    const parts = locationString.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    return hasCommas && parts.length > 1;
+  };
+
+  // Split multi-location string into individual parts
+  const splitLocationString = (locationString) => {
+    return locationString.split(',').map(s => s.trim()).filter(s => s.length > 0);
+  };
+
   useEffect(() => {
     loadLocations();
+    fetchUnassignedStrings(); // Load on initial mount
   }, [apiToken]);
   
   const loadLocations = async () => {
@@ -147,16 +175,97 @@ export default function LocationReview({ apiToken }) {
         },
         body: JSON.stringify({ aliases })
       });
-      
+
       if (!response.ok) throw new Error('Failed to update aliases');
-      
+
       await loadLocations();
     } catch (err) {
       logger.error('Error updating aliases:', err);
       setError('Failed to update aliases');
     }
   };
-  
+
+  // Assignment tab functions
+  const fetchUnassignedStrings = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/unassigned-strings`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch unassigned strings: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setUnassignedStrings(data);
+      logger.log(`Loaded ${data.length} unassigned location strings`);
+    } catch (err) {
+      logger.error('Error fetching unassigned strings:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignString = async (locationString, locationId) => {
+    try {
+      setAssigningString(locationString);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/assign-string`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          locationString,
+          locationId
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to assign location: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      logger.log(`Assigned "${locationString}" to ${result.locationName}, updated ${result.eventsUpdated} events`);
+
+      // Show success toast
+      showToast(`✅ Assigned "${locationString}" to ${result.locationName} (${result.eventsUpdated} events updated)`, 'success');
+
+      // Update unassigned strings list by removing the assigned string
+      setUnassignedStrings(prev => prev.filter(item => item.locationString !== locationString));
+
+      // Update the location in allLocations to reflect new alias
+      setAllLocations(prev => prev.map(loc => {
+        if (loc._id === locationId) {
+          return {
+            ...loc,
+            aliases: result.updatedAliases || loc.aliases,
+            usageCount: (loc.usageCount || 0) + result.eventsUpdated
+          };
+        }
+        return loc;
+      }));
+
+      // Clear the selected location for this string
+      setSelectedLocationIds(prev => {
+        const newState = { ...prev };
+        delete newState[locationString];
+        return newState;
+      });
+    } catch (err) {
+      logger.error('Error assigning location:', err);
+      showToast(`❌ Error: ${err.message}`, 'error');
+    } finally {
+      setAssigningString(null);
+    }
+  };
+
   const getConfidenceColor = (confidence) => {
     if (confidence >= 0.9) return '#10b981'; // green
     if (confidence >= 0.7) return '#f59e0b'; // amber
@@ -178,6 +287,13 @@ export default function LocationReview({ apiToken }) {
   
   return (
     <div className="location-review">
+      {toast && (
+        <div className={`toast-notification ${toast.type}`}>
+          {toast.message}
+          <button onClick={() => setToast(null)} className="toast-close">×</button>
+        </div>
+      )}
+
       <div className="review-header">
         <h1>Location Review & Management</h1>
         <div className="header-stats">
@@ -192,7 +308,7 @@ export default function LocationReview({ apiToken }) {
           </span>
         </div>
       </div>
-      
+
       {error && (
         <div className="error-message">
           {error}
@@ -201,23 +317,34 @@ export default function LocationReview({ apiToken }) {
       )}
       
       <div className="review-tabs">
-        <button 
+        <button
           className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
           onClick={() => setActiveTab('pending')}
         >
           Pending Review ({pendingLocations.length})
         </button>
-        <button 
+        <button
           className={`tab ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => setActiveTab('all')}
         >
           All Locations ({allLocations.length})
         </button>
-        <button 
+        <button
           className={`tab ${activeTab === 'merge' ? 'active' : ''}`}
           onClick={() => setActiveTab('merge')}
         >
           Merge Locations
+        </button>
+        <button
+          className={`tab ${activeTab === 'assignment' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('assignment');
+            if (unassignedStrings.length === 0) {
+              fetchUnassignedStrings();
+            }
+          }}
+        >
+          Location Assignment ({unassignedStrings.length})
         </button>
       </div>
       
@@ -571,6 +698,220 @@ export default function LocationReview({ apiToken }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'assignment' && (
+        <div className="assignment-section">
+          <div className="assignment-header">
+            <p className="description">
+              Assign location strings from events to physical or virtual locations.
+              Each assignment creates an alias for automatic matching of future events.
+            </p>
+          </div>
+
+          <div className="assignment-stats">
+            <div className="stat-card">
+              <div className="stat-value">{unassignedStrings.length}</div>
+              <div className="stat-label">Unassigned Strings</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">{allLocations.length}</div>
+              <div className="stat-label">Total Locations</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value">
+                {unassignedStrings.reduce((sum, item) => sum + item.eventCount, 0)}
+              </div>
+              <div className="stat-label">Events to Process</div>
+            </div>
+          </div>
+
+          {unassignedStrings.length === 0 ? (
+            <div className="no-results">
+              <p>✨ All location strings have been assigned!</p>
+              <p className="sub-text">New events will automatically match based on existing aliases.</p>
+            </div>
+          ) : (
+            <div className="assignment-list">
+              <div className="list-header">
+                <span className="col-location">Location String</span>
+                <span className="col-events">Events</span>
+                <span className="col-action">Assign To</span>
+              </div>
+
+              {unassignedStrings.map((item) => {
+                const isMulti = isMultiLocationString(item.locationString);
+                const parts = isMulti ? splitLocationString(item.locationString) : [];
+
+                // For multi-location strings, show only the expanded view
+                if (isMulti) {
+                  return (
+                    <React.Fragment key={item.normalizedString}>
+                      <div className="multi-location-header">
+                        <div className="multi-header-content">
+                          <span className="multi-label">Multiple Locations ({parts.length}):</span>
+                          <span className="multi-original">{item.locationString}</span>
+                        </div>
+                        <div className="multi-event-count">
+                          <span className="count-badge">{item.eventCount}</span>
+                          <span className="count-label">events total</span>
+                        </div>
+                      </div>
+                      <div className="expanded-locations">
+                        {parts.map((part, idx) => {
+                          const partKey = `${item.normalizedString}-part-${idx}`;
+                          return (
+                            <div key={partKey} className="sub-location-row">
+                              <div className="sub-location-info">
+                                <span className="part-number">{idx + 1}.</span>
+                                <span className="part-text">{part}</span>
+                              </div>
+                              <div className="sub-assignment-action">
+                                <select
+                                  value={selectedLocationIds[partKey] || ''}
+                                  onChange={(e) => {
+                                    setSelectedLocationIds(prev => ({
+                                      ...prev,
+                                      [partKey]: e.target.value
+                                    }));
+                                  }}
+                                  disabled={assigningString === part}
+                                  className="location-select"
+                                >
+                                  <option value="">Select location...</option>
+                                  <optgroup label="Physical Locations">
+                                    {allLocations
+                                      .filter(loc => loc.name !== 'Non-Physical Location')
+                                      .map(loc => (
+                                        <option key={loc._id} value={loc._id}>
+                                          {loc.displayName || loc.name}
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                  <optgroup label="Virtual/Non-Physical">
+                                    {allLocations
+                                      .filter(loc => loc.name === 'Non-Physical Location')
+                                      .map(loc => (
+                                        <option key={loc._id} value={loc._id}>
+                                          {loc.displayName || loc.name}
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                </select>
+                                <button
+                                  onClick={() => {
+                                    const locationId = selectedLocationIds[partKey];
+
+                                    if (!locationId) {
+                                      showToast('Please select a location first', 'error');
+                                      return;
+                                    }
+
+                                    handleAssignString(part, locationId);
+                                  }}
+                                  disabled={assigningString === part || !selectedLocationIds[partKey]}
+                                  className="assign-btn small"
+                                  title={`Assign "${part}"`}
+                                >
+                                  {assigningString === part ? (
+                                    <span>✓</span>
+                                  ) : (
+                                    <span>Assign</span>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+
+                // For single-location strings, show normal row
+                return (
+                  <div key={item.normalizedString} className="assignment-row">
+                    <div className="location-info">
+                      <div className="location-string">
+                        {item.locationString}
+                      </div>
+                      <div className="normalized-string">
+                        normalized: {item.normalizedString}
+                      </div>
+                    </div>
+
+                    <div className="event-count">
+                      <span className="count-badge">{item.eventCount}</span>
+                      <span className="count-label">events</span>
+                    </div>
+
+                    <div className="assignment-action">
+                      <select
+                        value={selectedLocationIds[item.normalizedString] || ''}
+                        onChange={(e) => {
+                          setSelectedLocationIds(prev => ({
+                            ...prev,
+                            [item.normalizedString]: e.target.value
+                          }));
+                        }}
+                        disabled={assigningString === item.locationString}
+                        className="location-select"
+                      >
+                        <option value="">Select location...</option>
+                        <optgroup label="Physical Locations">
+                          {allLocations
+                            .filter(loc => loc.name !== 'Non-Physical Location')
+                            .map(loc => (
+                              <option key={loc._id} value={loc._id}>
+                                {loc.displayName || loc.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                        <optgroup label="Virtual/Non-Physical">
+                          {allLocations
+                            .filter(loc => loc.name === 'Non-Physical Location')
+                            .map(loc => (
+                              <option key={loc._id} value={loc._id}>
+                                {loc.displayName || loc.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      </select>
+
+                      <button
+                        onClick={() => {
+                          const locationId = selectedLocationIds[item.normalizedString];
+
+                          if (!locationId) {
+                            showToast('Please select a location first', 'error');
+                            return;
+                          }
+
+                          handleAssignString(item.locationString, locationId);
+                        }}
+                        disabled={assigningString === item.locationString || !selectedLocationIds[item.normalizedString]}
+                        className="assign-btn"
+                        title={`Assign "${item.locationString}" and update ${item.eventCount} events`}
+                      >
+                        {assigningString === item.locationString ? (
+                          <span>✓ Assigning...</span>
+                        ) : (
+                          <span>Assign</span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="assignment-footer">
+            <button onClick={fetchUnassignedStrings} disabled={loading} className="refresh-btn">
+              {loading ? 'Refreshing...' : '🔄 Refresh List'}
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -11,6 +11,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
+const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames } = require('./utils/locationUtils');
 
 dotenv.config();
 
@@ -2515,7 +2516,56 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       lastAccessedAt: now
     };
     
-    // Extract and process location if present
+    // Initialize new location structure with multi-location support
+    // Parse location string from Graph API (semicolon-delimited)
+    const locationDisplayName = graphEvent.location?.displayName || '';
+    const locationStrings = parseLocationString(locationDisplayName);
+
+    // Match location strings to templeEvents__Locations via aliases
+    const assignedLocationIds = [];
+
+    if (locationStrings.length > 0) {
+      for (const locationStr of locationStrings) {
+        const normalized = normalizeLocationString(locationStr);
+
+        try {
+          // Find location with this alias
+          const location = await locationsCollection.findOne({
+            aliases: normalized
+          });
+
+          if (location && !assignedLocationIds.some(id => id.toString() === location._id.toString())) {
+            assignedLocationIds.push(location._id);
+            logger.debug('Matched location string via alias', {
+              locationString: locationStr,
+              normalized: normalized,
+              matchedLocation: location.name,
+              locationId: location._id
+            });
+          }
+        } catch (error) {
+          logger.error('Error matching location string:', error);
+          // Continue with other locations - non-blocking
+        }
+      }
+    }
+
+    // Set locations array (may be empty if no matches found)
+    unifiedEvent.locations = assignedLocationIds;
+
+    // Calculate locationDisplayNames from assigned locations
+    if (assignedLocationIds.length > 0) {
+      try {
+        unifiedEvent.locationDisplayNames = await calculateLocationDisplayNames(assignedLocationIds, db);
+      } catch (error) {
+        logger.error('Error calculating location display names:', error);
+        unifiedEvent.locationDisplayNames = '';
+      }
+    } else {
+      unifiedEvent.locationDisplayNames = '';
+    }
+
+    // Legacy: Also upsert to templeEvents__Locations for backwards compatibility
     let locationId = null;
     if (graphEvent.location && graphEvent.location.displayName) {
       try {
@@ -2523,20 +2573,13 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
           graphData: { location: graphEvent.location }
         });
         locationId = locationResult.locationId;
-        logger.debug('Processed location for event', {
-          eventId: eventId, // Internal UUID
-          graphId: graphEvent.id, // Graph ID
-          locationName: graphEvent.location.displayName,
-          locationId: locationId,
-          wasCreated: locationResult.wasCreated
-        });
       } catch (error) {
         logger.error('Error processing location for event:', error);
         // Continue without location reference - non-blocking
       }
     }
-    
-    // Add location reference to unified event
+
+    // Add legacy locationId reference for compatibility (to be deprecated)
     if (locationId) {
       unifiedEvent.locationId = locationId;
     }
@@ -4087,10 +4130,15 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         syncedAt: new Date()
       };
 
+      // Initialize location fields for new events
+      newEventDoc.locations = [];
+      newEventDoc.locationDisplayNames = updatedGraphData.location?.displayName || '';
+
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
         eventId: actualEventId,
-        insertedId: dbUpdateResult.insertedId
+        insertedId: dbUpdateResult.insertedId,
+        locationDisplayNames: newEventDoc.locationDisplayNames
       });
     } else {
       // Update existing event
@@ -4106,6 +4154,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       // Always update graphData if we got new data from Graph API
       if (graphUpdateResult) {
         updateOperations['graphData'] = updatedGraphData;
+
+        // Update locationDisplayNames if location changed in graphData
+        const newLocationDisplayName = updatedGraphData.location?.displayName || '';
+        if (newLocationDisplayName !== currentEvent.locationDisplayNames) {
+          updateOperations['locationDisplayNames'] = newLocationDisplayName;
+          // Note: locations array is NOT auto-updated - requires manual assignment in Phase 2
+        }
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -12211,6 +12266,297 @@ app.post('/api/admin/locations/:id/aliases', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error updating location aliases:', error);
     res.status(500).json({ error: 'Failed to update location aliases' });
+  }
+});
+
+/**
+ * Get unassigned location strings (Admin only)
+ * Returns unique location strings from events that haven't been assigned to any location's aliases
+ */
+app.get('/api/admin/locations/unassigned-strings', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    logger.log('Fetching unassigned location strings');
+
+    // Get all locations with their aliases
+    const locations = await locationsCollection.find({}).toArray();
+    const assignedAliases = new Set();
+
+    locations.forEach(loc => {
+      if (loc.aliases && Array.isArray(loc.aliases)) {
+        loc.aliases.forEach(alias => {
+          assignedAliases.add(normalizeLocationString(alias));
+        });
+      }
+    });
+
+    // Get all events and extract location strings
+    const events = await unifiedEventsCollection.find({
+      'graphData.location.displayName': { $exists: true, $ne: '' }
+    }).toArray();
+
+    const locationStringStats = new Map();
+
+    events.forEach(event => {
+      const locationString = event.graphData?.location?.displayName;
+      if (!locationString) return;
+
+      // Parse multi-location strings
+      const locationParts = parseLocationString(locationString);
+
+      locationParts.forEach(part => {
+        const normalized = normalizeLocationString(part);
+
+        // Skip if already assigned
+        if (assignedAliases.has(normalized)) return;
+
+        if (!locationStringStats.has(normalized)) {
+          locationStringStats.set(normalized, {
+            locationString: part,  // original
+            normalizedString: normalized,
+            eventCount: 0,
+            sampleEventIds: []
+          });
+        }
+
+        const stats = locationStringStats.get(normalized);
+        stats.eventCount++;
+        if (stats.sampleEventIds.length < 3) {
+          stats.sampleEventIds.push(event.eventId);
+        }
+      });
+    });
+
+    // Convert to array and sort by event count
+    const unassignedStrings = Array.from(locationStringStats.values())
+      .sort((a, b) => b.eventCount - a.eventCount);
+
+    logger.log(`Found ${unassignedStrings.length} unassigned location strings`);
+
+    res.json(unassignedStrings);
+  } catch (error) {
+    logger.error('Error fetching unassigned location strings:', error);
+    res.status(500).json({ error: 'Failed to fetch unassigned location strings' });
+  }
+});
+
+/**
+ * Assign a location string to a location (Admin only)
+ * Adds the string as an alias and updates all matching events
+ */
+app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { locationId, locationString } = req.body;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!locationId || !locationString) {
+      return res.status(400).json({ error: 'locationId and locationString are required' });
+    }
+
+    logger.log('Assigning location string:', { locationId, locationString });
+
+    // Get the location
+    const location = await locationsCollection.findOne({ _id: new ObjectId(locationId) });
+    if (!location) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+
+    const normalized = normalizeLocationString(locationString);
+
+    // Add to aliases if not already present
+    const aliases = location.aliases || [];
+    if (!aliases.some(a => normalizeLocationString(a) === normalized)) {
+      aliases.push(normalized);
+
+      await locationsCollection.updateOne(
+        { _id: new ObjectId(locationId) },
+        {
+          $set: {
+            aliases: aliases,
+            updatedAt: new Date()
+          }
+        }
+      );
+    }
+
+    // Find all events with this location string
+    const events = await unifiedEventsCollection.find({
+      'graphData.location.displayName': { $exists: true, $ne: '' }
+    }).toArray();
+
+    let eventsUpdated = 0;
+
+    for (const event of events) {
+      const locationDisplayName = event.graphData?.location?.displayName;
+      if (!locationDisplayName) continue;
+
+      const locationParts = parseLocationString(locationDisplayName);
+      let hasMatch = false;
+
+      for (const part of locationParts) {
+        if (normalizeLocationString(part) === normalized) {
+          hasMatch = true;
+          break;
+        }
+      }
+
+      if (hasMatch) {
+        // Add locationId to locations array if not already present
+        const locations = event.locations || [];
+        const locationIdObj = new ObjectId(locationId);
+
+        if (!locations.some(id => id.toString() === locationIdObj.toString())) {
+          locations.push(locationIdObj);
+
+          // Recalculate locationDisplayNames
+          const displayNames = await calculateLocationDisplayNames(locations, db);
+
+          await unifiedEventsCollection.updateOne(
+            { _id: event._id },
+            {
+              $set: {
+                locations: locations,
+                locationDisplayNames: displayNames,
+                updatedAt: new Date()
+              }
+            }
+          );
+
+          eventsUpdated++;
+        }
+      }
+    }
+
+    logger.log(`Assigned location string "${locationString}" to ${location.name}, updated ${eventsUpdated} events`);
+
+    res.json({
+      locationId: locationId,
+      locationName: location.name,
+      aliasAdded: normalized,
+      eventsUpdated: eventsUpdated,
+      updatedAliases: aliases
+    });
+  } catch (error) {
+    logger.error('Error assigning location string:', error);
+    res.status(500).json({ error: 'Failed to assign location string' });
+  }
+});
+
+/**
+ * Remove an alias from a location (Admin only)
+ * Removes the alias and updates all affected events
+ */
+app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { locationId, alias } = req.body;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!locationId || !alias) {
+      return res.status(400).json({ error: 'locationId and alias are required' });
+    }
+
+    logger.log('Removing alias from location:', { locationId, alias });
+
+    const normalized = normalizeLocationString(alias);
+    const locationIdObj = new ObjectId(locationId);
+
+    // Remove from location aliases
+    await locationsCollection.updateOne(
+      { _id: locationIdObj },
+      {
+        $pull: { aliases: normalized },
+        $set: { updatedAt: new Date() }
+      }
+    );
+
+    // Find and update all events with this locationId
+    const events = await unifiedEventsCollection.find({
+      locations: locationIdObj
+    }).toArray();
+
+    let eventsUpdated = 0;
+
+    for (const event of events) {
+      // Check if event's original location string still matches this location via other aliases
+      const locationDisplayName = event.graphData?.location?.displayName;
+      if (!locationDisplayName) continue;
+
+      const locationParts = parseLocationString(locationDisplayName);
+      let stillMatches = false;
+
+      // Get updated location with remaining aliases
+      const location = await locationsCollection.findOne({ _id: locationIdObj });
+      const remainingAliases = location?.aliases || [];
+
+      for (const part of locationParts) {
+        const partNormalized = normalizeLocationString(part);
+        if (remainingAliases.some(a => normalizeLocationString(a) === partNormalized)) {
+          stillMatches = true;
+          break;
+        }
+      }
+
+      if (!stillMatches) {
+        // Remove locationId from event
+        const updatedLocations = (event.locations || []).filter(
+          id => id.toString() !== locationIdObj.toString()
+        );
+
+        // Recalculate locationDisplayNames
+        const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
+
+        await unifiedEventsCollection.updateOne(
+          { _id: event._id },
+          {
+            $set: {
+              locations: updatedLocations,
+              locationDisplayNames: displayNames,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        eventsUpdated++;
+      }
+    }
+
+    logger.log(`Removed alias "${alias}" from location ${locationId}, updated ${eventsUpdated} events`);
+
+    res.json({
+      aliasRemoved: normalized,
+      eventsUpdated: eventsUpdated
+    });
+  } catch (error) {
+    logger.error('Error removing alias:', error);
+    res.status(500).json({ error: 'Failed to remove alias' });
   }
 });
 
