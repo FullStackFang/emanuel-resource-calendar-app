@@ -26,7 +26,8 @@ const DayView = memo(({
   isUnspecifiedLocation,
   hasPhysicalLocation,
   dynamicLocations,
-  showRegistrationTimes
+  showRegistrationTimes,
+  handleLocationRowClick // New prop for location timeline modal
 }) => {
   // For day view, we only need the current day
   const currentDay = dateRange.start;
@@ -120,18 +121,30 @@ const DayView = memo(({
       {activeGroupsForDay.length > 0 ? (
         activeGroupsForDay.map(group => (
           <div key={group} className="grid-row">
-            <div className="grid-cell category-cell">
+            <div
+              className="grid-cell category-cell"
+              onClick={() => {
+                // Only make clickable when grouping by locations
+                if (groupBy === 'locations' && handleLocationRowClick) {
+                  handleLocationRowClick(group, currentDay, 'day');
+                }
+              }}
+              style={{
+                cursor: groupBy === 'locations' && handleLocationRowClick ? 'pointer' : 'default'
+              }}
+              title={groupBy === 'locations' && handleLocationRowClick ? 'Click to view timeline' : ''}
+            >
               {/* Add color indicator */}
-              <div 
-                className="category-color" 
-                style={{ 
+              <div
+                className="category-color"
+                style={{
                   display: 'inline-block',
                   width: '12px',
                   height: '12px',
                   borderRadius: '50%',
                   marginRight: '5px',
-                  backgroundColor: groupBy === 'categories' 
-                    ? getCategoryColor(group) 
+                  backgroundColor: groupBy === 'categories'
+                    ? getCategoryColor(group)
                     : getLocationColor(group)
                 }}
               />

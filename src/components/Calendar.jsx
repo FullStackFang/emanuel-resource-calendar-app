@@ -10,6 +10,8 @@
   import WeekView from './WeekView';
   import DayView from './DayView';
   import RegistrationTimesToggle from './RegistrationTimesToggle';
+  import WeekTimelineModal from './WeekTimelineModal';
+  import DayTimelineModal from './DayTimelineModal';
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import './Calendar.css';
@@ -215,6 +217,15 @@
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
     const [, setNotification] = useState({ show: false, message: '', type: 'info' });
+
+    // Timeline modal state for location view
+    const [timelineModal, setTimelineModal] = useState({
+      isOpen: false,
+      locationName: '',
+      dateRange: [],
+      events: [],
+      viewType: 'week' // 'week' or 'day'
+    });
 
     // Review modal hook for handling review functionality
     const reviewModal = useReviewModal({
@@ -3565,6 +3576,94 @@
     }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate]);
 
     /**
+     * Handle clicking on a location row to open timeline modal
+     * @param {string} locationName - The name of the location
+     * @param {Date|Array<Date>} dateOrDates - Single date for day view, array of dates for week view
+     * @param {string} viewType - 'day' or 'week'
+     */
+    const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType) => {
+      logger.debug('Location row clicked:', { locationName, dateOrDates, viewType });
+
+      // Helper to get event display location (same logic as in WeekView/DayView)
+      const getEventDisplayLocation = (event) => {
+        if (isUnspecifiedLocation(event)) return 'Unspecified';
+        if (isEventVirtual(event)) return 'Virtual';
+
+        const locationText = event.location?.displayName?.trim() || '';
+        const eventLocations = locationText.split(/[;,]/).map(loc => loc.trim()).filter(loc => loc.length > 0);
+
+        for (const location of eventLocations) {
+          if (!isVirtualLocation(location)) return location;
+        }
+        return 'Unspecified';
+      };
+
+      // Filter events by location and date range
+      let filteredModalEvents = [];
+      let dateRangeArray = [];
+
+      if (viewType === 'week' && Array.isArray(dateOrDates)) {
+        // Week view: dateOrDates is array of Date objects
+        const startDate = dateOrDates[0];
+        const endDate = dateOrDates[dateOrDates.length - 1];
+
+        // Format dates as YYYY-MM-DD
+        const formatDate = (date) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        };
+
+        dateRangeArray = [formatDate(startDate), formatDate(endDate)];
+
+        // Filter events within date range and matching location
+        filteredModalEvents = allEventsRef.current.filter(event => {
+          const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+          const eventDisplayLocation = getEventDisplayLocation(event);
+
+          return (
+            eventDisplayLocation === locationName &&
+            eventStart >= startDate &&
+            eventStart <= new Date(endDate.getTime() + 24 * 60 * 60 * 1000) // Include end date
+          );
+        });
+      } else if (viewType === 'day') {
+        // Day view: dateOrDates is a single Date object
+        const currentDay = dateOrDates;
+        const year = currentDay.getFullYear();
+        const month = String(currentDay.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDay.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
+        dateRangeArray = [dateStr, dateStr]; // Same start and end for single day
+
+        // Filter events for this specific day and location
+        filteredModalEvents = allEventsRef.current.filter(event => {
+          const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+          const eventDateStr = `${eventStart.getFullYear()}-${String(eventStart.getMonth() + 1).padStart(2, '0')}-${String(eventStart.getDate()).padStart(2, '0')}`;
+          const eventDisplayLocation = getEventDisplayLocation(event);
+
+          return (
+            eventDisplayLocation === locationName &&
+            eventDateStr === dateStr
+          );
+        });
+      }
+
+      logger.debug(`Found ${filteredModalEvents.length} events for location "${locationName}"`, filteredModalEvents);
+
+      // Open the appropriate timeline modal
+      setTimelineModal({
+        isOpen: true,
+        locationName,
+        dateRange: dateRangeArray,
+        events: filteredModalEvents,
+        viewType
+      });
+    }, [isUnspecifiedLocation, isEventVirtual, isVirtualLocation]);
+
+    /**
      * Handle clicking on an event to open the context menu
      * @param {Object} event - The event that was clicked
      * @param {Object} e - The click event
@@ -4809,6 +4908,7 @@
                           setSelectedLocations={setSelectedLocations}
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
+                          handleLocationRowClick={handleLocationRowClick}
                         />
                       ) : (
                         <DayView
@@ -4838,6 +4938,7 @@
                           setSelectedLocations={setSelectedLocations}
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
+                          handleLocationRowClick={handleLocationRowClick}
                         />
                       )}
                     </div>
@@ -5039,6 +5140,29 @@
             onSaveEvent={handleSaveEvent}
             selectedCalendarId={selectedCalendarId}
             availableCalendars={availableCalendars}
+          />
+        )}
+
+        {/* Timeline Modals for Location Views */}
+        {timelineModal.viewType === 'week' && (
+          <WeekTimelineModal
+            isOpen={timelineModal.isOpen}
+            onClose={() => setTimelineModal(prev => ({ ...prev, isOpen: false }))}
+            locationName={timelineModal.locationName}
+            dateRange={timelineModal.dateRange}
+            events={timelineModal.events}
+            calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}
+          />
+        )}
+
+        {timelineModal.viewType === 'day' && (
+          <DayTimelineModal
+            isOpen={timelineModal.isOpen}
+            onClose={() => setTimelineModal(prev => ({ ...prev, isOpen: false }))}
+            location={{ name: timelineModal.locationName }}
+            date={timelineModal.dateRange[0]}
+            events={timelineModal.events}
+            calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}
           />
         )}
 

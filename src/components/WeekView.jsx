@@ -26,7 +26,8 @@ const WeekView = memo(({
   hasPhysicalLocation,
   isVirtualLocation,
   dynamicLocations,
-  showRegistrationTimes
+  showRegistrationTimes,
+  handleLocationRowClick // New prop for location timeline modal
 }) => {
   
   // Check if any filtered events have registration properties
@@ -112,18 +113,33 @@ const WeekView = memo(({
       {activeGroups.length > 0 ? (
         activeGroups.map(group => (
           <div key={group} className="grid-row">
-            <div className="grid-cell category-cell">
+            <div
+              className="grid-cell category-cell"
+              onClick={() => {
+                // Only make clickable when grouping by locations
+                if (groupBy === 'locations' && handleLocationRowClick) {
+                  const days = getDaysInRange();
+                  if (days.length > 0) {
+                    handleLocationRowClick(group, days, 'week');
+                  }
+                }
+              }}
+              style={{
+                cursor: groupBy === 'locations' && handleLocationRowClick ? 'pointer' : 'default'
+              }}
+              title={groupBy === 'locations' && handleLocationRowClick ? 'Click to view timeline' : ''}
+            >
               {/* Add color indicator */}
-              <div 
-                className="category-color" 
-                style={{ 
+              <div
+                className="category-color"
+                style={{
                   display: 'inline-block',
                   width: '12px',
                   height: '12px',
                   borderRadius: '50%',
                   marginRight: '5px',
-                  backgroundColor: groupBy === 'categories' 
-                    ? getCategoryColor(group) 
+                  backgroundColor: groupBy === 'categories'
+                    ? getCategoryColor(group)
                     : getLocationColor(group)
                 }}
               />
