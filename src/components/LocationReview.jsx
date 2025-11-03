@@ -28,6 +28,24 @@ export default function LocationReview({ apiToken }) {
   // Toast notification state
   const [toast, setToast] = useState(null);
 
+  // Location modal state
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(null); // null for create, location object for edit
+  const [locationFormData, setLocationFormData] = useState({
+    name: '',
+    displayName: '',
+    aliases: [],
+    locationCode: '',
+    building: '',
+    floor: '',
+    capacity: '',
+    features: [],
+    accessibility: [],
+    address: '',
+    description: '',
+    notes: ''
+  });
+
   // Show toast notification
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -266,6 +284,150 @@ export default function LocationReview({ apiToken }) {
     }
   };
 
+  // Location CRUD handlers
+  const handleCreateLocation = () => {
+    setEditingLocation(null);
+    setLocationFormData({
+      name: '',
+      displayName: '',
+      aliases: [],
+      locationCode: '',
+      building: '',
+      floor: '',
+      capacity: '',
+      features: [],
+      accessibility: [],
+      address: '',
+      description: '',
+      notes: ''
+    });
+    setShowLocationModal(true);
+  };
+
+  const handleEditLocation = (location) => {
+    setEditingLocation(location);
+    setLocationFormData({
+      name: location.name || '',
+      displayName: location.displayName || '',
+      aliases: location.aliases || [],
+      locationCode: location.locationCode || '',
+      building: location.building || '',
+      floor: location.floor || '',
+      capacity: location.capacity?.toString() || '',
+      features: location.features || [],
+      accessibility: location.accessibility || [],
+      address: location.address || '',
+      description: location.description || '',
+      notes: location.notes || ''
+    });
+    setShowLocationModal(true);
+  };
+
+  const handleSaveLocation = async () => {
+    try {
+      const url = editingLocation
+        ? `${APP_CONFIG.API_BASE_URL}/admin/locations/${editingLocation._id}`
+        : `${APP_CONFIG.API_BASE_URL}/admin/locations`;
+
+      const method = editingLocation ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(locationFormData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save location');
+      }
+
+      const savedLocation = await response.json();
+
+      if (editingLocation) {
+        // Update existing location in list
+        setAllLocations(prev => prev.map(loc =>
+          loc._id === savedLocation._id ? savedLocation : loc
+        ));
+        showToast(`✅ Updated location: ${savedLocation.name}`, 'success');
+      } else {
+        // Add new location to list
+        setAllLocations(prev => [savedLocation, ...prev]);
+        showToast(`✅ Created location: ${savedLocation.name}`, 'success');
+      }
+
+      setShowLocationModal(false);
+      setEditingLocation(null);
+    } catch (err) {
+      logger.error('Error saving location:', err);
+      showToast(`❌ Error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeleteLocation = async (location) => {
+    try {
+      // First, fetch the count of events referencing this location
+      const countResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}/event-count`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let eventCount = 0;
+      if (countResponse.ok) {
+        const countData = await countResponse.json();
+        eventCount = countData.eventCount || 0;
+      }
+
+      // Show confirmation with event count
+      const confirmMessage = eventCount > 0
+        ? `Delete "${location.name}"?\n\nThis will remove it from ${eventCount} event${eventCount === 1 ? '' : 's'}.`
+        : `Delete "${location.name}"?\n\nNo events are currently using this location.`;
+
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+
+      // Proceed with deletion
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete location');
+      }
+
+      const result = await response.json();
+
+      // Remove from list
+      setAllLocations(prev => prev.filter(loc => loc._id !== location._id));
+
+      // Show success message with cleanup info
+      const successMessage = result.eventsUpdated > 0
+        ? `✅ Deleted "${location.name}" and removed it from ${result.eventsUpdated} event${result.eventsUpdated === 1 ? '' : 's'}`
+        : `✅ Deleted location: ${location.name}`;
+
+      showToast(successMessage, 'success');
+    } catch (err) {
+      logger.error('Error deleting location:', err);
+      showToast(`❌ Error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowLocationModal(false);
+    setEditingLocation(null);
+  };
+
   const getConfidenceColor = (confidence) => {
     if (confidence >= 0.9) return '#10b981'; // green
     if (confidence >= 0.7) return '#f59e0b'; // amber
@@ -467,15 +629,21 @@ export default function LocationReview({ apiToken }) {
       
       {activeTab === 'all' && (
         <div className="all-locations-section">
+          <div className="all-locations-header">
+            <button onClick={handleCreateLocation} className="create-location-btn">
+              + Create Location
+            </button>
+          </div>
+
           <div className="locations-table-container">
             <table className="locations-table">
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Building/Floor</th>
                   <th>Status</th>
                   <th>Aliases</th>
                   <th>Usage</th>
-                  <th>Confidence</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -488,6 +656,10 @@ export default function LocationReview({ apiToken }) {
                         <span className="location-code"> ({location.locationCode})</span>
                       )}
                     </td>
+                    <td className="building-cell">
+                      {location.building && <div className="building">{location.building}</div>}
+                      {location.floor && <div className="floor">Floor: {location.floor}</div>}
+                    </td>
                     <td>
                       <span className={`status-badge ${location.status}`}>
                         {location.status || 'approved'}
@@ -496,56 +668,46 @@ export default function LocationReview({ apiToken }) {
                     <td>
                       <div className="aliases-cell">
                         {location.aliases && location.aliases.length > 0 ? (
-                          location.aliases.map((alias, idx) => (
+                          location.aliases.slice(0, 3).map((alias, idx) => (
                             <span key={idx} className="alias-tag">{alias}</span>
                           ))
                         ) : (
                           <span className="no-aliases">None</span>
+                        )}
+                        {location.aliases && location.aliases.length > 3 && (
+                          <span className="more-aliases">+{location.aliases.length - 3} more</span>
                         )}
                       </div>
                     </td>
                     <td className="usage-cell">
                       {location.usageCount || 0}
                     </td>
-                    <td>
-                      {location.confidence && (
-                        <div className="confidence-display">
-                          <div 
-                            className="confidence-meter"
-                            style={{ 
-                              background: getConfidenceColor(location.confidence),
-                              width: `${location.confidence * 100}%`
-                            }}
-                          />
-                          <span>{(location.confidence * 100).toFixed(0)}%</span>
-                        </div>
-                      )}
-                    </td>
                     <td className="actions-cell">
-                      {location.status !== 'merged' && (
+                      {location.status !== 'merged' && location.status !== 'deleted' && (
                         <>
-                          <button 
-                            onClick={() => {
-                              const newAliases = prompt('Enter aliases (comma-separated):', 
-                                location.aliases?.join(', ') || '');
-                              if (newAliases !== null) {
-                                handleUpdateAliases(location._id, 
-                                  newAliases.split(',').map(a => a.trim()).filter(Boolean)
-                                );
-                              }
-                            }}
-                            className="edit-aliases-btn"
+                          <button
+                            onClick={() => handleEditLocation(location)}
+                            className="edit-location-btn"
+                            title="Edit location details"
                           >
-                            Edit Aliases
+                            Edit
                           </button>
-                          <button 
+                          <button
                             onClick={() => {
                               setMergeSource(location);
                               setActiveTab('merge');
                             }}
                             className="select-merge-btn"
+                            title="Merge this location"
                           >
                             Merge
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLocation(location)}
+                            className="delete-location-btn"
+                            title="Soft delete this location"
+                          >
+                            Delete
                           </button>
                         </>
                       )}
@@ -911,6 +1073,206 @@ export default function LocationReview({ apiToken }) {
             <button onClick={fetchUnassignedStrings} disabled={loading} className="refresh-btn">
               {loading ? 'Refreshing...' : '🔄 Refresh List'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Location Create/Edit Modal */}
+      {showLocationModal && (
+        <div className="location-modal-overlay" onClick={handleCloseModal}>
+          <div className="location-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{editingLocation ? 'Edit Location' : 'Create New Location'}</h2>
+              <button onClick={handleCloseModal} className="modal-close">×</button>
+            </div>
+
+            <div className="modal-body">
+              <div className="location-form">
+                {/* Core Information Section */}
+                <div className="form-section">
+                  <h3>Core Information</h3>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label>Name *</label>
+                      <input
+                        type="text"
+                        value={locationFormData.name}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="e.g., Main Chapel"
+                        required
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label>Display Name</label>
+                      <input
+                        type="text"
+                        value={locationFormData.displayName}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, displayName: e.target.value }))}
+                        placeholder="e.g., Main Chapel - Sanctuary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label>Location Code</label>
+                      <input
+                        type="text"
+                        value={locationFormData.locationCode}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, locationCode: e.target.value }))}
+                        placeholder="e.g., TPL, CPL"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-field full-width">
+                    <label>Aliases (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={locationFormData.aliases.join(', ')}
+                      onChange={(e) => setLocationFormData(prev => ({
+                        ...prev,
+                        aliases: e.target.value.split(',').map(a => a.trim()).filter(a => a)
+                      }))}
+                      placeholder="e.g., Temple, Main Temple, Sanctuary"
+                    />
+                    <small>Alternative names for automatic matching</small>
+                  </div>
+                </div>
+
+                {/* Physical Details Section */}
+                <div className="form-section">
+                  <h3>Physical Details</h3>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label>Building</label>
+                      <input
+                        type="text"
+                        value={locationFormData.building}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, building: e.target.value }))}
+                        placeholder="e.g., Main Building"
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label>Floor</label>
+                      <input
+                        type="text"
+                        value={locationFormData.floor}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, floor: e.target.value }))}
+                        placeholder="e.g., 2nd Floor, Basement"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label>Capacity</label>
+                      <input
+                        type="number"
+                        value={locationFormData.capacity}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, capacity: e.target.value }))}
+                        placeholder="Maximum occupancy"
+                        min="0"
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label>Address</label>
+                      <input
+                        type="text"
+                        value={locationFormData.address}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, address: e.target.value }))}
+                        placeholder="Physical address"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Features & Accessibility Section */}
+                <div className="form-section">
+                  <h3>Features & Accessibility</h3>
+                  <div className="form-field full-width">
+                    <label>Features (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={locationFormData.features.join(', ')}
+                      onChange={(e) => setLocationFormData(prev => ({
+                        ...prev,
+                        features: e.target.value.split(',').map(f => f.trim()).filter(f => f)
+                      }))}
+                      placeholder="e.g., projector, kitchen, stage, sound system"
+                    />
+                  </div>
+
+                  <div className="form-field full-width">
+                    <label>Accessibility (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={locationFormData.accessibility.join(', ')}
+                      onChange={(e) => setLocationFormData(prev => ({
+                        ...prev,
+                        accessibility: e.target.value.split(',').map(a => a.trim()).filter(a => a)
+                      }))}
+                      placeholder="e.g., wheelchair accessible, elevator, ramp"
+                    />
+                  </div>
+                </div>
+
+                {/* Additional Information Section */}
+                <div className="form-section">
+                  <h3>Additional Information</h3>
+                  <div className="form-field full-width">
+                    <label>Description</label>
+                    <textarea
+                      value={locationFormData.description}
+                      onChange={(e) => setLocationFormData(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Describe this location..."
+                      rows="3"
+                    />
+                  </div>
+
+                  <div className="form-field full-width">
+                    <label>Internal Notes</label>
+                    <textarea
+                      value={locationFormData.notes}
+                      onChange={(e) => setLocationFormData(prev => ({ ...prev, notes: e.target.value }))}
+                      placeholder="Internal notes for staff..."
+                      rows="2"
+                    />
+                  </div>
+                </div>
+
+                {editingLocation && (
+                  <div className="form-section read-only">
+                    <h3>System Information</h3>
+                    <div className="form-row">
+                      <div className="info-field">
+                        <label>Status:</label>
+                        <span>{editingLocation.status || 'approved'}</span>
+                      </div>
+                      <div className="info-field">
+                        <label>Usage Count:</label>
+                        <span>{editingLocation.usageCount || 0} events</span>
+                      </div>
+                    </div>
+                    {editingLocation.createdAt && (
+                      <div className="info-field">
+                        <label>Created:</label>
+                        <span>{new Date(editingLocation.createdAt).toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button onClick={handleCloseModal} className="cancel-btn">
+                Cancel
+              </button>
+              <button onClick={handleSaveLocation} className="save-btn">
+                {editingLocation ? 'Save Changes' : 'Create Location'}
+              </button>
+            </div>
           </div>
         </div>
       )}

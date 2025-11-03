@@ -12561,6 +12561,319 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
 });
 
 /**
+ * Create a new location (Admin only)
+ * Creates a location with all specified fields
+ */
+app.post('/api/admin/locations', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const {
+      name,
+      displayName,
+      aliases,
+      locationCode,
+      building,
+      floor,
+      capacity,
+      features,
+      accessibility,
+      address,
+      description,
+      notes
+    } = req.body;
+
+    // Validate required fields
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    // Check for duplicate name
+    const existing = await locationsCollection.findOne({
+      name: name.trim(),
+      status: { $ne: 'merged' }
+    });
+
+    if (existing) {
+      return res.status(409).json({ error: 'A location with this name already exists' });
+    }
+
+    logger.log('Creating new location:', { name, building, floor });
+
+    // Create location object
+    const newLocation = {
+      name: name.trim(),
+      displayName: displayName?.trim() || name.trim(),
+      aliases: Array.isArray(aliases) ? aliases.map(a => normalizeLocationString(a)).filter(a => a) : [],
+      locationCode: locationCode?.trim() || '',
+      building: building?.trim() || '',
+      floor: floor?.trim() || '',
+      capacity: capacity ? parseInt(capacity) : 0,
+      features: Array.isArray(features) ? features : [],
+      accessibility: Array.isArray(accessibility) ? accessibility : [],
+      address: address?.trim() || '',
+      description: description?.trim() || '',
+      notes: notes?.trim() || '',
+      status: 'approved',
+      active: true,
+      usageCount: 0,
+      importSource: 'manual-creation',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await locationsCollection.insertOne(newLocation);
+    const createdLocation = await locationsCollection.findOne({ _id: result.insertedId });
+
+    logger.log(`Created location: ${createdLocation.name} (ID: ${result.insertedId})`);
+
+    res.status(201).json(createdLocation);
+  } catch (error) {
+    logger.error('Error creating location:', error);
+    res.status(500).json({ error: 'Failed to create location' });
+  }
+});
+
+/**
+ * Update an existing location (Admin only)
+ * Updates location fields while preserving system fields
+ */
+app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const locationId = new ObjectId(id);
+    const existingLocation = await locationsCollection.findOne({ _id: locationId });
+
+    if (!existingLocation) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+
+    const {
+      name,
+      displayName,
+      aliases,
+      locationCode,
+      building,
+      floor,
+      capacity,
+      features,
+      accessibility,
+      address,
+      description,
+      notes
+    } = req.body;
+
+    // Validate name if provided
+    if (name !== undefined && (!name || name.trim() === '')) {
+      return res.status(400).json({ error: 'Name cannot be empty' });
+    }
+
+    // Check for duplicate name (if name is being changed)
+    if (name && name.trim() !== existingLocation.name) {
+      const duplicate = await locationsCollection.findOne({
+        name: name.trim(),
+        _id: { $ne: locationId },
+        status: { $ne: 'merged' }
+      });
+
+      if (duplicate) {
+        return res.status(409).json({ error: 'A location with this name already exists' });
+      }
+    }
+
+    logger.log('Updating location:', { id, name: name || existingLocation.name });
+
+    // Build update object (only update provided fields)
+    const updateFields = {
+      updatedAt: new Date()
+    };
+
+    if (name !== undefined) updateFields.name = name.trim();
+    if (displayName !== undefined) updateFields.displayName = displayName.trim();
+    if (aliases !== undefined) updateFields.aliases = Array.isArray(aliases) ? aliases.map(a => normalizeLocationString(a)).filter(a => a) : [];
+    if (locationCode !== undefined) updateFields.locationCode = locationCode.trim();
+    if (building !== undefined) updateFields.building = building.trim();
+    if (floor !== undefined) updateFields.floor = floor.trim();
+    if (capacity !== undefined) updateFields.capacity = parseInt(capacity) || 0;
+    if (features !== undefined) updateFields.features = Array.isArray(features) ? features : [];
+    if (accessibility !== undefined) updateFields.accessibility = Array.isArray(accessibility) ? accessibility : [];
+    if (address !== undefined) updateFields.address = address.trim();
+    if (description !== undefined) updateFields.description = description.trim();
+    if (notes !== undefined) updateFields.notes = notes.trim();
+
+    await locationsCollection.updateOne(
+      { _id: locationId },
+      { $set: updateFields }
+    );
+
+    const updatedLocation = await locationsCollection.findOne({ _id: locationId });
+
+    logger.log(`Updated location: ${updatedLocation.name} (ID: ${id})`);
+
+    res.json(updatedLocation);
+  } catch (error) {
+    logger.error('Error updating location:', error);
+    res.status(500).json({ error: 'Failed to update location' });
+  }
+});
+
+/**
+ * Get count of events referencing a specific location
+ * Used before deletion to show impact to user
+ */
+app.get('/api/admin/locations/:id/event-count', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const locationId = new ObjectId(id);
+
+    // Count events with this location in their locations array
+    const eventCount = await unifiedEventsCollection.countDocuments({
+      locations: locationId
+    });
+
+    res.json({
+      locationId: id,
+      eventCount: eventCount
+    });
+  } catch (error) {
+    logger.error('Error counting location events:', error);
+    res.status(500).json({ error: 'Failed to count events' });
+  }
+});
+
+/**
+ * Soft delete a location (Admin only)
+ * Sets active=false and status='deleted' instead of removing from database
+ */
+app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { id } = req.params;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const locationId = new ObjectId(id);
+    const location = await locationsCollection.findOne({ _id: locationId });
+
+    if (!location) {
+      return res.status(404).json({ error: 'Location not found' });
+    }
+
+    // Count affected events BEFORE deletion
+    const affectedEventsCount = await unifiedEventsCollection.countDocuments({
+      locations: locationId
+    });
+
+    logger.log('Soft deleting location:', {
+      id,
+      name: location.name,
+      affectedEvents: affectedEventsCount
+    });
+
+    // 1. Soft delete: set active=false and status='deleted'
+    await locationsCollection.updateOne(
+      { _id: locationId },
+      {
+        $set: {
+          active: false,
+          status: 'deleted',
+          deletedBy: userEmail,
+          deletedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    // 2. Clean up event references - remove this location from all events
+    const events = await unifiedEventsCollection.find({
+      locations: locationId
+    }).toArray();
+
+    let eventsUpdated = 0;
+    const updatedEventIds = [];
+
+    for (const event of events) {
+      // Remove locationId from locations array
+      const updatedLocations = (event.locations || []).filter(
+        id => id.toString() !== locationId.toString()
+      );
+
+      // Recalculate locationDisplayNames
+      const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
+
+      await unifiedEventsCollection.updateOne(
+        { _id: event._id },
+        {
+          $set: {
+            locations: updatedLocations,
+            locationDisplayNames: displayNames,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      eventsUpdated++;
+      updatedEventIds.push(event._id.toString());
+    }
+
+    logger.log(`Soft deleted location: ${location.name} (ID: ${id}), cleaned ${eventsUpdated} events`, {
+      locationId: id,
+      locationName: location.name,
+      eventsUpdated,
+      eventIds: updatedEventIds
+    });
+
+    res.json({
+      message: 'Location deleted successfully',
+      locationId: id,
+      locationName: location.name,
+      eventsUpdated: eventsUpdated
+    });
+  } catch (error) {
+    logger.error('Error deleting location:', error);
+    res.status(500).json({ error: 'Failed to delete location' });
+  }
+});
+
+/**
  * Delete a room (Admin only)
  */
 app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {

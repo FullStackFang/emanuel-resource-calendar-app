@@ -5,15 +5,12 @@ import './Navigation.css';
 
 export default function Navigation() {
   const [adminExpanded, setAdminExpanded] = useState(false);
-  const [bookingExpanded, setBookingExpanded] = useState(false);
   const location = useLocation();
   const dropdownRef = useRef(null);
-  const bookingDropdownRef = useRef(null);
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {
     setAdminExpanded(false);
-    setBookingExpanded(false);
   }, [location]);
 
   // Add click outside handler for admin dropdown
@@ -35,32 +32,9 @@ export default function Navigation() {
     };
   }, [adminExpanded]);
 
-  // Add click outside handler for booking dropdown
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (bookingDropdownRef.current && !bookingDropdownRef.current.contains(event.target)) {
-        setBookingExpanded(false);
-      }
-    }
-
-    // Add event listener when dropdown is open
-    if (bookingExpanded) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    // Cleanup event listener
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [bookingExpanded]);
-
   // Function to handle dropdown link clicks
   const handleDropdownLinkClick = () => {
     setAdminExpanded(false);
-  };
-
-  const handleBookingDropdownLinkClick = () => {
-    setBookingExpanded(false);
   };
 
   return (
@@ -70,38 +44,6 @@ export default function Navigation() {
           <NavLink to="/" className={({ isActive }) => isActive ? 'active' : ''}>
             Calendar
           </NavLink>
-        </li>
-
-        <li className="has-dropdown" ref={bookingDropdownRef}>
-          <div
-            className="dropdown-toggle"
-            onClick={() => setBookingExpanded(!bookingExpanded)}
-          >
-            Space Booking
-            <span className={`dropdown-arrow ${bookingExpanded ? 'expanded' : ''}`}>▼</span>
-          </div>
-          {bookingExpanded && (
-            <ul className="dropdown-menu">
-              <li>
-                <NavLink
-                  to="/booking"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleBookingDropdownLinkClick}
-                >
-                  ✨ New Form (Unified)
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/room-reservation"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleBookingDropdownLinkClick}
-                >
-                  📋 Legacy Form
-                </NavLink>
-              </li>
-            </ul>
-          )}
         </li>
 
         <li>
@@ -150,6 +92,24 @@ export default function Navigation() {
                   onClick={handleDropdownLinkClick}
                 >
                   Location Management
+                </NavLink>
+              </li>
+              <li>
+                <NavLink
+                  to="/booking"
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  ✨ External Form (Unified)
+                </NavLink>
+              </li>
+              <li>
+                <NavLink
+                  to="/room-reservation"
+                  className={({ isActive }) => isActive ? 'active' : ''}
+                  onClick={handleDropdownLinkClick}
+                >
+                  📋 Legacy Form
                 </NavLink>
               </li>
               <li>
