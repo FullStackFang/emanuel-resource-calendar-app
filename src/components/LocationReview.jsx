@@ -5,21 +5,17 @@ import APP_CONFIG from '../config/config';
 import './LocationReview.css';
 
 export default function LocationReview({ apiToken }) {
-  const [pendingLocations, setPendingLocations] = useState([]);
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'pending', 'all', 'merge', 'assignment'
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'merge', 'assignment'
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'approved', 'merged', 'deleted'
 
   // Merge wizard state
   const [showMergeWizard, setShowMergeWizard] = useState(false);
-  const [mergeSources, setMergeSources] = useState([]); // Changed to array for multiple sources
+  const [mergeSources, setMergeSources] = useState([]); // Array for multiple sources
   const [mergeTarget, setMergeTarget] = useState(null);
   const [mergeAliases, setMergeAliases] = useState(true);
-
-  // Selected items for bulk operations
-  const [selectedLocations, setSelectedLocations] = useState(new Set());
 
   // Assignment tab state
   const [unassignedStrings, setUnassignedStrings] = useState([]);
@@ -78,23 +74,7 @@ export default function LocationReview({ apiToken }) {
   const loadLocations = async () => {
     try {
       setLoading(true);
-      
-      // Load pending locations
-      const pendingResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/pending`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
-      
-      if (pendingResponse.ok) {
-        const pendingData = await pendingResponse.json();
-        // Sort pending locations by created date (newest first)
-        const sortedPending = pendingData.sort((a, b) => 
-          new Date(b.createdAt) - new Date(a.createdAt)
-        );
-        setPendingLocations(sortedPending);
-      }
-      
+
       // Load all locations
       const allResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations`, {
         headers: {
@@ -120,35 +100,6 @@ export default function LocationReview({ apiToken }) {
       setError('Failed to load locations');
     } finally {
       setLoading(false);
-    }
-  };
-  
-  const handleApproveLocation = async (locationId, reviewNotes = '') => {
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${locationId}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ reviewNotes })
-      });
-      
-      if (!response.ok) throw new Error('Failed to approve location');
-      
-      // Reload locations
-      await loadLocations();
-      setSelectedLocations(new Set());
-    } catch (err) {
-      logger.error('Error approving location:', err);
-      setError('Failed to approve location');
-    }
-  };
-  
-  const handleBulkApprove = async () => {
-    const selected = Array.from(selectedLocations);
-    for (const locationId of selected) {
-      await handleApproveLocation(locationId, 'Bulk approved');
     }
   };
   
@@ -529,21 +480,12 @@ export default function LocationReview({ apiToken }) {
     setEditingLocation(null);
   };
 
-  const getConfidenceColor = (confidence) => {
-    if (confidence >= 0.9) return '#10b981'; // green
-    if (confidence >= 0.7) return '#f59e0b'; // amber
-    if (confidence >= 0.5) return '#ef4444'; // red
-    return '#6b7280'; // gray
+  // Truncate long strings for display
+  const truncateString = (str, maxLength = 50) => {
+    if (!str || str.length <= maxLength) return str;
+    return str.substring(0, maxLength) + '...';
   };
-  
-  const getConfidenceLabel = (confidence) => {
-    if (confidence >= 0.9) return 'Exact Match';
-    if (confidence >= 0.8) return 'High Confidence';
-    if (confidence >= 0.7) return 'Medium Confidence';
-    if (confidence >= 0.5) return 'Low Confidence';
-    return 'Uncertain';
-  };
-  
+
   if (loading) {
     return <div className="location-review loading">Loading location data...</div>;
   }
@@ -560,11 +502,8 @@ export default function LocationReview({ apiToken }) {
       <div className="review-header">
         <h1>Location Review & Management</h1>
         <div className="header-stats">
-          <span className="stat pending-count">
-            {pendingLocations.length} Pending
-          </span>
           <span className="stat total-count">
-            {allLocations.length} Total
+            {allLocations.length} Total Locations
           </span>
         </div>
       </div>
@@ -577,12 +516,6 @@ export default function LocationReview({ apiToken }) {
       )}
       
       <div className="review-tabs">
-        <button
-          className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
-          onClick={() => setActiveTab('pending')}
-        >
-          Pending Review ({pendingLocations.length})
-        </button>
         <button
           className={`tab ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => setActiveTab('all')}
@@ -607,123 +540,6 @@ export default function LocationReview({ apiToken }) {
           Location Assignment ({unassignedStrings.length})
         </button>
       </div>
-      
-      {activeTab === 'pending' && (
-        <div className="pending-review-section">
-          {selectedLocations.size > 0 && (
-            <div className="bulk-actions">
-              <span>{selectedLocations.size} selected</span>
-              <button onClick={handleBulkApprove} className="approve-btn">
-                Approve Selected
-              </button>
-              <button onClick={() => setSelectedLocations(new Set())} className="cancel-btn">
-                Clear Selection
-              </button>
-            </div>
-          )}
-          
-          {pendingLocations.length === 0 ? (
-            <div className="no-pending">
-              ✅ No locations pending review
-            </div>
-          ) : (
-            <div className="pending-locations-grid">
-              {pendingLocations.map(location => (
-                <div key={location._id} className="pending-location-card">
-                  <div className="card-header">
-                    <input
-                      type="checkbox"
-                      checked={selectedLocations.has(location._id)}
-                      onChange={(e) => {
-                        const newSelected = new Set(selectedLocations);
-                        if (e.target.checked) {
-                          newSelected.add(location._id);
-                        } else {
-                          newSelected.delete(location._id);
-                        }
-                        setSelectedLocations(newSelected);
-                      }}
-                    />
-                    <h3>{location.name}</h3>
-                    <span className="usage-badge">{location.usageCount || 0} uses</span>
-                  </div>
-                  
-                  <div className="card-body">
-                    <div className="location-details">
-                      <p><strong>Original Text:</strong> {location.originalText}</p>
-                      {location.building && <p><strong>Building:</strong> {location.building}</p>}
-                      {location.floor && <p><strong>Floor:</strong> {location.floor}</p>}
-                      <p><strong>Import Source:</strong> {location.importSource || 'Unknown'}</p>
-                      <p><strong>Created:</strong> {new Date(location.createdAt).toLocaleDateString()}</p>
-                    </div>
-                    
-                    {location.suggestedMatchDetails && location.suggestedMatchDetails.length > 0 && (
-                      <div className="suggested-matches">
-                        <h4>Possible Matches:</h4>
-                        {location.suggestedMatchDetails.map((match, idx) => (
-                          <div key={idx} className="match-item">
-                            <div 
-                              className="confidence-bar"
-                              style={{ 
-                                background: getConfidenceColor(match.confidence),
-                                width: `${match.confidence * 100}%`
-                              }}
-                            />
-                            <span className="match-name">{match.location.name}</span>
-                            <span className="match-confidence">
-                              {getConfidenceLabel(match.confidence)} ({(match.confidence * 100).toFixed(0)}%)
-                            </span>
-                            <button 
-                              onClick={() => {
-                                setMergeSource(location);
-                                setMergeTarget(match.location);
-                                setShowMergeWizard(true);
-                                setActiveTab('merge');
-                              }}
-                              className="merge-btn"
-                            >
-                              Merge →
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {location.seenVariations && location.seenVariations.length > 1 && (
-                      <div className="variations">
-                        <h4>Seen Variations:</h4>
-                        <div className="variation-list">
-                          {location.seenVariations.map((v, idx) => (
-                            <span key={idx} className="variation-tag">{v}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="card-actions">
-                    <button 
-                      onClick={() => handleApproveLocation(location._id)}
-                      className="approve-btn"
-                    >
-                      Approve as New
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setMergeSource(location);
-                        setActiveTab('merge');
-                      }}
-                      className="merge-select-btn"
-                    >
-                      Select for Merge
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {activeTab === 'all' && (
         <div className="all-locations-section">
@@ -872,7 +688,7 @@ export default function LocationReview({ apiToken }) {
                   <h3>Sources (Will be merged) - {mergeSources.length} location{mergeSources.length === 1 ? '' : 's'}</h3>
                   {mergeSources.map(source => (
                     <div key={source._id} className="location-info">
-                      <strong>{source.name}</strong>
+                      <strong title={source.name}>{truncateString(source.name, 60)}</strong>
                       <p>Usage: {source.usageCount || 0} events</p>
                       {source.aliases && source.aliases.length > 0 && (
                         <p className="aliases-preview">Aliases: {source.aliases.slice(0, 3).join(', ')}{source.aliases.length > 3 ? '...' : ''}</p>
@@ -889,7 +705,7 @@ export default function LocationReview({ apiToken }) {
                 <div className="merge-target">
                   <h3>Target (Will be kept)</h3>
                   <div className="location-info">
-                    <strong>{mergeTarget?.name}</strong>
+                    <strong title={mergeTarget?.name}>{truncateString(mergeTarget?.name, 60)}</strong>
                     <p>Current Usage: {mergeTarget?.usageCount || 0} events</p>
                     {mergeTarget?.aliases && mergeTarget.aliases.length > 0 && (
                       <p>Current Aliases: {mergeTarget.aliases.join(', ')}</p>
@@ -939,7 +755,7 @@ export default function LocationReview({ apiToken }) {
                     <div className="selected-locations-list">
                       {mergeSources.map(source => (
                         <div key={source._id} className="selected-location-item">
-                          <strong>{source.name}</strong>
+                          <strong title={source.name}>{truncateString(source.name, 40)}</strong>
                           <button
                             onClick={() => setMergeSources(prev => prev.filter(s => s._id !== source._id))}
                             className="remove-btn"
@@ -965,7 +781,7 @@ export default function LocationReview({ apiToken }) {
                   <h3>Target Location (to merge into)</h3>
                   {mergeTarget ? (
                     <div className="selected-location">
-                      <strong>{mergeTarget.name}</strong>
+                      <strong title={mergeTarget.name}>{truncateString(mergeTarget.name, 40)}</strong>
                       <button onClick={() => setMergeTarget(null)} className="clear-btn">
                         Clear
                       </button>
@@ -996,7 +812,7 @@ export default function LocationReview({ apiToken }) {
 
                       return (
                         <div key={location._id} className={`selector-item ${isSelectedAsSource ? 'selected-source' : ''} ${isSelectedAsTarget ? 'selected-target' : ''}`}>
-                          <span>{location.name}</span>
+                          <span title={location.name}>{truncateString(location.name, 50)}</span>
                           <div className="selector-actions">
                             {!isSelectedAsTarget && (
                               <button

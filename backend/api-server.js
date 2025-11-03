@@ -2864,8 +2864,8 @@ async function upsertLocationFromEvent(event) {
     // Check if location already exists
     const existing = await findMatchingLocation(locationInfo);
     
-    // If high confidence match, use existing location
-    if (existing?.confidence >= 0.9) {
+    // If exact match, use existing location
+    if (existing?.confidence === 1.0) {
       // Update usage count
       await locationsCollection.updateOne(
         { _id: existing.location._id },
@@ -2885,13 +2885,13 @@ async function upsertLocationFromEvent(event) {
       };
     }
     
-    // Determine status based on confidence
-    const status = existing?.confidence >= 0.7 ? 'pending' : 'approved';
+    // All new locations are approved (admin can merge manually in Merge tab)
+    const status = 'approved';
     const suggestedMatches = existing ? [{
       locationId: existing.location._id,
       locationName: existing.location.name,
       confidence: existing.confidence,
-      reason: existing.confidence >= 0.7 ? 'Partial name match' : 'Possible match'
+      reason: 'Possible duplicate - review in Merge tab'
     }] : [];
     
     // Create new location with review status
@@ -2908,22 +2908,22 @@ async function upsertLocationFromEvent(event) {
       notes: `Auto-imported from event: ${locationInfo.originalText}`,
       
       // Review and status fields
-      status: status, // 'approved', 'pending', 'merged'
+      status: status, // 'approved' or 'merged'
       confidence: existing?.confidence || 0,
       suggestedMatches: suggestedMatches,
-      needsReview: status === 'pending',
+      needsReview: false, // No pending review - admin uses Merge tab instead
       mergedInto: null,
       reviewedBy: null,
       reviewedAt: null,
       reviewNotes: null,
-      
+
       // Tracking fields
       importSource: 'event-import',
       originalText: locationInfo.originalText,
       seenVariations: [locationInfo.originalText],
-      
+
       // Standard fields
-      active: status === 'approved',
+      active: true, // All new locations are active
       createdAt: now,
       updatedAt: now,
       importedFrom: 'event-import',
@@ -2934,7 +2934,7 @@ async function upsertLocationFromEvent(event) {
     return {
       locationId: result.insertedId,
       wasCreated: true,
-      needsReview: status === 'pending',
+      needsReview: false,
       confidence: existing?.confidence || 0
     };
   } catch (error) {
@@ -12001,56 +12001,6 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
  */
 
 /**
- * Get pending locations for review (Admin only)
- */
-app.get('/api/admin/locations/pending', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get all pending locations with their suggested matches
-    const pendingLocations = await locationsCollection.find({
-      status: 'pending'
-    }).toArray();
-    
-    // For each pending location, get details of suggested matches
-    const locationsWithMatches = await Promise.all(pendingLocations.map(async (location) => {
-      const matchDetails = [];
-      if (location.suggestedMatches && location.suggestedMatches.length > 0) {
-        for (const match of location.suggestedMatches) {
-          const matchLocation = await locationsCollection.findOne({ 
-            _id: new ObjectId(match.locationId) 
-          });
-          if (matchLocation) {
-            matchDetails.push({
-              ...match,
-              location: matchLocation
-            });
-          }
-        }
-      }
-      return {
-        ...location,
-        suggestedMatchDetails: matchDetails
-      };
-    }));
-    
-    res.json(locationsWithMatches);
-  } catch (error) {
-    logger.error('Error fetching pending locations:', error);
-    res.status(500).json({ error: 'Failed to fetch pending locations' });
-  }
-});
-
-/**
  * Get all locations with filters (Admin only)
  */
 app.get('/api/admin/locations', verifyToken, async (req, res) => {
@@ -12079,52 +12029,6 @@ app.get('/api/admin/locations', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching locations:', error);
     res.status(500).json({ error: 'Failed to fetch locations' });
-  }
-});
-
-/**
- * Approve a pending location (Admin only)
- */
-app.post('/api/admin/locations/:id/approve', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-    const { reviewNotes } = req.body;
-    
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    const result = await locationsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          status: 'approved',
-          active: true,
-          needsReview: false,
-          reviewedBy: userEmail,
-          reviewedAt: new Date(),
-          reviewNotes: reviewNotes || null,
-          updatedAt: new Date()
-        }
-      },
-      { returnDocument: 'after' }
-    );
-    
-    if (!result.value) {
-      return res.status(404).json({ error: 'Location not found' });
-    }
-    
-    logger.log('Location approved:', { locationId: id, approvedBy: userEmail });
-    res.json(result.value);
-  } catch (error) {
-    logger.error('Error approving location:', error);
-    res.status(500).json({ error: 'Failed to approve location' });
   }
 });
 

@@ -2,7 +2,7 @@
 
 .location-review {
   padding: 20px;
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
   position: relative;
 }
@@ -97,11 +97,6 @@
   font-weight: 600;
 }
 
-.stat.pending-count {
-  background: #fef3c7;
-  color: #92400e;
-}
-
 .stat.total-count {
   background: #d1fae5;
   color: #065f46;
@@ -162,208 +157,7 @@
   cursor: pointer;
 }
 
-/* Bulk actions */
-.bulk-actions {
-  background: #f3f4f6;
-  padding: 12px 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.bulk-actions span {
-  font-weight: 500;
-  color: #374151;
-}
-
-/* Pending review section */
-.no-pending {
-  text-align: center;
-  padding: 60px 20px;
-  color: #10b981;
-  font-size: 18px;
-  font-weight: 500;
-}
-
-.pending-locations-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 20px;
-}
-
-.pending-location-card {
-  background: white;
-  border: 2px solid #e5e7eb;
-  border-radius: 12px;
-  overflow: hidden;
-  transition: all 0.2s;
-}
-
-.pending-location-card:hover {
-  border-color: #d1d5db;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-  background: #f9fafb;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.card-header h3 {
-  flex: 1;
-  margin: 0;
-  font-size: 18px;
-  color: #111827;
-}
-
-.usage-badge {
-  background: #dbeafe;
-  color: #1e40af;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.card-body {
-  padding: 16px;
-}
-
-.location-details {
-  margin-bottom: 16px;
-}
-
-.location-details p {
-  margin: 6px 0;
-  font-size: 14px;
-  color: #4b5563;
-}
-
-.location-details strong {
-  color: #374151;
-}
-
-/* Suggested matches */
-.suggested-matches {
-  background: #fef3c7;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.suggested-matches h4 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  color: #92400e;
-}
-
-.match-item {
-  background: white;
-  padding: 10px;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.confidence-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 6px 0 0 6px;
-  opacity: 0.2;
-}
-
-.match-name {
-  flex: 1;
-  font-weight: 500;
-  color: #1f2937;
-  position: relative;
-}
-
-.match-confidence {
-  font-size: 12px;
-  color: #6b7280;
-  position: relative;
-}
-
-.merge-btn {
-  background: #3b82f6;
-  color: white;
-  border: none;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  position: relative;
-}
-
-.merge-btn:hover {
-  background: #2563eb;
-}
-
-/* Variations */
-.variations {
-  background: #f3f4f6;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.variations h4 {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  color: #374151;
-}
-
-.variation-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.variation-tag {
-  background: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  color: #4b5563;
-  border: 1px solid #e5e7eb;
-}
-
-/* Card actions */
-.card-actions {
-  padding: 16px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  gap: 10px;
-}
-
-.approve-btn {
-  flex: 1;
-  background: #10b981;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.approve-btn:hover {
-  background: #059669;
-}
-
+/* All Locations Section */
 .merge-select-btn {
   flex: 1;
   background: white;
@@ -572,11 +366,6 @@
   color: #065f46;
 }
 
-.status-badge.pending {
-  background: #fef3c7;
-  color: #92400e;
-}
-
 .status-badge.merged {
   background: #e0e7ff;
   color: #3730a3;
@@ -609,28 +398,6 @@
 .usage-cell {
   font-weight: 600;
   color: #374151;
-}
-
-.confidence-display {
-  position: relative;
-  background: #f3f4f6;
-  border-radius: 4px;
-  overflow: hidden;
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-.confidence-meter {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  opacity: 0.3;
-}
-
-.confidence-display span {
-  position: relative;
-  font-weight: 600;
 }
 
 .edit-aliases-btn {
@@ -685,6 +452,7 @@
 .merge-source,
 .merge-target {
   flex: 1;
+  min-width: 0;
 }
 
 .merge-source h3,
@@ -700,6 +468,7 @@
   padding: 16px;
   border-radius: 8px;
   border: 1px solid #e5e7eb;
+  overflow: hidden;
 }
 
 .location-info strong {
@@ -707,6 +476,10 @@
   font-size: 18px;
   color: #111827;
   margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .location-info p {
@@ -806,6 +579,11 @@
 .selected-location strong {
   color: #1e40af;
   font-size: 16px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .clear-btn {
@@ -859,8 +637,9 @@
 
 .selector-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
+  max-width: 100%;
 }
 
 .selector-item {
@@ -869,28 +648,37 @@
   border-radius: 6px;
   border: 1px solid #e5e7eb;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .selector-item span {
-  font-weight: 500;
+  font-weight: 600;
   color: #111827;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+  text-align: center;
 }
 
 .selector-actions {
   display: flex;
   gap: 6px;
+  width: 100%;
 }
 
 .select-source-btn,
 .select-target-btn {
-  padding: 4px 10px;
+  flex: 1;
+  padding: 6px 8px;
   border-radius: 4px;
   border: none;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .select-source-btn {
@@ -942,6 +730,11 @@
 .selected-location-item strong {
   color: #92400e;
   font-size: 14px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .selected-location-item .remove-btn {
@@ -990,10 +783,13 @@
 .target-badge {
   color: #1e40af;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   background: #dbeafe;
-  padding: 4px 10px;
+  padding: 6px 8px;
   border-radius: 4px;
+  white-space: nowrap;
+  text-align: center;
+  width: 100%;
 }
 
 /* Merge wizard multiple sources */
