@@ -68,11 +68,12 @@
   
   .admin-table th,
   .admin-table td {
-    padding: 12px 15px;
+    padding: 8px 10px;
     text-align: left;
     border-bottom: 1px solid #ddd;
     overflow: hidden;
     text-overflow: ellipsis; /* Shows ellipsis for overflowing content */
+    font-size: 13px; /* Smaller font for better fit */
   }
   
   .admin-table th {
@@ -87,29 +88,29 @@
   /* Column width distribution */
   .admin-table th:nth-child(1),
   .admin-table td:nth-child(1) {
-    width: 15%; /* Name column */
+    width: 13%; /* Name column */
   }
-  
+
   .admin-table th:nth-child(2),
   .admin-table td:nth-child(2) {
-    width: 20%; /* Email column */
+    width: 18%; /* Email column */
   }
-  
+
   .admin-table th:nth-child(3),
   .admin-table th:nth-child(4),
   .admin-table td:nth-child(3),
   .admin-table td:nth-child(4) {
-    width: 10%; /* Default View and Start of Week columns */
+    width: 9%; /* Default View and Start of Week columns */
   }
-  
+
   .admin-table th:nth-child(5),
   .admin-table td:nth-child(5) {
-    width: 20%; /* Permissions column */
+    width: 18%; /* Permissions column */
   }
-  
+
   .admin-table th:nth-child(6),
   .admin-table td:nth-child(6) {
-    width: 15%; /* Last Login column */
+    width: 14%; /* Last Login column */
   }
   
   .admin-table tr:hover {
@@ -134,21 +135,21 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    gap: 6px;
+    gap: 4px;
   }
   
   .permissions-list li {
     background-color: #e9ecef;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
   }
   
   /* Action buttons column */
   .actions-cell {
     white-space: nowrap;
-    min-width: 160px;
-    width: 10%; /* Actions column */
+    min-width: 120px;
+    width: 11%; /* Actions column */
   }
   
   /* ====================================
@@ -241,12 +242,12 @@
   
   .button-group {
     display: flex;
-    gap: 5px;
+    gap: 4px;
   }
-  
+
   .button-group button {
     flex: 1;
-    min-width: 60px;
+    min-width: 50px;
   }
   
   .save-button,
@@ -265,9 +266,9 @@
   }
   
   .admin-table button {
-    padding: 5px 10px;
-    font-size: 12px;
-    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 3px;
     border: none;
     cursor: pointer;
     margin-right: 0; /* Remove default margin to let button-group handle spacing */

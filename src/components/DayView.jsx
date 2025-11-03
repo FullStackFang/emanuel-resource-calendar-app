@@ -139,16 +139,23 @@ const DayView = memo(({
                 className="category-color"
                 style={{
                   display: 'inline-block',
-                  width: '12px',
-                  height: '12px',
+                  width: '8px',
+                  height: '8px',
                   borderRadius: '50%',
-                  marginRight: '5px',
+                  marginRight: '4px',
+                  flexShrink: 0,
                   backgroundColor: groupBy === 'categories'
                     ? getCategoryColor(group)
                     : getLocationColor(group)
                 }}
               />
-              {group}
+              <span style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flex: 1,
+                minWidth: 0
+              }}>{group}</span>
             </div>
             
             {/* One Day Cell */}

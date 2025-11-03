@@ -33,7 +33,7 @@
   
   /* Layout */
   --sidebar-width: 400px;
-  --category-column-width: 150px;
+  --category-column-width: 180px;
   --header-height: 200px;
   
   /* Transitions */
@@ -395,27 +395,44 @@
 .grid-cell.location-cell {
   background-color: var(--light-gray);
   border-right: 1px solid var(--border-color);
-  padding: 8px;
+  padding: 8px 6px;
   font-weight: 500;
   display: flex;
   align-items: center;
   min-height: 60px;
   color: var(--text-primary);
   min-width: var(--category-column-width);
+  max-width: var(--category-column-width);
   flex: 0 0 var(--category-column-width);
-  font-size: 14px;
+  font-size: 11px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 /* Responsive font sizing for category text */
 .grid-cell.category-cell {
-  font-size: clamp(10px, 2.5vw, 14px);
+  font-size: clamp(8px, 1.5vw, 11px);
 }
 
 .grid-cell.location-cell {
-  font-size: clamp(10px, 2.5vw, 14px);
+  font-size: clamp(8px, 1.5vw, 11px);
+}
+
+/* Ensure text content respects overflow */
+.grid-cell.category-cell > *,
+.grid-cell.location-cell > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Make sure text after color dot doesn't overflow */
+.grid-cell.category-cell,
+.grid-cell.location-cell {
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 /* Day Cells */
@@ -749,7 +766,7 @@
 /* Small screens */
 @media (max-width: 768px) {
   :root {
-    --category-column-width: 120px;
+    --category-column-width: 150px;
   }
   
   .calendar-header {
@@ -779,10 +796,9 @@
   
   .grid-cell.category-cell,
   .grid-cell.location-cell {
-    font-size: clamp(10px, 2.5vw, 14px);
+    font-size: clamp(8px, 1.5vw, 11px);
     line-height: 1.2;
-    word-wrap: break-word;
-    word-break: break-word;
+    padding: 6px 4px;
   }
 
 /* ============================================================================
