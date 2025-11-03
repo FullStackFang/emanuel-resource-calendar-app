@@ -147,6 +147,24 @@ let locationsCollection; // Unified locations from events
 let roomReservationsCollection; // Room reservation requests
 let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
+
+// In-memory progress tracking for location deletion operations
+const locationDeletionProgress = new Map();
+
+// Helper function to track deletion progress
+function setDeletionProgress(locationId, progress) {
+  locationDeletionProgress.set(locationId, {
+    ...progress,
+    lastUpdated: new Date()
+  });
+
+  // Auto-cleanup: remove completed progress after 5 minutes
+  if (progress.status === 'completed' || progress.status === 'error') {
+    setTimeout(() => {
+      locationDeletionProgress.delete(locationId);
+    }, 5 * 60 * 1000);
+  }
+}
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let categoriesCollection; // Event categories (base + dynamic)
@@ -12738,6 +12756,26 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
 });
 
 /**
+ * Get deletion progress for a location (Admin only)
+ * Returns current status of an ongoing or completed deletion operation
+ */
+app.get('/api/admin/locations/:id/delete-progress', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const progress = locationDeletionProgress.get(id);
+
+    if (!progress) {
+      return res.status(404).json({ error: 'No deletion operation found for this location' });
+    }
+
+    res.json(progress);
+  } catch (error) {
+    logger.error('Error fetching deletion progress:', error);
+    res.status(500).json({ error: 'Failed to fetch deletion progress' });
+  }
+});
+
+/**
  * Get count of events referencing a specific location
  * Used before deletion to show impact to user
  */
@@ -12775,6 +12813,7 @@ app.get('/api/admin/locations/:id/event-count', verifyToken, async (req, res) =>
 /**
  * Soft delete a location (Admin only)
  * Sets active=false and status='deleted' instead of removing from database
+ * Optimized with bulkWrite for faster event updates and progress tracking
  */
 app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
   try {
@@ -12808,6 +12847,15 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
       affectedEvents: affectedEventsCount
     });
 
+    // Initialize progress tracking
+    setDeletionProgress(id, {
+      status: 'in_progress',
+      locationName: location.name,
+      totalEvents: affectedEventsCount,
+      processedEvents: 0,
+      percentage: 0
+    });
+
     // 1. Soft delete: set active=false and status='deleted'
     await locationsCollection.updateOne(
       { _id: locationId },
@@ -12822,53 +12870,99 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
       }
     );
 
-    // 2. Clean up event references - remove this location from all events
+    // 2. Clean up event references - optimized with batching
     const events = await unifiedEventsCollection.find({
       locations: locationId
     }).toArray();
 
     let eventsUpdated = 0;
-    const updatedEventIds = [];
+    const BATCH_SIZE = 50; // Process 50 events at a time
+    const batches = [];
 
-    for (const event of events) {
-      // Remove locationId from locations array
-      const updatedLocations = (event.locations || []).filter(
-        id => id.toString() !== locationId.toString()
-      );
-
-      // Recalculate locationDisplayNames
-      const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
-
-      await unifiedEventsCollection.updateOne(
-        { _id: event._id },
-        {
-          $set: {
-            locations: updatedLocations,
-            locationDisplayNames: displayNames,
-            updatedAt: new Date()
-          }
-        }
-      );
-
-      eventsUpdated++;
-      updatedEventIds.push(event._id.toString());
+    // Group events into batches
+    for (let i = 0; i < events.length; i += BATCH_SIZE) {
+      batches.push(events.slice(i, i + BATCH_SIZE));
     }
+
+    // Process each batch
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const bulkOps = [];
+
+      // Prepare bulk operations for this batch
+      for (const event of batch) {
+        // Remove locationId from locations array
+        const updatedLocations = (event.locations || []).filter(
+          id => id.toString() !== locationId.toString()
+        );
+
+        // Recalculate locationDisplayNames
+        const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
+
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: event._id },
+            update: {
+              $set: {
+                locations: updatedLocations,
+                locationDisplayNames: displayNames,
+                updatedAt: new Date()
+              }
+            }
+          }
+        });
+      }
+
+      // Execute bulk write for this batch
+      if (bulkOps.length > 0) {
+        await unifiedEventsCollection.bulkWrite(bulkOps);
+        eventsUpdated += bulkOps.length;
+
+        // Update progress
+        const percentage = Math.round((eventsUpdated / affectedEventsCount) * 100);
+        setDeletionProgress(id, {
+          status: 'in_progress',
+          locationName: location.name,
+          totalEvents: affectedEventsCount,
+          processedEvents: eventsUpdated,
+          percentage: percentage
+        });
+      }
+    }
+
+    // Mark as completed
+    setDeletionProgress(id, {
+      status: 'completed',
+      locationName: location.name,
+      totalEvents: affectedEventsCount,
+      processedEvents: eventsUpdated,
+      percentage: 100
+    });
 
     logger.log(`Soft deleted location: ${location.name} (ID: ${id}), cleaned ${eventsUpdated} events`, {
       locationId: id,
       locationName: location.name,
-      eventsUpdated,
-      eventIds: updatedEventIds
+      eventsUpdated
     });
 
     res.json({
       message: 'Location deleted successfully',
       locationId: id,
       locationName: location.name,
-      eventsUpdated: eventsUpdated
+      eventsUpdated: eventsUpdated,
+      totalEvents: affectedEventsCount
     });
   } catch (error) {
     logger.error('Error deleting location:', error);
+
+    // Mark as error in progress tracking
+    if (req.params && req.params.id) {
+      setDeletionProgress(req.params.id, {
+        status: 'error',
+        error: error.message
+      });
+    }
+
     res.status(500).json({ error: 'Failed to delete location' });
   }
 });

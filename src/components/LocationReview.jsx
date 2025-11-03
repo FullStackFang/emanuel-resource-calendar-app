@@ -9,11 +9,12 @@ export default function LocationReview({ apiToken }) {
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'all', 'merge', 'assignment'
+  const [activeTab, setActiveTab] = useState('all'); // 'pending', 'all', 'merge', 'assignment'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'approved', 'merged', 'deleted'
 
   // Merge wizard state
   const [showMergeWizard, setShowMergeWizard] = useState(false);
-  const [mergeSource, setMergeSource] = useState(null);
+  const [mergeSources, setMergeSources] = useState([]); // Changed to array for multiple sources
   const [mergeTarget, setMergeTarget] = useState(null);
   const [mergeAliases, setMergeAliases] = useState(true);
 
@@ -27,6 +28,10 @@ export default function LocationReview({ apiToken }) {
 
   // Toast notification state
   const [toast, setToast] = useState(null);
+
+  // Deletion progress state
+  const [deletionProgress, setDeletionProgress] = useState(null);
+  const [showDeletionModal, setShowDeletionModal] = useState(false);
 
   // Location modal state
   const [showLocationModal, setShowLocationModal] = useState(false);
@@ -148,38 +153,57 @@ export default function LocationReview({ apiToken }) {
   };
   
   const handleMergeLocations = async () => {
-    if (!mergeSource || !mergeTarget) return;
-    
+    if (mergeSources.length === 0 || !mergeTarget) return;
+
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/merge`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({
-          sourceId: mergeSource._id,
-          targetId: mergeTarget._id,
-          mergeAliases
-        })
-      });
-      
-      if (!response.ok) throw new Error('Failed to merge locations');
-      
-      const result = await response.json();
-      logger.log('Merge successful:', result);
-      
+      showToast(`Merging ${mergeSources.length} location${mergeSources.length === 1 ? '' : 's'}...`, 'info');
+
+      // Merge each source into the target sequentially
+      let successCount = 0;
+      let totalEvents = 0;
+
+      for (const source of mergeSources) {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/merge`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            sourceId: source._id,
+            targetId: mergeTarget._id,
+            mergeAliases
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Failed to merge ${source.name}`);
+        }
+
+        const result = await response.json();
+        logger.log(`Merged ${source.name} into ${mergeTarget.name}:`, result);
+        successCount++;
+        totalEvents += result.eventsUpdated || 0;
+      }
+
       // Reset merge wizard
       setShowMergeWizard(false);
-      setMergeSource(null);
+      setMergeSources([]);
       setMergeTarget(null);
       setMergeAliases(true);
-      
+
       // Reload locations
       await loadLocations();
+
+      // Show success message
+      showToast(
+        `✅ Successfully merged ${successCount} location${successCount === 1 ? '' : 's'} into ${mergeTarget.name}. Updated ${totalEvents} event${totalEvents === 1 ? '' : 's'}.`,
+        'success'
+      );
     } catch (err) {
       logger.error('Error merging locations:', err);
-      setError('Failed to merge locations');
+      showToast(`❌ Error: ${err.message}`, 'error');
     }
   };
   
@@ -392,14 +416,61 @@ export default function LocationReview({ apiToken }) {
         return;
       }
 
-      // Proceed with deletion
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}`, {
+      // Show progress modal
+      setDeletionProgress({
+        locationId: location._id,
+        locationName: location.name,
+        status: 'starting',
+        totalEvents: eventCount,
+        processedEvents: 0,
+        percentage: 0
+      });
+      setShowDeletionModal(true);
+
+      // Start deletion
+      const deletePromise = fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         }
       });
+
+      // Poll for progress if there are events to process
+      let pollInterval;
+      if (eventCount > 0) {
+        pollInterval = setInterval(async () => {
+          try {
+            const progressResponse = await fetch(
+              `${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}/delete-progress`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+
+            if (progressResponse.ok) {
+              const progressData = await progressResponse.json();
+              setDeletionProgress(prev => ({
+                ...prev,
+                ...progressData
+              }));
+            }
+          } catch (err) {
+            logger.error('Error polling deletion progress:', err);
+          }
+        }, 500); // Poll every 500ms
+      }
+
+      // Wait for deletion to complete
+      const response = await deletePromise;
+
+      // Stop polling
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -408,18 +479,48 @@ export default function LocationReview({ apiToken }) {
 
       const result = await response.json();
 
-      // Remove from list
-      setAllLocations(prev => prev.filter(loc => loc._id !== location._id));
+      // Final progress update
+      setDeletionProgress({
+        locationId: location._id,
+        locationName: location.name,
+        status: 'completed',
+        totalEvents: result.totalEvents || eventCount,
+        processedEvents: result.eventsUpdated || 0,
+        percentage: 100
+      });
 
-      // Show success message with cleanup info
-      const successMessage = result.eventsUpdated > 0
-        ? `✅ Deleted "${location.name}" and removed it from ${result.eventsUpdated} event${result.eventsUpdated === 1 ? '' : 's'}`
-        : `✅ Deleted location: ${location.name}`;
+      // Wait a moment to show completion, then close modal
+      setTimeout(() => {
+        setShowDeletionModal(false);
+        setDeletionProgress(null);
 
-      showToast(successMessage, 'success');
+        // Remove from list
+        setAllLocations(prev => prev.filter(loc => loc._id !== location._id));
+
+        // Show success message
+        const successMessage = result.eventsUpdated > 0
+          ? `✅ Deleted "${location.name}" and removed it from ${result.eventsUpdated} event${result.eventsUpdated === 1 ? '' : 's'}`
+          : `✅ Deleted location: ${location.name}`;
+
+        showToast(successMessage, 'success');
+      }, 1500);
+
     } catch (err) {
       logger.error('Error deleting location:', err);
-      showToast(`❌ Error: ${err.message}`, 'error');
+
+      // Update progress to show error
+      setDeletionProgress(prev => prev ? {
+        ...prev,
+        status: 'error',
+        error: err.message
+      } : null);
+
+      // Close modal after a moment
+      setTimeout(() => {
+        setShowDeletionModal(false);
+        setDeletionProgress(null);
+        showToast(`❌ Error: ${err.message}`, 'error');
+      }, 2000);
     }
   };
 
@@ -460,13 +561,10 @@ export default function LocationReview({ apiToken }) {
         <h1>Location Review & Management</h1>
         <div className="header-stats">
           <span className="stat pending-count">
-            {pendingLocations.length} Pending Review
+            {pendingLocations.length} Pending
           </span>
           <span className="stat total-count">
-            {allLocations.filter(l => l.status === 'approved').length} Approved
-          </span>
-          <span className="stat merged-count">
-            {allLocations.filter(l => l.status === 'merged').length} Merged
+            {allLocations.length} Total
           </span>
         </div>
       </div>
@@ -626,13 +724,27 @@ export default function LocationReview({ apiToken }) {
           )}
         </div>
       )}
-      
+
       {activeTab === 'all' && (
         <div className="all-locations-section">
           <div className="all-locations-header">
             <button onClick={handleCreateLocation} className="create-location-btn">
               + Create Location
             </button>
+            <div className="status-filter">
+              <label htmlFor="status-filter">Filter by Status:</label>
+              <select
+                id="status-filter"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="status-filter-select"
+              >
+                <option value="all">All Statuses ({allLocations.length})</option>
+                <option value="approved">Active ({allLocations.filter(l => l.status === 'approved').length})</option>
+                <option value="merged">Merged ({allLocations.filter(l => l.status === 'merged').length})</option>
+                <option value="deleted">Deleted ({allLocations.filter(l => l.status === 'deleted').length})</option>
+              </select>
+            </div>
           </div>
 
           <div className="locations-table-container">
@@ -644,11 +756,14 @@ export default function LocationReview({ apiToken }) {
                   <th>Status</th>
                   <th>Aliases</th>
                   <th>Usage</th>
+                  <th>Info</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {allLocations.map(location => (
+                {allLocations
+                  .filter(l => statusFilter === 'all' || l.status === statusFilter)
+                  .map(location => (
                   <tr key={location._id} className={`status-${location.status}`}>
                     <td>
                       <strong>{location.name}</strong>
@@ -682,8 +797,42 @@ export default function LocationReview({ apiToken }) {
                     <td className="usage-cell">
                       {location.usageCount || 0}
                     </td>
-                    <td className="actions-cell">
+                    <td className="info-cell">
+                      {location.status === 'merged' && location.mergedInto && (
+                        <div className="merged-metadata">
+                          <div className="merged-into">→ Merged into #{location.mergedInto}</div>
+                          {location.mergedBy && (
+                            <div className="metadata-detail">
+                              By: {location.mergedBy}
+                            </div>
+                          )}
+                          {location.mergedAt && (
+                            <div className="metadata-detail">
+                              {new Date(location.mergedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {location.status === 'deleted' && (
+                        <div className="deleted-metadata">
+                          {location.deletedBy && (
+                            <div className="metadata-detail">
+                              Deleted by: {location.deletedBy}
+                            </div>
+                          )}
+                          {location.deletedAt && (
+                            <div className="metadata-detail">
+                              {new Date(location.deletedAt).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {location.status !== 'merged' && location.status !== 'deleted' && (
+                        <span className="no-data">—</span>
+                      )}
+                    </td>
+                    <td className="actions-cell">
+                      {location.status !== 'merged' && location.status !== 'deleted' ? (
                         <>
                           <button
                             onClick={() => handleEditLocation(location)}
@@ -693,16 +842,6 @@ export default function LocationReview({ apiToken }) {
                             Edit
                           </button>
                           <button
-                            onClick={() => {
-                              setMergeSource(location);
-                              setActiveTab('merge');
-                            }}
-                            className="select-merge-btn"
-                            title="Merge this location"
-                          >
-                            Merge
-                          </button>
-                          <button
                             onClick={() => handleDeleteLocation(location)}
                             className="delete-location-btn"
                             title="Soft delete this location"
@@ -710,11 +849,8 @@ export default function LocationReview({ apiToken }) {
                             Delete
                           </button>
                         </>
-                      )}
-                      {location.mergedInto && (
-                        <span className="merged-info">
-                          → Merged into #{location.mergedInto}
-                        </span>
+                      ) : (
+                        <span className="no-actions">—</span>
                       )}
                     </td>
                   </tr>
@@ -730,29 +866,37 @@ export default function LocationReview({ apiToken }) {
           {showMergeWizard ? (
             <div className="merge-wizard">
               <h2>Merge Locations</h2>
-              
+
               <div className="merge-preview">
                 <div className="merge-source">
-                  <h3>Source (Will be merged)</h3>
-                  <div className="location-info">
-                    <strong>{mergeSource?.name}</strong>
-                    <p>Usage: {mergeSource?.usageCount || 0}</p>
-                    {mergeSource?.aliases && mergeSource.aliases.length > 0 && (
-                      <p>Aliases: {mergeSource.aliases.join(', ')}</p>
-                    )}
+                  <h3>Sources (Will be merged) - {mergeSources.length} location{mergeSources.length === 1 ? '' : 's'}</h3>
+                  {mergeSources.map(source => (
+                    <div key={source._id} className="location-info">
+                      <strong>{source.name}</strong>
+                      <p>Usage: {source.usageCount || 0} events</p>
+                      {source.aliases && source.aliases.length > 0 && (
+                        <p className="aliases-preview">Aliases: {source.aliases.slice(0, 3).join(', ')}{source.aliases.length > 3 ? '...' : ''}</p>
+                      )}
+                    </div>
+                  ))}
+                  <div className="total-usage">
+                    Total Events: {mergeSources.reduce((sum, s) => sum + (s.usageCount || 0), 0)}
                   </div>
                 </div>
-                
+
                 <div className="merge-arrow">→</div>
-                
+
                 <div className="merge-target">
                   <h3>Target (Will be kept)</h3>
                   <div className="location-info">
                     <strong>{mergeTarget?.name}</strong>
-                    <p>Usage: {mergeTarget?.usageCount || 0}</p>
+                    <p>Current Usage: {mergeTarget?.usageCount || 0} events</p>
                     {mergeTarget?.aliases && mergeTarget.aliases.length > 0 && (
-                      <p>Aliases: {mergeTarget.aliases.join(', ')}</p>
+                      <p>Current Aliases: {mergeTarget.aliases.join(', ')}</p>
                     )}
+                    <p className="merged-usage">
+                      Final Usage: {(mergeTarget?.usageCount || 0) + mergeSources.reduce((sum, s) => sum + (s.usageCount || 0), 0)} events
+                    </p>
                   </div>
                 </div>
               </div>
@@ -772,10 +916,10 @@ export default function LocationReview({ apiToken }) {
                 <button onClick={handleMergeLocations} className="confirm-merge-btn">
                   Confirm Merge
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     setShowMergeWizard(false);
-                    setMergeSource(null);
+                    setMergeSources([]);
                     setMergeTarget(null);
                   }}
                   className="cancel-btn"
@@ -787,22 +931,36 @@ export default function LocationReview({ apiToken }) {
           ) : (
             <div className="merge-selector">
               <h2>Select Locations to Merge</h2>
-              
+
               <div className="merge-selection">
                 <div className="selection-column">
-                  <h3>Source Location (to merge from)</h3>
-                  {mergeSource ? (
-                    <div className="selected-location">
-                      <strong>{mergeSource.name}</strong>
-                      <button onClick={() => setMergeSource(null)} className="clear-btn">
-                        Clear
+                  <h3>Source Locations (to merge from)</h3>
+                  {mergeSources.length > 0 ? (
+                    <div className="selected-locations-list">
+                      {mergeSources.map(source => (
+                        <div key={source._id} className="selected-location-item">
+                          <strong>{source.name}</strong>
+                          <button
+                            onClick={() => setMergeSources(prev => prev.filter(s => s._id !== source._id))}
+                            className="remove-btn"
+                            title="Remove from sources"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setMergeSources([])}
+                        className="clear-all-btn"
+                      >
+                        Clear All ({mergeSources.length})
                       </button>
                     </div>
                   ) : (
-                    <p className="selection-hint">Select from the list below or go to another tab</p>
+                    <p className="selection-hint">Select one or more locations from the list below</p>
                   )}
                 </div>
-                
+
                 <div className="selection-column">
                   <h3>Target Location (to merge into)</h3>
                   {mergeTarget ? (
@@ -813,12 +971,12 @@ export default function LocationReview({ apiToken }) {
                       </button>
                     </div>
                   ) : (
-                    <p className="selection-hint">Select from the list below</p>
+                    <p className="selection-hint">Select one location from the list below</p>
                   )}
                 </div>
               </div>
-              
-              {mergeSource && mergeTarget && (
+
+              {mergeSources.length > 0 && mergeTarget && (
                 <button 
                   onClick={() => setShowMergeWizard(true)}
                   className="start-merge-btn"
@@ -831,31 +989,46 @@ export default function LocationReview({ apiToken }) {
                 <h3>Available Locations</h3>
                 <div className="selector-grid">
                   {allLocations
-                    .filter(l => l.status !== 'merged')
-                    .map(location => (
-                      <div key={location._id} className="selector-item">
-                        <span>{location.name}</span>
-                        <div className="selector-actions">
-                          {(!mergeSource || mergeSource._id !== location._id) && (
-                            <button 
-                              onClick={() => setMergeSource(location)}
-                              className="select-source-btn"
-                            >
-                              Source
-                            </button>
-                          )}
-                          {(!mergeTarget || mergeTarget._id !== location._id) && 
-                           mergeSource && mergeSource._id !== location._id && (
-                            <button 
-                              onClick={() => setMergeTarget(location)}
-                              className="select-target-btn"
-                            >
-                              Target
-                            </button>
-                          )}
+                    .filter(l => l.status !== 'merged' && l.status !== 'deleted')
+                    .map(location => {
+                      const isSelectedAsSource = mergeSources.some(s => s._id === location._id);
+                      const isSelectedAsTarget = mergeTarget?._id === location._id;
+
+                      return (
+                        <div key={location._id} className={`selector-item ${isSelectedAsSource ? 'selected-source' : ''} ${isSelectedAsTarget ? 'selected-target' : ''}`}>
+                          <span>{location.name}</span>
+                          <div className="selector-actions">
+                            {!isSelectedAsTarget && (
+                              <button
+                                onClick={() => {
+                                  if (isSelectedAsSource) {
+                                    // Remove from sources if already selected
+                                    setMergeSources(prev => prev.filter(s => s._id !== location._id));
+                                  } else {
+                                    // Add to sources
+                                    setMergeSources(prev => [...prev, location]);
+                                  }
+                                }}
+                                className={`select-source-btn ${isSelectedAsSource ? 'selected' : ''}`}
+                              >
+                                {isSelectedAsSource ? '✓ Source' : '+ Source'}
+                              </button>
+                            )}
+                            {!isSelectedAsSource && !isSelectedAsTarget && (
+                              <button
+                                onClick={() => setMergeTarget(location)}
+                                className="select-target-btn"
+                              >
+                                Set Target
+                              </button>
+                            )}
+                            {isSelectedAsTarget && (
+                              <span className="target-badge">★ Target</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               </div>
             </div>
@@ -1273,6 +1446,69 @@ export default function LocationReview({ apiToken }) {
                 {editingLocation ? 'Save Changes' : 'Create Location'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deletion Progress Modal */}
+      {showDeletionModal && deletionProgress && (
+        <div className="modal-overlay">
+          <div className="modal-content deletion-progress-modal">
+            <div className="modal-header">
+              <h2>Deleting Location</h2>
+            </div>
+
+            <div className="modal-body">
+              <div className="deletion-info">
+                <p className="location-name">
+                  <strong>{deletionProgress.locationName}</strong>
+                </p>
+
+                {deletionProgress.status === 'error' ? (
+                  <div className="error-status">
+                    <div className="error-icon">❌</div>
+                    <p className="error-message">{deletionProgress.error}</p>
+                  </div>
+                ) : deletionProgress.status === 'completed' ? (
+                  <div className="success-status">
+                    <div className="success-icon">✅</div>
+                    <p className="success-message">
+                      Successfully deleted from {deletionProgress.processedEvents} event
+                      {deletionProgress.processedEvents === 1 ? '' : 's'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="progress-status">
+                    <div className="progress-bar-container">
+                      <div
+                        className="progress-bar-fill"
+                        style={{ width: `${deletionProgress.percentage || 0}%` }}
+                      />
+                    </div>
+                    <p className="progress-text">
+                      {deletionProgress.status === 'starting'
+                        ? 'Preparing to delete...'
+                        : `Removing from events: ${deletionProgress.processedEvents || 0} / ${deletionProgress.totalEvents || 0} (${deletionProgress.percentage || 0}%)`
+                      }
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {(deletionProgress.status === 'completed' || deletionProgress.status === 'error') && (
+              <div className="modal-footer">
+                <button
+                  onClick={() => {
+                    setShowDeletionModal(false);
+                    setDeletionProgress(null);
+                  }}
+                  className="close-btn"
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
