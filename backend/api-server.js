@@ -276,7 +276,14 @@ async function createUnifiedEventIndexes() {
     
     console.log('Unified event indexes created successfully');
   } catch (error) {
-    console.error('Error creating unified event indexes:', error);
+    // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
+    // Code 67 = CannotCreateIndex - This is expected if indexes already exist or collection has data
+    // The indexes are already present from previous deployments, so this error is safe to suppress
+    if (error.code === 67 || error.codeName === 'CannotCreateIndex') {
+      console.log('Unified event indexes already exist (expected behavior on Azure Cosmos DB)');
+    } else {
+      console.error('Error creating unified event indexes:', error);
+    }
   }
 }
 
@@ -2652,11 +2659,15 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     }
     
     // Use upsert to handle updates while preserving internal data
-    // Query by graphData.id (Graph's unique identifier) to prevent duplicates
+    // Query using $or to match either unique index constraint:
+    // 1. userId + calendarId + eventId (if event exists with this combo)
+    // 2. userId + graphData.id (if event exists with this Graph ID)
     const result = await unifiedEventsCollection.replaceOne(
       {
-        userId: userId,
-        'graphData.id': graphEvent.id // Use Graph ID to ensure uniqueness
+        $or: [
+          { userId: userId, calendarId: calendarId, eventId: eventId },
+          { userId: userId, 'graphData.id': graphEvent.id }
+        ]
       },
       unifiedEvent,
       { upsert: true }

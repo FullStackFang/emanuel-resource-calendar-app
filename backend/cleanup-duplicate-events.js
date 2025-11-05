@@ -10,8 +10,8 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017';
-const DB_NAME = process.env.MONGODB_DB_NAME || 'templeEventsDB';
+const MONGODB_URI = process.env.MONGODB_CONNECTION_STRING || 'mongodb://localhost:27017';
+const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
 
 async function cleanupDuplicates() {
   const client = new MongoClient(MONGODB_URI);
@@ -21,7 +21,7 @@ async function cleanupDuplicates() {
     console.log('✅ Connected to MongoDB');
 
     const db = client.db(DB_NAME);
-    const collection = db.collection('templeEvents__InternalEvents');
+    const collection = db.collection('templeEvents__Events');
 
     // Find all duplicates using aggregation
     console.log('\n🔍 Finding duplicate events...');
