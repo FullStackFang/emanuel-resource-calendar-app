@@ -16,6 +16,42 @@ const EventDetailsModal = ({ isOpen, onClose, events, title, migrationConfig }) 
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Check if a location string is a URL
+  const isURL = (str) => {
+    if (!str) return false;
+    try {
+      new URL(str);
+      return true;
+    } catch {
+      return /^https?:\/\//i.test(str) ||
+             /zoom\.us|teams\.microsoft\.com|meet\.google\.com|webex\.com/i.test(str);
+    }
+  };
+
+  // Render location - clickable link if URL, plain text otherwise
+  const renderLocation = (location) => {
+    if (!location) return null;
+
+    if (isURL(location)) {
+      return (
+        <a
+          href={location}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="virtual-meeting-link"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {location.includes('zoom') ? '🎥 Join Zoom Meeting' :
+           location.includes('teams') ? '🎥 Join Teams Meeting' :
+           location.includes('meet.google') ? '🎥 Join Google Meet' :
+           '🎥 Join Virtual Meeting'}
+        </a>
+      );
+    }
+
+    return location;
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="event-details-modal" onClick={e => e.stopPropagation()}>
@@ -69,7 +105,7 @@ const EventDetailsModal = ({ isOpen, onClose, events, title, migrationConfig }) 
                       
                       {event.location && (
                         <div className="event-location">
-                          📍 <strong>Location:</strong> {event.location}
+                          📍 <strong>Location:</strong> {renderLocation(event.location)}
                         </div>
                       )}
                       

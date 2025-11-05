@@ -11,7 +11,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
-const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames } = require('./utils/locationUtils');
+const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 
 dotenv.config();
 
@@ -2550,50 +2550,86 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // Initialize new location structure with multi-location support
     // Parse location string from Graph API (semicolon-delimited)
     const locationDisplayName = graphEvent.location?.displayName || '';
-    const locationStrings = parseLocationString(locationDisplayName);
 
-    // Match location strings to templeEvents__Locations via aliases
-    const assignedLocationIds = [];
-
-    if (locationStrings.length > 0) {
-      for (const locationStr of locationStrings) {
-        const normalized = normalizeLocationString(locationStr);
-
-        try {
-          // Find location with this alias
-          const location = await locationsCollection.findOne({
-            aliases: normalized
-          });
-
-          if (location && !assignedLocationIds.some(id => id.toString() === location._id.toString())) {
-            assignedLocationIds.push(location._id);
-            logger.debug('Matched location string via alias', {
-              locationString: locationStr,
-              normalized: normalized,
-              matchedLocation: location.name,
-              locationId: location._id
-            });
-          }
-        } catch (error) {
-          logger.error('Error matching location string:', error);
-          // Continue with other locations - non-blocking
-        }
-      }
-    }
-
-    // Set locations array (may be empty if no matches found)
-    unifiedEvent.locations = assignedLocationIds;
-
-    // Calculate locationDisplayNames from assigned locations
-    if (assignedLocationIds.length > 0) {
+    // CHECK FOR VIRTUAL MEETING (URLs) FIRST
+    if (locationDisplayName && isVirtualLocation(locationDisplayName)) {
+      // This is a virtual meeting - extract URL and assign Virtual Meeting location
       try {
-        unifiedEvent.locationDisplayNames = await calculateLocationDisplayNames(assignedLocationIds, db);
+        // Store the URL at the top level for easy access
+        unifiedEvent.virtualMeetingUrl = locationDisplayName;
+        unifiedEvent.virtualPlatform = getVirtualPlatform(locationDisplayName);
+
+        // DO NOT modify graphData.location.displayName - keep original Outlook data unchanged
+        // Instead, set top-level locationDisplayNames for app use
+
+        const virtualLocation = await locationsCollection.findOne({
+          name: 'Virtual Meeting'
+        });
+
+        if (virtualLocation) {
+          unifiedEvent.locations = [virtualLocation._id];
+          unifiedEvent.locationDisplayNames = 'Virtual Meeting';
+          logger.debug('Detected virtual meeting, assigned Virtual Meeting location', {
+            url: locationDisplayName.substring(0, 50) + '...',
+            platform: unifiedEvent.virtualPlatform
+          });
+        } else {
+          logger.warn('Virtual meeting detected but Virtual Meeting location not found in database');
+          unifiedEvent.locations = [];
+          unifiedEvent.locationDisplayNames = '';
+        }
       } catch (error) {
-        logger.error('Error calculating location display names:', error);
+        logger.error('Error assigning virtual location:', error);
+        unifiedEvent.locations = [];
         unifiedEvent.locationDisplayNames = '';
       }
     } else {
-      unifiedEvent.locationDisplayNames = '';
+      // Not a virtual meeting - parse normally
+      const locationStrings = parseLocationString(locationDisplayName);
+
+      // Match location strings to templeEvents__Locations via aliases
+      const assignedLocationIds = [];
+
+      if (locationStrings.length > 0) {
+        for (const locationStr of locationStrings) {
+          const normalized = normalizeLocationString(locationStr);
+
+          try {
+            // Find location with this alias
+            const location = await locationsCollection.findOne({
+              aliases: normalized
+            });
+
+            if (location && !assignedLocationIds.some(id => id.toString() === location._id.toString())) {
+              assignedLocationIds.push(location._id);
+              logger.debug('Matched location string via alias', {
+                locationString: locationStr,
+                normalized: normalized,
+                matchedLocation: location.name,
+                locationId: location._id
+              });
+            }
+          } catch (error) {
+            logger.error('Error matching location string:', error);
+            // Continue with other locations - non-blocking
+          }
+        }
+      }
+
+      // Set locations array (may be empty if no matches found)
+      unifiedEvent.locations = assignedLocationIds;
+
+      // Calculate locationDisplayNames from assigned locations
+      if (assignedLocationIds.length > 0) {
+        try {
+          unifiedEvent.locationDisplayNames = await calculateLocationDisplayNames(assignedLocationIds, db);
+        } catch (error) {
+          logger.error('Error calculating location display names:', error);
+          unifiedEvent.locationDisplayNames = '';
+        }
+      } else {
+        unifiedEvent.locationDisplayNames = '';
+      }
     }
 
     // Legacy: Also upsert to templeEvents__Locations for backwards compatibility
@@ -3492,6 +3528,24 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 _fromGraph: true // Mark as fresh from Graph
               };
 
+              // CHECK FOR VIRTUAL MEETING (URLs) - Apply detection immediately for inline events
+              const locationDisplayName = graphEvent.location?.displayName || '';
+              if (locationDisplayName && isVirtualLocation(locationDisplayName)) {
+                // This is a virtual meeting - set virtual meeting fields
+                unifiedEvent.virtualMeetingUrl = locationDisplayName;
+                unifiedEvent.virtualPlatform = getVirtualPlatform(locationDisplayName);
+                // DO NOT modify graphData.location.displayName - keep original Outlook data unchanged
+                // Set top-level locationDisplayNames for app use
+                unifiedEvent.locations = []; // Will be set by background sync
+                unifiedEvent.locationDisplayNames = 'Virtual Meeting';
+
+                logger.debug('Detected virtual meeting in inline event creation', {
+                  subject: graphEvent.subject,
+                  platform: unifiedEvent.virtualPlatform,
+                  url: locationDisplayName.substring(0, 50) + '...'
+                });
+              }
+
               // Only add to unifiedEvents if not already in cache (prevent duplicates)
               if (!cachedEventIds.has(graphEvent.id)) {
                 unifiedEvents.push(unifiedEvent);
@@ -3590,6 +3644,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
         // Override with normalized category
         category: category,
+        // Add virtual meeting fields
+        virtualMeetingUrl: event.virtualMeetingUrl,
+        virtualPlatform: event.virtualPlatform,
+        // Add location fields
+        locations: event.locations,
+        locationDisplayNames: event.locationDisplayNames,
         // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
@@ -10158,6 +10218,54 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
 });
 
 /**
+ * Helper function - Process virtual location for events
+ * Detects if location is a URL and enriches with virtual meeting metadata
+ * @param {object} event - Event object from Graph API
+ * @param {object} db - MongoDB database instance
+ * @returns {object} Processed event with virtual location metadata
+ */
+async function processVirtualLocation(event, db) {
+  // Check if event has a location and if it's a URL
+  const locationDisplayName = event.location?.displayName;
+
+  if (!locationDisplayName || !isVirtualLocation(locationDisplayName)) {
+    // Not a virtual location, return event as-is
+    return event;
+  }
+
+  // It's a virtual meeting! Add virtual location metadata
+  const virtualPlatform = getVirtualPlatform(locationDisplayName);
+
+  // Enhance the location object with virtual meeting metadata
+  if (!event.location) {
+    event.location = {};
+  }
+
+  // Store the original URL
+  event.location.virtualMeetingUrl = locationDisplayName;
+  event.location.isVirtual = true;
+  event.location.virtualPlatform = virtualPlatform;
+
+  // Find the Virtual Meeting location ID from the database
+  try {
+    const virtualLocationDoc = await db.collection('templeEvents__Locations').findOne({
+      name: 'Virtual Meeting'
+    });
+
+    if (virtualLocationDoc) {
+      // Store the Virtual Meeting location ID for later assignment
+      event._virtualLocationId = virtualLocationDoc._id;
+    } else {
+      logger.warn('Virtual Meeting location not found in database');
+    }
+  } catch (error) {
+    logger.error('Error fetching Virtual Meeting location:', error);
+  }
+
+  return event;
+}
+
+/**
  * Manual sync endpoint - Creates enriched templeEvents__Events records for loaded events
  */
 app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
@@ -10193,28 +10301,49 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
           logger.warn('Skipping event without ID:', event.subject);
           continue;
         }
-        
+
+        // Process virtual location detection
+        await processVirtualLocation(event, db);
+
         // Check if unified event already exists
         const existingUnified = await unifiedEventsCollection.findOne({
           eventId: event.id,
           userId: userId
         });
-        
+
         const now = new Date();
-        
+
         // Prepare source calendars array
         const sourceCalendars = [{
           calendarId: calendarId,
           calendarName: calendarId?.includes('TempleRegistration') ? 'Temple Registrations' : 'Calendar',
           role: calendarId?.includes('TempleRegistration') ? 'shared' : 'primary'
         }];
-        
+
+        // Prepare locations array - preserve existing or assign Virtual Meeting location
+        let locations = existingUnified?.locations || [];
+        let locationDisplayNames = existingUnified?.locationDisplayNames || '';
+        let locationId = existingUnified?.locationId || null;
+
+        if (event._virtualLocationId) {
+          // This is a virtual meeting - assign the Virtual Meeting location
+          locations = [event._virtualLocationId];
+          locationDisplayNames = 'Virtual Meeting';
+          locationId = event._virtualLocationId;
+        }
+        // Otherwise preserve existing location data (or leave empty if none)
+
         // Prepare unified event structure
         const unifiedEventData = {
           userId: userId,
           calendarId: calendarId,
           eventId: event.id,
-          
+
+          // Location assignments (preserved from existing or set for virtual meetings)
+          locations: locations,
+          locationDisplayNames: locationDisplayNames,
+          locationId: locationId,
+
           // Graph API data (source of truth)
           graphData: {
             id: event.id,

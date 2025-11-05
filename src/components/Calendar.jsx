@@ -543,10 +543,11 @@
 
             
       /**
-       * TBD
+       * Check if an event has no location assigned
+       * Reads from top-level locationDisplayNames (app field), not graphData
        */
       const isUnspecifiedLocation = useCallback((event) => {
-        const locationText = event.location?.displayName?.trim() || '';
+        const locationText = event.locationDisplayNames?.trim() || '';
         return !locationText;
       }, []);
 
@@ -2386,7 +2387,20 @@
 
       // Process events to find locations and check for special cases
       allEvents.forEach(event => {
-        const locationText = event.location?.displayName?.trim() || '';
+        // First check if this event has a virtual meeting URL
+        if (event.virtualMeetingUrl) {
+          // This is a virtual meeting - use "Virtual Meeting" as the location
+          const virtualLocation = generalLocations.find(loc =>
+            loc.name && loc.name.toLowerCase() === 'virtual meeting'
+          );
+          if (virtualLocation) {
+            locationsSet.add(virtualLocation.name);
+          }
+          return;
+        }
+
+        // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
+        const locationText = event.locationDisplayNames?.trim() || '';
 
         if (!locationText) {
           // Empty or null location - we'll need Unspecified
@@ -2911,13 +2925,20 @@
           locationMatch = true;
         } else {
           // Partial locations selected, check if event matches
+          // Check for virtual meeting first
+          if (event.virtualMeetingUrl) {
+            // This is a virtual meeting - check if "Virtual Meeting" is selected
+            locationMatch = selectedLocations.includes('Virtual Meeting');
+            console.log(`[Location Filter] Event "${event.subject}" is virtual meeting, match: ${locationMatch}`);
+          }
           // Handle unspecified locations
-          if (isUnspecifiedLocation(event)) {
+          else if (isUnspecifiedLocation(event)) {
             locationMatch = selectedLocations.includes('Unspecified');
           }
           // Handle all events with locations
           else {
-            const locationText = event.location?.displayName?.trim() || '';
+            // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
+            const locationText = event.locationDisplayNames?.trim() || '';
             const eventLocations = locationText
               .split(/[;,]/)
               .map(loc => loc.trim())
@@ -3001,14 +3022,22 @@
 
       // Group filtered events by their actual location
       filteredEvents.forEach((event) => {
-        if (isUnspecifiedLocation(event)) {
+        // Check for virtual meeting first
+        if (event.virtualMeetingUrl) {
+          if (!groups['Virtual Meeting']) {
+            groups['Virtual Meeting'] = [];
+          }
+          groups['Virtual Meeting'].push(event);
+          console.log(`[Location Grouping] Event "${event.subject}" added to Virtual Meeting group`);
+        } else if (isUnspecifiedLocation(event)) {
           if (!groups['Unspecified']) {
             groups['Unspecified'] = [];
           }
           groups['Unspecified'].push(event);
         } else {
           // Handle all events with locations
-          const locationText = event.location?.displayName?.trim() || '';
+          // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
+          const locationText = event.locationDisplayNames?.trim() || '';
           const eventLocations = locationText
             .split(/[;,]/)
             .map(loc => loc.trim())

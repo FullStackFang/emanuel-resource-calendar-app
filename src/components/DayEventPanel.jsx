@@ -3,9 +3,9 @@ import { useTimezone } from '../context/TimezoneContext';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import './DayEventPanel.css';
 
-const DayEventPanel = memo(({ 
-  selectedDay, 
-  events, 
+const DayEventPanel = memo(({
+  selectedDay,
+  events,
   onEventClick,
   onEventEdit,
   onEventDelete,
@@ -16,9 +16,9 @@ const DayEventPanel = memo(({
 }) => {
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
-  
+
   // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
-  
+
   // Create timezone-aware event time formatter
   const formatEventTimeWithContext = useCallback((dateTimeString, eventSubject) => {
     try {
@@ -35,7 +35,7 @@ const DayEventPanel = memo(({
   }, [userTimezone, formatEventTime]);
 
   const formatDate = useCallback((date) => {
-    return date.toLocaleDateString('en-US', { 
+    return date.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -43,6 +43,29 @@ const DayEventPanel = memo(({
       timeZone: userTimezone // Use context timezone
     });
   }, [userTimezone]);
+
+  // Check if a location is a virtual meeting URL
+  const isVirtualLocation = useCallback((locationString) => {
+    if (!locationString) return false;
+    try {
+      new URL(locationString);
+      return true;
+    } catch {
+      return /^https?:\/\//i.test(locationString) ||
+             /zoom\.us|teams\.microsoft\.com|meet\.google\.com|webex\.com/i.test(locationString);
+    }
+  }, []);
+
+  // Get the virtual platform name
+  const getVirtualPlatform = useCallback((locationString) => {
+    if (!locationString) return null;
+    const lower = locationString.toLowerCase();
+    if (lower.includes('zoom')) return 'Zoom';
+    if (lower.includes('teams')) return 'Teams';
+    if (lower.includes('meet.google')) return 'Google Meet';
+    if (lower.includes('webex')) return 'Webex';
+    return 'Virtual';
+  }, []);
 
   // EARLY RETURN AFTER ALL HOOKS
   if (!selectedDay) {
@@ -124,8 +147,19 @@ const DayEventPanel = memo(({
                   
                   {event.location?.displayName && (
                     <div className="event-detail">
-                      <span className="detail-icon">📍</span>
-                      {event.location.displayName}
+                      {isVirtualLocation(event.location.displayName) ? (
+                        <>
+                          <span className="detail-icon">🎥</span>
+                          <span className="virtual-meeting-badge">
+                            {getVirtualPlatform(event.location.displayName)} Meeting
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="detail-icon">📍</span>
+                          {event.location.displayName}
+                        </>
+                      )}
                     </div>
                   )}
                   

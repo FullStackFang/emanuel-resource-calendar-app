@@ -165,6 +165,22 @@
   color: #374151;
 }
 
+.virtual-meeting-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.virtual-meeting-link:hover {
+  background: #eff6ff;
+  color: #2563eb;
+  text-decoration: underline;
+}
+
 .modal-footer {
   padding: 16px 24px;
   border-top: 1px solid #e5e7eb;

@@ -171,11 +171,76 @@ function initializeLocationFields(event) {
   return event;
 }
 
+/**
+ * Detect if a location string is a URL (virtual meeting)
+ * Checks for common URL patterns and virtual meeting platforms
+ * @param {string} locationString - Location string to check
+ * @returns {boolean} True if the location is a URL
+ */
+function isVirtualLocation(locationString) {
+  if (!locationString || typeof locationString !== 'string') {
+    return false;
+  }
+
+  const trimmed = locationString.trim();
+
+  // Check for common URL patterns and virtual meeting platforms
+  const urlPatterns = [
+    /^https?:\/\//i,                    // Standard URLs (http:// or https://)
+    /zoom\.us\//i,                       // Zoom
+    /teams\.microsoft\.com/i,            // Microsoft Teams
+    /meet\.google\.com/i,                // Google Meet
+    /webex\.com/i,                       // Webex
+    /gotomeeting\.com/i,                 // GoToMeeting
+    /bluejeans\.com/i,                   // BlueJeans
+    /whereby\.com/i,                     // Whereby
+    /meet\.jit\.si/i                     // Jitsi Meet
+  ];
+
+  return urlPatterns.some(pattern => pattern.test(trimmed));
+}
+
+/**
+ * Extract virtual meeting platform name from a URL
+ * Returns a user-friendly platform name or generic "Virtual Meeting"
+ * @param {string} locationString - Location URL string
+ * @returns {string|null} Platform name or null if not a virtual location
+ */
+function getVirtualPlatform(locationString) {
+  if (!isVirtualLocation(locationString)) {
+    return null;
+  }
+
+  const platformMap = {
+    'zoom.us': 'Zoom',
+    'teams.microsoft.com': 'Microsoft Teams',
+    'meet.google.com': 'Google Meet',
+    'webex.com': 'Webex',
+    'gotomeeting.com': 'GoToMeeting',
+    'bluejeans.com': 'BlueJeans',
+    'whereby.com': 'Whereby',
+    'meet.jit.si': 'Jitsi Meet'
+  };
+
+  const lowerLocation = locationString.toLowerCase();
+
+  for (const [domain, platform] of Object.entries(platformMap)) {
+    if (lowerLocation.includes(domain)) {
+      return platform;
+    }
+  }
+
+  // Generic fallback for unrecognized platforms
+  return 'Virtual Meeting';
+}
+
 module.exports = {
   normalizeLocationString,
   parseLocationString,
   calculateLocationDisplayNames,
   syncLocationDisplayToGraph,
   extractLocationStrings,
-  initializeLocationFields
+  initializeLocationFields,
+  isVirtualLocation,
+  getVirtualPlatform
 };
