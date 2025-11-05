@@ -108,7 +108,9 @@ export default function RoomReservationReview({
         contactName: reservation.contactName || '',
         isOnBehalfOf: reservation.isOnBehalfOf || false,
         reviewNotes: reservation.reviewNotes || '',
-        isAllDayEvent: reservation.isAllDayEvent || false
+        isAllDayEvent: reservation.isAllDayEvent || false,
+        virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
+        graphData: reservation.graphData || null
       });
 
       // Store original changeKey for optimistic concurrency control

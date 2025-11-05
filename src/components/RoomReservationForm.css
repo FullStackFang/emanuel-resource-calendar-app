@@ -227,10 +227,100 @@
   cursor: not-allowed;
 }
 
-.all-day-toggle-help {
-  font-size: 0.85rem;
+/* Virtual Platform Pill - Inline with All Day Toggle */
+.virtual-platform-pill {
+  padding: 8px 20px;
+  border-radius: 18px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #81c784;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(46, 125, 50, 0.1);
+}
+
+/* Virtual Meeting Link Pill */
+.virtual-link-wrapper {
+  margin: 8px 0 16px 0;
+}
+
+.virtual-link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 18px;
+  background: #f0f9ff;
+  border: 1px solid #0ea5e9;
+  color: #0369a1;
+  text-decoration: none;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(14, 165, 233, 0.1);
+  word-break: break-all;
+  max-width: 100%;
+}
+
+.virtual-link-pill:hover {
+  background: #e0f2fe;
+  box-shadow: 0 3px 6px rgba(14, 165, 233, 0.2);
+  transform: translateY(-1px);
+}
+
+.virtual-link-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.virtual-link-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Room Cards - Disabled/Greyed Out State (for Virtual Events) */
+.room-cards-disabled {
+  position: relative;
+  pointer-events: none;
+}
+
+.room-cards-disabled::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+}
+
+.room-cards-disabled-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  background: white;
+  padding: 20px 40px;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.room-cards-disabled-message h4 {
+  margin: 0 0 8px 0;
+  color: #374151;
+  font-size: 16px;
+}
+
+.room-cards-disabled-message p {
+  margin: 0;
   color: #6b7280;
-  font-style: italic;
+  font-size: 14px;
 }
 
 /* Scheduling Assistant - Disabled/Greyed Out State */

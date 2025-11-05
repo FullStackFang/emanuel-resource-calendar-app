@@ -8,6 +8,27 @@ import LocationListSelect from './LocationListSelect';
 import './RoomReservationForm.css';
 
 /**
+ * Virtual Event Detection Utilities
+ */
+const isVirtualLocation = (locationString) => {
+  if (!locationString) return false;
+  const urlPattern = /^https?:\/\//i;
+  return urlPattern.test(locationString.trim());
+};
+
+const getVirtualPlatform = (locationString) => {
+  if (!locationString) return 'Virtual';
+  const lower = locationString.toLowerCase();
+
+  if (lower.includes('zoom.us')) return 'Zoom';
+  if (lower.includes('teams.microsoft.com') || lower.includes('teams.live.com')) return 'Teams';
+  if (lower.includes('meet.google.com')) return 'Google Meet';
+  if (lower.includes('webex.com')) return 'Webex';
+
+  return 'Virtual';
+};
+
+/**
  * RoomReservationFormBase - Shared logic and UI for room reservation forms
  * Used by both RoomReservationForm (creation) and RoomReservationReview (editing)
  */
@@ -470,7 +491,7 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
-            {/* All Day Event Toggle */}
+            {/* All Day Event Toggle with Virtual Event Platform */}
             <div className="all-day-toggle-wrapper">
               <button
                 type="button"
@@ -483,8 +504,31 @@ export default function RoomReservationFormBase({
               >
                 {formData.isAllDayEvent ? '✓ ' : ''}All Day Event
               </button>
-              <span className="all-day-toggle-help">Display as all-day in calendar</span>
+
+              {/* Virtual Event Platform Pill - Inline */}
+              {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
+                <div className="virtual-platform-pill">
+                  {getVirtualPlatform(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl)}
+                </div>
+              )}
             </div>
+
+            {/* Virtual Meeting Link Pill */}
+            {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
+              <div className="virtual-link-wrapper">
+                <a
+                  href={initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="virtual-link-pill"
+                >
+                  <span className="virtual-link-icon">🌐</span>
+                  <span className="virtual-link-text">
+                    {initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl}
+                  </span>
+                </a>
+              </div>
+            )}
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
@@ -620,7 +664,17 @@ export default function RoomReservationFormBase({
             )}
 
             <div className="room-selection-container">
-              <div className="room-cards-section">
+              <div className={`room-cards-section ${
+                (initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl)
+                  ? 'room-cards-disabled'
+                  : ''
+              }`}>
+                {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
+                  <div className="room-cards-disabled-message">
+                    <h4>🌐 Virtual Event</h4>
+                    <p>Physical location not required for virtual meetings</p>
+                  </div>
+                )}
                 {roomsLoading ? (
                   <div className="loading-message">Loading locations...</div>
                 ) : rooms.length === 0 ? (
@@ -642,7 +696,9 @@ export default function RoomReservationFormBase({
                 )}
               </div>
 
-              <div className={`scheduling-assistant-container ${formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''}`}>
+              <div className={`scheduling-assistant-container ${
+                formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''
+              }`}>
                 {formData.isAllDayEvent && (
                   <div className="scheduling-assistant-disabled-message">
                     <h4>All Day Event</h4>

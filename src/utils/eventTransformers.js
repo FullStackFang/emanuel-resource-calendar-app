@@ -75,6 +75,11 @@ export function transformEventToFlatStructure(event) {
     assignedTo: event.assignedTo || '',
     location: isCalendarEvent ? event.location?.displayName : (event.graphData?.location?.displayName || ''),
 
+    // Virtual meeting data (for online events)
+    virtualMeetingUrl: event.virtualMeetingUrl || event.graphData?.onlineMeetingUrl || null,
+    virtualPlatform: event.virtualPlatform || null,
+    graphData: event.graphData || null, // Preserve full graphData for fallback access
+
     _isNewUnifiedEvent: true // Flag to identify source
   };
 }
