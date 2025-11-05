@@ -196,20 +196,33 @@ async function createUnifiedEventIndexes() {
   try {
     console.log('Creating unified event indexes...');
     
-    // Unique index to prevent duplicate events
+    // Unique index to prevent duplicate events (by internal eventId)
     await unifiedEventsCollection.createIndex(
-      { 
-        userId: 1, 
-        calendarId: 1, 
-        eventId: 1 
+      {
+        userId: 1,
+        calendarId: 1,
+        eventId: 1
       },
-      { 
+      {
         name: "userId_calendarId_eventId_unique",
         unique: true,
-        background: true 
+        background: true
       }
     );
-    
+
+    // Unique index to prevent duplicate Graph events (by Graph's event ID)
+    await unifiedEventsCollection.createIndex(
+      {
+        userId: 1,
+        'graphData.id': 1
+      },
+      {
+        name: "userId_graphId_unique",
+        unique: true,
+        background: true
+      }
+    );
+
     // Index for efficient date range queries
     await unifiedEventsCollection.createIndex(
       { 
@@ -2603,11 +2616,11 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     }
     
     // Use upsert to handle updates while preserving internal data
-    // Query by internal eventId (UUID) since we already retrieved/generated it
+    // Query by graphData.id (Graph's unique identifier) to prevent duplicates
     const result = await unifiedEventsCollection.replaceOne(
       {
         userId: userId,
-        eventId: eventId // Use internal UUID, not Graph ID
+        'graphData.id': graphEvent.id // Use Graph ID to ensure uniqueness
       },
       unifiedEvent,
       { upsert: true }
@@ -3343,19 +3356,21 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
       for (const calendarId of calendarIds) {
         try {
-          // Build Graph API URL using /events endpoint with $filter (matching working frontend implementation)
+          // Build Graph API URL using /calendarView endpoint (auto-expands recurring series)
           const calendarPath = calendarId === 'primary'
-            ? '/me/events'
-            : `/me/calendars/${calendarId}/events`;
+            ? '/me/calendar/calendarView'
+            : `/me/calendars/${calendarId}/calendarView`;
+
+          const startISO = new Date(startTime).toISOString();
+          const endISO = new Date(endTime).toISOString();
 
           let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-            `$top=250` +
-            `&$orderby=start/dateTime desc` +
-            `&$filter=start/dateTime ge '${new Date(startTime).toISOString()}' and start/dateTime le '${new Date(endTime).toISOString()}'` +
-            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties`;
+            `startDateTime=${encodeURIComponent(startISO)}` +
+            `&endDateTime=${encodeURIComponent(endISO)}` +
+            `&$top=250` +
+            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
 
-          logger.log(`🌐 Calling Graph API (/events) for calendar ${calendarId.substring(0, 20)}...`);
-          logger.debug(`Full Graph API URL: ${nextLink}`);
+          logger.log(`🌐 Calling Graph API (/calendarView) for calendar ${calendarId.substring(0, 20)}...`);
 
           let graphEvents = [];
           let pageCount = 0;
@@ -3363,7 +3378,6 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           // Fetch all pages
           while (nextLink) {
             pageCount++;
-            logger.debug(`Fetching page ${pageCount} from Graph API...`);
 
             const response = await fetch(nextLink, {
               headers: {
@@ -3371,8 +3385,6 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 'Content-Type': 'application/json'
               }
             });
-
-            logger.debug(`Graph API response status: ${response.status} ${response.statusText}`);
 
             if (!response.ok) {
               const errorBody = await response.text();
@@ -3401,30 +3413,19 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               data = { value: [] };
             }
 
-            const eventsInPage = data.value ? data.value.length : 0;
-            logger.debug(`Page ${pageCount}: ${eventsInPage} events`);
-
             graphEvents = graphEvents.concat(data.value || []);
             nextLink = data['@odata.nextLink'] || null;
-
-            if (nextLink) {
-              logger.debug('More pages available, continuing...');
-            }
           }
 
           logger.log(`✅ Fetched ${graphEvents.length} total events from Graph API for calendar ${calendarId.substring(0, 20)}... (${pageCount} pages)`);
 
+          // Note: /calendarView automatically expands recurring series - no manual expansion needed!
+
           // Find new events not in cache
           const newEvents = graphEvents.filter(graphEvent => !cachedEventIds.has(graphEvent.id));
-          const duplicateCount = graphEvents.length - newEvents.length;
-
-          logger.log(`🔍 Deduplication for calendar ${calendarId.substring(0, 20)}...:`);
-          logger.log(`   📦 Total from Graph API: ${graphEvents.length}`);
-          logger.log(`   ♻️  Already in cache (duplicates): ${duplicateCount}`);
-          logger.log(`   ✨ New events to add: ${newEvents.length}`);
 
           if (newEvents.length > 0) {
-            logger.log(`📝 Sample new events: ${newEvents.slice(0, 3).map(e => e.subject || 'No Subject').join(', ')}`);
+            logger.log(`📝 Adding ${newEvents.length} new events (${graphEvents.length - newEvents.length} already cached)`);
 
             // Query database for existing events by graphData.id to get their eventIds
             const graphEventIds = newEvents.map(e => e.id);
@@ -3439,19 +3440,11 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               graphIdToEventIdMap.set(event.graphData.id, event.eventId);
             });
 
-            logger.debug(`Found ${existingEventsInDb.length} existing events in database out of ${newEvents.length} new events`);
-
             // Add to unified events array
             newEvents.forEach(graphEvent => {
               // Check if this event already exists in database by graphData.id
               const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
-
-              if (existingEventId) {
-                logger.debug(`Using existing eventId for ${graphEvent.subject}: ${eventId}`);
-              } else {
-                logger.debug(`Generated new eventId for ${graphEvent.subject}: ${eventId}`);
-              }
 
               const unifiedEvent = {
                 eventId: eventId, // Use existing UUID or generate new one
@@ -3473,7 +3466,8 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   organizer: graphEvent.organizer,
                   attendees: graphEvent.attendees || [],
                   extensions: graphEvent.extensions || [],
-                  singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || []
+                  singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || [],
+                  onlineMeetingUrl: graphEvent.onlineMeetingUrl || graphEvent.onlineMeeting?.joinUrl || null
                 },
                 internalData: {
                   mecCategories: [],
@@ -3498,7 +3492,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 _fromGraph: true // Mark as fresh from Graph
               };
 
-              unifiedEvents.push(unifiedEvent);
+              // Only add to unifiedEvents if not already in cache (prevent duplicates)
+              if (!cachedEventIds.has(graphEvent.id)) {
+                unifiedEvents.push(unifiedEvent);
+              }
+
+              // Always track for database sync
               newGraphEvents.push(unifiedEvent);
             });
           }
@@ -3534,8 +3533,6 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // STEP 3: Asynchronously sync new Graph events to cache for future renders
     if (newGraphEvents.length > 0) {
-      logger.debug(`Syncing ${newGraphEvents.length} new Graph events to cache asynchronously...`);
-
       // Don't await - let this run in background
       Promise.all(
         newGraphEvents.map(event =>
@@ -3549,9 +3546,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             logger.warn(`Failed to cache event ${event.eventId}:`, err.message);
           })
         )
-      ).then(() => {
-        logger.debug(`Successfully synced ${newGraphEvents.length} events to cache`);
-      }).catch(err => {
+      ).catch(err => {
         logger.warn('Error in background cache sync:', err);
       });
     }
@@ -3612,17 +3607,32 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     const graphCount = newGraphEvents.length;
 
     logger.log(`\n${'='.repeat(60)}`);
-    logger.log(`📊 HYBRID LOAD COMPLETE - Summary`);
+    logger.log(`📊 EVENTS LOADED - Summary`);
     logger.log(`${'='.repeat(60)}`);
-    logger.log(`👤 User: ${userId}`);
-    logger.log(`📅 Calendars: ${calendarIds.length}`);
-    logger.log(`📦 From Cache: ${cachedCount} events`);
-    logger.log(`🌐 From Graph API: ${graphCount} events (new)`);
-    logger.log(`📋 Total Events: ${transformedLoadEvents.length}`);
-    logger.log(`⚠️  Errors: ${loadResults.errors.length}`);
+    logger.log(`📅 Calendars: ${calendarIds.length} | 📋 Total Events: ${transformedLoadEvents.length}`);
+    logger.log(`📦 From Cache: ${cachedCount} | 🌐 From Graph API: ${graphCount} (new)`);
+
+    // Log details of loaded events
+    if (transformedLoadEvents.length > 0) {
+      logger.log(`\n📋 Event Details:`);
+      transformedLoadEvents
+        .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
+        .forEach((event, idx) => {
+          const eventDate = new Date(event.start.dateTime).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+          const location = event.location?.displayName || 'No location';
+          logger.log(`  ${idx + 1}. "${event.subject}" | ${eventDate} | ${location} | ID: ${event.eventId?.substring(0, 8)}...`);
+        });
+    }
+
     if (loadResults.errors.length > 0) {
+      logger.log(`\n⚠️  Errors: ${loadResults.errors.length}`);
       loadResults.errors.forEach((err, idx) => {
-        logger.error(`   Error ${idx + 1}: ${err.error} (calendar: ${err.calendarId.substring(0, 20)}..., step: ${err.step})`);
+        logger.error(`   ${idx + 1}. ${err.error} (calendar: ${err.calendarId.substring(0, 20)}...)`);
       });
     }
     logger.log(`${'='.repeat(60)}\n`);
@@ -5022,16 +5032,16 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
     }
     
     try {
-      // Fetch events from Graph API
-      const calendarPath = calendarId ? 
-        `/me/calendars/${calendarId}/events` : 
-        '/me/events';
-      
-      const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` + 
-        `$filter=start/dateTime ge '${startDate.toISOString()}' and start/dateTime le '${endDate.toISOString()}'&` +
-        `$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,seriesMasterId,type,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
+      // Fetch events from Graph API using calendarView (auto-expands recurring series)
+      const calendarPath = calendarId ?
+        `/me/calendars/${calendarId}/calendarView` :
+        '/me/calendar/calendarView';
+
+      const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
+        `startDateTime=${encodeURIComponent(startDate.toISOString())}&` +
+        `endDateTime=${encodeURIComponent(endDate.toISOString())}&` +
+        `$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
         `$expand=extensions&` +
-        `$orderby=start/dateTime&` +
         `$top=1000`;
       
       const graphResponse = await fetch(graphUrl, {
@@ -6174,13 +6184,13 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
         // Fetch sample of new events from Graph API for each calendar
         for (const calendarId of calendarIds) {
           try {
-            const eventsPath = calendarId === 'primary' 
-              ? '/me/events' 
-              : `/me/calendars/${calendarId}/events`;
-            
-            const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` + 
-              `$filter=start/dateTime ge '${startDateTime.toISOString()}' and ` +
-              `end/dateTime le '${endDateTime.toISOString()}'` +
+            const eventsPath = calendarId === 'primary'
+              ? '/me/calendar/calendarView'
+              : `/me/calendars/${calendarId}/calendarView`;
+
+            const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` +
+              `startDateTime=${encodeURIComponent(startDateTime.toISOString())}&` +
+              `endDateTime=${encodeURIComponent(endDateTime.toISOString())}` +
               `&$select=id,subject,start,end,location` +
               `&$top=100`; // Limit to first 100 events per calendar for preview
 
@@ -6401,14 +6411,15 @@ async function processMigration(sessionId, userId, graphToken, startDate, endDat
       
       session.currentCalendar = calendarId;
       
-      // Fetch events from Graph API
-      const calendarPath = calendarId === 'primary' 
-        ? '/me/events' 
-        : `/me/calendars/${calendarId}/events`;
-      
+      // Fetch events from Graph API using calendarView
+      const calendarPath = calendarId === 'primary'
+        ? '/me/calendar/calendarView'
+        : `/me/calendars/${calendarId}/calendarView`;
+
       let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-        `$filter=start/dateTime ge '${startDate}' and end/dateTime le '${endDate}'` +
-        `&$top=100&$orderby=start/dateTime`;
+        `startDateTime=${encodeURIComponent(startDate)}&` +
+        `endDateTime=${encodeURIComponent(endDate)}&` +
+        `$top=100`;
       
       while (nextLink && session.status === 'running') {
         const response = await fetch(nextLink, {

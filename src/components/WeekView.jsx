@@ -13,6 +13,7 @@ const WeekView = memo(({
   formatDateHeader,
   getEventPosition,
   filteredEvents,
+  locationGroups, // Use pre-computed location groups from Calendar.jsx
   getCategoryColor,
   getLocationColor,
   handleDayCellClick,
@@ -42,26 +43,25 @@ const WeekView = memo(({
   
   // Helper function to get the display location for an event
   const getEventDisplayLocation = (event) => {
+    // Check if event has no location
     if (isUnspecifiedLocation(event)) {
       return 'Unspecified';
-    } else if (isEventVirtual(event)) {
-      return 'Virtual';
-    } else {
-      // Return the first physical location
-      const locationText = event.location?.displayName?.trim() || '';
-      const eventLocations = locationText
-        .split(/[;,]/)
-        .map(loc => loc.trim())
-        .filter(loc => loc.length > 0);
-      
-      // Find first non-virtual location
-      for (const location of eventLocations) {
-        if (!isVirtualLocation(location)) {
-          return location;
-        }
-      }
+    }
+
+    // Get location text and parse it
+    const locationText = event.location?.displayName?.trim() || '';
+    const eventLocations = locationText
+      .split(/[;,]/)
+      .map(loc => loc.trim())
+      .filter(loc => loc.length > 0);
+
+    // If no valid locations after parsing, treat as Unspecified
+    if (eventLocations.length === 0) {
       return 'Unspecified';
     }
+
+    // Return the first location
+    return eventLocations[0];
   };
   
   // Get categories/locations that actually have events to display
@@ -69,31 +69,24 @@ const WeekView = memo(({
     if (groupBy === 'categories') {
       // Get categories that have events and are selected
       const categoriesWithEvents = new Set();
-      
+
       filteredEvents.forEach(event => {
         const category = event.category || 'Uncategorized';
         if (selectedCategories.includes(category)) {
           categoriesWithEvents.add(category);
         }
       });
-      
+
       // Return sorted array of categories that have events
       return Array.from(categoriesWithEvents).sort();
     } else {
-      // Get locations that have events and are selected
-      const locationsWithEvents = new Set();
-      
-      filteredEvents.forEach(event => {
-        const displayLocation = getEventDisplayLocation(event);
-        if (selectedLocations.includes(displayLocation)) {
-          locationsWithEvents.add(displayLocation);
-        }
-      });
-      
-      // Return sorted array of locations that have events
-      return Array.from(locationsWithEvents).sort();
+      // Use pre-computed location groups from Calendar.jsx
+      // Filter to only show groups that have events
+      return Object.keys(locationGroups).filter(groupName => {
+        return locationGroups[groupName] && locationGroups[groupName].length > 0;
+      }).sort();
     }
-  }, [groupBy, filteredEvents, selectedCategories, selectedLocations]);
+  }, [groupBy, filteredEvents, selectedCategories, locationGroups]);
 
   return (
     <>
@@ -167,18 +160,21 @@ const WeekView = memo(({
                 {/* Events for this group and day */}
                 {(() => {
                   // Filter events for this group and day
-                  const dayEvents = filteredEvents.filter(event => {
-                    // Check if event is for this day
-                    if (!getEventPosition(event, day)) return false;
-                    
-                    if (groupBy === 'categories') {
+                  let groupEvents;
+                  if (groupBy === 'categories') {
+                    // For categories, filter from filteredEvents
+                    groupEvents = filteredEvents.filter(event => {
                       const category = event.category || 'Uncategorized';
                       return category === group;
-                    } else {
-                      // FIXED: Use proper location detection
-                      const displayLocation = getEventDisplayLocation(event);
-                      return displayLocation === group;
-                    }
+                    });
+                  } else {
+                    // For locations, use pre-computed locationGroups
+                    groupEvents = locationGroups[group] || [];
+                  }
+
+                  // Filter to events for this specific day
+                  const dayEvents = groupEvents.filter(event => {
+                    return getEventPosition(event, day);
                   });
 
                   // Sort events by start time

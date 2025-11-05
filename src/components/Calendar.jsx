@@ -102,6 +102,9 @@
     const [baseCategories, setBaseCategories] = useState([]); // Base categories from database
     const [schemaExtensions, setSchemaExtensions] = useState([]);
 
+    // Track last summary time to prevent duplicate summaries
+    const lastSummaryTimeRef = useRef(0);
+
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
     const setAllEvents = useCallback((newEvents) => {
       // Validate the new events
@@ -112,32 +115,33 @@
       
       // Setting events
 
-      // Debug logging for event state updates
-      if (newEvents.length > 0 && logger.isDebugEnabled()) {
-        logger.debug(`📌 SETTING ${newEvents.length} EVENTS IN STATE`);
+      // High-level summary logging for event state updates (throttled to once per 2 seconds)
+      const now = Date.now();
+      const timeSinceLastSummary = now - lastSummaryTimeRef.current;
 
-        // Analyze body content in the events being set
-        const withBody = newEvents.filter(e => e.body?.content).length;
-        const withPreview = newEvents.filter(e => e.bodyPreview && !e.body?.content).length;
-        const noDescription = newEvents.length - withBody - withPreview;
+      if (newEvents.length > 0 && timeSinceLastSummary > 2000) {
+        lastSummaryTimeRef.current = now;
 
-        logger.debug(`   📝 With full body: ${withBody}`);
-        logger.debug(`   📄 With bodyPreview only: ${withPreview}`);
-        logger.debug(`   ❌ No description: ${noDescription}`);
+        // Group events by category
+        const categoryCounts = {};
+        const locationCounts = {};
+        newEvents.forEach(event => {
+          const category = event.category || 'Uncategorized';
+          const location = event.location?.displayName || 'Unspecified';
+          categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+          locationCounts[location] = (locationCounts[location] || 0) + 1;
+        });
 
-        // Check for test description events
-        const testEvents = newEvents.filter(e =>
-          e.body?.content?.includes('Test description') ||
-          e.bodyPreview?.includes('Test description') ||
-          e.description?.includes('Test description')
-        );
-        if (testEvents.length > 0) {
-          console.log('setAllEvents DEBUG - Test description events in state:', testEvents.map(e => ({
-            id: e.id,
-            subject: e.subject,
-            bodyContent: e.body?.content,
-            bodyPreview: e.bodyPreview
-          })));
+        logger.info(`\n📊 EVENT LOADING SUMMARY`);
+        logger.info(`   Total events loaded: ${newEvents.length}`);
+        logger.info(`   Categories: ${Object.keys(categoryCounts).length} (${Object.entries(categoryCounts).map(([k,v]) => `${k}: ${v}`).join(', ')})`);
+        logger.info(`   Locations: ${Object.keys(locationCounts).length} (${Object.entries(locationCounts).slice(0, 5).map(([k,v]) => `${k}: ${v}`).join(', ')}${Object.keys(locationCounts).length > 5 ? '...' : ''})`);
+
+        // Sample event titles
+        if (newEvents.length <= 5) {
+          logger.info(`   Events: ${newEvents.map(e => e.subject).join(', ')}`);
+        } else {
+          logger.info(`   Sample events: ${newEvents.slice(0, 3).map(e => e.subject).join(', ')} ...and ${newEvents.length - 3} more`);
         }
       }
 
@@ -155,7 +159,7 @@
     }, [allEvents]);
 
     // UI state
-    const [groupBy, setGroupBy] = useState('categories'); 
+    const [groupBy, setGroupBy] = useState('locations');
     const [viewType, setViewType] = useState('week');
     const [zoomLevel, setZoomLevel] = useState(100);
     const [selectedFilter, setSelectedFilter] = useState(''); 
@@ -649,16 +653,16 @@
       const hasPhysicalLocation = useCallback((event, targetLocation) => {
         const locationText = event.location?.displayName?.trim() || '';
         if (!locationText) return false;
-        
+
         const eventLocations = locationText
           .split(/[;,]/)
           .map(loc => loc.trim())
           .filter(loc => loc.length > 0);
-        
-        return eventLocations.some(location => 
-          !isVirtualLocation(location) && location === targetLocation
+
+        return eventLocations.some(location =>
+          location === targetLocation
         );
-      }, [isVirtualLocation]);
+      }, []);
 
       /**
        * TBD
@@ -794,18 +798,16 @@
     const updateUserProfilePreferences = async (updates) => {
       // No User Updates if in Demo Mode
       if (isDemoMode) {
-        logger.debug("Demo mode active - user preferences not saved:", updates);
         return false;
       }
-      
+
       // No User Updates if no API Token
       if (!apiToken) {
         logger.warn("No API token available for updating preferences");
         return false;
       }
-      
+
       try {
-        logger.debug("Updating user preferences:", updates);
         
         const response = await fetch(`${API_BASE_URL}/users/current/preferences`, {
           method: 'PATCH',  // Or whatever method your API expects
@@ -827,7 +829,6 @@
           ...updates
         }));
         
-        logger.debug("User preferences updated successfully");
         return true;
       } catch (error) {
         logger.error("Error updating user preferences:", error);
@@ -840,12 +841,10 @@
      */
     const loadCurrentUser = useCallback(async () => {
       if (!apiToken) {
-        logger.debug("No API token available for loading current user");
         return;
       }
-      
+
       try {
-        logger.debug("Loading current user information");
         
         const response = await fetch(`${API_BASE_URL}/users/current`, {
           method: 'GET',
@@ -861,7 +860,6 @@
         }
         
         const userData = await response.json();
-        logger.debug("Current user loaded:", userData);
         
         setCurrentUser({
           name: userData.name || userData.displayName,
@@ -930,7 +928,6 @@
         }
 
         const categories = await response.json();
-        logger.debug('Loaded base categories:', categories.length);
         return categories;
       } catch (err) {
         logger.error('Error loading base categories:', err);
@@ -1030,12 +1027,7 @@
         
         // Get events through the service (demo mode)
         const events = await calendarDataService.getEvents(dateRange);
-        
-        logger.debug(`[loadDemoEvents] Loaded ${events.length} demo events for date range:`, {
-          start: dateRange.start.toISOString(),
-          end: dateRange.end.toISOString()
-        });
-        
+
         setAllEvents(events);
         return true;
         
@@ -1054,18 +1046,7 @@
      *
     */
     const loadGraphEvents = useCallback(async () => {
-      logger.debug("🔍 CALLED: loadGraphEvents");
       if (!graphToken) { return; }
-
-      // FORCE REFRESH DEBUG: Log function entry
-      console.log('Force Refresh DEBUG: loadGraphEvents started', {
-        timestamp: new Date().toISOString(),
-        selectedCalendarId,
-        dateRange: {
-          start: dateRange.start.toISOString(),
-          end: dateRange.end.toISOString()
-        }
-      });
 
       setLoading(true);
       try {
@@ -1078,12 +1059,6 @@
         
         // 2. Pull down your registered schema‑extension IDs
         const extIds = schemaExtensions.map(e => e.id);
-        
-        if (extIds.length === 0) {
-          // No schema extensions registered; skipping extension expand
-        } else {
-          logger.debug("Found schema extensions:", extIds);
-        }
     
         // 3. Build your extensionName filter (OData)
         const extFilter = extIds
@@ -1113,39 +1088,6 @@
           const js = await resp.json();
           all = all.concat(js.value || []);
           nextLink = js["@odata.nextLink"] || null;
-
-          // FORCE REFRESH DEBUG: Log raw Graph API response
-          if (js.value && js.value.length > 0) {
-            console.log('Force Refresh DEBUG: Raw Graph API response batch', {
-              eventCount: js.value.length,
-              hasNextLink: !!nextLink,
-              sampleEvents: js.value.slice(0, 3).map(event => ({
-                id: event.id,
-                subject: event.subject,
-                hasBody: !!event.body,
-                bodyContent: event.body?.content,
-                bodyContentType: event.body?.contentType,
-                bodyPreview: event.bodyPreview,
-                description: event.description
-              }))
-            });
-
-            // Look specifically for "Test description" events
-            const testEvents = js.value.filter(event =>
-              event.body?.content?.includes('Test description') ||
-              event.bodyPreview?.includes('Test description') ||
-              event.description?.includes('Test description')
-            );
-            if (testEvents.length > 0) {
-              console.log('Force Refresh DEBUG: Found events with "Test description" in raw response:', testEvents.map(event => ({
-                id: event.id,
-                subject: event.subject,
-                bodyContent: event.body?.content,
-                bodyPreview: event.bodyPreview,
-                description: event.description
-              })));
-            }
-          }
         }
     
         // 5. Check for linked registration events and extract setup/teardown data
@@ -1162,17 +1104,10 @@
               const eventTypeProp = evt.singleValueExtendedProperties.find(
                 prop => prop.id === 'String {66f5a359-4659-4830-9070-00047ec6ac6f} Name Emanuel-Calendar-App_eventType'
               );
-              
-              logger.debug('loadGraphEvents: Found extended properties for', evt.subject, {
-                linkedEventId: linkedEventIdProp?.value,
-                eventType: eventTypeProp?.value
-              });
-              
+
               if (linkedEventIdProp && eventTypeProp?.value === 'main') {
                 // This is a main event with a linked registration event
-                logger.debug('loadGraphEvents: Attempting to find linked event for main event:', evt.subject);
                 const linkedEvent = await findLinkedEvent(graphToken, evt.id);
-                logger.debug('loadGraphEvents: findLinkedEvent result:', linkedEvent ? 'Found' : 'Not found');
                 if (linkedEvent) {
                   // Calculate setup and teardown times
                   const mainStart = new Date(evt.start.dateTime);
@@ -1199,14 +1134,6 @@
                     registrationStart: linkedEvent.start.dateTime,
                     registrationEnd: linkedEvent.end.dateTime
                   };
-                  logger.debug('loadGraphEvents: Found event with registration data:', {
-                    subject: evt.subject,
-                    hasRegistrationEvent: true,
-                    setupMinutes: enrichedEvent.setupMinutes,
-                    teardownMinutes: enrichedEvent.teardownMinutes,
-                    registrationStart: enrichedEvent.registrationStart,
-                    registrationEnd: enrichedEvent.registrationEnd
-                  });
                   return enrichedEvent;
                 }
               }
@@ -1217,34 +1144,17 @@
           
           return evt;
         }));
-        
-        // DEBUG: Log summary of events with registration data
-        const eventsWithRegistration = eventsWithRegistrationData.filter(evt => evt.hasRegistrationEvent);
-        // Events with registration data processed
-        
-        // FORCE REFRESH DEBUG: Log all events before conversion
-        console.log('Force Refresh DEBUG: Total events before conversion', {
-          totalEvents: eventsWithRegistrationData.length,
-          eventsWithTestDescription: eventsWithRegistrationData.filter(evt =>
-            evt.body?.content?.includes('Test description') ||
-            evt.bodyPreview?.includes('Test description') ||
-            evt.description?.includes('Test description')
-          ).length
-        });
 
         // 6. Normalize into your UI model
         const converted = eventsWithRegistrationData.map(evt => {
           // Extract extension data
           const extData = {};
           if (evt.extensions && evt.extensions.length > 0) {
-            logger.debug(`Processing extensions for event ${evt.id}:`, evt.extensions);
-            
             // Flatten out any extension props
             evt.extensions.forEach(x =>
               Object.entries(x).forEach(([k, v]) => {
                 if (!k.startsWith("@") && k !== "id" && k !== "extensionName") {
                   extData[k] = v;
-                  logger.debug(`  Extracted property: ${k} = ${v}`);
                 }
               })
             );
@@ -1268,11 +1178,9 @@
                 // Check if this event likely belongs to the default calendar
                 // (In most cases, events from /me/events without specific calendar info are from the default calendar)
                 eventCalendarId = defaultCalendar.id;
-                logger.debug(`Assigned default calendar ID ${defaultCalendar.id} to event: ${evt.subject}`);
               } else if (availableCalendars.length === 1) {
                 // If only one calendar available, use it
                 eventCalendarId = availableCalendars[0].id;
-                logger.debug(`Assigned only available calendar ID ${availableCalendars[0].id} to event: ${evt.subject}`);
               } else {
                 // Multiple calendars but no default - this is a problem
                 logger.warn(`Could not determine calendar ID for event: ${evt.subject}. Available calendars:`, availableCalendars.map(c => c.name));
@@ -1280,7 +1188,6 @@
             }
           }
           
-          // FORCE REFRESH DEBUG: Track body field conversion
           const convertedEvent = {
             id: evt.id,
             subject: evt.subject,
@@ -1310,22 +1217,6 @@
             registrationStart: evt.registrationStart || null,
             registrationEnd: evt.registrationEnd || null
           };
-
-          // DEBUG: Log specific events with Test description
-          if (evt.body?.content?.includes('Test description') ||
-              evt.bodyPreview?.includes('Test description') ||
-              evt.description?.includes('Test description')) {
-            console.log('Force Refresh DEBUG: Converting event with Test description:', {
-              id: evt.id,
-              subject: evt.subject,
-              originalBody: evt.body,
-              originalBodyPreview: evt.bodyPreview,
-              originalDescription: evt.description,
-              convertedBody: convertedEvent.body,
-              convertedBodyPreview: convertedEvent.bodyPreview,
-              convertedDescription: convertedEvent.description
-            });
-          }
 
           return convertedEvent;
         });
@@ -1515,31 +1406,20 @@
      * @param {boolean} forceRefresh - Force refresh from Graph API
      */
     const loadEventsWithCache = useCallback(async (forceRefresh = false) => {
-      logger.debug("🔍 CALLED: loadEventsWithCache", { forceRefresh });
       if (!graphToken) {
-        logger.debug("loadEventsWithCache: Missing graph token - returning false");
         return false;
       }
 
       // If no calendar is selected, fall back to direct Graph API loading
       if (!selectedCalendarId) {
-        // No calendar selected, falling back to Graph API loading
         return await loadGraphEvents();
       }
 
       setLoading(true);
-      
+
       try {
         // Prepare parameters for cache query
         const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
-        
-        logger.debug('loadEventsWithCache: Starting load', {
-          calendarId: selectedCalendarId,
-          startTime: start,
-          endTime: end,
-          forceRefresh,
-          hasApiToken: !!apiToken
-        });
 
         if (apiToken && !forceRefresh) {
           // Try cache-first approach
@@ -1553,55 +1433,32 @@
               endTime: end,
               forceRefresh: false
             });
-            
-            logger.debug('loadEventsWithCache: Cache service response', {
-              source: cacheResult.source,
-              count: cacheResult.events?.length || 0,
-              needsGraphApi: cacheResult.needsGraphApi
-            });
-            
+
             if (cacheResult.source === 'cache' && cacheResult.events.length > 0) {
-              logger.debug('loadEventsWithCache: Using cached events', {
-                count: cacheResult.events.length,
-                cachedAt: cacheResult.cachedAt
-              });
               setAllEvents(cacheResult.events);
-              
+
               // Also check if there are any missing events in this date range that need caching
               // by running a parallel Graph API call to fill gaps
               setTimeout(async () => {
                 try {
-                  logger.debug('loadEventsWithCache: Checking for missing events in date range');
-                  const graphSuccess = await loadGraphEvents();
-                  if (graphSuccess) {
-                    logger.debug('loadEventsWithCache: Background Graph API call completed, events refreshed');
-                  }
+                  await loadGraphEvents();
                 } catch (error) {
                   logger.warn('loadEventsWithCache: Background Graph API call failed:', error);
                 }
               }, 1000); // Delay to avoid interfering with UI
-              
+
               return true;
             } else if (cacheResult.source === 'graph_fallback' && cacheResult.events.length >= 0) {
               // Cache miss - backend already fetched from Graph API and cached events
-              logger.debug('loadEventsWithCache: Using Graph API fallback from cache service', {
-                count: cacheResult.events.length,
-                message: cacheResult.message
-              });
               setAllEvents(cacheResult.events);
               return true;
             }
           } catch (cacheError) {
             logger.warn('loadEventsWithCache: Cache loading failed, falling back to Graph API', cacheError);
           }
-        } else {
-          logger.debug('loadEventsWithCache: Skipping cache', { 
-            reason: !apiToken ? 'No API token' : 'Force refresh requested' 
-          });
         }
 
         // Cache miss, stale data, or force refresh - use Graph API
-        logger.debug('loadEventsWithCache: Loading from Graph API', { forceRefresh });
         const success = await loadGraphEvents();
         
         // Events are automatically cached in loadGraphEvents if successful
@@ -1621,7 +1478,6 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null) => {
-      logger.debug("🔍 CALLED: loadEventsUnified", { forceRefresh, hasGraphToken: !!graphToken, hasApiToken: !!apiToken });
       if (!graphToken || !apiToken) {
         logger.debug("loadEventsUnified: Missing tokens - returning false");
         return false;
@@ -1648,14 +1504,9 @@
           const primaryCalendar = calendarsToUse.find(cal => cal.isDefaultCalendar || cal.owner?.name === currentUser?.name);
           if (primaryCalendar) {
             calendarIds.push(primaryCalendar.id);
-            logger.debug('loadEventsUnified: Found primary calendar', { 
-              id: primaryCalendar.id, 
-              name: primaryCalendar.name 
-            });
           } else if (calendarsToUse.length > 0) {
             // Fallback to first available calendar
             calendarIds.push(calendarsToUse[0].id);
-            // Using first available calendar
           } else {
             logger.warn('loadEventsUnified: No available calendars found');
           }
@@ -1676,36 +1527,15 @@
           const calendar = calendarsToUse.find(c => c.id === id);
           return { id, name: calendar?.name || 'Unknown', isSelected: id === selectedCalendarId };
         });
-        
-        logger.debug('🔍 FUNCTION CALLED: loadEventsUnified - Final calendar IDs for sync', { 
-          calendarIds,
-          count: calendarIds.length,
-          calendars: calendarDetails
-        });
-        
+
         // Consolidated calendar load message
         const selectedCalendar = calendarsToUse.find(c => c.id === selectedCalendarId);
         const dateRangeStr = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
         console.log(`📅 Loading: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
 
-        logger.debug('loadEventsUnified: Starting unified delta sync', {
-          calendarIds,
-          startTime: start,
-          endTime: end,
-          forceRefresh
-        });
-        
         // Initialize unified event service
         unifiedEventService.setApiToken(apiToken);
         unifiedEventService.setGraphToken(graphToken);
-
-        // DEBUG: Log before backend call
-        logger.debug('🔍 loadEventsUnified: About to call backend unifiedEventService.loadEvents', {
-          calendarIds,
-          startTime: start,
-          endTime: end,
-          forceRefresh
-        });
 
         // Perform regular events loading (replaces problematic delta sync)
         let loadResult;
@@ -1716,35 +1546,20 @@
             endTime: end,
             forceRefresh: forceRefresh
           });
-
-          // DEBUG: Log immediate result
-          logger.debug('🔍 loadEventsUnified: Backend call returned', {
-            hasResult: !!loadResult,
-            resultType: typeof loadResult,
-            hasEvents: !!(loadResult?.events),
-            eventCount: loadResult?.events?.length || 0
-          });
         } catch (backendError) {
-          logger.error('🔍 loadEventsUnified: Backend call threw error', backendError);
+          logger.error('Backend events load error:', backendError);
           throw backendError;
         }
 
         // Check if loadResult is valid
         if (!loadResult) {
-          logger.error('🔍 loadEventsUnified: Backend returned null/undefined');
+          logger.error('Backend returned no results');
           throw new Error('Backend service returned null/undefined');
         }
 
-        logger.debug('loadEventsUnified: Regular events load completed', {
-          source: loadResult.source,
-          eventCount: loadResult.count,
-          loadResults: loadResult.loadResults
-        });
-        
         // Only update events if we got actual results
         // Don't clear existing events if regular load returns empty
         if (loadResult.events && loadResult.events.length > 0) {
-          logger.debug('loadEventsUnified: Setting events from regular load', { count: loadResult.events.length });
           
           // Get selected calendar name for logging
           const selectedCalendar = availableCalendars.find(c => c.id === selectedCalendarId);
@@ -1755,57 +1570,6 @@
           let eventsToDisplay = loadResult.events;
 
           console.log(`📊 ${eventsToDisplay.length} events | Source: ${loadResult.source || 'unknown'}`);
-
-          // Detailed logging only in debug mode
-          if (logger.isDebugEnabled() && eventsToDisplay.length > 0) {
-            // Count events with body content
-            const eventsWithBody = eventsToDisplay.filter(e => e.body?.content);
-            const eventsWithBodyPreview = eventsToDisplay.filter(e => e.bodyPreview && !e.body?.content);
-
-            logger.debug(`Body Content Analysis:`);
-            logger.debug(`   - Events with full body: ${eventsWithBody.length}/${eventsToDisplay.length}`);
-            logger.debug(`   - Events with only bodyPreview: ${eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
-            logger.debug(`   - Events with no description: ${eventsToDisplay.length - eventsWithBody.length - eventsWithBodyPreview.length}/${eventsToDisplay.length}`);
-
-            // Show first few events with their body structure
-            const eventBodySummary = eventsToDisplay.slice(0, 3).map(e => ({
-              subject: e.subject,
-              calendarId: e.calendarId?.substring(0, 20) + '...',
-              start: e.start?.dateTime || e.start?.date,
-              hasBody: !!e.body,
-              bodyContent: e.body?.content?.substring(0, 50),
-              bodyContentType: e.body?.contentType,
-              bodyPreview: e.bodyPreview?.substring(0, 50),
-              description: e.description?.substring(0, 50)
-            }));
-            logger.debug('Sample events with body data:', eventBodySummary);
-
-            // Look for events with "Test description"
-            const testDescEvents = eventsToDisplay.filter(e =>
-              e.body?.content?.includes('Test description') ||
-              e.bodyPreview?.includes('Test description') ||
-              e.description?.includes('Test description')
-            );
-            if (testDescEvents.length > 0) {
-              logger.debug('Found events with "Test description":', testDescEvents.map(e => ({
-                id: e.id,
-                subject: e.subject,
-                bodyContent: e.body?.content,
-                bodyPreview: e.bodyPreview,
-                description: e.description
-              })));
-            }
-          }
-
-          // Log event details for debugging
-          if (calendarDebug.isEnabled && eventsToDisplay.length > 0) {
-            const eventSummary = eventsToDisplay.slice(0, 5).map(e => ({
-              subject: e.subject,
-              calendarId: e.calendarId?.substring(0, 20) + '...',
-              start: e.start?.dateTime || e.start?.date
-            }));
-            logger.debug('Sample events:', eventSummary);
-          }
           
           // Log the events we're setting
           calendarDebug.logEventsLoaded(selectedCalendarId, selectedCalendarName, eventsToDisplay);
@@ -1824,7 +1588,6 @@
           // No events returned but no errors - this might be legitimate (empty calendar)
           // Only clear events if this was explicitly a successful empty result
           if (loadResult.source === 'regular_load' && loadResult.loadResults?.totalEvents === 0) {
-            logger.debug('loadEventsUnified: Calendar is empty, clearing events');
             setAllEvents([]);
             return true;
           } else {
@@ -1855,7 +1618,6 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null) => {
-      logger.debug("🔍 CALLED: loadEvents", { forceRefresh, calendarsData: !!calendarsData });
       calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
       
       try {
@@ -2611,101 +2373,80 @@
      */
     const getDynamicLocations = useCallback(() => {
       const locationsSet = new Set();
-      
+
       // Add all locations from templeEvents__Locations collection (primary source)
       generalLocations.forEach(location => {
         if (location.name) {
           locationsSet.add(location.name);
         }
       });
-      
-      // Only add special handling for events without locations or virtual locations
-      // if corresponding database entries exist
-      const hasUnspecifiedInDb = generalLocations.some(loc => 
-        loc.name && loc.name.toLowerCase() === 'unspecified'
-      );
-      const hasVirtualInDb = generalLocations.some(loc => 
-        loc.name && (loc.name.toLowerCase() === 'virtual' || loc.name.toLowerCase() === 'microsoft teams meeting')
-      );
-      
-      // Process events only to determine if we need Unspecified or Virtual from database
+
+      // Track if we need to add Unspecified or Virtual for events
+      let hasEventsWithoutLocation = false;
+
+      // Process events to find locations and check for special cases
       allEvents.forEach(event => {
         const locationText = event.location?.displayName?.trim() || '';
-        
+
         if (!locationText) {
-          // Empty or null location - only add Unspecified if it exists in database
-          if (hasUnspecifiedInDb) {
-            const unspecifiedLocation = generalLocations.find(loc => 
-              loc.name && loc.name.toLowerCase() === 'unspecified'
-            );
-            if (unspecifiedLocation) {
-              locationsSet.add(unspecifiedLocation.name);
-            }
-          }
+          // Empty or null location - we'll need Unspecified
+          hasEventsWithoutLocation = true;
           return;
         }
-        
+
         // Split multiple locations by semicolon or comma
         const eventLocations = locationText
           .split(/[;,]/)
           .map(loc => loc.trim())
           .filter(loc => loc.length > 0);
-        
+
         if (eventLocations.length === 0) {
-          // Empty location list - only add Unspecified if it exists in database
-          if (hasUnspecifiedInDb) {
-            const unspecifiedLocation = generalLocations.find(loc => 
-              loc.name && loc.name.toLowerCase() === 'unspecified'
-            );
-            if (unspecifiedLocation) {
-              locationsSet.add(unspecifiedLocation.name);
-            }
-          }
+          // Empty location list - we'll need Unspecified
+          hasEventsWithoutLocation = true;
           return;
         }
-        
-        // Check if ANY location is virtual - if so, add Virtual from database
-        const hasVirtualLocation = eventLocations.some(location => isVirtualLocation(location));
-        if (hasVirtualLocation && hasVirtualInDb) {
-          const virtualLocation = generalLocations.find(loc => 
-            loc.name && (loc.name.toLowerCase() === 'virtual' || loc.name.toLowerCase() === 'microsoft teams meeting')
-          );
-          if (virtualLocation) {
-            locationsSet.add(virtualLocation.name);
-          }
-        }
-        
-        // Only add locations that exist in the database
+
+        // Add all locations from events
         eventLocations.forEach(location => {
-          if (!isVirtualLocation(location)) {
-            // Check if this location matches a general location name (case-insensitive)
-            const matchingGeneral = generalLocations.find(loc => 
-              loc.name && loc.name.toLowerCase() === location.toLowerCase()
-            );
-            
-            if (matchingGeneral) {
-              // Use the canonical name from the general locations database
-              locationsSet.add(matchingGeneral.name);
-            }
-            // Note: We no longer add non-database locations
+          // Check if this location matches a general location name (case-insensitive)
+          const matchingGeneral = generalLocations.find(loc =>
+            loc.name && loc.name.toLowerCase() === location.toLowerCase()
+          );
+
+          if (matchingGeneral) {
+            // Use the canonical name from the general locations database
+            locationsSet.add(matchingGeneral.name);
           }
+          // Note: We no longer add non-database locations
         });
       });
-      
-      // Convert to sorted array - since all locations are now from database, simple sort
+
+      // Add "Unspecified" if there are events without locations
+      if (hasEventsWithoutLocation) {
+        // Check if there's an "Unspecified" in the database
+        const unspecifiedInDb = generalLocations.find(loc =>
+          loc.name && loc.name.toLowerCase() === 'unspecified'
+        );
+        if (unspecifiedInDb) {
+          locationsSet.add(unspecifiedInDb.name);
+        } else {
+          // Add "Unspecified" even if not in database
+          locationsSet.add('Unspecified');
+        }
+      }
+
+      // Convert to sorted array - alphabetical with Unspecified last
       const locationsArray = Array.from(locationsSet).sort((a, b) => {
-        // Sort with Virtual first, then alphabetical, then Unspecified last
-        if (a.toLowerCase().includes('virtual') && !b.toLowerCase().includes('virtual')) return -1;
-        if (b.toLowerCase().includes('virtual') && !a.toLowerCase().includes('virtual')) return 1;
+        // Sort with Unspecified last
         if (a.toLowerCase() === 'unspecified' && b.toLowerCase() !== 'unspecified') return 1;
         if (b.toLowerCase() === 'unspecified' && a.toLowerCase() !== 'unspecified') return -1;
-        
+
         return a.localeCompare(b);
       });
-      
+
       // Return only database locations
       return locationsArray;
-    }, [allEvents, isVirtualLocation, generalLocations]);
+    }, [allEvents, generalLocations]);
 
     /**
      * Get categories: base categories from database + dynamic categories from events
@@ -2720,7 +2461,6 @@
             categoriesSet.add(cat.name.trim());
           }
         });
-        logger.debug('Added base categories from database:', baseCategories.length);
       }
 
       // Then add dynamic categories from events
@@ -3071,12 +2811,69 @@
     const getFilteredLocationsForMultiSelect = useCallback(() => {
       return getDatabaseLocationNames();
     }, [getDatabaseLocationNames]);
-    
+
     /**
-     * TBD
+     * Normalize location name for matching
+     * Handles common abbreviations and variations
+     */
+    const normalizeLocationName = useCallback((locationName) => {
+      if (!locationName) return '';
+
+      let normalized = locationName.toLowerCase().trim();
+
+      // Handle common abbreviations
+      normalized = normalized
+        .replace(/\bconf\.\s*/gi, 'conference ')
+        .replace(/\bconference\b/gi, 'conf')
+        .replace(/\brm\b\.?\s*/gi, 'room ')
+        .replace(/\broom\s+(\d+)/gi, '$1')  // "Room 402" -> "402"
+        .replace(/\bfloor\b/gi, 'fl')
+        .replace(/\bfl\b\.?\s*/gi, 'floor ')
+        .replace(/\s+/g, ' ')  // Normalize whitespace
+        .trim();
+
+      return normalized;
+    }, []);
+
+    /**
+     * Check if two location names match (case-insensitive, handles abbreviations)
+     */
+    const locationsMatch = useCallback((loc1, loc2) => {
+      if (!loc1 || !loc2) return false;
+
+      const norm1 = normalizeLocationName(loc1);
+      const norm2 = normalizeLocationName(loc2);
+
+      // Direct match
+      if (norm1 === norm2) return true;
+
+      // Check if one contains the other (for partial matches)
+      if (norm1.includes(norm2) || norm2.includes(norm1)) return true;
+
+      return false;
+    }, [normalizeLocationName]);
+
+    /**
+     * Filter and sort events based on selected categories and locations
      */
     const filteredEvents = useMemo(() => {
+      console.log('\n========== FILTERING ALL EVENTS ==========');
+      console.log('[Filter] Starting filter, allEvents count:', allEvents.length);
+      console.log('[Filter] Date range:', dateRange);
+
+      // Log all events before filtering
+      allEvents.forEach((event, index) => {
+        console.log(`\n[Event ${index + 1}/${allEvents.length}] "${event.subject}"`);
+        console.log(`  Start: ${event.start?.dateTime}`);
+        console.log(`  End: ${event.end?.dateTime}`);
+        console.log(`  Location: ${event.location?.displayName || 'NONE'}`);
+        console.log(`  Category: ${event.category || 'NONE'}`);
+      });
+      console.log('\n========== STARTING FILTER LOGIC ==========\n');
+
       const filtered = allEvents.filter(event => {
+        console.log(`\n[Filter] Processing event: "${event.subject}"`);
+
         // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
         let categoryMatch = true;
         let locationMatch = true;
@@ -3085,20 +2882,23 @@
         if (selectedCategories.length === 0) {
           // No categories selected = show NO events
           categoryMatch = false;
-          logger.debug('No categories selected - filtering out all events');
+          console.log(`[Category Filter] Event "${event.subject}" - NO categories selected, categoryMatch: false`);
         } else if (selectedCategories.length === dynamicCategories.length) {
           // All categories selected = show ALL events regardless of category
           categoryMatch = true;
-          logger.debug('All categories selected - showing all events');
+          console.log(`[Category Filter] Event "${event.subject}" - ALL categories selected, categoryMatch: true`);
         } else {
           // Partial categories selected, check if event matches
           if (isUncategorizedEvent(event)) {
             categoryMatch = selectedCategories.includes('Uncategorized');
+            console.log(`[Category Filter] Event "${event.subject}" is Uncategorized, categoryMatch: ${categoryMatch}`);
           } else if (dynamicCategories.includes(event.category)) {
             categoryMatch = selectedCategories.includes(event.category);
+            console.log(`[Category Filter] Event "${event.subject}" category "${event.category}", categoryMatch: ${categoryMatch}`);
           } else {
             // For unknown categories, only show if explicitly selected
             categoryMatch = selectedCategories.includes(event.category);
+            console.log(`[Category Filter] Event "${event.subject}" unknown category "${event.category}", categoryMatch: ${categoryMatch}`);
           }
         }
 
@@ -3106,77 +2906,80 @@
         if (selectedLocations.length === 0) {
           // No locations selected = show NO events
           locationMatch = false;
-          logger.debug('No locations selected - filtering out all events');
         } else if (selectedLocations.length === dynamicLocations.length) {
           // All locations selected = show ALL events regardless of location
           locationMatch = true;
-          logger.debug('All locations selected - showing all events');
         } else {
           // Partial locations selected, check if event matches
           // Handle unspecified locations
           if (isUnspecifiedLocation(event)) {
             locationMatch = selectedLocations.includes('Unspecified');
-            logger.debug('Unspecified location result:', locationMatch);
           }
-          // Handle virtual events
-          else if (isEventVirtual(event)) {
-            locationMatch = selectedLocations.includes('Virtual');
-            logger.debug('Virtual location result:', locationMatch);
-          }
-          // Handle physical locations
+          // Handle all events with locations
           else {
             const locationText = event.location?.displayName?.trim() || '';
             const eventLocations = locationText
               .split(/[;,]/)
               .map(loc => loc.trim())
-              .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
+              .filter(loc => loc.length > 0);
 
             if (eventLocations.length === 0) {
-              logger.debug('No physical locations found, but event not marked as virtual - check logic');
-              locationMatch = false;
+              // Edge case: location parsing resulted in empty - treat as Unspecified
+              locationMatch = selectedLocations.includes('Unspecified');
             } else {
-              // Check if any physical location matches selected locations
+              // Check if any event location matches selected locations (with abbreviation handling)
               locationMatch = eventLocations.some(location => {
-                return selectedLocations.includes(location);
+                const matches = selectedLocations.some(selectedLoc =>
+                  locationsMatch(location, selectedLoc)
+                );
+                console.log(`[Location Filter] Event "${event.subject}" location "${location}" matches: ${matches}`);
+                return matches;
               });
+              console.log(`[Location Filter] Event "${event.subject}" final locationMatch: ${locationMatch}`);
             }
           }
         }
 
         // Event must pass BOTH category AND location filters
-        const result = categoryMatch && locationMatch;
-        
-        // Event filtered based on category and location criteria
-        
-        return result;
+        const finalResult = categoryMatch && locationMatch;
+        console.log(`[Filter] Event "${event.subject}" FINAL: categoryMatch=${categoryMatch}, locationMatch=${locationMatch}, result=${finalResult}\n`);
+        return finalResult;
       });
       
       // Sort the filtered events by start time
       const sorted = [...filtered].sort((a, b) => {
         const aStartTime = new Date(a.start.dateTime);
         const bStartTime = new Date(b.start.dateTime);
-        
+
         if (aStartTime.getTime() !== bStartTime.getTime()) {
           return aStartTime - bStartTime;
         }
-        
+
         const aEndTime = new Date(a.end.dateTime);
         const bEndTime = new Date(b.end.dateTime);
         return aEndTime - bEndTime;
       });
-      
-      // Filtered events completed
-      
+
+      // Log filter summary (only when events are filtered out)
+      if (allEvents.length > 0 && sorted.length !== allEvents.length) {
+        logger.info(`\n🔍 FILTER SUMMARY`);
+        logger.info(`   Total events: ${allEvents.length}`);
+        logger.info(`   After filters: ${sorted.length}`);
+        logger.info(`   Filtered out: ${allEvents.length - sorted.length}`);
+        logger.info(`   Selected categories: ${selectedCategories.length}/${dynamicCategories.length}`);
+        logger.info(`   Selected locations: ${selectedLocations.length}/${dynamicLocations.length}`);
+      }
+
       return sorted;
     }, [
-      allEvents, 
-      selectedCategories, 
-      selectedLocations, 
+      allEvents,
+      selectedCategories,
+      selectedLocations,
       dynamicCategories,
+      dynamicLocations,
       isUncategorizedEvent,
       isUnspecifiedLocation,
-      isEventVirtual,
-      isVirtualLocation
+      locationsMatch
     ]);
 
     /**
@@ -3184,47 +2987,76 @@
      */
     const getLocationGroups = useCallback(() => {
       if (groupBy !== 'locations') return {};
-      
+
+      console.log('[Location Grouping] Starting location grouping');
+      console.log('[Location Grouping] selectedLocations:', selectedLocations);
+      console.log('[Location Grouping] filteredEvents count:', filteredEvents.length);
+
       const groups = {};
-      
+
       // Initialize groups for all selected locations
       selectedLocations.forEach(location => {
         groups[location] = [];
       });
-      
-      logger.debug('=== LOCATION GROUPING DEBUG ===');
-      logger.debug('selectedLocations:', selectedLocations);
-      logger.debug('filteredEvents count:', filteredEvents.length);
-      logger.debug('groupBy:', groupBy);
-      
+
       // Group filtered events by their actual location
       filteredEvents.forEach((event) => {
         if (isUnspecifiedLocation(event)) {
-          if (groups['Unspecified']) {
-            groups['Unspecified'].push(event);
-          } 
-        } else if (isEventVirtual(event)) {
-          if (groups['Virtual']) {
-            groups['Virtual'].push(event);
-          } 
+          if (!groups['Unspecified']) {
+            groups['Unspecified'] = [];
+          }
+          groups['Unspecified'].push(event);
         } else {
-          // Handle physical locations
+          // Handle all events with locations
           const locationText = event.location?.displayName?.trim() || '';
           const eventLocations = locationText
             .split(/[;,]/)
             .map(loc => loc.trim())
-            .filter(loc => loc.length > 0 && !isVirtualLocation(loc));
-                    
-          eventLocations.forEach(location => {
-            if (groups[location]) {
-              groups[location].push(event);
-            } 
-          });
+            .filter(loc => loc.length > 0);
+
+          if (eventLocations.length === 0) {
+            // Edge case: parsing resulted in empty - treat as Unspecified
+            if (!groups['Unspecified']) {
+              groups['Unspecified'] = [];
+            }
+            groups['Unspecified'].push(event);
+          } else {
+            // Add event to each location group it belongs to
+            let addedToAnyGroup = false;
+
+            eventLocations.forEach(eventLocation => {
+              console.log(`[Location Grouping] Event "${event.subject}" has location "${eventLocation}"`);
+              console.log(`[Location Grouping] Available groups:`, Object.keys(groups));
+
+              // Use fuzzy matching to find the correct group key
+              const matchingGroup = Object.keys(groups).find(groupKey =>
+                locationsMatch(eventLocation, groupKey)
+              );
+
+              console.log(`[Location Grouping] Matching group found: ${matchingGroup}`);
+
+              if (matchingGroup) {
+                groups[matchingGroup].push(event);
+                addedToAnyGroup = true;
+              } else {
+                console.warn(`[Location Grouping] No matching group for event "${event.subject}" with location "${eventLocation}"`);
+              }
+            });
+
+            // If event has a location but wasn't added to any recognized group, add to Unspecified
+            if (!addedToAnyGroup) {
+              console.log(`[Location Grouping] Event "${event.subject}" has unrecognized location, adding to Unspecified`);
+              if (!groups['Unspecified']) {
+                groups['Unspecified'] = [];
+              }
+              groups['Unspecified'].push(event);
+            }
+          }
         }
       });
-           
+
       return groups;
-    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation, isEventVirtual, isVirtualLocation]);
+    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation]);
     
 
     /**
@@ -3448,7 +3280,6 @@
      * @param {string} newView - The new view type
      */
     const handleViewChange = useCallback((newView) => {
-      logger.debug(`View changed to ${newView}`);
       setViewType(newView);
       // currentDate stays the same, dateRange will recalculate via useMemo
     }, []);
@@ -3582,18 +3413,15 @@
      * @param {string} viewType - 'day' or 'week'
      */
     const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType) => {
-      logger.debug('Location row clicked:', { locationName, dateOrDates, viewType });
-
       // Helper to get event display location (same logic as in WeekView/DayView)
       const getEventDisplayLocation = (event) => {
         if (isUnspecifiedLocation(event)) return 'Unspecified';
-        if (isEventVirtual(event)) return 'Virtual';
 
         const locationText = event.location?.displayName?.trim() || '';
         const eventLocations = locationText.split(/[;,]/).map(loc => loc.trim()).filter(loc => loc.length > 0);
 
-        for (const location of eventLocations) {
-          if (!isVirtualLocation(location)) return location;
+        if (eventLocations.length > 0) {
+          return eventLocations[0]; // Return first location
         }
         return 'Unspecified';
       };
@@ -3661,7 +3489,7 @@
         events: filteredModalEvents,
         viewType
       });
-    }, [isUnspecifiedLocation, isEventVirtual, isVirtualLocation]);
+    }, [isUnspecifiedLocation]);
 
     /**
      * Handle clicking on an event to open the context menu
@@ -3671,50 +3499,8 @@
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
 
-      // DEBUG: Log the clicked event and current allEvents state
-      console.log('🔍 DEBUG: Event clicked - eventId:', event.eventId, 'Subject:', event.subject);
-      console.log('🔍 DEBUG: allEventsRef.current length:', allEventsRef.current.length);
-      console.log('🔍 DEBUG: Available eventIds:', allEventsRef.current.map(e => ({ eventId: e.eventId, subject: e.subject })));
-
-      logger.debug('Event clicked:', event);
-
       // Find the enriched version of this event using eventId (internal unique ID)
       const enrichedEvent = allEventsRef.current.find(enriched => enriched.eventId === event.eventId) || event;
-
-      console.log('🔍 DEBUG: Found enriched event:', enrichedEvent.subject, 'eventId:', enrichedEvent.eventId);
-
-      // UNIFIED EVENT DEBUG: Log the complete unified event data
-      console.log('🎯 UNIFIED EVENT CLICKED:', {
-        unifiedEventId: enrichedEvent._id,  // MongoDB Unified Event ID
-        eventId: enrichedEvent.eventId,       // Internal unique ID (UUID)
-        graphEventId: enrichedEvent.id,     // Microsoft Graph Event ID
-        subject: enrichedEvent.subject,
-        calendarId: enrichedEvent.calendarId,
-        // Body and description fields
-        hasBody: !!enrichedEvent.body,
-        bodyContent: enrichedEvent.body?.content?.substring(0, 200),
-        bodyContentType: enrichedEvent.body?.contentType,
-        bodyPreview: enrichedEvent.bodyPreview?.substring(0, 200),
-        description: enrichedEvent.description,
-        // Internal enrichments
-        hasInternalData: enrichedEvent._hasInternalData,
-        setupMinutes: enrichedEvent.setupMinutes,
-        teardownMinutes: enrichedEvent.teardownMinutes,
-        mecCategories: enrichedEvent.mecCategories,
-        assignedTo: enrichedEvent.assignedTo,
-        internalNotes: enrichedEvent.internalNotes,
-        // Full event object for detailed inspection
-        fullEvent: enrichedEvent
-      });
-
-      logger.debug('Using enriched event for editing:', {
-        originalEvent: event,
-        enrichedEvent: enrichedEvent,
-        hasSetupMinutes: enrichedEvent.setupMinutes > 0,
-        hasTeardownMinutes: enrichedEvent.teardownMinutes > 0,
-        setupMinutes: enrichedEvent.setupMinutes,
-        teardownMinutes: enrichedEvent.teardownMinutes
-      });
 
       // Construct event object with explicit ID properties for EventForm
       const eventForForm = {
@@ -3723,17 +3509,9 @@
         eventId: enrichedEvent.eventId,                     // Internal unique ID (UUID) - always exists
         id: enrichedEvent.id || enrichedEvent.eventId,      // For backward compatibility
         graphId: enrichedEvent.graphId || null,             // Graph/Outlook ID (null if not published)
-        hasGraphId: !!enrichedEvent.graphId,                // Boolean: published to Outlook?
+        hasGraphId: !!enrichedEvent.hasGraphId,                // Boolean: published to Outlook?
         _id: enrichedEvent._id                              // MongoDB document ID
       };
-
-      logger.debug('Opening review modal directly with event:', {
-        'event.id': eventForForm.id,
-        'event.eventId': eventForForm.eventId,
-        'event.graphEventId': eventForForm.graphEventId,
-        'event.hasGraphId': eventForForm.hasGraphId,
-        'event._id': eventForForm._id
-      });
 
       // Bypass event details modal - go directly to review modal
       (async () => {
@@ -3755,8 +3533,6 @@
      * Opens the review modal for the selected event
      */
     const handleReviewClick = useCallback(async (event) => {
-      logger.debug('Review button clicked for event:', event);
-
       // Close the event form modal
       setIsModalOpen(false);
 
@@ -4563,14 +4339,6 @@
 
     // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
-      logger.debug('[Calendar useEffect] Triggered:', {
-        hasGraphToken: !!graphToken,
-        initializing,
-        selectedCalendarId,
-        availableCalendarsLength: availableCalendars.length,
-        dateRangeString,
-        changingCalendar
-      });
 
       if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
@@ -4584,28 +4352,23 @@
           setChangingCalendar(false);
         }, 30000); // 30 second timeout
 
-        logger.debug('[Calendar useEffect] Calling loadEvents with FORCE REFRESH to get fresh body content...');
-        // TEMPORARY: Force refresh to get events with proper body structure
-        // Remove this after all cached events are updated
+        // Load events with force refresh to get fresh body content
         loadEvents(true)  // true = forceRefresh to bypass stale cache
           .then((result) => {
             const duration = Date.now() - startTime;
-            logger.debug('[Calendar useEffect] loadEvents completed:', { result, duration });
             calendarDebug.logEventLoadingComplete(selectedCalendarId, allEvents.length, duration);
           })
           .catch((error) => {
-            logger.error('[Calendar useEffect] loadEvents failed:', error);
+            logger.error('Event loading failed:', error);
             calendarDebug.logError('loadEvents in useEffect', error, { selectedCalendarId });
           })
           .finally(() => {
-            logger.debug('[Calendar useEffect] Finally block - setting changingCalendar to false');
             clearTimeout(timeoutId);
             calendarDebug.logStateChange('changingCalendar', true, false);
             setChangingCalendar(false);
           });
-      } else {
-        logger.debug('[Calendar useEffect] Skipping loadEvents due to missing requirements');
       }
+      // Skipping event loading if requirements not met
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
 
@@ -4623,19 +4386,25 @@
 
     // Update selected locations when dynamic locations change - smart merging
     useEffect(() => {
+      console.log('[Location Selection] useEffect triggered');
+      console.log('[Location Selection] dynamicLocations:', dynamicLocations);
+      console.log('[Location Selection] selectedLocations before:', selectedLocations);
+
       if (dynamicLocations.length > 0) {
         if (selectedLocations.length === 0) {
           // Initial selection: select all locations
+          console.log('[Location Selection] Initial selection - setting all locations');
           setSelectedLocations(dynamicLocations);
-          // Initial location selection: all locations
         } else {
           // Smart merging: add new locations to existing selection
           const newLocations = dynamicLocations.filter(loc => !selectedLocations.includes(loc));
+          console.log('[Location Selection] Smart merge - new locations:', newLocations);
           if (newLocations.length > 0) {
-            setSelectedLocations(prev => [...prev, ...newLocations]);
-            // Added new locations to selection
-          } else {
-            // No new locations to add
+            setSelectedLocations(prev => {
+              const updated = [...prev, ...newLocations];
+              console.log('[Location Selection] Updated selection:', updated);
+              return updated;
+            });
           }
         }
       }
@@ -4737,7 +4506,12 @@
     
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
-        return getLocationGroups();
+        const groups = getLocationGroups();
+        console.log('[UI Rendering] Location groups to render:');
+        Object.keys(groups).forEach(groupName => {
+          console.log(`  - ${groupName}: ${groups[groupName].length} events`);
+        });
+        return groups;
       }
       return {};
     }, [groupBy, getLocationGroups]);

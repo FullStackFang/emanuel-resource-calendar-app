@@ -86,11 +86,13 @@ export const toUTCISOString = (date) => {
  */
 export const formatDateRangeForAPI = (startDate, endDate) => {
   const start = new Date(startDate);
-  start.setHours(0, 0, 0, 0);
-  
+  // Set to midnight UTC, not local timezone
+  start.setUTCHours(0, 0, 0, 0);
+
   const end = new Date(endDate);
-  end.setHours(23, 59, 59, 999);
-  
+  // Set to end of day UTC
+  end.setUTCHours(23, 59, 59, 999);
+
   return {
     start: start.toISOString(),
     end: end.toISOString()

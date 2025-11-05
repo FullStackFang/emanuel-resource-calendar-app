@@ -21,9 +21,9 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  max-width: 95vw;
-  width: 1400px;
-  max-height: 90vh;
+  max-width: 98vw;
+  width: 1600px;
+  max-height: 95vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -221,7 +221,7 @@
   padding: 4px 6px;
   overflow: hidden;
   z-index: 5;
-  cursor: default;
+  cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   transition: transform 0.1s, box-shadow 0.1s;
 }
@@ -230,6 +230,64 @@
   transform: scale(1.02);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 6;
+}
+
+/* Custom Tooltip for Events */
+.week-timeline-event-tooltip {
+  position: absolute;
+  background: #1f2937;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 10000;
+  pointer-events: none;
+  max-width: 350px;
+  min-width: 200px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.week-timeline-event-tooltip.visible {
+  opacity: 1;
+}
+
+.week-timeline-event-tooltip-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 6px;
+}
+
+.week-timeline-event-tooltip-detail {
+  margin: 6px 0;
+  color: #e5e7eb;
+  display: flex;
+  align-items: flex-start;
+}
+
+.week-timeline-event-tooltip-detail strong {
+  min-width: 70px;
+  color: #93c5fd;
+  font-weight: 500;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.week-timeline-event-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 20px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #1f2937;
 }
 
 .week-timeline-event-title {

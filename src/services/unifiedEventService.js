@@ -49,37 +49,15 @@ class UnifiedEventService {
    */
   async loadEvents({ calendarIds, startTime, endTime, forceRefresh = false }) {
     try {
-      // Enhanced debug logging
-      logger.debug('UnifiedEventService: Starting regular events load', { 
-        calendarIds, 
-        startTime, 
-        endTime, 
-        forceRefresh,
-        calendarIdsType: typeof calendarIds,
-        calendarIdsLength: Array.isArray(calendarIds) ? calendarIds.length : 'not array',
-        hasApiToken: !!this.apiToken,
-        hasGraphToken: !!this.graphToken
-      });
-
       // Validate input parameters
       if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
-        logger.error('UnifiedEventService: Invalid calendarIds', { 
-          calendarIds, 
+        logger.error('UnifiedEventService: Invalid calendarIds', {
+          calendarIds,
           type: typeof calendarIds,
           isArray: Array.isArray(calendarIds)
         });
         throw new Error('Invalid calendarIds: must be non-empty array');
       }
-
-      // Log individual calendar IDs
-      calendarIds.forEach((id, index) => {
-        logger.debug(`UnifiedEventService: Calendar ID ${index}:`, {
-          id,
-          type: typeof id,
-          length: id?.length,
-          isEmpty: !id || id.trim() === ''
-        });
-      });
 
       const requestBody = {
         calendarIds: calendarIds,
@@ -89,34 +67,11 @@ class UnifiedEventService {
       };
 
       const headers = this.getAuthHeaders();
-      
-      logger.debug('UnifiedEventService: Making request to regular events load', {
-        url: `${API_BASE_URL}/events/load`,
-        method: 'POST',
-        headers: {
-          'Authorization': headers.Authorization ? 'Bearer [PRESENT]' : 'MISSING',
-          'Content-Type': headers['Content-Type'],
-          'X-Graph-Token': headers['X-Graph-Token'] ? '[PRESENT]' : 'MISSING'
-        },
-        bodyPreview: {
-          calendarIdsCount: requestBody.calendarIds.length,
-          startTime: requestBody.startTime,
-          endTime: requestBody.endTime,
-          forceRefresh: requestBody.forceRefresh
-        }
-      });
 
       const response = await fetch(`${API_BASE_URL}/events/load`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify(requestBody)
-      });
-
-      logger.debug('UnifiedEventService: Received response', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        headers: Object.fromEntries(response.headers.entries())
       });
 
       if (!response.ok) {
@@ -132,44 +87,6 @@ class UnifiedEventService {
       }
 
       const data = await response.json();
-      logger.debug('UnifiedEventService: Regular events load response', {
-        source: data.source,
-        eventCount: data.count,
-        loadResults: data.loadResults
-      });
-
-      // Detailed logging only in debug mode
-      if (data.events && data.events.length > 0 && logger.isDebugEnabled()) {
-        logger.debug('UnifiedEventService - Total events received:', data.events.length);
-
-        // Log first few events with their body content
-        const sampleEvents = data.events.slice(0, 3).map(event => ({
-          id: event.id,
-          subject: event.subject,
-          hasBody: !!event.body,
-          bodyContent: event.body?.content,
-          bodyContentType: event.body?.contentType,
-          bodyPreview: event.bodyPreview,
-          description: event.description
-        }));
-        logger.debug('UnifiedEventService - Sample events with body data:', sampleEvents);
-
-        // Look specifically for events with "Test description"
-        const testEvents = data.events.filter(event =>
-          event.body?.content?.includes('Test description') ||
-          event.bodyPreview?.includes('Test description') ||
-          event.description?.includes('Test description')
-        );
-        if (testEvents.length > 0) {
-          logger.debug('UnifiedEventService - Found events with "Test description":', testEvents.map(event => ({
-            id: event.id,
-            subject: event.subject,
-            bodyContent: event.body?.content,
-            bodyPreview: event.bodyPreview,
-            description: event.description
-          })));
-        }
-      }
 
       return data;
     } catch (error) {
@@ -184,7 +101,6 @@ class UnifiedEventService {
    * @returns {Object} Load results and events
    */
   async syncEvents(params) {
-    logger.debug('UnifiedEventService: syncEvents called (delegating to loadEvents)');
     return await this.loadEvents(params);
   }
 
@@ -198,12 +114,6 @@ class UnifiedEventService {
    */
   async getEvents({ calendarId, startTime, endTime }) {
     try {
-      logger.debug('UnifiedEventService: Getting events from storage', { 
-        calendarId, 
-        startTime, 
-        endTime 
-      });
-
       const queryParams = new URLSearchParams();
       if (calendarId) queryParams.append('calendarId', calendarId);
       if (startTime) queryParams.append('startTime', startTime);
@@ -225,10 +135,6 @@ class UnifiedEventService {
       }
 
       const data = await response.json();
-      logger.debug('UnifiedEventService: Get events response', { 
-        source: data.source, 
-        count: data.count
-      });
 
       return data;
     } catch (error) {
@@ -246,19 +152,12 @@ class UnifiedEventService {
    */
   async forceFullSync(calendarIds, startTime = null, endTime = null) {
     try {
-      logger.debug('UnifiedEventService: Forcing full refresh', { calendarIds, startTime, endTime });
-
       // Use the regular loadEvents method with forceRefresh flag
       const result = await this.loadEvents({
         calendarIds: calendarIds,
         startTime: startTime,
         endTime: endTime,
         forceRefresh: true
-      });
-
-      logger.debug('UnifiedEventService: Force refresh complete', {
-        eventCount: result.count,
-        source: result.source
       });
 
       return {
@@ -281,11 +180,6 @@ class UnifiedEventService {
    */
   async updateEventInternalData(eventId, internalData) {
     try {
-      logger.debug('UnifiedEventService: Updating event internal data', { 
-        eventId, 
-        internalData 
-      });
-
       // This endpoint will need to be implemented to update internal data in unified collection
       const response = await fetch(`${API_BASE_URL}/events/${eventId}/internal`, {
         method: 'PATCH',
@@ -304,7 +198,6 @@ class UnifiedEventService {
       }
 
       const data = await response.json();
-      logger.debug('UnifiedEventService: Update internal data response', data);
 
       return data;
     } catch (error) {
