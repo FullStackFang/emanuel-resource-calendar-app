@@ -2,6 +2,8 @@
 import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
+import { useTimezone } from '../context/TimezoneContext';
+import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 
 const DayView = memo(({
   // Props
@@ -29,6 +31,9 @@ const DayView = memo(({
   showRegistrationTimes,
   handleLocationRowClick // New prop for location timeline modal
 }) => {
+  // Get user's timezone preference from context
+  const { userTimezone } = useTimezone();
+
   // For day view, we only need the current day
   const currentDay = dateRange.start;
   
@@ -190,36 +195,31 @@ const DayView = memo(({
                 return (
                   <div className="event-container">
                     {sortedEvents.map((event) => {
-                      // Use registration times if available and toggle is enabled
-                      let displayStartTime, displayEndTime;
+                      // Determine which times to use (registration vs actual event times)
+                      let startDateTime, endDateTime;
                       if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
-                        displayStartTime = new Date(event.registrationStart);
-                        displayEndTime = new Date(event.registrationEnd);
+                        startDateTime = event.registrationStart;
+                        endDateTime = event.registrationEnd;
                       } else {
-                        displayStartTime = new Date(event.start.dateTime);
-                        displayEndTime = new Date(event.end.dateTime);
+                        startDateTime = event.start.dateTime;
+                        endDateTime = event.end.dateTime;
                       }
-                      
-                      const duration = Math.round((displayEndTime - displayStartTime) / (1000 * 60)); // duration in minutes
-                      
+
+                      // Calculate duration using Date objects
+                      const startDate = new Date(ensureUTCFormat(startDateTime));
+                      const endDate = new Date(ensureUTCFormat(endDateTime));
+                      const duration = Math.round((endDate - startDate) / (1000 * 60)); // duration in minutes
+
                       // Check if it's an all-day event (24 hours or more)
                       const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
-                      
+
                       let timeDisplay;
                       if (isAllDay) {
                         timeDisplay = "All day";
                       } else {
-                        // Format start and end times (e.g., "9:30 AM", "10:30 AM")
-                        const startTimeStr = displayStartTime.toLocaleTimeString([], { 
-                          hour: 'numeric', 
-                          minute: '2-digit',
-                          hour12: true 
-                        });
-                        const endTimeStr = displayEndTime.toLocaleTimeString([], { 
-                          hour: 'numeric', 
-                          minute: '2-digit',
-                          hour12: true 
-                        });
+                        // Use formatEventTime utility which properly handles timezone conversion
+                        const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject);
+                        const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject);
                         
                         // Format total duration - simplified to prevent overflow
                         const hours = Math.floor(duration / 60);

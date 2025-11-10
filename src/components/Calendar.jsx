@@ -222,6 +222,14 @@
     const [currentEvent, setCurrentEvent] = useState(null);
     const [, setNotification] = useState({ show: false, message: '', type: 'info' });
 
+    // Event creation ReviewModal state
+    const [eventReviewModal, setEventReviewModal] = useState({
+      isOpen: false,
+      event: null,
+      mode: 'event', // 'event' for direct creation, 'create' for reservation requests
+      hasChanges: false // Track if form has been modified
+    });
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -237,7 +245,7 @@
       graphToken,
       onSuccess: () => {
         // Reload events after successful approval/rejection
-        loadAllEvents();
+        loadEvents(true);
       },
       onError: (error) => {
         logger.error('Review modal error:', error);
@@ -3288,21 +3296,84 @@
     const handleAddEvent = useCallback(() => {
       logger.debug('handleAddEvent called');
       logger.debug('Permissions:', userPermissions);
-      // Modal state before opening
-      
+
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
-  
-      if (!userPermissions.createEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
+
+      // Check if user can edit the selected calendar
+      if (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit) {
         showNotification("You don't have permission to create events in this calendar");
         return;
       }
-      
-      setCurrentEvent(null); // Clear current event for new event creation
-      setModalType('add');
-      setIsModalOpen(true);
-      
-      // Modal opened for adding new event
-    }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification]);
+
+      // Determine mode based on permissions
+      // Users WITH createEvents permission: create events directly (mode='event')
+      // Users WITHOUT createEvents permission: create reservation requests (mode='create')
+      const mode = userPermissions.createEvents ? 'event' : 'create';
+
+      // Create blank event template with current date/time
+      const now = new Date();
+      const startTime = new Date(now);
+      startTime.setHours(9, 0, 0, 0); // Default to 9 AM
+
+      const endTime = new Date(startTime);
+      endTime.setHours(startTime.getHours() + 1); // 1 hour duration
+
+      // Create reservation object structure (not event structure)
+      // RoomReservationReview expects reservation fields like startDateTime, eventTitle, etc.
+      const newReservation = {
+        // Submitter Information
+        requesterName: currentUser?.name || '',
+        requesterEmail: currentUser?.email || '',
+        department: '',
+        phone: '',
+        contactEmail: '',
+        contactName: '',
+        isOnBehalfOf: false,
+
+        // Event Details
+        eventTitle: '',
+        eventDescription: '',
+        startDateTime: standardizeDate(startTime),
+        endDateTime: standardizeDate(endTime),
+        isAllDayEvent: false,
+
+        // Location & Setup
+        requestedRooms: [],
+        setupTime: '',
+        teardownTime: '',
+        doorOpenTime: '',
+        doorCloseTime: '',
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+        setupNotes: '',
+        doorNotes: '',
+        eventNotes: '',
+
+        // Additional Details
+        attendeeCount: '',
+        specialRequirements: '',
+        priority: 'medium',
+        reviewNotes: '',
+
+        // Calendar Info
+        calendarId: selectedCalendarId,
+        calendarName: selectedCalendar?.name,
+
+        // Virtual Meeting
+        virtualMeetingUrl: null,
+        graphData: null
+      };
+
+      // Open ReviewModal with appropriate mode
+      setEventReviewModal({
+        isOpen: true,
+        event: newReservation,
+        mode: mode,
+        hasChanges: false
+      });
+
+      logger.debug('EventReviewModal opened for adding new event', { mode });
+    }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification, standardizeDate, currentUser]);
 
     /**
      * Handle changing the calendar view type (day/week/month)
@@ -3382,34 +3453,29 @@
     }, [viewType, currentDate]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
-      // Disable add event behavior in month view
-      if (viewType === 'month') {
-        return;
-      }
-      
-      if(!userPermissions.createEvents) {
-        showNotification("You don't have permission to create events");
-        return;
-      }
-      
+      // Determine mode based on permissions
+      // Users WITH createEvents permission: create events directly (mode='event')
+      // Users WITHOUT createEvents permission: create reservation requests (mode='create')
+      const mode = userPermissions.createEvents ? 'event' : 'create';
+
       // Set up start and end times (1 hour duration)
       const startTime = new Date(day);
       startTime.setHours(9, 0, 0, 0); // Default to 9 AM
-      
+
       const endTime = new Date(startTime);
       endTime.setHours(startTime.getHours() + 1);
-      
+
       // Set the category based on what view we're in
       let eventCategory = 'Uncategorized';
       let eventLocation = 'Unspecified';
 
       if (groupBy === 'categories' && category) {
         eventCategory = category;
-        
+
         // Check if this category exists in Outlook categories
         if (category !== 'Uncategorized') {
           const categoryExists = outlookCategories.some(cat => cat.name === category);
-          
+
           if (!categoryExists) {
             logger.debug(`Category ${category} doesn't exist in Outlook categories, creating it...`);
             await createOutlookCategory(category);
@@ -3418,22 +3484,63 @@
       } else if (groupBy === 'locations' && location && location !== 'Unspecified') {
         eventLocation = location;
       }
-      
-      // Create a new event template
-      const newEvent = {
-        subject: '',
-        start: { dateTime: standardizeDate(startTime) },
-        end: { dateTime: standardizeDate(endTime) },
-        location: { displayName: eventLocation },
-        category: eventCategory,
+
+      // Create reservation object structure (not event structure)
+      // RoomReservationReview expects reservation fields like startDateTime, eventTitle, etc.
+      const newReservation = {
+        // Submitter Information
+        requesterName: currentUser?.name || '',
+        requesterEmail: currentUser?.email || '',
+        department: '',
+        phone: '',
+        contactEmail: '',
+        contactName: '',
+        isOnBehalfOf: false,
+
+        // Event Details
+        eventTitle: '',
+        eventDescription: '',
+        startDateTime: standardizeDate(startTime),
+        endDateTime: standardizeDate(endTime),
+        isAllDayEvent: false,
+
+        // Location & Setup
+        requestedRooms: eventLocation !== 'Unspecified' ? [eventLocation] : [],
+        setupTime: '',
+        teardownTime: '',
+        doorOpenTime: '',
+        doorCloseTime: '',
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+        setupNotes: '',
+        doorNotes: '',
+        eventNotes: '',
+
+        // Additional Details
+        attendeeCount: '',
+        specialRequirements: '',
+        priority: 'medium',
+        reviewNotes: '',
+
+        // Calendar Info
         calendarId: selectedCalendarId,
-        calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name
+        calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name,
+
+        // Virtual Meeting
+        virtualMeetingUrl: null,
+        graphData: null
       };
-      
-      setCurrentEvent(newEvent);
-      setModalType('add');
-      setIsModalOpen(true);
-    }, [userPermissions.createEvents, showNotification, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate]);
+
+      // Open ReviewModal with appropriate mode
+      setEventReviewModal({
+        isOpen: true,
+        event: newReservation,
+        mode: mode,
+        hasChanges: false
+      });
+
+      logger.debug('EventReviewModal opened from day cell click', { mode, day });
+    }, [userPermissions.createEvents, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, currentUser]);
 
     /**
      * Handle clicking on a location row to open timeline modal
@@ -3990,7 +4097,7 @@
      */
     const handleSaveEvent = async (data) => {
       const isNew = !data.id || data.id.includes('demo_event_') || data.id.includes('event_');
-      
+
       // Permission checks
       if (isNew && !userPermissions.createEvents) {
         alert("You don't have permission to create events");
@@ -4000,10 +4107,10 @@
         alert("You don't have permission to edit events");
         return false;
       }
-    
+
       // Set loading state
       setSavingEvent(true);
-    
+
       try {
         // Dispatch to the appropriate handler based on mode
         if (isDemoMode) {
@@ -4011,15 +4118,15 @@
         } else {
           await handleSaveApiEvent(data);
         }
-        
+
         // Close modal if it's open (common to both modes)
         if (isModalOpen) {
           setIsModalOpen(false);
         }
-        
+
         showNotification('Event saved successfully!', 'success');
         return true;
-        
+
       } catch (error) {
         logger.error('Save failed:', error);
         alert('Save failed: ' + error.message);
@@ -4029,6 +4136,108 @@
         setSavingEvent(false);
       }
     };
+
+    /**
+     * Handle save from EventReviewModal
+     * Routes to appropriate handler based on mode:
+     * - mode='event': Direct calendar event creation
+     * - mode='create': Reservation request submission
+     *
+     * Note: Receives parameter from ReviewModal but uses eventReviewModal.event state
+     * which is updated via onDataChange callback in RoomReservationReview
+     */
+    const handleEventReviewModalSave = useCallback(async () => {
+      const { mode, event: reservationData } = eventReviewModal;
+
+      if (!reservationData) {
+        logger.error('No event data available to save');
+        return;
+      }
+
+      try {
+        if (mode === 'event') {
+          // Direct event creation - transform reservation structure to event structure
+          logger.debug('Creating event directly via handleSaveEvent', reservationData);
+
+          // Validate required fields
+          if (!reservationData.startDateTime || !reservationData.endDateTime) {
+            showNotification('Start and end times are required');
+            return;
+          }
+
+          // Transform reservation structure to event structure expected by handleSaveEvent
+          const eventData = {
+            subject: reservationData.eventTitle || 'Untitled Event',
+            start: { dateTime: reservationData.startDateTime },
+            end: { dateTime: reservationData.endDateTime },
+            location: {
+              displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
+                ? reservationData.requestedRooms.join(', ')
+                : 'Unspecified'
+            },
+            body: {
+              contentType: 'text',
+              content: reservationData.eventDescription || ''
+            },
+            categories: [], // Graph API requires array
+            isAllDay: reservationData.isAllDayEvent || false,
+            attendees: reservationData.attendeeCount ? [{
+              emailAddress: {
+                address: '',
+                name: `${reservationData.attendeeCount} attendees`
+              }
+            }] : [],
+            calendarId: reservationData.calendarId,
+            // Include internal enrichments
+            setupMinutes: reservationData.setupTimeMinutes || 0,
+            teardownMinutes: reservationData.teardownTimeMinutes || 0,
+            setupNotes: reservationData.setupNotes || '',
+            eventNotes: reservationData.eventNotes || '',
+            requesterName: reservationData.requesterName || '',
+            requesterEmail: reservationData.requesterEmail || ''
+          };
+
+          const success = await handleSaveEvent(eventData);
+
+          if (success) {
+            showNotification('Event created successfully');
+            setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
+            loadEvents(true);
+          }
+        } else if (mode === 'create') {
+          // Reservation request submission - use reservation structure as-is
+          logger.debug('Creating reservation request', reservationData);
+
+          const response = await fetch(`${API_BASE_URL}/events/request`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`
+            },
+            body: JSON.stringify(reservationData)
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to create reservation request: ${response.statusText}`);
+          }
+
+          showNotification('Reservation request submitted for approval');
+          setEventReviewModal({ isOpen: false, event: null, mode: 'create', hasChanges: false });
+          loadEvents(true);
+        }
+      } catch (error) {
+        logger.error('Error saving event from ReviewModal:', error);
+        showNotification(`Error: ${error.message}`);
+        throw error;
+      }
+    }, [eventReviewModal, apiToken, handleSaveEvent, loadEvents, showNotification]);
+
+    /**
+     * Handle closing the EventReviewModal
+     */
+    const handleEventReviewModalClose = useCallback(() => {
+      setEventReviewModal({ isOpen: false, event: null, mode: 'event' });
+    }, []);
 
     /**
      * Handle deletion of registration events when a TempleEvents event is deleted
@@ -4988,6 +5197,44 @@
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
+              readOnly={false}
+              isAdmin={userPermissions.isAdmin}
+            />
+          )}
+        </ReviewModal>
+
+        {/* Review Modal for Event Creation */}
+        <ReviewModal
+          isOpen={eventReviewModal.isOpen}
+          title={eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`}
+          onClose={handleEventReviewModalClose}
+          onSave={handleEventReviewModalSave}
+          isPending={true}
+          hasChanges={eventReviewModal.hasChanges}
+          isSaving={savingEvent}
+          showActionButtons={true}
+          showTabs={true}
+          saveButtonText={
+            !eventReviewModal.event?.id && userPermissions.isAdmin
+              ? '✨ Create'
+              : null
+          }
+        >
+          {eventReviewModal.isOpen && eventReviewModal.event && (
+            <RoomReservationReview
+              reservation={eventReviewModal.event}
+              apiToken={apiToken}
+              graphToken={graphToken}
+              onDataChange={(updatedData) => {
+                setEventReviewModal(prev => ({
+                  ...prev,
+                  event: {
+                    ...prev.event,  // Preserve original fields like calendarId, calendarName
+                    ...updatedData  // Merge in updated form data
+                  },
+                  hasChanges: true
+                }));
+              }}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}
             />

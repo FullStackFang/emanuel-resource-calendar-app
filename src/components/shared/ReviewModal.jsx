@@ -36,7 +36,9 @@ export default function ReviewModal({
   historyCount = 0,
   // Styling
   modalClassName = 'review-modal',
-  overlayClassName = 'review-modal-overlay'
+  overlayClassName = 'review-modal-overlay',
+  // Button text customization
+  saveButtonText = null
 }) {
   // Tab state
   const [activeTab, setActiveTab] = useState('details');
@@ -138,7 +140,7 @@ export default function ReviewModal({
                   disabled={!hasChanges || isSaving}
                   title={!hasChanges ? 'No changes to save' : ''}
                 >
-                  {isSaving ? 'Saving...' : '💾 Save'}
+                  {isSaving ? 'Saving...' : (saveButtonText || '💾 Save')}
                 </button>
               )}
 
