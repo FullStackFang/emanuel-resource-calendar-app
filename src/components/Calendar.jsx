@@ -27,8 +27,7 @@
   import { useReviewModal } from '../hooks/useReviewModal';
   import ReviewModal from './shared/ReviewModal';
   import RoomReservationReview from './RoomReservationReview';
-  import { transformEventToFlatStructure } from '../utils/eventTransformers';
-  // import { getCalendars } from '../services/graphService';
+    // import { getCalendars } from '../services/graphService';
   import { 
     createLinkedEvents,
     findLinkedEvent,
@@ -3635,17 +3634,14 @@
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
 
-      // DEBUG: Log full event structure from templeEvents__Events
-      console.log('📋 Full Event from Database:', event);
+      // DEBUG: Log full event object
+      console.log('📦 FULL EVENT OBJECT:', event);
 
       // Bypass event details modal - go directly to review modal
       (async () => {
         try {
-          // Transform the event data to flat structure for the review form
-          const transformedEvent = transformEventToFlatStructure(event);
-
-          // Open review modal directly
-          await reviewModal.openModal(transformedEvent);
+          // Events now have top-level fields from backend - no transformation needed
+          await reviewModal.openModal(event);
         } catch (error) {
           logger.error('Error opening review modal:', error);
           alert('Failed to open review modal: ' + error.message);
@@ -3661,25 +3657,10 @@
       // Close the event form modal
       setIsModalOpen(false);
 
-      // Use the event data we already have and transform it
+      // Use the event data we already have - no transformation needed
       try {
-        // DEBUG: Log event structure before transformation
-        console.log('🔍 handleReviewClick - event before transform:', {
-          eventId: event.eventId,
-          id: event.id,
-          _id: event._id,
-          hasGraphData: !!event.graphData,
-          hasInternalData: !!event.internalData,
-          graphDataKeys: event.graphData ? Object.keys(event.graphData) : [],
-          internalDataKeys: event.internalData ? Object.keys(event.internalData) : [],
-          topLevelKeys: Object.keys(event).slice(0, 20)
-        });
-
-        // Transform the event data to flat structure for the review form
-        const transformedEvent = transformEventToFlatStructure(event);
-
-        // Open review modal with the transformed event
-        await reviewModal.openModal(transformedEvent);
+        // Events now have top-level fields from backend
+        await reviewModal.openModal(event);
       } catch (error) {
         logger.error('Error opening review modal:', error);
         alert('Failed to open review modal: ' + error.message);

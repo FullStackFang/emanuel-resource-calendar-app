@@ -15,20 +15,6 @@
 export function transformEventToFlatStructure(event) {
   if (!event) return null;
 
-  // Debug: Log incoming event structure
-  console.log('🔍 transformEventToFlatStructure received event:', {
-    hasEventId: !!event.eventId,
-    eventId: event.eventId,
-    hasId: !!event.id,
-    id: event.id,
-    has_id: !!event._id,
-    _id: event._id,
-    hasGraphData: !!event.graphData,
-    graphDataId: event.graphData?.id,
-    hasInternalData: !!event.internalData,
-    internalDataKeys: event.internalData ? Object.keys(event.internalData) : []
-  });
-
   // Calendar events have Graph data directly on the object (event.subject, event.start)
   // Reservation events have it nested (event.graphData.subject, event.graphData.start)
   const isCalendarEvent = event.subject && !event.graphData;

@@ -313,7 +313,32 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
       rsId: rsId, // Store rsId as integer (or null if invalid/empty)
       importedAt: new Date().toISOString()
     },
-    
+
+    // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
+    eventTitle: subject,
+    eventDescription: description,
+    startDateTime: startISO,
+    endDateTime: endISO,
+    startDate: startISO ? new Date(startISO).toISOString().split('T')[0] : '',
+    startTime: startISO ? new Date(startISO).toTimeString().slice(0, 5) : '',
+    endDate: endISO ? new Date(endISO).toISOString().split('T')[0] : '',
+    endTime: endISO ? new Date(endISO).toTimeString().slice(0, 5) : '',
+    location: location,
+    setupTime: '',
+    teardownTime: '',
+    doorOpenTime: '',
+    doorCloseTime: '',
+    setupTimeMinutes: setupMinutes,
+    teardownTimeMinutes: teardownMinutes,
+    setupNotes: '',
+    doorNotes: '',
+    eventNotes: description,
+    isAllDayEvent: isAllDay,
+    virtualMeetingUrl: null,
+    virtualPlatform: null,
+    mecCategories: categories,
+    assignedTo: '',
+
     // Metadata
     sourceCalendars: [{
       calendarId: targetCalendarId || 'csv_import_calendar',

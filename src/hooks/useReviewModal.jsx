@@ -56,7 +56,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
    * Close modal and release any holds
    */
   const closeModal = useCallback(async () => {
-    if (currentItem) {
+    // Only release hold if one was actually acquired (reviewHold state exists)
+    if (reviewHold && currentItem) {
       await releaseReviewHold(currentItem._id);
     }
 
@@ -65,7 +66,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     setEditableData(null);
     setOriginalChangeKey(null);
     setHasChanges(false);
-  }, [currentItem]);
+  }, [currentItem, reviewHold]);
 
   /**
    * Acquire soft hold when opening review modal

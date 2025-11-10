@@ -2675,6 +2675,39 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       unifiedEvent.createdSource = 'graph-sync';
     }
 
+    // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
+    // Parse datetime strings into separate date/time fields
+    const startDateTime = graphEvent.start?.dateTime;
+    const endDateTime = graphEvent.end?.dateTime;
+
+    unifiedEvent.eventTitle = graphEvent.subject || 'Untitled Event';
+    unifiedEvent.eventDescription = graphEvent.body?.content || graphEvent.bodyPreview || '';
+    unifiedEvent.startDateTime = startDateTime;
+    unifiedEvent.endDateTime = endDateTime;
+    unifiedEvent.startDate = startDateTime ? new Date(startDateTime).toISOString().split('T')[0] : '';
+    unifiedEvent.startTime = startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '';
+    unifiedEvent.endDate = endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '';
+    unifiedEvent.endTime = endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '';
+    unifiedEvent.location = graphEvent.location?.displayName || '';
+    unifiedEvent.isAllDayEvent = graphEvent.isAllDay || false;
+
+    // Timing fields from internalData
+    unifiedEvent.setupTime = internalData.setupTime || '';
+    unifiedEvent.teardownTime = internalData.teardownTime || '';
+    unifiedEvent.doorOpenTime = internalData.doorOpenTime || '';
+    unifiedEvent.doorCloseTime = internalData.doorCloseTime || '';
+    unifiedEvent.setupTimeMinutes = internalData.setupMinutes || 0;
+    unifiedEvent.teardownTimeMinutes = internalData.teardownMinutes || 0;
+
+    // Notes fields from internalData
+    unifiedEvent.setupNotes = internalData.setupNotes || '';
+    unifiedEvent.doorNotes = internalData.doorNotes || '';
+    unifiedEvent.eventNotes = internalData.eventNotes || internalData.internalNotes || '';
+
+    // Category/assignment fields
+    unifiedEvent.mecCategories = internalData.mecCategories || [];
+    unifiedEvent.assignedTo = internalData.assignedTo || '';
+
     // Use upsert to handle updates while preserving internal data
     // Query using $or to match either unique index constraint:
     // 1. userId + calendarId + eventId (if event exists with this combo)
@@ -3663,6 +3696,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         // Nested data structures (PRESERVED)
         graphData: event.graphData,                     // Full Graph API data
         internalData: event.internalData || {},         // Full internal enrichments
+        roomReservationData: event.roomReservationData, // Room reservation data
 
         // Top-level compatibility fields for frontend (extracted from nested data)
         subject: event.graphData?.subject,
@@ -3671,6 +3705,44 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         location: event.graphData?.location,
         bodyPreview: event.graphData?.bodyPreview,
         isAllDay: event.graphData?.isAllDay,
+
+        // TOP-LEVEL APPLICATION FIELDS (added by migration)
+        eventTitle: event.eventTitle,
+        eventDescription: event.eventDescription,
+        startDateTime: event.startDateTime,
+        endDateTime: event.endDateTime,
+        startDate: event.startDate,
+        startTime: event.startTime,
+        endDate: event.endDate,
+        endTime: event.endTime,
+        setupTime: event.setupTime,
+        teardownTime: event.teardownTime,
+        doorOpenTime: event.doorOpenTime,
+        doorCloseTime: event.doorCloseTime,
+        setupTimeMinutes: event.setupTimeMinutes,
+        teardownTimeMinutes: event.teardownTimeMinutes,
+        setupNotes: event.setupNotes,
+        doorNotes: event.doorNotes,
+        eventNotes: event.eventNotes,
+        isAllDayEvent: event.isAllDayEvent,
+
+        // Room reservation fields
+        requestedRooms: event.requestedRooms,
+        requesterName: event.requesterName,
+        requesterEmail: event.requesterEmail,
+        department: event.department,
+        phone: event.phone,
+        attendeeCount: event.attendeeCount,
+        priority: event.priority,
+        specialRequirements: event.specialRequirements,
+        contactName: event.contactName,
+        contactEmail: event.contactEmail,
+        isOnBehalfOf: event.isOnBehalfOf,
+        reviewNotes: event.reviewNotes,
+
+        // Category and assignment fields
+        mecCategories: event.mecCategories,
+        assignedTo: event.assignedTo,
 
         // Additional metadata
         virtualMeetingUrl: event.virtualMeetingUrl,
@@ -4264,6 +4336,42 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.locations = [];
       newEventDoc.locationDisplayNames = updatedGraphData.location?.displayName || '';
 
+      // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
+      const startDateTime = updatedGraphData.start?.dateTime;
+      const endDateTime = updatedGraphData.end?.dateTime;
+
+      newEventDoc.eventTitle = updatedGraphData.subject || 'Untitled Event';
+      newEventDoc.eventDescription = updatedGraphData.body?.content || updatedGraphData.bodyPreview || '';
+      newEventDoc.startDateTime = startDateTime;
+      newEventDoc.endDateTime = endDateTime;
+      newEventDoc.startDate = startDateTime ? new Date(startDateTime).toISOString().split('T')[0] : '';
+      newEventDoc.startTime = startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '';
+      newEventDoc.endDate = endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '';
+      newEventDoc.endTime = endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '';
+      newEventDoc.location = updatedGraphData.location?.displayName || '';
+      newEventDoc.isAllDayEvent = updatedGraphData.isAllDay || false;
+
+      // Timing fields from internalData
+      newEventDoc.setupTime = internalFields?.setupTime || '';
+      newEventDoc.teardownTime = internalFields?.teardownTime || '';
+      newEventDoc.doorOpenTime = internalFields?.doorOpenTime || '';
+      newEventDoc.doorCloseTime = internalFields?.doorCloseTime || '';
+      newEventDoc.setupTimeMinutes = internalFields?.setupMinutes || 0;
+      newEventDoc.teardownTimeMinutes = internalFields?.teardownMinutes || 0;
+
+      // Notes fields from internalData
+      newEventDoc.setupNotes = internalFields?.setupNotes || '';
+      newEventDoc.doorNotes = internalFields?.doorNotes || '';
+      newEventDoc.eventNotes = internalFields?.eventNotes || '';
+
+      // Category and assignment fields
+      newEventDoc.mecCategories = internalFields?.mecCategories || [];
+      newEventDoc.assignedTo = internalFields?.assignedTo || '';
+
+      // Virtual meeting fields
+      newEventDoc.virtualMeetingUrl = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
+      newEventDoc.virtualPlatform = null; // Not typically in Graph data
+
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
         eventId: actualEventId,
@@ -4279,6 +4387,19 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ...currentEvent.internalData,
           ...internalFields
         };
+
+        // Update top-level timing and notes fields from internalData
+        if (internalFields.setupTime !== undefined) updateOperations['setupTime'] = internalFields.setupTime;
+        if (internalFields.teardownTime !== undefined) updateOperations['teardownTime'] = internalFields.teardownTime;
+        if (internalFields.doorOpenTime !== undefined) updateOperations['doorOpenTime'] = internalFields.doorOpenTime;
+        if (internalFields.doorCloseTime !== undefined) updateOperations['doorCloseTime'] = internalFields.doorCloseTime;
+        if (internalFields.setupMinutes !== undefined) updateOperations['setupTimeMinutes'] = internalFields.setupMinutes;
+        if (internalFields.teardownMinutes !== undefined) updateOperations['teardownTimeMinutes'] = internalFields.teardownMinutes;
+        if (internalFields.setupNotes !== undefined) updateOperations['setupNotes'] = internalFields.setupNotes;
+        if (internalFields.doorNotes !== undefined) updateOperations['doorNotes'] = internalFields.doorNotes;
+        if (internalFields.eventNotes !== undefined) updateOperations['eventNotes'] = internalFields.eventNotes;
+        if (internalFields.mecCategories !== undefined) updateOperations['mecCategories'] = internalFields.mecCategories;
+        if (internalFields.assignedTo !== undefined) updateOperations['assignedTo'] = internalFields.assignedTo;
       }
 
       // Always update graphData if we got new data from Graph API
@@ -4291,6 +4412,22 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           updateOperations['locationDisplayNames'] = newLocationDisplayName;
           // Note: locations array is NOT auto-updated - requires manual assignment in Phase 2
         }
+
+        // Update top-level fields from graphData
+        const startDateTime = updatedGraphData.start?.dateTime;
+        const endDateTime = updatedGraphData.end?.dateTime;
+
+        updateOperations['eventTitle'] = updatedGraphData.subject || 'Untitled Event';
+        updateOperations['eventDescription'] = updatedGraphData.body?.content || updatedGraphData.bodyPreview || '';
+        updateOperations['startDateTime'] = startDateTime;
+        updateOperations['endDateTime'] = endDateTime;
+        updateOperations['startDate'] = startDateTime ? new Date(startDateTime).toISOString().split('T')[0] : '';
+        updateOperations['startTime'] = startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '';
+        updateOperations['endDate'] = endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '';
+        updateOperations['endTime'] = endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '';
+        updateOperations['location'] = newLocationDisplayName;
+        updateOperations['isAllDayEvent'] = updatedGraphData.isAllDay || false;
+        updateOperations['virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -15020,6 +15157,43 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         createdGraphEventIds: [],
         calendarMode: null
       },
+
+      // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
+      eventTitle,
+      eventDescription: eventDescription || '',
+      startDateTime,
+      endDateTime,
+      startDate: startDateTime ? new Date(startDateTime).toISOString().split('T')[0] : '',
+      startTime: startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '',
+      endDate: endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '',
+      endTime: endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '',
+      setupTime: setupTime || '',
+      teardownTime: teardownTime || '',
+      doorOpenTime: doorOpenTime || '',
+      doorCloseTime: doorCloseTime || '',
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
+      setupNotes: setupNotes || '',
+      doorNotes: doorNotes || '',
+      eventNotes: eventNotes || '',
+      location: roomNames.join('; '),
+      requestedRooms: requestedRooms,
+      requesterName: requesterName || userEmail,
+      requesterEmail: requesterEmail || userEmail,
+      department: department || '',
+      phone: phone || '',
+      attendeeCount: parseInt(attendeeCount) || 0,
+      priority: priority || 'medium',
+      specialRequirements: specialRequirements || '',
+      contactName: isOnBehalfOf ? contactName : '',
+      contactEmail: isOnBehalfOf ? contactEmail : '',
+      isOnBehalfOf: isOnBehalfOf || false,
+      reviewNotes: '',
+      isAllDayEvent: false,
+      virtualMeetingUrl: null,
+      virtualPlatform: null,
+      mecCategories: [],
+      assignedTo: '',
 
       createdAt: new Date(),
       createdBy: userId,
