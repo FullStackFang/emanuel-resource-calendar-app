@@ -16,14 +16,13 @@ export const useLocations = () => {
 
 // Location Provider component
 export const LocationProvider = ({ children, apiToken }) => {
-  const [locations, setLocations] = useState([]);
-  const [generalLocations, setGeneralLocations] = useState([]);
+  const [locations, setLocations] = useState([]); // All locations from templeEvents__Locations
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastLoaded, setLastLoaded] = useState(null);
-  const [lastLoadedGeneral, setLastLoadedGeneral] = useState(null);
 
-  // Load locations from API
+  // Load all locations from templeEvents__Locations collection
+  // This replaces both loadLocations() and loadGeneralLocations()
   const loadLocations = useCallback(async (force = false) => {
     // Skip if recently loaded and not forcing
     if (!force && lastLoaded && Date.now() - lastLoaded < 5 * 60 * 1000) { // 5 minutes cache
@@ -35,26 +34,28 @@ export const LocationProvider = ({ children, apiToken }) => {
       if (locations.length === 0) {
         setLoading(true); // Only show loading on first load
       }
-      
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms`, {
+
+      // Load all locations from templeEvents__Locations
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/locations`, {
         headers: apiToken ? {
           'Authorization': `Bearer ${apiToken}`
         } : {}
       });
-      
+
       if (!response.ok) {
         throw new Error(`Failed to load locations: ${response.status}`);
       }
-      
+
       const locationData = await response.json();
       setLocations(Array.isArray(locationData) ? locationData : []);
       setLastLoaded(Date.now());
-      
+
       logger.debug('Locations loaded successfully:', {
         count: Array.isArray(locationData) ? locationData.length : 0,
+        reservable: Array.isArray(locationData) ? locationData.filter(l => l.isReservable).length : 0,
         timestamp: new Date().toISOString()
       });
-      
+
     } catch (err) {
       logger.error('Error loading locations:', err);
       setError(err.message);
@@ -64,54 +65,17 @@ export const LocationProvider = ({ children, apiToken }) => {
     }
   }, [apiToken, locations.length, lastLoaded]);
 
-  // Load general locations from templeEvents__Locations collection
+  // Legacy compatibility: loadGeneralLocations now just calls loadLocations
   const loadGeneralLocations = useCallback(async (force = false) => {
-    // Skip if recently loaded and not forcing
-    if (!force && lastLoadedGeneral && Date.now() - lastLoadedGeneral < 5 * 60 * 1000) { // 5 minutes cache
-      return;
-    }
-
-    try {
-      setError(null);
-      if (generalLocations.length === 0) {
-        setLoading(true); // Only show loading on first load
-      }
-      
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/locations`, {
-        headers: apiToken ? {
-          'Authorization': `Bearer ${apiToken}`
-        } : {}
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to load general locations: ${response.status}`);
-      }
-      
-      const locationData = await response.json();
-      setGeneralLocations(Array.isArray(locationData) ? locationData : []);
-      setLastLoadedGeneral(Date.now());
-      
-      logger.debug('General locations loaded successfully:', {
-        count: Array.isArray(locationData) ? locationData.length : 0,
-        timestamp: new Date().toISOString()
-      });
-      
-    } catch (err) {
-      logger.error('Error loading general locations:', err);
-      setError(err.message);
-      // Don't clear existing locations on error, keep cached data
-    } finally {
-      setLoading(false);
-    }
-  }, [apiToken, generalLocations.length, lastLoadedGeneral]);
+    return loadLocations(force);
+  }, [loadLocations]);
 
   // Load locations on mount and when apiToken changes
   useEffect(() => {
     if (apiToken) {
-      loadLocations();
-      loadGeneralLocations();
+      loadLocations(); // Single load from templeEvents__Locations
     }
-  }, [apiToken, loadLocations, loadGeneralLocations]);
+  }, [apiToken, loadLocations]);
 
   // Get location by ID with fallback (supports legacy room terminology)
   const getLocationById = useCallback((locationId) => {
@@ -227,17 +191,33 @@ export const LocationProvider = ({ children, apiToken }) => {
   const refreshRooms = refreshLocations;
   const loadRooms = loadLocations;
 
+  // Computed properties
+  const reservableRooms = locations.filter(loc => loc.isReservable === true);
+
+  // Debug logging for room availability
+  if (locations.length > 0 && reservableRooms.length === 0) {
+    console.warn('⚠️ LocationContext: No reservable rooms found!', {
+      totalLocations: locations.length,
+      sample: locations.slice(0, 3).map(l => ({ name: l.name, isReservable: l.isReservable }))
+    });
+  } else if (reservableRooms.length > 0) {
+    console.log('✅ LocationContext: Reservable rooms available:', {
+      total: reservableRooms.length,
+      rooms: reservableRooms.map(r => r.name)
+    });
+  }
+
   // Context value with both new location API and legacy room API for compatibility
   const contextValue = {
     // Data (both new and legacy names)
-    locations,
-    generalLocations, // locations from templeEvents__Locations collection
-    rooms: locations, // legacy compatibility
+    locations, // All locations from templeEvents__Locations
+    generalLocations: locations, // Legacy compatibility - same as locations
+    rooms: reservableRooms, // Legacy compatibility - only reservable locations
     loading,
     error,
     lastLoaded,
-    lastLoadedGeneral,
-    
+    lastLoadedGeneral: lastLoaded, // Legacy compatibility - same timestamp
+
     // New location functions
     getLocationById,
     getLocationName,
@@ -247,7 +227,7 @@ export const LocationProvider = ({ children, apiToken }) => {
     refreshLocations,
     loadLocations,
     loadGeneralLocations,
-    
+
     // Legacy room functions (for backward compatibility)
     getRoomById,
     getRoomName,

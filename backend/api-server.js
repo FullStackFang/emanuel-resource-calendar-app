@@ -1626,8 +1626,8 @@ async function connectToDatabase() {
     // eventCacheCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
     unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
-    roomsCollection = db.collection('templeEvents__Rooms'); // Room information and features
-    locationsCollection = db.collection('templeEvents__Locations'); // Unified locations from events
+    roomsCollection = db.collection('templeEvents__Rooms'); // DEPRECATED - Room information now stored in templeEvents__Locations with isReservable flag
+    locationsCollection = db.collection('templeEvents__Locations'); // Unified locations for events AND reservable rooms
     roomReservationsCollection = db.collection('templeEvents__RoomReservations'); // Room reservation requests
     reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
     roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
@@ -10678,156 +10678,44 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
  */
 app.get('/api/rooms', async (req, res) => {
   try {
-    console.log('Getting rooms from collection:', roomsCollection ? 'exists' : 'null');
-    
-    // TEMPORARY WORKAROUND: Azure Cosmos DB indexing issue
-    // Return hardcoded rooms until indexing is fixed
-    const hardcodedRooms = [
-      // Legacy locations from calendar system (with location codes)
-      {
-        _id: "legacy1",
-        name: "Temple Emanu-El",
-        locationCode: "TPL",
-        displayName: "Temple Emanu-El",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 400,
-        features: ["piano", "stage", "microphone", "projector", "organ"],
-        accessibility: ["wheelchair-accessible", "hearing-loop"],
-        active: true,
-        description: "Main sanctuary for worship and large gatherings",
-        notes: "Primary worship space"
-      },
-      {
-        _id: "legacy2", 
-        name: "Chapel",
-        locationCode: "CPL",
-        displayName: "Chapel",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 200,
-        features: ["piano", "stage", "microphone", "projector"],
-        accessibility: ["wheelchair-accessible", "hearing-loop"],
-        active: true,
-        description: "Main worship space with traditional setup",
-        notes: "Reserved for services on Sabbath"
-      },
-      {
-        _id: "legacy3",
-        name: "Music Room", 
-        locationCode: "MUS",
-        displayName: "Music Room",
-        building: "Main Building",
-        floor: "2nd Floor",
-        capacity: 25,
-        features: ["piano", "music-stands", "acoustic-treatment"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Dedicated space for music practice and choir rehearsals",
-        notes: "Requires coordination with music director"
-      },
-      {
-        _id: "legacy4",
-        name: "Room 402",
-        locationCode: "402", 
-        displayName: "Room 402",
-        building: "Main Building",
-        floor: "4th Floor",
-        capacity: 20,
-        features: ["tables", "chairs", "whiteboard"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Classroom space for educational programs",
-        notes: "General purpose classroom"
-      },
-      {
-        _id: "legacy5",
-        name: "Room 602",
-        locationCode: "602",
-        displayName: "6th Floor Lounge - 602", 
-        building: "Main Building",
-        floor: "6th Floor",
-        capacity: 40,
-        features: ["comfortable-seating", "kitchenette", "tables"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Lounge area for social gatherings and meetings",
-        notes: "Popular for committee meetings and social events"
-      },
-      {
-        _id: "legacy6",
-        name: "Nursery School",
-        locationCode: "NURSERY",
-        displayName: "Nursery School",
-        building: "Education Wing",
-        floor: "Ground Floor",
-        capacity: 15,
-        features: ["child-furniture", "toys", "safety-equipment"],
-        accessibility: ["wheelchair-accessible", "child-safe"],
-        active: true,
-        description: "Early childhood education space",
-        notes: "Requires advance coordination with nursery school director"
-      },
-      // Existing newer rooms (no location codes - newer additions)
-      {
-        _id: "temp2",
-        name: "Social Hall",
-        building: "Main Building", 
-        floor: "1st Floor",
-        capacity: 150,
-        features: ["kitchen", "stage", "tables", "chairs"],
-        accessibility: ["wheelchair-accessible"],
-        active: true,
-        description: "Large multipurpose room with kitchen access",
-        notes: "Can be divided with partition"
-      },
-      {
-        _id: "temp3",
-        name: "Conference Room A",
-        building: "Main Building",
-        floor: "2nd Floor", 
-        capacity: 12,
-        features: ["av-equipment", "projector", "whiteboard", "conference-table"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Executive conference room with video conferencing",
-        notes: "Requires advance booking for setup"
-      },
-      {
-        _id: "temp4",
-        name: "Conference Room B",
-        building: "Main Building",
-        floor: "2nd Floor",
-        capacity: 8,
-        features: ["whiteboard", "conference-table"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Small meeting room for intimate discussions",
-        notes: "No AV equipment available"
-      },
-      {
-        _id: "temp5",
-        name: "Youth Room",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 30,
-        features: ["games", "comfortable-seating", "tv", "kitchenette"],
-        accessibility: ["wheelchair-accessible"],
-        active: true,
-        description: "Casual space designed for youth activities",
-        notes: "Snacks and beverages allowed"
-      }
-    ];
-    
-    console.log('Returning hardcoded rooms due to indexing issue:', hardcodedRooms.length);
-    res.json(hardcodedRooms);
-    
-    // TODO: Fix Azure Cosmos DB indexing policy to remove this workaround
-    
+    logger.debug('Getting reservable rooms from templeEvents__Locations collection');
+
+    // Query the locations collection for reservable rooms
+    const rooms = await db.collection('templeEvents__Locations').find({
+      isReservable: true,
+      active: { $ne: false } // Include locations that are not explicitly set to false
+    }).sort({ name: 1 }).toArray();
+
+    // Transform to consistent format (ensure name field exists)
+    const transformedRooms = rooms.map(room => ({
+      _id: room._id,
+      name: room.name || room.displayName || 'Unnamed Room',
+      displayName: room.displayName || room.name,
+      description: room.description || '',
+      building: room.building || '',
+      floor: room.floor || '',
+      capacity: room.capacity || 0,
+      features: room.features || [],
+      accessibility: room.accessibility || [],
+      active: room.active !== false,
+      notes: room.notes || '',
+      locationCode: room.locationCode || '',
+      isReservable: room.isReservable || false
+    }));
+
+    logger.debug(`Reservable rooms loaded successfully: ${transformedRooms.length} rooms found`);
+
+    // Return the rooms array
+    res.status(200).json(transformedRooms);
+
   } catch (error) {
     console.error('Error in rooms endpoint:', error);
     logger.error('Error in rooms endpoint:', error);
-    res.status(500).json({ error: 'Failed to fetch rooms' });
+
+    // Return empty array instead of hardcoded fallback
+    // Frontend should handle empty state gracefully
+    logger.warn('Database error - returning empty rooms array');
+    res.status(200).json([]);
   }
 });
 
@@ -10857,6 +10745,7 @@ app.get('/api/locations', async (req, res) => {
       active: location.active !== false,
       notes: location.notes || '',
       locationCode: location.locationCode || '',
+      isReservable: location.isReservable || false, // Required for frontend filtering
       // Include additional metadata if present
       ...(location.coordinates && { coordinates: location.coordinates }),
       ...(location.address && { address: location.address }),
@@ -12248,21 +12137,23 @@ app.post('/api/admin/rooms', verifyToken, async (req, res) => {
     
     const roomDoc = {
       name: name.trim(),
+      displayName: name.trim(), // Set displayName same as name by default
       building: building.trim(),
       floor: floor.trim(),
       capacity: parseInt(capacity) || 0,
       features: features || [],
       accessibility: accessibility || [],
       active: active !== false,
+      isReservable: true, // All rooms created through admin are reservable
       description: description?.trim() || '',
       notes: notes?.trim() || '',
       createdAt: new Date(),
       createdBy: userId,
       updatedAt: new Date()
     };
-    
-    const result = await roomsCollection.insertOne(roomDoc);
-    const savedRoom = await roomsCollection.findOne({ _id: result.insertedId });
+
+    const result = await db.collection('templeEvents__Locations').insertOne(roomDoc);
+    const savedRoom = await db.collection('templeEvents__Locations').findOne({ _id: result.insertedId });
     
     logger.log('Room created:', { roomId: result.insertedId, name, createdBy: userEmail });
     res.json(savedRoom);
@@ -12288,12 +12179,15 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
-    const { name, building, floor, capacity, features, accessibility, active, description, notes } = req.body;
-    
+
+    const { name, building, floor, capacity, features, accessibility, active, description, notes, isReservable } = req.body;
+
+    // First, get the current location to check if status needs to be set
+    const currentLocation = await db.collection('templeEvents__Locations').findOne({ _id: new ObjectId(id) });
+
     const updateDoc = {
       $set: {
-        ...(name && { name: name.trim() }),
+        ...(name && { name: name.trim(), displayName: name.trim() }), // Update displayName when name changes
         ...(building && { building: building.trim() }),
         ...(floor && { floor: floor.trim() }),
         ...(capacity !== undefined && { capacity: parseInt(capacity) || 0 }),
@@ -12302,11 +12196,14 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
         ...(active !== undefined && { active }),
         ...(description !== undefined && { description: description?.trim() || '' }),
         ...(notes !== undefined && { notes: notes?.trim() || '' }),
+        ...(isReservable !== undefined && { isReservable }),
+        // Default status to 'approved' if it's currently undefined
+        ...(!currentLocation?.status && { status: 'approved' }),
         updatedAt: new Date()
       }
     };
-    
-    const result = await roomsCollection.findOneAndUpdate(
+
+    const result = await db.collection('templeEvents__Locations').findOneAndUpdate(
       { _id: new ObjectId(id) },
       updateDoc,
       { returnDocument: 'after' }
@@ -13229,7 +13126,7 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
       });
     }
     
-    const result = await roomsCollection.deleteOne({ _id: new ObjectId(id) });
+    const result = await db.collection('templeEvents__Locations').deleteOne({ _id: new ObjectId(id) });
     
     if (result.deletedCount === 0) {
       return res.status(404).json({ error: 'Room not found' });

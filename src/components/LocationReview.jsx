@@ -42,6 +42,7 @@ export default function LocationReview({ apiToken }) {
     capacity: '',
     features: [],
     accessibility: [],
+    isReservable: false,
     address: '',
     description: '',
     notes: ''
@@ -84,14 +85,14 @@ export default function LocationReview({ apiToken }) {
       
       if (allResponse.ok) {
         const allData = await allResponse.json();
-        // Sort all locations by usage count (highest first), then by name
+        // Sort all locations by reservable status first (reservable at top), then alphabetically by name
         const sortedAll = allData.sort((a, b) => {
-          const usageA = a.usageCount || 0;
-          const usageB = b.usageCount || 0;
-          if (usageA !== usageB) {
-            return usageB - usageA; // Higher usage first
+          // Sort by reservable first (reservable locations at top)
+          if (a.isReservable !== b.isReservable) {
+            return b.isReservable ? 1 : -1;
           }
-          return (a.name || '').localeCompare(b.name || ''); // Then alphabetical
+          // Then alphabetically by name
+          return (a.name || '').localeCompare(b.name || '');
         });
         setAllLocations(sortedAll);
       }
@@ -272,6 +273,7 @@ export default function LocationReview({ apiToken }) {
       capacity: '',
       features: [],
       accessibility: [],
+      isReservable: false,
       address: '',
       description: '',
       notes: ''
@@ -291,6 +293,7 @@ export default function LocationReview({ apiToken }) {
       capacity: location.capacity?.toString() || '',
       features: location.features || [],
       accessibility: location.accessibility || [],
+      isReservable: location.isReservable === true,
       address: location.address || '',
       description: location.description || '',
       notes: location.notes || ''
@@ -338,6 +341,28 @@ export default function LocationReview({ apiToken }) {
       setEditingLocation(null);
     } catch (err) {
       logger.error('Error saving location:', err);
+      showToast(`❌ Error: ${err.message}`, 'error');
+    }
+  };
+
+  const handleToggleReservable = async (location) => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${location._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ ...location, isReservable: !location.isReservable })
+      });
+
+      if (!response.ok) throw new Error('Failed to update location reservable status');
+
+      const updatedLocation = await response.json();
+      setAllLocations(prev => prev.map(l => l._id === updatedLocation._id ? updatedLocation : l));
+      showToast(`✅ ${updatedLocation.name} is now ${updatedLocation.isReservable ? 'reservable' : 'not reservable'}`, 'success');
+    } catch (err) {
+      logger.error('Error updating location reservable status:', err);
       showToast(`❌ Error: ${err.message}`, 'error');
     }
   };
@@ -555,10 +580,10 @@ export default function LocationReview({ apiToken }) {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="status-filter-select"
               >
-                <option value="all">All Statuses ({allLocations.length})</option>
-                <option value="approved">Active ({allLocations.filter(l => l.status === 'approved').length})</option>
-                <option value="merged">Merged ({allLocations.filter(l => l.status === 'merged').length})</option>
-                <option value="deleted">Deleted ({allLocations.filter(l => l.status === 'deleted').length})</option>
+                <option value="all">All Locations ({allLocations.length})</option>
+                <option value="active">Active ({allLocations.filter(l => !l.status || l.status === 'approved').length})</option>
+                <option value="inactive">Inactive ({allLocations.filter(l => l.status === 'merged' || l.status === 'deleted').length})</option>
+                <option value="reservable">Reservable Only ({allLocations.filter(l => l.isReservable === true).length})</option>
               </select>
             </div>
           </div>
@@ -567,85 +592,72 @@ export default function LocationReview({ apiToken }) {
             <table className="locations-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Building/Floor</th>
-                  <th>Status</th>
-                  <th>Aliases</th>
-                  <th>Usage</th>
-                  <th>Info</th>
-                  <th>Actions</th>
+                  <th className="details-header">Location Details</th>
+                  <th className="aliases-header">Aliases</th>
+                  <th className="reservable-header">Reservable</th>
+                  <th className="usage-header">Usage</th>
+                  <th className="actions-header">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {allLocations
-                  .filter(l => statusFilter === 'all' || l.status === statusFilter)
+                  .filter(l => {
+                    if (statusFilter === 'all') return true;
+                    if (statusFilter === 'active') return !l.status || l.status === 'approved';
+                    if (statusFilter === 'inactive') return l.status === 'merged' || l.status === 'deleted';
+                    if (statusFilter === 'reservable') return l.isReservable === true;
+                    return true;
+                  })
                   .map(location => (
-                  <tr key={location._id} className={`status-${location.status}`}>
-                    <td>
-                      <strong>{location.name}</strong>
-                      {location.locationCode && (
-                        <span className="location-code"> ({location.locationCode})</span>
-                      )}
-                    </td>
-                    <td className="building-cell">
-                      {location.building && <div className="building">{location.building}</div>}
-                      {location.floor && <div className="floor">Floor: {location.floor}</div>}
-                    </td>
-                    <td>
-                      <span className={`status-badge ${location.status}`}>
-                        {location.status || 'approved'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="aliases-cell">
-                        {location.aliases && location.aliases.length > 0 ? (
-                          location.aliases.slice(0, 3).map((alias, idx) => (
-                            <span key={idx} className="alias-tag">{alias}</span>
-                          ))
-                        ) : (
-                          <span className="no-aliases">None</span>
-                        )}
-                        {location.aliases && location.aliases.length > 3 && (
-                          <span className="more-aliases">+{location.aliases.length - 3} more</span>
-                        )}
+                  <tr key={location._id} className={`status-${location.status || 'approved'}`}>
+                    <td className="location-details-cell">
+                      <div className="location-summary">
+                        <div className="location-name-row">
+                          <strong className="location-name">{location.name}</strong>
+                          {location.locationCode && (
+                            <span className="location-code">({location.locationCode})</span>
+                          )}
+                          <span className={`status-badge ${location.status || 'approved'}`}>
+                            {location.status || 'approved'}
+                          </span>
+                        </div>
+                        <div className="location-meta">
+                          {location.building && (
+                            <span className="building-info">
+                              {location.building}
+                              {location.floor && ` • ${location.floor}`}
+                            </span>
+                          )}
+                          {location.status === 'merged' && location.mergedInto && (
+                            <span className="merge-info">→ Merged into #{location.mergedInto}</span>
+                          )}
+                          {location.status === 'deleted' && location.deletedBy && (
+                            <span className="delete-info">Deleted by {location.deletedBy}</span>
+                          )}
+                        </div>
                       </div>
                     </td>
-                    <td className="usage-cell">
-                      {location.usageCount || 0}
+                    <td className="aliases-cell-wide">
+                      {location.aliases && location.aliases.length > 0 ? (
+                        <div className="aliases-list">
+                          {location.aliases.map((alias, idx) => (
+                            <span key={idx} className="alias-tag">{alias}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="no-data">None</span>
+                      )}
                     </td>
-                    <td className="info-cell">
-                      {location.status === 'merged' && location.mergedInto && (
-                        <div className="merged-metadata">
-                          <div className="merged-into">→ Merged into #{location.mergedInto}</div>
-                          {location.mergedBy && (
-                            <div className="metadata-detail">
-                              By: {location.mergedBy}
-                            </div>
-                          )}
-                          {location.mergedAt && (
-                            <div className="metadata-detail">
-                              {new Date(location.mergedAt).toLocaleDateString()}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {location.status === 'deleted' && (
-                        <div className="deleted-metadata">
-                          {location.deletedBy && (
-                            <div className="metadata-detail">
-                              Deleted by: {location.deletedBy}
-                            </div>
-                          )}
-                          {location.deletedAt && (
-                            <div className="metadata-detail">
-                              {new Date(location.deletedAt).toLocaleDateString()}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {location.status !== 'merged' && location.status !== 'deleted' && (
-                        <span className="no-data">—</span>
-                      )}
+                    <td className="reservable-cell">
+                      <button
+                        className={`reservable-toggle ${location.isReservable ? 'reservable' : 'not-reservable'}`}
+                        onClick={() => handleToggleReservable(location)}
+                      >
+                        {location.isReservable ? 'Yes' : 'No'}
+                      </button>
+                    </td>
+                    <td className="usage-cell">
+                      <span className="usage-count">{location.usageCount || 0}</span>
                     </td>
                     <td className="actions-cell">
                       {location.status !== 'merged' && location.status !== 'deleted' ? (
@@ -1227,6 +1239,18 @@ export default function LocationReview({ apiToken }) {
                       placeholder="Internal notes for staff..."
                       rows="2"
                     />
+                  </div>
+
+                  <div className="form-field checkbox-field">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={locationFormData.isReservable}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, isReservable: e.target.checked }))}
+                      />
+                      <span>Location is Reservable</span>
+                    </label>
+                    <div className="help-text">When enabled, this location can be reserved through the public reservation form</div>
                   </div>
                 </div>
 

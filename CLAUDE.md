@@ -44,7 +44,10 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 - **Collections**:
   - `templeEvents__Users`: User profiles and preferences
   - `templeEvents__InternalEvents`: Event data with internal enrichments
-  - `templeEvents__Rooms`: Room definitions with features and capacity
+  - `templeEvents__Locations`: Location and room data (replaces templeEvents__Rooms)
+    - Locations with `isReservable: true` are available for room reservations
+    - Also stores event locations from Graph API with alias management
+  - `templeEvents__Rooms`: **DEPRECATED** - Room data migrated to templeEvents__Locations
   - `templeEvents__RoomReservations`: Room reservation requests
   - `templeEvents__ReservationTokens`: Guest access tokens for public forms
 - **Authentication**: JWT validation with JWKS
@@ -140,12 +143,20 @@ Events combine Microsoft Graph data with internal enrichments:
 - Enhanced event search with better filtering
 - Added visual room feature selection
 
+### Database Consolidation (Completed)
+- **Rooms & Locations Consolidation**: Unified `templeEvents__Rooms` and `templeEvents__Locations` into single collection
+- Room data migrated to `templeEvents__Locations` with `isReservable: true` flag
+- `/api/rooms` endpoint now queries locations collection (filtered by `isReservable`)
+- Admin endpoints (POST/PUT/DELETE `/api/admin/rooms`) now use locations collection
+- LocationContext simplified to single data source with backward compatibility
+- Hardcoded room data replaced with database queries
+- Migration script: `backend/migrate-rooms-to-locations.js`
+
 ## Known Issues & Pending Tasks
 
 1. **Graph API Delta Sync**: Query parameter issues need resolution
 2. **Rate Limiting**: DDOS protection for reservation endpoints pending
 3. **Token Generation UI**: Staff interface for creating guest access tokens
-4. **MongoDB Indexing**: Temporary hardcoded room data due to Azure Cosmos DB limitations
 
 ## Development Best Practices
 
