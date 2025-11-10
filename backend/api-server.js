@@ -2657,7 +2657,24 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     if (locationId) {
       unifiedEvent.locationId = locationId;
     }
-    
+
+    // Check if this will be an insert or update (for creation tracking)
+    const existingDoc = await unifiedEventsCollection.findOne({
+      $or: [
+        { userId: userId, calendarId: calendarId, eventId: eventId },
+        { userId: userId, 'graphData.id': graphEvent.id }
+      ]
+    });
+
+    // Only set creation tracking fields for NEW events
+    if (!existingDoc) {
+      unifiedEvent.createdAt = now;
+      unifiedEvent.createdBy = userId;
+      unifiedEvent.createdByEmail = graphEvent.organizer?.emailAddress?.address || 'system@graph-sync';
+      unifiedEvent.createdByName = graphEvent.organizer?.emailAddress?.name || 'Graph Sync';
+      unifiedEvent.createdSource = 'graph-sync';
+    }
+
     // Use upsert to handle updates while preserving internal data
     // Query using $or to match either unique index constraint:
     // 1. userId + calendarId + eventId (if event exists with this combo)
@@ -3616,7 +3633,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       });
     }
 
-    // STEP 2: Transform and return cached events
+    // STEP 2: Return events with full database structure (preserving graphData and internalData)
     const transformedLoadEvents = unifiedEvents.map(event => {
       // Check if graphData exists and has required properties
       if (!event.graphData || !event.graphData.start || !event.graphData.end) {
@@ -3634,41 +3651,50 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         event.graphData.subject = event.internalData?.subject || '(No Subject)';
       }
 
-      // Normalize category field
-      let category = '';
-      if (event.internalData?.mecCategories && event.internalData.mecCategories.length > 0) {
-        category = event.internalData.mecCategories[0];
-      } else if (event.graphData?.categories && event.graphData.categories.length > 0) {
-        category = event.graphData.categories[0];
-      }
-
-      const internalData = event.internalData || {};
-
+      // Return the full database object with nested structure intact
       return {
-        // Use Graph data as base
-        ...event.graphData,
-        // Add internal enrichments
-        ...internalData,
-        // Explicitly include ID fields (ensures they're not overwritten)
+        // Core identifiers
         eventId: event.eventId,                          // Internal unique ID (UUID)
         id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
-        graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
-        // Override with normalized category
-        category: category,
-        // Add virtual meeting fields
+        _id: event._id,                                 // MongoDB document ID
+        userId: event.userId,
+        calendarId: event.calendarId,
+
+        // Nested data structures (PRESERVED)
+        graphData: event.graphData,                     // Full Graph API data
+        internalData: event.internalData || {},         // Full internal enrichments
+
+        // Top-level compatibility fields for frontend (extracted from nested data)
+        subject: event.graphData?.subject,
+        start: event.graphData?.start,
+        end: event.graphData?.end,
+        location: event.graphData?.location,
+        bodyPreview: event.graphData?.bodyPreview,
+        isAllDay: event.graphData?.isAllDay,
+
+        // Additional metadata
         virtualMeetingUrl: event.virtualMeetingUrl,
         virtualPlatform: event.virtualPlatform,
-        // Add location fields
         locations: event.locations,
         locationDisplayNames: event.locationDisplayNames,
-        // Add metadata
-        calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(internalData).some(key =>
-          internalData[key] &&
-          (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
+        lastSyncedAt: event.lastSyncedAt,
+        lastModifiedDateTime: event.lastModifiedDateTime,
+        status: event.status,
+        isDeleted: event.isDeleted,
+
+        // Timestamps
+        createdAt: event.createdAt,
+        createdBy: event.createdBy,
+        createdByEmail: event.createdByEmail,
+        createdByName: event.createdByName,
+        createdSource: event.createdSource,
+
+        // Flags for backward compatibility
+        _hasInternalData: Object.keys(event.internalData || {}).some(key =>
+          event.internalData[key] &&
+          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
         ),
-        _lastSyncedAt: event.lastSyncedAt,
         _cached: true
       };
     }).filter(event => event !== null);
@@ -3687,6 +3713,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     if (transformedLoadEvents.length > 0) {
       logger.log(`\n📋 Event Details:`);
       transformedLoadEvents
+        .filter(event => event.start?.dateTime) // Only include events with valid start time
         .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
         .forEach((event, idx) => {
           const eventDate = new Date(event.start.dateTime).toLocaleString('en-US', {
@@ -4225,6 +4252,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         graphData: updatedGraphData,
         internalData: internalFields || {},
         createdAt: new Date(),
+        createdBy: req.user.userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'unified-form',
         lastAccessedAt: new Date(),
         syncedAt: new Date()
       };
@@ -6659,6 +6690,11 @@ function createRegistrationEventFromMain(mainEvent, userId) {
     
     lastSyncedAt: new Date(),
     lastAccessedAt: new Date(),
+    createdAt: mainEvent.createdAt || new Date(),
+    createdBy: mainEvent.createdBy || userId,
+    createdByEmail: mainEvent.createdByEmail || 'csv-import@system',
+    createdByName: mainEvent.createdByName || 'CSV Import',
+    createdSource: mainEvent.createdSource || 'csv-import',
     isDeleted: false,
     isCSVImport: true,
     isRegistrationEvent: true
@@ -8845,6 +8881,10 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
             lastAccessedAt: now,
             cachedAt: now,
             createdAt: now,
+            createdBy: userId,
+            createdByEmail: userEmail,
+            createdByName: req.user.name || userEmail,
+            createdSource: 'csv-import',
             updatedAt: now,
             graphData: {
               importance: 'normal',
@@ -14597,7 +14637,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       },
       {
         eventId: `test-conf-a-2-${Date.now() + 1}`,
@@ -14624,7 +14669,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       },
       {
         eventId: `test-conf-a-3-${Date.now() + 2}`,
@@ -14651,7 +14701,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       },
       // Conference Room B events
       {
@@ -14679,7 +14734,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       },
       {
         eventId: `test-conf-b-2-${Date.now() + 4}`,
@@ -14706,7 +14766,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       },
       {
         eventId: `test-conf-b-3-${Date.now() + 5}`,
@@ -14733,7 +14798,12 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           setupTime: 0,
           teardownTime: 0
         },
-        lastSyncTime: new Date()
+        lastSyncTime: new Date(),
+        createdAt: new Date(),
+        createdBy: userId,
+        createdByEmail: req.user.email,
+        createdByName: req.user.name || req.user.email,
+        createdSource: 'test-data'
       }
     ];
 
@@ -14951,6 +15021,11 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         calendarMode: null
       },
 
+      createdAt: new Date(),
+      createdBy: userId,
+      createdByEmail: userEmail,
+      createdByName: requesterName || userEmail,
+      createdSource: 'room-reservation',
       lastModifiedDateTime: new Date(),
       lastSyncedAt: new Date(),
       calendarId: null, // No calendar yet (pending approval)

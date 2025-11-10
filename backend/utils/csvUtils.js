@@ -324,6 +324,11 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
     // Timestamps and flags
     lastSyncedAt: new Date(),
     lastAccessedAt: new Date(),
+    createdAt: new Date(),
+    createdBy: userId,
+    createdByEmail: 'csv-import@system',
+    createdByName: 'CSV Import',
+    createdSource: 'csv-import',
     isDeleted: isDeleted,
     isCSVImport: true
   };

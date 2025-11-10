@@ -15,9 +15,45 @@
 export function transformEventToFlatStructure(event) {
   if (!event) return null;
 
+  // Debug: Log incoming event structure
+  console.log('🔍 transformEventToFlatStructure received event:', {
+    hasEventId: !!event.eventId,
+    eventId: event.eventId,
+    hasId: !!event.id,
+    id: event.id,
+    has_id: !!event._id,
+    _id: event._id,
+    hasGraphData: !!event.graphData,
+    graphDataId: event.graphData?.id,
+    hasInternalData: !!event.internalData,
+    internalDataKeys: event.internalData ? Object.keys(event.internalData) : []
+  });
+
   // Calendar events have Graph data directly on the object (event.subject, event.start)
   // Reservation events have it nested (event.graphData.subject, event.graphData.start)
   const isCalendarEvent = event.subject && !event.graphData;
+
+  // Extract datetime strings
+  const startDateTime = isCalendarEvent ? event.start?.dateTime : (event.graphData?.start?.dateTime);
+  const endDateTime = isCalendarEvent ? event.end?.dateTime : (event.graphData?.end?.dateTime);
+
+  // Parse datetime strings into separate date/time fields for form consumption
+  let startDate = '', startTime = '', endDate = '', endTime = '';
+  if (startDateTime && endDateTime) {
+    try {
+      const startDT = new Date(startDateTime);
+      const endDT = new Date(endDateTime);
+
+      if (!isNaN(startDT.getTime()) && !isNaN(endDT.getTime())) {
+        startDate = startDT.toISOString().split('T')[0];
+        startTime = startDT.toTimeString().slice(0, 5);
+        endDate = endDT.toISOString().split('T')[0];
+        endTime = endDT.toTimeString().slice(0, 5);
+      }
+    } catch (err) {
+      console.error('Error parsing date/time in transformEventToFlatStructure:', err);
+    }
+  }
 
   return {
     // === STANDARDIZED ID PROPERTIES ===
@@ -35,8 +71,12 @@ export function transformEventToFlatStructure(event) {
     // Handle both calendar events (direct properties) and reservation events (nested graphData)
     eventTitle: isCalendarEvent ? event.subject : (event.graphData?.subject || 'Untitled Event'),
     eventDescription: isCalendarEvent ? (event.bodyPreview || event.body?.content || '') : (event.graphData?.bodyPreview || ''),
-    startDateTime: isCalendarEvent ? event.start?.dateTime : (event.graphData?.start?.dateTime),
-    endDateTime: isCalendarEvent ? event.end?.dateTime : (event.graphData?.end?.dateTime),
+    startDateTime,
+    endDateTime,
+    startDate,
+    startTime,
+    endDate,
+    endTime,
 
     // Room reservation data (only present in reservation events)
     requestedRooms: event.roomReservationData?.requestedRooms || [],
@@ -51,18 +91,18 @@ export function transformEventToFlatStructure(event) {
     submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
     changeKey: event.roomReservationData?.changeKey,
 
-    // Timing data - can come from roomReservationData OR direct properties (calendar enrichments)
-    setupTime: event.roomReservationData?.timing?.setupTime || '',
-    teardownTime: event.roomReservationData?.timing?.teardownTime || '',
-    doorOpenTime: event.roomReservationData?.timing?.doorOpenTime || '',
-    doorCloseTime: event.roomReservationData?.timing?.doorCloseTime || '',
-    setupTimeMinutes: event.roomReservationData?.timing?.setupTimeMinutes || event.setupMinutes || 0,
-    teardownTimeMinutes: event.roomReservationData?.timing?.teardownTimeMinutes || event.teardownMinutes || 0,
+    // Timing data - can come from roomReservationData, internalData, OR direct properties (calendar enrichments)
+    setupTime: event.roomReservationData?.timing?.setupTime || event.internalData?.setupTime || '',
+    teardownTime: event.roomReservationData?.timing?.teardownTime || event.internalData?.teardownTime || '',
+    doorOpenTime: event.roomReservationData?.timing?.doorOpenTime || event.internalData?.doorOpenTime || '',
+    doorCloseTime: event.roomReservationData?.timing?.doorCloseTime || event.internalData?.doorCloseTime || '',
+    setupTimeMinutes: event.roomReservationData?.timing?.setupTimeMinutes || event.internalData?.setupMinutes || event.setupMinutes || 0,
+    teardownTimeMinutes: event.roomReservationData?.timing?.teardownTimeMinutes || event.internalData?.teardownMinutes || event.teardownMinutes || 0,
 
-    // Internal notes - can come from roomReservationData OR direct properties (calendar enrichments)
-    setupNotes: event.roomReservationData?.internalNotes?.setupNotes || event.internalNotes?.setupNotes || '',
-    doorNotes: event.roomReservationData?.internalNotes?.doorNotes || event.internalNotes?.doorNotes || '',
-    eventNotes: event.roomReservationData?.internalNotes?.eventNotes || event.internalNotes?.eventNotes || '',
+    // Internal notes - can come from roomReservationData, internalData, OR direct properties (calendar enrichments)
+    setupNotes: event.roomReservationData?.internalNotes?.setupNotes || event.internalData?.setupNotes || event.internalNotes?.setupNotes || '',
+    doorNotes: event.roomReservationData?.internalNotes?.doorNotes || event.internalData?.doorNotes || event.internalNotes?.doorNotes || '',
+    eventNotes: event.roomReservationData?.internalNotes?.eventNotes || event.internalData?.eventNotes || event.internalNotes?.eventNotes || '',
 
     // Contact person data
     contactName: event.roomReservationData?.contactPerson?.name || '',

@@ -57,64 +57,106 @@ export default function RoomReservationReview({
     }
   }, [isSaving, onIsSavingChange]);
 
-  // Initialize form data from reservation
+  // Track if form has been initialized to prevent re-initialization on every change
+  const isInitializedRef = React.useRef(false);
+  const reservationIdRef = React.useRef(null);
+
+  // Initialize form data from reservation (only once per reservation)
   useEffect(() => {
     if (reservation) {
-      console.log('📋 Initializing form data from reservation:', {
-        id: reservation._id,
-        startDateTime: reservation.startDateTime,
-        endDateTime: reservation.endDateTime
-      });
+      // Only initialize if this is a different reservation (different ID or first time)
+      const currentReservationId = reservation._id || reservation.eventId || JSON.stringify(reservation);
+      const isDifferentReservation = reservationIdRef.current !== currentReservationId;
 
-      const startDateTime = new Date(reservation.startDateTime);
-      const endDateTime = new Date(reservation.endDateTime);
-
-      // Validate dates
-      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-        console.error('❌ Invalid date values in reservation:', {
+      if (!isInitializedRef.current || isDifferentReservation) {
+        console.log('📋 Initializing form data from reservation:', {
+          id: reservation._id,
           startDateTime: reservation.startDateTime,
           endDateTime: reservation.endDateTime,
-          parsedStart: startDateTime,
-          parsedEnd: endDateTime
+          startDate: reservation.startDate,
+          startTime: reservation.startTime,
+          endDate: reservation.endDate,
+          endTime: reservation.endTime
         });
-        return;
+
+        // Handle both formats: combined datetime OR separate date/time fields
+        let startDate, startTime, endDate, endTime;
+
+        if (reservation.startDate && reservation.endDate) {
+          // New format: separate date/time fields
+          startDate = reservation.startDate;
+          startTime = reservation.startTime || '';
+          endDate = reservation.endDate;
+          endTime = reservation.endTime || '';
+        } else if (reservation.startDateTime && reservation.endDateTime) {
+          // Old format: combined datetime fields
+          const startDateTime = new Date(reservation.startDateTime);
+          const endDateTime = new Date(reservation.endDateTime);
+
+          // Validate dates
+          if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+            console.error('❌ Invalid date values in reservation:', {
+              startDateTime: reservation.startDateTime,
+              endDateTime: reservation.endDateTime,
+              parsedStart: startDateTime,
+              parsedEnd: endDateTime
+            });
+            return;
+          }
+
+          startDate = startDateTime.toISOString().split('T')[0];
+          startTime = startDateTime.toTimeString().slice(0, 5);
+          endDate = endDateTime.toISOString().split('T')[0];
+          endTime = endDateTime.toTimeString().slice(0, 5);
+        } else {
+          // No valid date/time information
+          console.error('❌ Missing date/time information in reservation');
+          startDate = '';
+          startTime = '';
+          endDate = '';
+          endTime = '';
+        }
+
+        setInitialData({
+          requesterName: reservation.requesterName || '',
+          requesterEmail: reservation.requesterEmail || '',
+          department: reservation.department || '',
+          phone: reservation.phone || '',
+          eventTitle: reservation.eventTitle || '',
+          eventDescription: reservation.eventDescription || '',
+          startDate,
+          startTime,
+          endDate,
+          endTime,
+          doorOpenTime: reservation.doorOpenTime || '',
+          doorCloseTime: reservation.doorCloseTime || '',
+          setupTime: reservation.setupTime || '',
+          teardownTime: reservation.teardownTime || '',
+          setupNotes: reservation.setupNotes || '',
+          doorNotes: reservation.doorNotes || '',
+          eventNotes: reservation.eventNotes || '',
+          attendeeCount: reservation.attendeeCount || '',
+          requestedRooms: reservation.requestedRooms || [],
+          specialRequirements: reservation.specialRequirements || '',
+          priority: reservation.priority || 'medium',
+          setupTimeMinutes: reservation.setupTimeMinutes || 0,
+          teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
+          contactEmail: reservation.contactEmail || '',
+          contactName: reservation.contactName || '',
+          isOnBehalfOf: reservation.isOnBehalfOf || false,
+          reviewNotes: reservation.reviewNotes || '',
+          isAllDayEvent: reservation.isAllDayEvent || false,
+          virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
+          graphData: reservation.graphData || null
+        });
+
+        // Store original changeKey for optimistic concurrency control
+        setOriginalChangeKey(reservation.changeKey);
+
+        // Mark as initialized for this reservation
+        isInitializedRef.current = true;
+        reservationIdRef.current = currentReservationId;
       }
-
-      setInitialData({
-        requesterName: reservation.requesterName || '',
-        requesterEmail: reservation.requesterEmail || '',
-        department: reservation.department || '',
-        phone: reservation.phone || '',
-        eventTitle: reservation.eventTitle || '',
-        eventDescription: reservation.eventDescription || '',
-        startDate: startDateTime.toISOString().split('T')[0],
-        startTime: startDateTime.toTimeString().slice(0, 5),
-        endDate: endDateTime.toISOString().split('T')[0],
-        endTime: endDateTime.toTimeString().slice(0, 5),
-        doorOpenTime: reservation.doorOpenTime || '',
-        doorCloseTime: reservation.doorCloseTime || '',
-        setupTime: reservation.setupTime || '',
-        teardownTime: reservation.teardownTime || '',
-        setupNotes: reservation.setupNotes || '',
-        doorNotes: reservation.doorNotes || '',
-        eventNotes: reservation.eventNotes || '',
-        attendeeCount: reservation.attendeeCount || '',
-        requestedRooms: reservation.requestedRooms || [],
-        specialRequirements: reservation.specialRequirements || '',
-        priority: reservation.priority || 'medium',
-        setupTimeMinutes: reservation.setupTimeMinutes || 0,
-        teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-        contactEmail: reservation.contactEmail || '',
-        contactName: reservation.contactName || '',
-        isOnBehalfOf: reservation.isOnBehalfOf || false,
-        reviewNotes: reservation.reviewNotes || '',
-        isAllDayEvent: reservation.isAllDayEvent || false,
-        virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
-        graphData: reservation.graphData || null
-      });
-
-      // Store original changeKey for optimistic concurrency control
-      setOriginalChangeKey(reservation.changeKey);
     }
   }, [reservation]);
 

@@ -43,7 +43,9 @@
     formatDateHeader,
     formatDateRangeForAPI,
     calculateEndDate,
-    snapToStartOfWeek
+    snapToStartOfWeek,
+    formatDateObjectForGraph,
+    getOutlookTimezone
   } from '../utils/timezoneUtils';
   import CalendarHeader from './CalendarHeader';
 
@@ -3458,12 +3460,8 @@
       // Users WITHOUT createEvents permission: create reservation requests (mode='create')
       const mode = userPermissions.createEvents ? 'event' : 'create';
 
-      // Set up start and end times (1 hour duration)
-      const startTime = new Date(day);
-      startTime.setHours(9, 0, 0, 0); // Default to 9 AM
-
-      const endTime = new Date(startTime);
-      endTime.setHours(startTime.getHours() + 1);
+      // Get the date string without times - let user fill in times
+      const dateString = day.toISOString().split('T')[0];
 
       // Set the category based on what view we're in
       let eventCategory = 'Uncategorized';
@@ -3500,8 +3498,10 @@
         // Event Details
         eventTitle: '',
         eventDescription: '',
-        startDateTime: standardizeDate(startTime),
-        endDateTime: standardizeDate(endTime),
+        startDate: dateString,
+        startTime: '',
+        endDate: dateString,
+        endTime: '',
         isAllDayEvent: false,
 
         // Location & Setup
@@ -3635,25 +3635,14 @@
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
 
-      // Find the enriched version of this event using eventId (internal unique ID)
-      const enrichedEvent = allEventsRef.current.find(enriched => enriched.eventId === event.eventId) || event;
-
-      // Construct event object with explicit ID properties for EventForm
-      const eventForForm = {
-        ...enrichedEvent,
-        // Ensure all ID properties are set correctly
-        eventId: enrichedEvent.eventId,                     // Internal unique ID (UUID) - always exists
-        id: enrichedEvent.id || enrichedEvent.eventId,      // For backward compatibility
-        graphId: enrichedEvent.graphId || null,             // Graph/Outlook ID (null if not published)
-        hasGraphId: !!enrichedEvent.hasGraphId,                // Boolean: published to Outlook?
-        _id: enrichedEvent._id                              // MongoDB document ID
-      };
+      // DEBUG: Log full event structure from templeEvents__Events
+      console.log('📋 Full Event from Database:', event);
 
       // Bypass event details modal - go directly to review modal
       (async () => {
         try {
           // Transform the event data to flat structure for the review form
-          const transformedEvent = transformEventToFlatStructure(eventForForm);
+          const transformedEvent = transformEventToFlatStructure(event);
 
           // Open review modal directly
           await reviewModal.openModal(transformedEvent);
@@ -3674,6 +3663,18 @@
 
       // Use the event data we already have and transform it
       try {
+        // DEBUG: Log event structure before transformation
+        console.log('🔍 handleReviewClick - event before transform:', {
+          eventId: event.eventId,
+          id: event.id,
+          _id: event._id,
+          hasGraphData: !!event.graphData,
+          hasInternalData: !!event.internalData,
+          graphDataKeys: event.graphData ? Object.keys(event.graphData) : [],
+          internalDataKeys: event.internalData ? Object.keys(event.internalData) : [],
+          topLevelKeys: Object.keys(event).slice(0, 20)
+        });
+
         // Transform the event data to flat structure for the review form
         const transformedEvent = transformEventToFlatStructure(event);
 
@@ -3834,11 +3835,11 @@
         const registrationEventData = {
           subject: `[SETUP/TEARDOWN] ${eventData.subject}`,
           start: {
-            dateTime: registrationStart.toISOString(),
+            dateTime: formatDateObjectForGraph(registrationStart),
             timeZone: eventData.start.timeZone || 'UTC'
           },
           end: {
-            dateTime: registrationEnd.toISOString(),
+            dateTime: formatDateObjectForGraph(registrationEnd),
             timeZone: eventData.end.timeZone || 'UTC'
           },
           location: eventData.location,
@@ -3996,6 +3997,13 @@
         const internal = {
           setupMinutes: data.setupMinutes || 0,
           teardownMinutes: data.teardownMinutes || 0,
+          setupTime: data.setupTime || '',
+          teardownTime: data.teardownTime || '',
+          doorOpenTime: data.doorOpenTime || '',
+          doorCloseTime: data.doorCloseTime || '',
+          setupNotes: data.setupNotes || '',
+          doorNotes: data.doorNotes || '',
+          eventNotes: data.eventNotes || '',
           registrationNotes: data.registrationNotes || '',
           assignedTo: data.assignedTo || ''
         };
@@ -4159,8 +4167,23 @@
           // Direct event creation - transform reservation structure to event structure
           logger.debug('Creating event directly via handleSaveEvent', reservationData);
 
+          // Combine separate date/time fields into ISO datetime strings
+          let startDateTime, endDateTime;
+
+          if (reservationData.startDate && reservationData.startTime) {
+            startDateTime = `${reservationData.startDate}T${reservationData.startTime}:00`;
+          } else if (reservationData.startDateTime) {
+            startDateTime = reservationData.startDateTime;
+          }
+
+          if (reservationData.endDate && reservationData.endTime) {
+            endDateTime = `${reservationData.endDate}T${reservationData.endTime}:00`;
+          } else if (reservationData.endDateTime) {
+            endDateTime = reservationData.endDateTime;
+          }
+
           // Validate required fields
-          if (!reservationData.startDateTime || !reservationData.endDateTime) {
+          if (!startDateTime || !endDateTime) {
             showNotification('Start and end times are required');
             return;
           }
@@ -4168,8 +4191,14 @@
           // Transform reservation structure to event structure expected by handleSaveEvent
           const eventData = {
             subject: reservationData.eventTitle || 'Untitled Event',
-            start: { dateTime: reservationData.startDateTime },
-            end: { dateTime: reservationData.endDateTime },
+            start: {
+              dateTime: startDateTime,
+              timeZone: getOutlookTimezone(userTimezone)
+            },
+            end: {
+              dateTime: endDateTime,
+              timeZone: getOutlookTimezone(userTimezone)
+            },
             location: {
               displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
                 ? reservationData.requestedRooms.join(', ')
@@ -4191,7 +4220,12 @@
             // Include internal enrichments
             setupMinutes: reservationData.setupTimeMinutes || 0,
             teardownMinutes: reservationData.teardownTimeMinutes || 0,
+            setupTime: reservationData.setupTime || '',
+            teardownTime: reservationData.teardownTime || '',
+            doorOpenTime: reservationData.doorOpenTime || '',
+            doorCloseTime: reservationData.doorCloseTime || '',
             setupNotes: reservationData.setupNotes || '',
+            doorNotes: reservationData.doorNotes || '',
             eventNotes: reservationData.eventNotes || '',
             requesterName: reservationData.requesterName || '',
             requesterEmail: reservationData.requesterEmail || ''

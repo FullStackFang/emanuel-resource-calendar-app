@@ -100,25 +100,84 @@ export const formatDateRangeForAPI = (startDate, endDate) => {
 };
 
 /**
+ * Format date and time strings for Microsoft Graph API
+ * Creates datetime string WITHOUT timezone indicator (no 'Z' suffix)
+ * Graph API expects format: "YYYY-MM-DDTHH:MM:SS"
+ * @param {string} dateStr - Date in YYYY-MM-DD format
+ * @param {string} timeStr - Time in HH:MM or HH:MM:SS format
+ * @returns {string} Datetime string in format "YYYY-MM-DDTHH:MM:SS"
+ */
+export const formatDateTimeForGraph = (dateStr, timeStr) => {
+  if (!dateStr || !timeStr) {
+    throw new Error('Both date and time are required for Graph API format');
+  }
+
+  // Ensure time has seconds
+  const timeWithSeconds = timeStr.includes(':') && timeStr.split(':').length === 2
+    ? `${timeStr}:00`
+    : timeStr;
+
+  // Simple concatenation - no timezone conversion, no 'Z' suffix
+  return `${dateStr}T${timeWithSeconds}`;
+};
+
+/**
+ * Format Date object for Graph API (extract local datetime without UTC conversion)
+ * @param {Date} date - JavaScript Date object
+ * @returns {string} Datetime string in format "YYYY-MM-DDTHH:MM:SS"
+ */
+export const formatDateObjectForGraph = (date) => {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    throw new Error('Valid Date object required for Graph API format');
+  }
+
+  // Extract components in local time (no UTC conversion)
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+};
+
+/**
+ * Create Graph API datetime structure with timezone
+ * @param {string} dateStr - Date in YYYY-MM-DD format
+ * @param {string} timeStr - Time in HH:MM or HH:MM:SS format
+ * @param {string} timezone - IANA timezone identifier
+ * @returns {Object} Graph API datetime structure { dateTime, timeZone }
+ */
+export const createGraphDateTime = (dateStr, timeStr, timezone) => {
+  return {
+    dateTime: formatDateTimeForGraph(dateStr, timeStr),
+    timeZone: getOutlookTimezone(timezone)
+  };
+};
+
+/**
  * Format time for event display in specified timezone
- * @param {string} dateString - ISO date string (UTC)
+ * @param {string} dateString - ISO date string from Graph API (timezone-aware)
  * @param {string} timezone - Target timezone for display
  * @param {string} eventSubject - Event subject for error logging
  * @returns {string} Formatted time string
  */
 export const formatEventTime = (dateString, timezone = DEFAULT_TIMEZONE, eventSubject = 'Unknown') => {
   if (!dateString) return '';
-  
+
   try {
-    const utcDateString = ensureUTCFormat(dateString);
-    const utcDate = new Date(utcDateString);
-    
-    if (isNaN(utcDate.getTime())) {
+    // Parse date string directly - DON'T add 'Z' suffix
+    // Graph API returns timezone-aware strings like "2025-01-15T08:45:00.0000000"
+    // Adding 'Z' would incorrectly force UTC interpretation
+    const date = new Date(dateString);
+
+    if (isNaN(date.getTime())) {
       console.error(`Invalid date format for "${eventSubject}":`, dateString);
       return '';
     }
-    
-    return utcDate.toLocaleTimeString('en-US', {
+
+    return date.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
