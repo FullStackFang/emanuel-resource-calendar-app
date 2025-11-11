@@ -143,8 +143,8 @@ let usersCollection;
 // eventCacheCollection removed - using unifiedEventsCollection instead
 let unifiedEventsCollection; // New unified collection
 let calendarDeltasCollection; // Delta token storage
-let roomsCollection; // Room information and features
-let locationsCollection; // Unified locations from events
+// roomsCollection removed - DEPRECATED, using locationsCollection instead
+let locationsCollection; // Unified locations from events (includes reservable rooms)
 let roomReservationsCollection; // Room reservation requests
 let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
@@ -323,37 +323,6 @@ async function createCalendarDeltaIndexes() {
     console.log('Calendar delta indexes created successfully');
   } catch (error) {
     console.error('Error creating calendar delta indexes:', error);
-  }
-}
-
-/**
- * Create indexes for the rooms collection
- */
-async function createRoomIndexes() {
-  try {
-    console.log('Creating room indexes...');
-    
-    // Index for active rooms
-    await roomsCollection.createIndex(
-      { active: 1 },
-      { name: "active_rooms", background: true }
-    );
-    
-    // Index for searching by features
-    await roomsCollection.createIndex(
-      { features: 1 },
-      { name: "room_features", background: true }
-    );
-    
-    // Index for capacity searches
-    await roomsCollection.createIndex(
-      { capacity: 1 },
-      { name: "room_capacity", background: true }
-    );
-    
-    console.log('Room indexes created successfully');
-  } catch (error) {
-    console.error('Error creating room indexes:', error);
   }
 }
 
@@ -691,103 +660,7 @@ async function createReservationAuditHistoryIndexes() {
   }
 }
 
-/**
- * Seed initial room data if the collection is empty
- */
-async function seedInitialRooms() {
-  try {
-    const roomCount = await roomsCollection.countDocuments();
-    if (roomCount === 0) {
-      console.log('Seeding initial room data...');
-      
-      const initialRooms = [
-        {
-          name: "Chapel",
-          building: "Main Building",
-          floor: "1st Floor",
-          capacity: 200,
-          features: ["piano", "stage", "microphone", "projector"],
-          accessibility: ["wheelchair-accessible", "hearing-loop"],
-          active: true,
-          description: "Main worship space with traditional setup",
-          notes: "Reserved for services on Sabbath",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          name: "Social Hall",
-          building: "Main Building", 
-          floor: "1st Floor",
-          capacity: 150,
-          features: ["kitchen", "stage", "tables", "chairs"],
-          accessibility: ["wheelchair-accessible"],
-          active: true,
-          description: "Large multipurpose room with kitchen access",
-          notes: "Can be divided with partition",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          name: "Conference Room A",
-          building: "Main Building",
-          floor: "2nd Floor", 
-          capacity: 12,
-          features: ["av-equipment", "projector", "whiteboard", "conference-table"],
-          accessibility: ["elevator"],
-          active: true,
-          description: "Executive conference room with video conferencing",
-          notes: "Requires advance booking for setup",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          name: "Conference Room B",
-          building: "Main Building",
-          floor: "2nd Floor",
-          capacity: 8,
-          features: ["whiteboard", "conference-table"],
-          accessibility: ["elevator"],
-          active: true,
-          description: "Small meeting room for intimate discussions",
-          notes: "No A/V equipment available",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          name: "Library",
-          building: "Main Building",
-          floor: "2nd Floor",
-          capacity: 20,
-          features: ["quiet-zone", "books", "study-tables"],
-          accessibility: ["wheelchair-accessible", "elevator"],
-          active: true,
-          description: "Quiet study and small group space",
-          notes: "No food or drinks allowed",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          name: "Youth Room",
-          building: "Education Wing",
-          floor: "1st Floor",
-          capacity: 30,
-          features: ["games", "comfortable-seating", "tv", "kitchenette"],
-          accessibility: ["wheelchair-accessible"],
-          active: true,
-          description: "Casual space designed for youth activities",
-          notes: "Snacks and beverages allowed",
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      ];
-      
-      await roomsCollection.insertMany(initialRooms);
-      console.log(`Seeded ${initialRooms.length} initial rooms`);
-    }
-  } catch (error) {
-    console.error('Error seeding initial rooms:', error);
-  }
-}
+// seedInitialRooms() function REMOVED - deprecated, rooms now stored in templeEvents__Locations
 
 /**
  * Seed initial feature categories if the collection is empty
@@ -1627,7 +1500,7 @@ async function connectToDatabase() {
     // eventCacheCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
     unifiedEventsCollection = db.collection('templeEvents__Events'); // New unified collection
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
-    roomsCollection = db.collection('templeEvents__Rooms'); // DEPRECATED - Room information now stored in templeEvents__Locations with isReservable flag
+    // roomsCollection removed - DEPRECATED, using locationsCollection instead
     locationsCollection = db.collection('templeEvents__Locations'); // Unified locations for events AND reservable rooms
     roomReservationsCollection = db.collection('templeEvents__RoomReservations'); // Room reservation requests
     reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
@@ -1651,7 +1524,7 @@ async function connectToDatabase() {
     await createEventAttachmentsIndexes();
 
     // Create indexes for room reservation system
-    await createRoomIndexes();
+    // createRoomIndexes() removed - deprecated, using createLocationIndexes() instead
     await createLocationIndexes();
     await createRoomReservationIndexes();
     await createReservationAuditHistoryIndexes();
@@ -1664,10 +1537,9 @@ async function connectToDatabase() {
     await createCategoriesIndexes();
     
     // Event cache indexes removed - using unifiedEventsCollection instead
-    
-    // Seed initial room data if none exists
-    await seedInitialRooms();
-    
+
+    // seedInitialRooms() removed - deprecated, rooms now stored in templeEvents__Locations
+
     // Seed initial feature configuration data if none exists
     await seedInitialFeatureCategories();
     await seedInitialCategories();
@@ -1796,14 +1668,15 @@ async function createRoomReservationCalendarEvent(reservation, calendarMode, use
     // Get room names for location
     const roomNames = [];
     if (reservation.requestedRooms && reservation.requestedRooms.length > 0) {
-      // Try to get room names from the database
+      // Try to get room names from the database (rooms are locations with isReservable: true)
       try {
-        const roomDocs = await roomsCollection.find({
-          _id: { $in: reservation.requestedRooms.map(id => typeof id === 'string' ? new ObjectId(id) : id) }
+        const roomDocs = await locationsCollection.find({
+          _id: { $in: reservation.requestedRooms.map(id => typeof id === 'string' ? new ObjectId(id) : id) },
+          isReservable: true
         }).toArray();
-        
+
         roomDocs.forEach(room => {
-          if (room.name) roomNames.push(room.name);
+          if (room.name || room.displayName) roomNames.push(room.name || room.displayName);
         });
       } catch (roomError) {
         logger.warn('Error fetching room names:', roomError);
@@ -10790,175 +10663,35 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Extended time window including setup/teardown buffers
     const start = new Date(eventStart.getTime() - (setupMinutes * 60 * 1000));
     const end = new Date(eventEnd.getTime() + (teardownMinutes * 60 * 1000));
-    
-    // TEMPORARY WORKAROUND: Use hardcoded rooms like /api/rooms endpoint due to indexing issue
-    const hardcodedRooms = [
-      // Legacy locations from calendar system (with location codes)
-      {
-        _id: "legacy1",
-        name: "Temple Emanu-El",
-        locationCode: "TPL",
-        displayName: "Temple Emanu-El",
-        building: "Main Building",
-        floor: "Sanctuary",
-        capacity: 500,
-        features: ["piano", "stage", "microphone", "projector"],
-        accessibility: ["wheelchair-accessible", "hearing-loop"],
-        active: true,
-        description: "Main worship space with traditional setup",
-        notes: "Primary worship space"
-      },
-      {
-        _id: "legacy2", 
-        name: "Chapel",
-        locationCode: "CPL",
-        displayName: "Chapel",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 200,
-        features: ["piano", "stage", "microphone", "projector"],
-        accessibility: ["wheelchair-accessible", "hearing-loop"],
-        active: true,
-        description: "Main worship space with traditional setup",
-        notes: "Reserved for services on Sabbath"
-      },
-      {
-        _id: "legacy3",
-        name: "Music Room", 
-        locationCode: "MUS",
-        displayName: "Music Room",
-        building: "Main Building",
-        floor: "2nd Floor",
-        capacity: 50,
-        features: ["piano", "music-stands", "audio-equipment"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Music rehearsal and performance space",
-        notes: "Requires coordination with music director"
-      },
-      {
-        _id: "legacy4",
-        name: "Room 402",
-        locationCode: "402", 
-        displayName: "Room 402",
-        building: "Education Building",
-        floor: "4th Floor",
-        capacity: 25,
-        features: ["whiteboard", "tables", "chairs"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Standard classroom with flexible seating",
-        notes: "General purpose classroom"
-      },
-      {
-        _id: "legacy5",
-        name: "Room 602",
-        locationCode: "602",
-        displayName: "6th Floor Lounge - 602", 
-        building: "Main Building",
-        floor: "6th Floor",
-        capacity: 40,
-        features: ["kitchen", "lounge-seating", "coffee-station"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Comfortable lounge space with kitchen facilities",
-        notes: "Popular for committee meetings and social events"
-      },
-      {
-        _id: "legacy6",
-        name: "Nursery School",
-        locationCode: "NURSERY",
-        displayName: "Nursery School",
-        building: "Education Building",
-        floor: "Ground Floor", 
-        capacity: 15,
-        features: ["child-safe", "toys", "small-furniture"],
-        accessibility: ["wheelchair-accessible"],
-        active: true,
-        description: "Child-friendly space with age-appropriate facilities",
-        notes: "Requires supervision and advance notice"
-      },
-      {
-        _id: "temp1",
-        name: "Social Hall",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 150,
-        features: ["kitchen", "stage", "tables", "chairs"],
-        accessibility: ["wheelchair-accessible"],
-        active: true,
-        description: "Large multipurpose room with kitchen access",
-        notes: "Can be divided with partition"
-      },
-      {
-        _id: "temp2",
-        name: "Library",
-        building: "Main Building",
-        floor: "2nd Floor",
-        capacity: 20,
-        features: ["quiet-zone", "books", "study-tables"],
-        accessibility: ["wheelchair-accessible", "elevator"],
-        active: true,
-        description: "Quiet study and small group space",
-        notes: "No food or drinks allowed"
-      },
-      {
-        _id: "temp3",
-        name: "Conference Room A",
-        building: "Main Building",
-        floor: "2nd Floor", 
-        capacity: 12,
-        features: ["av-equipment", "projector", "whiteboard", "conference-table"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Executive conference room with video conferencing",
-        notes: "Requires advance booking for setup"
-      },
-      {
-        _id: "temp4",
-        name: "Conference Room B",
-        building: "Main Building",
-        floor: "2nd Floor",
-        capacity: 8,
-        features: ["whiteboard", "conference-table"],
-        accessibility: ["elevator"],
-        active: true,
-        description: "Small meeting room for intimate discussions",
-        notes: "No AV equipment available"
-      },
-      {
-        _id: "temp5",
-        name: "Youth Room",
-        building: "Main Building",
-        floor: "1st Floor",
-        capacity: 30,
-        features: ["games", "comfortable-seating", "tv", "kitchenette"],
-        accessibility: ["wheelchair-accessible"],
-        active: true,
-        description: "Casual space designed for youth activities",
-        notes: "Snacks and beverages allowed"
-      }
-    ];
-    
-    // Build room filter for hardcoded rooms
-    let rooms = hardcodedRooms;
+
+    // Query locations from templeEvents__Locations collection (rooms are locations with isReservable: true)
+    let locationQuery = { isReservable: true, active: true };
+
+    // If specific roomIds requested, filter to those locations
     if (roomIds) {
-      const requestedRoomIds = roomIds.split(',');
-      
-      // Map real MongoDB ObjectIds to hardcoded room IDs
-      const objectIdMapping = {
-        '687973a7f5296c1bc444689c': 'temp3', // Conference Room A
-        '687973a7f5296c1bc444689d': 'temp4'  // Conference Room B
-      };
-      
-      // Convert real ObjectIds to hardcoded IDs if needed
-      const mappedRoomIds = requestedRoomIds.map(id => objectIdMapping[id] || id);
-      
-      rooms = hardcodedRooms.filter(room => mappedRoomIds.includes(room._id));
+      const requestedRoomIds = roomIds.split(',').map(id => id.trim()).filter(id => id);
+
+      // Validate and convert to ObjectIds
+      const validObjectIds = [];
+      for (const id of requestedRoomIds) {
+        try {
+          validObjectIds.push(new ObjectId(id));
+        } catch (err) {
+          logger.warn(`Invalid room ID format: ${id}`);
+        }
+      }
+
+      // Only add $in filter if we have valid ObjectIds
+      if (validObjectIds.length > 0) {
+        locationQuery._id = { $in: validObjectIds };
+      } else {
+        // If no valid IDs provided, return empty array (no rooms to check)
+        return res.json([]);
+      }
     }
-    
-    // Filter for active rooms only
-    rooms = rooms.filter(room => room.active);
+
+    // Fetch rooms from database
+    const rooms = await locationsCollection.find(locationQuery).toArray();
     
     // Get ALL reservations for the requested time period
     // Return all events so frontend can display full day schedule and dynamically calculate conflicts
@@ -10970,13 +10703,18 @@ app.get('/api/rooms/availability', async (req, res) => {
     }).toArray();
 
     // Get ALL calendar events for the requested time period
-    const roomNames = rooms.map(room => room.name);
-    const allEvents = await unifiedEventsCollection.find({
-      isDeleted: false,
-      startTime: { $lt: end },
-      endTime: { $gt: start },
-      $or: roomNames.map(name => ({ location: { $regex: name, $options: 'i' } }))
-    }).toArray();
+    // Build $or query only if we have rooms with names
+    const roomNames = rooms.map(room => room.name || room.displayName).filter(name => name);
+
+    let allEvents = [];
+    if (roomNames.length > 0) {
+      allEvents = await unifiedEventsCollection.find({
+        isDeleted: false,
+        startTime: { $lt: end },
+        endTime: { $gt: start },
+        $or: roomNames.map(name => ({ location: { $regex: name, $options: 'i' } }))
+      }).toArray();
+    }
     
     // Helper function to format time for display
     const formatTime = (date) => date.toLocaleTimeString('en-US', { 
@@ -10987,18 +10725,11 @@ app.get('/api/rooms/availability', async (req, res) => {
     
     // Build availability response with detailed conflict information
     const availability = rooms.map(room => {
-      // Create reverse mapping from hardcoded IDs to real ObjectIds
-      const reverseMapping = {
-        'temp3': '687973a7f5296c1bc444689c', // Conference Room A
-        'temp4': '687973a7f5296c1bc444689d'  // Conference Room B
-      };
-      
-      const realRoomId = reverseMapping[room._id];
-      
+      const roomIdString = room._id.toString();
+
       // Get ALL reservations for this room
       const roomReservations = allReservations.filter(res =>
-        res.requestedRooms.includes(room._id) || // Check hardcoded ID
-        (realRoomId && res.requestedRooms.includes(realRoomId)) // Check real ObjectId
+        res.requestedRooms.some(reqRoomId => reqRoomId.toString() === roomIdString)
       );
 
       // Get ALL events for this room
@@ -14916,10 +14647,11 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       });
     }
 
-    // Get room names for location display
+    // Get room names and location IDs for event data
     let roomNames = [];
+    let locationObjectIds = [];
     try {
-      logger.debug('Looking up rooms:', { requestedRooms, count: requestedRooms.length });
+      logger.debug('Looking up locations (rooms):', { requestedRooms, count: requestedRooms.length });
 
       // Handle both ObjectId and string formats for room IDs
       const roomQuery = requestedRooms.map(id => {
@@ -14936,21 +14668,24 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         }
       });
 
-      const rooms = await roomsCollection.find({
-        _id: { $in: roomQuery }
+      // Query locations collection (rooms are locations with isReservable: true)
+      const rooms = await locationsCollection.find({
+        _id: { $in: roomQuery },
+        isReservable: true
       }).toArray();
 
       roomNames = rooms.map(r => r.displayName || r.name || 'Unknown Room');
-      logger.debug('Found rooms:', { count: rooms.length, names: roomNames });
+      locationObjectIds = rooms.map(r => r._id);
+      logger.debug('Found locations (rooms):', { count: rooms.length, names: roomNames });
 
       // If no rooms found, use the IDs as fallback names
       if (roomNames.length === 0) {
-        logger.warn('No rooms found in database, using IDs as names');
+        logger.warn('No locations found in database, using IDs as names');
         roomNames = requestedRooms.map(id => `Room ${id}`);
       }
 
     } catch (err) {
-      logger.error('Error looking up rooms:', err);
+      logger.error('Error looking up locations:', err);
       // Fallback: use room IDs as names
       roomNames = requestedRooms.map(id => `Room ${id}`);
     }
@@ -15075,6 +14810,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
       location: roomNames.join('; '),
+      locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations
       requestedRooms: requestedRooms,
       requesterName: requesterName || userEmail,
       requesterEmail: requesterEmail || userEmail,
