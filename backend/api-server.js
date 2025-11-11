@@ -10820,14 +10820,50 @@ app.get('/api/rooms/availability', async (req, res) => {
       });
 
       // Return detailed event data (frontend will calculate conflicts dynamically)
-      const detailedEventConflicts = roomEvents.map(event => ({
-        id: event._id,
-        subject: event.subject,
-        organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
-        start: event.startDateTime || event.startTime,
-        end: event.endDateTime || event.endTime,
-        location: event.location
-      }));
+      const detailedEventConflicts = roomEvents.map(event => {
+        let effectiveStart, effectiveEnd;
+        const baseStart = new Date(event.startDateTime || event.startTime);
+        const baseEnd = new Date(event.endDateTime || event.endTime);
+
+        // Calculate effective blocking times using same logic as reservations
+        if (event.setupTime || event.teardownTime) {
+          // Calculate from time-based fields (HH:MM format)
+          if (event.setupTime) {
+            const [setupHours, setupMinutes] = event.setupTime.split(':').map(Number);
+            effectiveStart = new Date(baseStart);
+            effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
+          } else {
+            effectiveStart = baseStart;
+          }
+
+          if (event.teardownTime) {
+            const [teardownHours, teardownMinutes] = event.teardownTime.split(':').map(Number);
+            effectiveEnd = new Date(baseEnd);
+            effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
+          } else {
+            effectiveEnd = baseEnd;
+          }
+        } else {
+          // Fall back to minutes-based calculation or use base times
+          const setupMinutes = event.setupTimeMinutes || 0;
+          const teardownMinutes = event.teardownTimeMinutes || 0;
+          effectiveStart = new Date(baseStart.getTime() - (setupMinutes * 60 * 1000));
+          effectiveEnd = new Date(baseEnd.getTime() + (teardownMinutes * 60 * 1000));
+        }
+
+        return {
+          id: event._id,
+          subject: event.subject,
+          organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
+          start: event.startDateTime || event.startTime,
+          end: event.endDateTime || event.endTime,
+          effectiveStart,
+          effectiveEnd,
+          setupTimeMinutes: event.setupTimeMinutes || 0,
+          teardownTimeMinutes: event.teardownTimeMinutes || 0,
+          location: event.location
+        };
+      });
 
       // Frontend calculates conflicts dynamically based on user's current time selection
       // This allows real-time updates as user drags events in scheduling assistant

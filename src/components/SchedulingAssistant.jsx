@@ -162,8 +162,15 @@ export default function SchedulingAssistant({
       // Process calendar events
       if (roomAvailability.conflicts.events) {
         roomAvailability.conflicts.events.forEach(event => {
-          const startTime = new Date(event.start.dateTime || event.start);
-          const endTime = new Date(event.end.dateTime || event.end);
+          // SKIP the current event being edited - it will be shown as the user event instead
+          if (currentReservationId && event.id === currentReservationId) {
+            console.log(`[SchedulingAssistant] Skipping current calendar event from backend: "${event.subject}"`);
+            return; // Skip this event
+          }
+
+          // Use effectiveStart/effectiveEnd if available (includes setup/teardown), otherwise fall back to base times
+          const startTime = new Date(event.effectiveStart || event.start.dateTime || event.start);
+          const endTime = new Date(event.effectiveEnd || event.end.dateTime || event.end);
 
           const position = calculateEventPosition(startTime, endTime);
 
