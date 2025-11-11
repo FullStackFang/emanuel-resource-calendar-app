@@ -5196,14 +5196,17 @@
         {/* Review Modal for Room Reservations and Event Review */}
         <ReviewModal
           isOpen={reviewModal.isOpen}
-          title={`Review ${reviewModal.editableData?.eventTitle || 'Event'}`}
+          title={`${reviewModal.currentItem?.status === 'pending' ? 'Review' : 'Edit'} ${reviewModal.editableData?.eventTitle || 'Event'}`}
           onClose={reviewModal.closeModal}
           onApprove={reviewModal.handleApprove}
           onReject={reviewModal.handleReject}
           onSave={reviewModal.handleSave}
+          onDelete={reviewModal.handleDelete}
+          mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
           hasChanges={reviewModal.hasChanges}
           isSaving={reviewModal.isSaving}
+          isDeleting={reviewModal.isDeleting}
           showActionButtons={true}
         >
           {reviewModal.currentItem && (
@@ -5224,7 +5227,8 @@
           title={eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
-          isPending={true}
+          mode="edit"
+          isPending={false}
           hasChanges={eventReviewModal.hasChanges}
           isSaving={savingEvent}
           showActionButtons={true}

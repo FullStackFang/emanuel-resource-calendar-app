@@ -108,14 +108,15 @@
 
 /* Action Buttons Base Styles */
 .action-btn {
-  padding: 10px 20px;
+  padding: 10px 20px !important;
   border: none;
   border-radius: 6px;
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: 1rem !important;
+  font-weight: 500 !important;
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+  line-height: 1.5 !important;
 }
 
 .action-btn:disabled {
@@ -151,6 +152,16 @@
 
 .save-btn:hover:not(:disabled) {
   background: #106ebe;
+}
+
+/* Delete Button */
+.delete-btn {
+  background: #f97316 !important;
+  color: white !important;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: #ea580c !important;
 }
 
 /* Cancel/Close Button */

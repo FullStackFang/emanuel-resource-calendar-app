@@ -23,6 +23,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
   const [currentItem, setCurrentItem] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [editableData, setEditableData] = useState(null);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
 
@@ -171,10 +172,39 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
 
     setIsSaving(true);
     try {
+      // Determine event type and appropriate endpoint
+      // 1. Graph events have id field and calendarId (synced from Microsoft calendar)
+      // 2. Internal unified events have _isNewUnifiedEvent flag
+      // 3. Room reservations have status field and _id
+      const hasMongoId = !!currentItem._id;
+      const isGraphEvent = currentItem.calendarId && !currentItem.status;
       const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
-      const endpoint = isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
+      const isRoomReservation = currentItem.status && (
+        currentItem.status === 'pending' ||
+        currentItem.status === 'room-reservation-request' ||
+        currentItem.status === 'approved' ||
+        currentItem.status === 'rejected'
+      );
+
+      let endpoint;
+      if (isGraphEvent && hasMongoId) {
+        // Graph event stored in our DB - update via admin/events endpoint
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
+      } else if (isNewUnifiedEvent) {
+        // Internal unified event
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
+      } else if (isRoomReservation) {
+        // Room reservation
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
+      } else {
+        throw new Error('Unable to determine event type for saving');
+      }
+
+      // Add graphToken for Graph events
+      const bodyData = {
+        ...editableData,
+        graphToken: isGraphEvent ? graphToken : undefined
+      };
 
       const response = await fetch(endpoint, {
         method: 'PUT',
@@ -183,7 +213,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
           'Authorization': `Bearer ${apiToken}`,
           'If-Match': originalChangeKey || ''
         },
-        body: JSON.stringify(editableData)
+        body: JSON.stringify(bodyData)
       });
 
       if (response.status === 409) {
@@ -308,6 +338,68 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     }
   }, [currentItem, apiToken, onSuccess, onError, closeModal]);
 
+  /**
+   * Delete the event (Graph event or internal event)
+   */
+  const handleDelete = useCallback(async () => {
+    if (!currentItem) return;
+
+    // Confirm deletion
+    const confirmMessage = currentItem._isNewUnifiedEvent
+      ? 'Are you sure you want to delete this event? This will remove it from the calendar.'
+      : 'Are you sure you want to delete this reservation?';
+
+    if (!window.confirm(confirmMessage)) {
+      return { success: false, cancelled: true };
+    }
+
+    setIsDeleting(true);
+    try {
+      // Determine if this is a Graph event or internal event/reservation
+      const isGraphEvent = currentItem.id && !currentItem._id;
+      const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
+      const isReservation = !isGraphEvent && !isNewUnifiedEvent;
+
+      let endpoint;
+      if (isGraphEvent) {
+        // For Graph events, we need to delete via Graph API
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/graph/${currentItem.id}`;
+      } else if (isNewUnifiedEvent) {
+        // For unified internal events
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
+      } else {
+        // For room reservations
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          graphToken: isGraphEvent ? graphToken : undefined
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (onSuccess) onSuccess({ ...result, deleted: true });
+      await closeModal();
+      return { success: true, data: result };
+    } catch (error) {
+      logger.error('Error deleting:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [currentItem, apiToken, graphToken, onSuccess, onError, closeModal]);
+
   return {
     // State
     isOpen,
@@ -315,6 +407,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     editableData,
     hasChanges,
     isSaving,
+    isDeleting,
     holdError,
     reviewHold,
 
@@ -324,6 +417,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     updateData,
     handleSave,
     handleApprove,
-    handleReject
+    handleReject,
+    handleDelete
   };
 }

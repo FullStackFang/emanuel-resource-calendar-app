@@ -6,11 +6,12 @@ import './ReviewModal.css';
  * ReviewModal - Reusable modal wrapper for reviewing/editing events and reservations
  *
  * Provides a full-screen modal with:
- * - Sticky action bar at top with approve/reject/save/cancel buttons
+ * - Sticky action bar at top with approve/reject/save/delete/cancel buttons
  * - Tabbed interface for organizing content
  * - Scrollable content area
  * - ESC key and overlay click to close
  * - Feature toggle between legacy and unified forms
+ * - Support for both 'review' mode (approve/reject pending items) and 'edit' mode (edit any event)
  */
 export default function ReviewModal({
   isOpen,
@@ -19,11 +20,15 @@ export default function ReviewModal({
   onApprove,
   onReject,
   onSave,
+  onDelete,
   children,
   // State flags
   isPending = true,
   hasChanges = false,
   isSaving = false,
+  isDeleting = false,
+  // Mode: 'review' (for pending reservations) or 'edit' (for editing any event)
+  mode = 'review',
   // Feature flags
   useUnifiedForm = false,
   onToggleForm = null,
@@ -38,7 +43,8 @@ export default function ReviewModal({
   modalClassName = 'review-modal',
   overlayClassName = 'review-modal-overlay',
   // Button text customization
-  saveButtonText = null
+  saveButtonText = null,
+  deleteButtonText = null
 }) {
   // Tab state
   const [activeTab, setActiveTab] = useState('details');
@@ -112,7 +118,8 @@ export default function ReviewModal({
           {/* Action Buttons */}
           {showActionButtons && (
             <div className="review-actions">
-              {isPending && onApprove && (
+              {/* Approve/Reject buttons - only in review mode for pending items */}
+              {mode === 'review' && isPending && onApprove && (
                 <button
                   type="button"
                   className="action-btn approve-btn"
@@ -122,7 +129,7 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {isPending && onReject && (
+              {mode === 'review' && isPending && onReject && (
                 <button
                   type="button"
                   className="action-btn reject-btn"
@@ -132,7 +139,8 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {isPending && onSave && (
+              {/* Save button - available in edit mode OR review mode with pending items */}
+              {onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
                 <button
                   type="button"
                   className="action-btn save-btn"
@@ -144,12 +152,25 @@ export default function ReviewModal({
                 </button>
               )}
 
+              {/* Delete button - only in edit mode */}
+              {mode === 'edit' && onDelete && (
+                <button
+                  type="button"
+                  className="action-btn delete-btn"
+                  onClick={onDelete}
+                  disabled={isDeleting}
+                  title="Delete this event"
+                >
+                  {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
+                </button>
+              )}
+
               <button
                 type="button"
                 className="action-btn cancel-btn"
                 onClick={onClose}
               >
-                {isPending ? 'Cancel' : 'Close'}
+                {mode === 'review' && isPending ? 'Cancel' : 'Close'}
               </button>
             </div>
           )}

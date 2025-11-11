@@ -12,6 +12,7 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+const crypto = require('crypto');
 
 dotenv.config();
 
@@ -4289,10 +4290,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
               subject: graphUpdateResult.subject
             });
 
-            // For new events, update the actualEventId with the newly created ID
+            // For new events, generate a unique internal UUID (eventId is separate from Graph ID)
             if (isNewEvent && graphUpdateResult.id) {
-              actualEventId = graphUpdateResult.id;
-              logger.debug('New event created with ID:', actualEventId);
+              actualEventId = crypto.randomUUID();
+              logger.debug('New event created - Graph ID:', graphUpdateResult.id, '| Internal eventId:', actualEventId);
             }
           } else {
             logger.error('Graph API batch response error:', mainResponse);
@@ -15448,6 +15449,337 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error rejecting room reservation:', error);
     res.status(500).json({ error: 'Failed to reject reservation' });
+  }
+});
+
+/**
+ * Update an event (Admin only)
+ * PUT /api/admin/events/:id
+ * Updates both Graph API event and internal enrichments
+ */
+app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const id = req.params.id;
+    const updates = req.body;
+    const graphToken = updates.graphToken;
+
+    // Get event by _id
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // If event has a Graph event ID, update it in Graph API
+    // Graph events store the Graph API ID in graphData.id
+    const graphEventId = event.graphData?.id;
+    if (graphEventId && graphToken) {
+      try {
+        // Prepare Graph API update payload
+        // Build Graph API update with ONLY Graph-compatible fields
+        const graphUpdate = {
+          subject: updates.eventTitle || event.eventTitle || event.graphData?.subject,
+          start: {
+            dateTime: updates.startDateTime || event.startDateTime || event.graphData?.start?.dateTime,
+            timeZone: updates.startTimeZone || event.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
+          },
+          end: {
+            dateTime: updates.endDateTime || event.endDateTime || event.graphData?.end?.dateTime,
+            timeZone: updates.endTimeZone || event.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
+          }
+        };
+
+        // Handle location field - convert from our internal array format to Graph's single object format
+        if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
+          // Join multiple locations into a single string
+          const locationString = updates.locations
+            .map(loc => typeof loc === 'string' ? loc : loc.displayName || loc.name || '')
+            .filter(Boolean)
+            .join(', ');
+
+          if (locationString) {
+            graphUpdate.location = { displayName: locationString };
+          }
+        } else if (updates.location) {
+          // Legacy single location field (if it exists)
+          graphUpdate.location = {
+            displayName: typeof updates.location === 'string'
+              ? updates.location
+              : updates.location.displayName || updates.location.name || ''
+          };
+        } else if (event.graphData?.location?.displayName) {
+          // Keep existing Graph location if not changed
+          graphUpdate.location = event.graphData.location;
+        }
+
+        // Handle body/description
+        if (updates.eventDescription) {
+          graphUpdate.body = {
+            contentType: 'HTML',
+            content: updates.eventDescription
+          };
+        } else if (updates.description) {
+          graphUpdate.body = {
+            contentType: 'HTML',
+            content: updates.description
+          };
+        }
+
+        // Add categories if they exist (Graph API supports this)
+        if (updates.categories && Array.isArray(updates.categories)) {
+          graphUpdate.categories = updates.categories;
+        } else if (event.graphData?.categories && Array.isArray(event.graphData.categories)) {
+          graphUpdate.categories = event.graphData.categories;
+        }
+
+        logger.info('Updating Graph event:', { graphEventId, updates: Object.keys(updates) });
+
+        // Update in Graph API
+        const graphResponse = await fetch(
+          `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(graphUpdate)
+          }
+        );
+
+        if (!graphResponse.ok) {
+          const errorText = await graphResponse.text();
+          logger.error('Graph API update failed:', { status: graphResponse.status, error: errorText });
+          throw new Error(`Graph API update failed: ${graphResponse.status}`);
+        }
+
+        logger.info('Graph event updated successfully');
+      } catch (graphError) {
+        logger.error('Failed to update Graph event:', graphError);
+        return res.status(500).json({ error: 'Failed to update calendar event', details: graphError.message });
+      }
+    }
+
+    // Remove sensitive/temporary fields and immutable MongoDB fields that shouldn't be saved
+    // Also remove graphData to avoid conflicts (we'll sync it manually below)
+    const {
+      graphToken: _graphToken,
+      _id: _mongoId,
+      id: _graphId,
+      eventId: _eventId,
+      userId: _userId,
+      createdAt: _createdAt,
+      createdBy: _createdBy,
+      createdByEmail: _createdByEmail,
+      createdByName: _createdByName,
+      createdSource: _createdSource,
+      graphData: _graphData,
+      ...safeUpdates
+    } = updates;
+
+    // Build update operations with field syncing (same as creation flow)
+    const updateOperations = { ...safeUpdates };
+
+    // If this is a Graph event, sync graphData fields with top-level fields
+    // This ensures eventTitle ↔ graphData.subject stay synchronized (same as creation)
+    if (graphEventId && graphToken) {
+      // Sync subject
+      if (updates.eventTitle !== undefined) {
+        updateOperations['graphData.subject'] = updates.eventTitle;
+      }
+
+      // Sync start datetime
+      if (updates.startDateTime !== undefined) {
+        updateOperations['graphData.start.dateTime'] = updates.startDateTime;
+      }
+      if (updates.startTimeZone !== undefined) {
+        updateOperations['graphData.start.timeZone'] = updates.startTimeZone;
+      }
+
+      // Sync end datetime
+      if (updates.endDateTime !== undefined) {
+        updateOperations['graphData.end.dateTime'] = updates.endDateTime;
+      }
+      if (updates.endTimeZone !== undefined) {
+        updateOperations['graphData.end.timeZone'] = updates.endTimeZone;
+      }
+
+      // Sync body/description
+      if (updates.eventDescription !== undefined) {
+        updateOperations['graphData.body.content'] = updates.eventDescription;
+        updateOperations['graphData.body.contentType'] = 'HTML';
+      }
+
+      // Sync isAllDay
+      if (updates.isAllDayEvent !== undefined) {
+        updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
+      }
+    }
+
+    // Update internal enrichments
+    const newChangeKey = generateChangeKey({ ...event, ...updateOperations });
+
+    const updateResult = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          ...updateOperations,
+          changeKey: newChangeKey,
+          lastModifiedDateTime: new Date(),
+          lastModifiedBy: userId
+        }
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    logger.info('Event updated:', {
+      eventId: event.eventId,
+      mongoId: id,
+      updatedBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      changeKey: newChangeKey,
+      message: 'Event updated successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error updating event:', error);
+    res.status(500).json({ error: 'Failed to update event' });
+  }
+});
+
+/**
+ * Delete a Graph API event (Admin only)
+ * DELETE /api/admin/events/graph/:graphEventId
+ * Deletes from Microsoft Graph calendar
+ */
+app.delete('/api/admin/events/graph/:graphEventId', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const graphEventId = req.params.graphEventId;
+    const { graphToken } = req.body;
+
+    if (!graphToken) {
+      return res.status(400).json({ error: 'Graph token required' });
+    }
+
+    // Delete from Graph API
+    const graphResponse = await fetch(
+      `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${graphToken}`
+        }
+      }
+    );
+
+    if (!graphResponse.ok && graphResponse.status !== 404) {
+      throw new Error(`Graph API delete failed: ${graphResponse.status}`);
+    }
+
+    // Also mark as deleted in our internal collection if it exists
+    await unifiedEventsCollection.updateOne(
+      { graphEventId },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: userId
+        }
+      }
+    );
+
+    logger.info('Graph event deleted:', {
+      graphEventId,
+      deletedBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      message: 'Event deleted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error deleting Graph event:', error);
+    res.status(500).json({ error: 'Failed to delete event' });
+  }
+});
+
+/**
+ * Delete an internal event (Admin only)
+ * DELETE /api/admin/events/:id
+ * Soft deletes internal event
+ */
+app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const id = req.params.id;
+
+    // Soft delete the event
+    const updateResult = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: userId
+        }
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    logger.info('Internal event deleted:', {
+      mongoId: id,
+      deletedBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      message: 'Event deleted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error deleting internal event:', error);
+    res.status(500).json({ error: 'Failed to delete event' });
   }
 });
 
