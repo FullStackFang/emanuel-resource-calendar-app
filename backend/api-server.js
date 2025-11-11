@@ -15216,6 +15216,31 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    // Pre-process requestedRooms to generate location display names for Graph API
+    // This must happen BEFORE building the Graph update
+    let processedLocationDisplayName = null;
+    if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
+      try {
+        const roomIds = updates.requestedRooms.map(id =>
+          typeof id === 'string' ? new ObjectId(id) : id
+        );
+
+        const roomDocs = await locationsCollection.find({
+          _id: { $in: roomIds },
+          isReservable: true
+        }).toArray();
+
+        processedLocationDisplayName = roomDocs
+          .map(room => room.displayName || room.name || '')
+          .filter(Boolean)
+          .join('; ');
+
+        logger.debug('Pre-processed location display name from requestedRooms:', processedLocationDisplayName);
+      } catch (error) {
+        logger.error('Error pre-processing requestedRooms:', error);
+      }
+    }
+
     // If event has a Graph event ID, update it in Graph API
     // Graph events store the Graph API ID in graphData.id
     const graphEventId = event.graphData?.id;
@@ -15236,12 +15261,15 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         };
 
         // Handle location field - convert from our internal array format to Graph's single object format
-        if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
+        if (processedLocationDisplayName) {
+          // Use pre-processed location from requestedRooms
+          graphUpdate.location = { displayName: processedLocationDisplayName };
+        } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
           // Join multiple locations into a single string
           const locationString = updates.locations
             .map(loc => typeof loc === 'string' ? loc : loc.displayName || loc.name || '')
             .filter(Boolean)
-            .join(', ');
+            .join('; ');
 
           if (locationString) {
             graphUpdate.location = { displayName: locationString };
@@ -15359,6 +15387,50 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // Sync isAllDay
       if (updates.isAllDayEvent !== undefined) {
         updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
+      }
+    }
+
+    // Handle requestedRooms -> locations array conversion and display name generation
+    if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
+      try {
+        // Convert requestedRooms to ObjectIds for locations array
+        const roomIds = updates.requestedRooms.map(id =>
+          typeof id === 'string' ? new ObjectId(id) : id
+        );
+
+        // Set locations array (ObjectId references to templeEvents__Locations)
+        updateOperations.locations = roomIds;
+
+        // Fetch room documents to get display names
+        const roomDocs = await locationsCollection.find({
+          _id: { $in: roomIds },
+          isReservable: true
+        }).toArray();
+
+        // Generate concatenated display names for location field
+        const displayNames = roomDocs
+          .map(room => room.displayName || room.name || '')
+          .filter(Boolean)
+          .join('; ');
+
+        if (displayNames) {
+          // Set top-level locationDisplayNames field
+          updateOperations.locationDisplayNames = displayNames;
+
+          // Also update the legacy location field for backward compatibility
+          updateOperations.location = displayNames;
+
+          // Sync with graphData.location for Outlook display
+          updateOperations['graphData.location.displayName'] = displayNames;
+        }
+
+        logger.info('Updated locations from requestedRooms:', {
+          roomIds: roomIds.map(id => id.toString()),
+          displayNames
+        });
+      } catch (error) {
+        logger.error('Error processing requestedRooms:', error);
+        // Continue with update even if location processing fails
       }
     }
 

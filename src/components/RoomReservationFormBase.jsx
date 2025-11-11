@@ -350,11 +350,17 @@ export default function RoomReservationFormBase({
   };
 
   const handleRoomSelectionChange = (newSelectedRooms) => {
-    setFormData(prev => ({
-      ...prev,
+    const updatedData = {
+      ...formData,
       requestedRooms: newSelectedRooms
-    }));
+    };
+    setFormData(updatedData);
     setHasChanges(true);
+
+    // Notify parent component of change so save button gets enabled
+    if (onDataChange) {
+      onDataChange(updatedData);
+    }
   };
 
   const handleRemoveAssistantRoom = (room) => {
