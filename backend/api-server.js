@@ -10653,16 +10653,22 @@ app.get('/api/rooms/availability', async (req, res) => {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
     
-    const eventStart = new Date(startDateTime);
-    const eventEnd = new Date(endDateTime);
-    
     // Calculate buffer times
     const setupMinutes = parseInt(setupTimeMinutes) || 0;
     const teardownMinutes = parseInt(teardownTimeMinutes) || 0;
-    
-    // Extended time window including setup/teardown buffers
-    const start = new Date(eventStart.getTime() - (setupMinutes * 60 * 1000));
-    const end = new Date(eventEnd.getTime() + (teardownMinutes * 60 * 1000));
+
+    // Extended time window including setup/teardown buffers (keep as ISO strings for string comparison)
+    const start = new Date(new Date(startDateTime).getTime() - (setupMinutes * 60 * 1000)).toISOString();
+    const end = new Date(new Date(endDateTime).getTime() + (teardownMinutes * 60 * 1000)).toISOString();
+
+    console.log('[AVAILABILITY DEBUG] Query parameters:', {
+      originalStart: startDateTime,
+      originalEnd: endDateTime,
+      start,
+      end,
+      setupMinutes,
+      teardownMinutes
+    });
 
     // Query locations from templeEvents__Locations collection (rooms are locations with isReservable: true)
     let locationQuery = { isReservable: true, active: true };
@@ -10697,23 +10703,37 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Return all events so frontend can display full day schedule and dynamically calculate conflicts
     const allReservations = await roomReservationsCollection.find({
       status: { $in: ['pending', 'approved'] },
-      // Get all reservations that fall within the requested date range
-      startDateTime: { $lt: new Date(end.getTime() + (8 * 60 * 60 * 1000)) }, // Add 8 hours buffer for query
-      endDateTime: { $gt: new Date(start.getTime() - (8 * 60 * 60 * 1000)) }   // Subtract 8 hours buffer for query
+      // Get all reservations that fall within the requested date range (using ISO string comparison)
+      startDateTime: { $lt: new Date(new Date(end).getTime() + (8 * 60 * 60 * 1000)).toISOString() }, // Add 8 hours buffer for query
+      endDateTime: { $gt: new Date(new Date(start).getTime() - (8 * 60 * 60 * 1000)).toISOString() }   // Subtract 8 hours buffer for query
     }).toArray();
 
     // Get ALL calendar events for the requested time period
-    // Build $or query only if we have rooms with names
-    const roomNames = rooms.map(room => room.name || room.displayName).filter(name => name);
+    // Use locations array with ObjectId matching instead of legacy location string field
+    const roomObjectIds = rooms.map(room => room._id);
+
+    console.log('[AVAILABILITY DEBUG] Searching for rooms:', roomObjectIds.map(id => id.toString()));
+    console.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
 
     let allEvents = [];
-    if (roomNames.length > 0) {
+    if (roomObjectIds.length > 0) {
       allEvents = await unifiedEventsCollection.find({
-        isDeleted: false,
-        startTime: { $lt: end },
-        endTime: { $gt: start },
-        $or: roomNames.map(name => ({ location: { $regex: name, $options: 'i' } }))
+        isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
+        startDateTime: { $lt: end },
+        endDateTime: { $gt: start },
+        locations: { $in: roomObjectIds }  // Match ObjectIds in locations array
       }).toArray();
+
+      console.log('[AVAILABILITY DEBUG] Found events:', allEvents.length);
+      if (allEvents.length > 0) {
+        console.log('[AVAILABILITY DEBUG] Sample event:', {
+          subject: allEvents[0].subject,
+          startDateTime: allEvents[0].startDateTime,
+          endDateTime: allEvents[0].endDateTime,
+          locations: allEvents[0].locations,
+          locationsAsStrings: allEvents[0].locations?.map(l => l.toString())
+        });
+      }
     }
     
     // Helper function to format time for display
@@ -10732,10 +10752,21 @@ app.get('/api/rooms/availability', async (req, res) => {
         res.requestedRooms.some(reqRoomId => reqRoomId.toString() === roomIdString)
       );
 
-      // Get ALL events for this room
+      // Get ALL events for this room using ObjectId matching on locations array
       const roomEvents = allEvents.filter(event =>
-        event.location && event.location.toLowerCase().includes(room.name.toLowerCase())
+        event.locations && event.locations.some(locId => locId.toString() === roomIdString)
       );
+
+      console.log(`[AVAILABILITY DEBUG] Room ${room.name || room.displayName} (${roomIdString}):`, {
+        totalEvents: allEvents.length,
+        filteredEvents: roomEvents.length,
+        roomEvents: roomEvents.map(e => ({
+          subject: e.subject,
+          start: e.startDateTime || e.startTime,
+          end: e.endDateTime || e.endTime,
+          locations: e.locations?.map(l => l.toString())
+        }))
+      });
 
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
       const detailedReservationConflicts = roomReservations.map(res => {
@@ -10793,8 +10824,8 @@ app.get('/api/rooms/availability', async (req, res) => {
         id: event._id,
         subject: event.subject,
         organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
-        start: event.startTime,
-        end: event.endTime,
+        start: event.startDateTime || event.startTime,
+        end: event.endDateTime || event.endTime,
         location: event.location
       }));
 

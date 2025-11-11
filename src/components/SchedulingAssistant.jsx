@@ -162,8 +162,8 @@ export default function SchedulingAssistant({
       // Process calendar events
       if (roomAvailability.conflicts.events) {
         roomAvailability.conflicts.events.forEach(event => {
-          const startTime = new Date(event.start.dateTime);
-          const endTime = new Date(event.end.dateTime);
+          const startTime = new Date(event.start.dateTime || event.start);
+          const endTime = new Date(event.end.dateTime || event.end);
 
           const position = calculateEventPosition(startTime, endTime);
 
