@@ -53,9 +53,6 @@ export default function WeekTimelineModal({
   // State for all-day event list modal
   const [showAllDayList, setShowAllDayList] = useState(null); // { date: 'dateKey', events: [] }
 
-  // State for custom tooltip
-  const [tooltip, setTooltip] = useState({ visible: false, event: null, x: 0, y: 0 });
-
   // Helper function: Check if event is all-day (>= 23 hours)
   const isAllDayEvent = (event) => {
     const start = new Date(event.start?.dateTime || event.startDateTime);
@@ -216,21 +213,6 @@ export default function WeekTimelineModal({
     return `${formatTime(start)} - ${formatTime(end)}`;
   };
 
-  // Tooltip handlers
-  const handleMouseEnter = (e, event) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setTooltip({
-      visible: true,
-      event: event,
-      x: rect.left + rect.width / 2,
-      y: rect.top - 10
-    });
-  };
-
-  const handleMouseLeave = () => {
-    setTooltip({ visible: false, event: null, x: 0, y: 0 });
-  };
-
   // Handle overlay click
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) {
@@ -321,10 +303,11 @@ export default function WeekTimelineModal({
                       const position = calculateEventPosition(event);
                       const layout = calculateOverlapLayout(event, regularEvents);
                       const eventTitle = event.subject || event.eventTitle || 'Untitled Event';
+                      const eventId = event.id || event.eventId || index;
 
                       return (
                         <div
-                          key={event.id || event.eventId || index}
+                          key={eventId}
                           className={`week-timeline-event-block ${layout.hasOverlap ? 'has-overlap' : ''}`}
                           style={{
                             top: position.top,
@@ -333,8 +316,6 @@ export default function WeekTimelineModal({
                             right: layout.right,
                             zIndex: layout.zIndex
                           }}
-                          onMouseEnter={(e) => handleMouseEnter(e, event)}
-                          onMouseLeave={handleMouseLeave}
                         >
                           <div className="week-timeline-event-title">
                             {eventTitle}
@@ -396,43 +377,6 @@ export default function WeekTimelineModal({
           </div>
         )}
 
-        {/* Custom Tooltip */}
-        {tooltip.visible && tooltip.event && (
-          <div
-            className={`week-timeline-event-tooltip ${tooltip.visible ? 'visible' : ''}`}
-            style={{
-              left: `${tooltip.x}px`,
-              top: `${tooltip.y}px`,
-              transform: 'translate(-50%, -100%)'
-            }}
-          >
-            <div className="week-timeline-event-tooltip-title">
-              {tooltip.event.subject || tooltip.event.eventTitle || 'Untitled Event'}
-            </div>
-            <div className="week-timeline-event-tooltip-detail">
-              <strong>Time:</strong>
-              <span>{formatEventTime(tooltip.event)}</span>
-            </div>
-            {tooltip.event.location?.displayName && (
-              <div className="week-timeline-event-tooltip-detail">
-                <strong>Location:</strong>
-                <span>{tooltip.event.location.displayName}</span>
-              </div>
-            )}
-            {tooltip.event.organizer?.emailAddress?.name && (
-              <div className="week-timeline-event-tooltip-detail">
-                <strong>Organizer:</strong>
-                <span>{tooltip.event.organizer.emailAddress.name}</span>
-              </div>
-            )}
-            {tooltip.event.bodyPreview && (
-              <div className="week-timeline-event-tooltip-detail">
-                <strong>Details:</strong>
-                <span>{tooltip.event.bodyPreview.substring(0, 100)}{tooltip.event.bodyPreview.length > 100 ? '...' : ''}</span>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
