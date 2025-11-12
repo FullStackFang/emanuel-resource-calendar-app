@@ -231,6 +231,12 @@
       hasChanges: false // Track if form has been modified
     });
 
+    // Multi-day event confirmation state
+    const [pendingMultiDayConfirmation, setPendingMultiDayConfirmation] = useState(null); // { eventCount: number } or null
+
+    // Event delete confirmation state
+    const [pendingEventDeleteConfirmation, setPendingEventDeleteConfirmation] = useState(false);
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -4048,7 +4054,11 @@
           doorNotes: data.doorNotes || '',
           eventNotes: data.eventNotes || '',
           registrationNotes: data.registrationNotes || '',
-          assignedTo: data.assignedTo || ''
+          assignedTo: data.assignedTo || '',
+          // Multi-day event series metadata
+          eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
+          seriesLength: data.seriesLength || null,
+          seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null
         };
         
         // Use the selected calendar from the calendar toggle
@@ -4200,6 +4210,17 @@
     const handleEventReviewModalSave = useCallback(async () => {
       const { mode, event: reservationData } = eventReviewModal;
 
+      // DEBUG: Log entry point
+      console.log('=== SAVE BUTTON CLICKED ===', {
+        mode,
+        hasReservationData: !!reservationData,
+        startDate: reservationData?.startDate,
+        endDate: reservationData?.endDate,
+        startTime: reservationData?.startTime,
+        endTime: reservationData?.endTime,
+        pendingConfirmation: pendingMultiDayConfirmation
+      });
+
       if (!reservationData) {
         logger.error('No event data available to save');
         return;
@@ -4209,77 +4230,234 @@
         if (mode === 'event') {
           // Direct event creation - transform reservation structure to event structure
           logger.debug('Creating event directly via handleSaveEvent', reservationData);
-
-          // Combine separate date/time fields into ISO datetime strings
-          let startDateTime, endDateTime;
-
-          if (reservationData.startDate && reservationData.startTime) {
-            startDateTime = `${reservationData.startDate}T${reservationData.startTime}:00`;
-          } else if (reservationData.startDateTime) {
-            startDateTime = reservationData.startDateTime;
-          }
-
-          if (reservationData.endDate && reservationData.endTime) {
-            endDateTime = `${reservationData.endDate}T${reservationData.endTime}:00`;
-          } else if (reservationData.endDateTime) {
-            endDateTime = reservationData.endDateTime;
-          }
+          console.log('DEBUG: Mode is EVENT - direct creation path');
 
           // Validate required fields
-          if (!startDateTime || !endDateTime) {
-            showNotification('Start and end times are required');
+          if (!reservationData.startDate || !reservationData.endDate || !reservationData.startTime || !reservationData.endTime) {
+            console.log('DEBUG: VALIDATION FAILED - missing required fields', {
+              hasStartDate: !!reservationData.startDate,
+              hasEndDate: !!reservationData.endDate,
+              hasStartTime: !!reservationData.startTime,
+              hasEndTime: !!reservationData.endTime
+            });
+            showNotification('Start date, end date, and times are required');
             return;
           }
 
-          // Transform reservation structure to event structure expected by handleSaveEvent
-          const eventData = {
-            subject: reservationData.eventTitle || 'Untitled Event',
-            start: {
-              dateTime: startDateTime,
-              timeZone: getOutlookTimezone(userTimezone)
-            },
-            end: {
-              dateTime: endDateTime,
-              timeZone: getOutlookTimezone(userTimezone)
-            },
-            location: {
-              displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
-                ? reservationData.requestedRooms.join(', ')
-                : 'Unspecified'
-            },
-            body: {
-              contentType: 'text',
-              content: reservationData.eventDescription || ''
-            },
-            categories: [], // Graph API requires array
-            isAllDay: reservationData.isAllDayEvent || false,
-            attendees: reservationData.attendeeCount ? [{
-              emailAddress: {
-                address: '',
-                name: `${reservationData.attendeeCount} attendees`
+          console.log('DEBUG: Validation passed');
+
+          // Check for multi-day event creation
+          const isMultiDay = reservationData.startDate !== reservationData.endDate;
+          console.log('DEBUG: Multi-day check', {
+            startDate: reservationData.startDate,
+            endDate: reservationData.endDate,
+            startDateType: typeof reservationData.startDate,
+            endDateType: typeof reservationData.endDate,
+            comparison: `"${reservationData.startDate}" !== "${reservationData.endDate}"`,
+            isMultiDay,
+            pendingConfirmation: pendingMultiDayConfirmation
+          });
+
+          if (isMultiDay) {
+            console.log('DEBUG: ✅ MULTI-DAY DETECTED - Entering multi-day block');
+
+            // Calculate number of days in the range
+            const startDate = new Date(reservationData.startDate);
+            const endDate = new Date(reservationData.endDate);
+            const dayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+            console.log('DEBUG: Day count calculation', {
+              startDateObj: startDate,
+              endDateObj: endDate,
+              timeDiff: endDate - startDate,
+              dayCount
+            });
+
+            // Two-step confirmation: First click shows confirmation, second click creates
+            if (!pendingMultiDayConfirmation) {
+              // First click: Set pending confirmation state and return
+              console.log('DEBUG: 🔔 FIRST CLICK - Setting pending confirmation and returning', {
+                dayCount,
+                willSetState: { eventCount: dayCount }
+              });
+              logger.debug('Multi-day event detected, showing inline confirmation', { dayCount });
+              setPendingMultiDayConfirmation({ eventCount: dayCount });
+              console.log('DEBUG: State set, returning without creating events');
+              return;
+            }
+
+            // Second click: User confirmed, proceed with creation
+            console.log('DEBUG: ✅ SECOND CLICK - User confirmed, creating events', {
+              pendingConfirmation: pendingMultiDayConfirmation,
+              willCreate: dayCount + ' events'
+            });
+            logger.debug('User confirmed multi-day event creation via button click');
+            setPendingMultiDayConfirmation(null); // Reset confirmation state
+
+            // Generate unique series ID for linking events
+            const eventSeriesId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            logger.debug(`Creating multi-day event series: ${dayCount} events, seriesId: ${eventSeriesId}`);
+
+            // Generate array of dates
+            const dates = [];
+            for (let i = 0; i < dayCount; i++) {
+              const currentDate = new Date(startDate);
+              currentDate.setDate(startDate.getDate() + i);
+              const dateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+              dates.push(dateStr);
+            }
+
+            // Create events for each date
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < dates.length; i++) {
+              const dateStr = dates[i];
+              const startDateTime = `${dateStr}T${reservationData.startTime}:00`;
+              const endDateTime = `${dateStr}T${reservationData.endTime}:00`;
+
+              // Transform reservation structure to event structure
+              const eventData = {
+                subject: reservationData.eventTitle || 'Untitled Event',
+                start: {
+                  dateTime: startDateTime,
+                  timeZone: getOutlookTimezone(userTimezone)
+                },
+                end: {
+                  dateTime: endDateTime,
+                  timeZone: getOutlookTimezone(userTimezone)
+                },
+                location: {
+                  displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
+                    ? reservationData.requestedRooms.join(', ')
+                    : 'Unspecified'
+                },
+                body: {
+                  contentType: 'text',
+                  content: reservationData.eventDescription || ''
+                },
+                categories: [], // Graph API requires array
+                isAllDay: reservationData.isAllDayEvent || false,
+                attendees: reservationData.attendeeCount ? [{
+                  emailAddress: {
+                    address: '',
+                    name: `${reservationData.attendeeCount} attendees`
+                  }
+                }] : [],
+                calendarId: reservationData.calendarId,
+                // Include internal enrichments
+                setupMinutes: reservationData.setupTimeMinutes || 0,
+                teardownMinutes: reservationData.teardownTimeMinutes || 0,
+                setupTime: reservationData.setupTime || '',
+                teardownTime: reservationData.teardownTime || '',
+                doorOpenTime: reservationData.doorOpenTime || '',
+                doorCloseTime: reservationData.doorCloseTime || '',
+                setupNotes: reservationData.setupNotes || '',
+                doorNotes: reservationData.doorNotes || '',
+                eventNotes: reservationData.eventNotes || '',
+                requesterName: reservationData.requesterName || '',
+                requesterEmail: reservationData.requesterEmail || '',
+                // Add event series metadata
+                eventSeriesId: eventSeriesId,
+                seriesLength: dayCount,
+                seriesIndex: i
+              };
+
+              try {
+                const success = await handleSaveApiEvent(eventData);
+                if (success) {
+                  successCount++;
+                  logger.debug(`Created event ${i + 1}/${dayCount} for ${dateStr}`);
+                } else {
+                  failCount++;
+                  logger.error(`Failed to create event ${i + 1}/${dayCount} for ${dateStr}`);
+                }
+              } catch (error) {
+                failCount++;
+                logger.error(`Error creating event ${i + 1}/${dayCount} for ${dateStr}:`, error);
               }
-            }] : [],
-            calendarId: reservationData.calendarId,
-            // Include internal enrichments
-            setupMinutes: reservationData.setupTimeMinutes || 0,
-            teardownMinutes: reservationData.teardownTimeMinutes || 0,
-            setupTime: reservationData.setupTime || '',
-            teardownTime: reservationData.teardownTime || '',
-            doorOpenTime: reservationData.doorOpenTime || '',
-            doorCloseTime: reservationData.doorCloseTime || '',
-            setupNotes: reservationData.setupNotes || '',
-            doorNotes: reservationData.doorNotes || '',
-            eventNotes: reservationData.eventNotes || '',
-            requesterName: reservationData.requesterName || '',
-            requesterEmail: reservationData.requesterEmail || ''
-          };
+            }
 
-          const success = await handleSaveEvent(eventData);
+            // Show summary notification
+            if (successCount === dayCount) {
+              showNotification(`Successfully created ${successCount} events`);
+            } else if (successCount > 0) {
+              showNotification(`Created ${successCount} events, ${failCount} failed`);
+            } else {
+              showNotification(`Failed to create events`, 'error');
+            }
 
-          if (success) {
-            showNotification('Event created successfully');
             setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
             loadEvents(true);
+          } else {
+            // Single day event - existing logic
+            console.log('DEBUG: 📅 SINGLE-DAY PATH - Creating one event');
+            let startDateTime, endDateTime;
+
+            if (reservationData.startDate && reservationData.startTime) {
+              startDateTime = `${reservationData.startDate}T${reservationData.startTime}:00`;
+            } else if (reservationData.startDateTime) {
+              startDateTime = reservationData.startDateTime;
+            }
+
+            if (reservationData.endDate && reservationData.endTime) {
+              endDateTime = `${reservationData.endDate}T${reservationData.endTime}:00`;
+            } else if (reservationData.endDateTime) {
+              endDateTime = reservationData.endDateTime;
+            }
+
+            // Transform reservation structure to event structure expected by handleSaveEvent
+            const eventData = {
+              subject: reservationData.eventTitle || 'Untitled Event',
+              start: {
+                dateTime: startDateTime,
+                timeZone: getOutlookTimezone(userTimezone)
+              },
+              end: {
+                dateTime: endDateTime,
+                timeZone: getOutlookTimezone(userTimezone)
+              },
+              location: {
+                displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
+                  ? reservationData.requestedRooms.join(', ')
+                  : 'Unspecified'
+              },
+              body: {
+                contentType: 'text',
+                content: reservationData.eventDescription || ''
+              },
+              categories: [], // Graph API requires array
+              isAllDay: reservationData.isAllDayEvent || false,
+              attendees: reservationData.attendeeCount ? [{
+                emailAddress: {
+                  address: '',
+                  name: `${reservationData.attendeeCount} attendees`
+                }
+              }] : [],
+              calendarId: reservationData.calendarId,
+              // Include internal enrichments
+              setupMinutes: reservationData.setupTimeMinutes || 0,
+              teardownMinutes: reservationData.teardownTimeMinutes || 0,
+              setupTime: reservationData.setupTime || '',
+              teardownTime: reservationData.teardownTime || '',
+              doorOpenTime: reservationData.doorOpenTime || '',
+              doorCloseTime: reservationData.doorCloseTime || '',
+              setupNotes: reservationData.setupNotes || '',
+              doorNotes: reservationData.doorNotes || '',
+              eventNotes: reservationData.eventNotes || '',
+              requesterName: reservationData.requesterName || '',
+              requesterEmail: reservationData.requesterEmail || '',
+              // Single event has null eventSeriesId
+              eventSeriesId: null
+            };
+
+            const success = await handleSaveEvent(eventData);
+
+            if (success) {
+              showNotification('Event created successfully');
+              setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
+              loadEvents(true);
+            }
           }
         } else if (mode === 'create') {
           // Reservation request submission - use reservation structure as-is
@@ -4307,13 +4485,15 @@
         showNotification(`Error: ${error.message}`);
         throw error;
       }
-    }, [eventReviewModal, apiToken, handleSaveEvent, loadEvents, showNotification]);
+    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, userTimezone, getOutlookTimezone]);
 
     /**
      * Handle closing the EventReviewModal
      */
     const handleEventReviewModalClose = useCallback(() => {
       setEventReviewModal({ isOpen: false, event: null, mode: 'event' });
+      setPendingEventDeleteConfirmation(false); // Reset delete confirmation
+      setPendingMultiDayConfirmation(null); // Reset multi-day confirmation
     }, []);
 
     /**
@@ -4522,6 +4702,82 @@
         throw error;
       }
     };
+
+    /**
+     * Handle event deletion with inline two-step confirmation
+     */
+    const handleEventReviewModalDelete = useCallback(async () => {
+      if (!eventReviewModal.event) return;
+
+      // Two-step confirmation: First click shows confirmation, second click deletes
+      if (!pendingEventDeleteConfirmation) {
+        // First click: Set pending confirmation state and return
+        console.log('DEBUG: Event delete button first click - showing confirmation');
+        setPendingEventDeleteConfirmation(true);
+        return;
+      }
+
+      // Second click: User confirmed, proceed with deletion
+      console.log('DEBUG: Event delete button second click - deleting');
+      setPendingEventDeleteConfirmation(false);
+
+      const event = eventReviewModal.event;
+
+      try {
+        if (isDemoMode) {
+          const eventId = event.eventId || event.id;
+          await handleDeleteDemoEvent(eventId);
+        } else {
+          // Use MongoDB _id to call backend DELETE endpoint (same logic as useReviewModal.jsx)
+          const mongoId = event._id;
+
+          // Determine if this is a room reservation by checking status field
+          const isRoomReservation = event.status && (
+            event.status === 'pending' ||
+            event.status === 'room-reservation-request' ||
+            event.status === 'approved' ||
+            event.status === 'rejected'
+          );
+
+          // Choose the appropriate endpoint (API_BASE_URL already includes /api)
+          const endpoint = isRoomReservation
+            ? `${API_BASE_URL}/admin/room-reservations/${mongoId}`
+            : `${API_BASE_URL}/admin/events/${mongoId}`;
+
+          console.log('DEBUG: Calling DELETE endpoint:', endpoint);
+
+          const response = await fetch(endpoint, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              graphToken: graphToken // Backend will use it if needed
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to delete: ${response.status}`);
+          }
+
+          const result = await response.json();
+          console.log('DEBUG: Delete successful:', result);
+
+          // Update local state - remove event from allEvents
+          setAllEvents(allEvents.filter(e => e._id !== mongoId));
+
+          // Note: NOT calling loadEvents() here to avoid race condition with Graph API deletion propagation
+          // The local state update is sufficient, and the next natural refresh will sync properly
+        }
+
+        handleEventReviewModalClose();
+        showNotification('Event deleted successfully', 'success');
+      } catch (error) {
+        logger.error('Error deleting event:', error);
+        showNotification(`Error deleting event: ${error.message}`, 'error');
+      }
+    }, [eventReviewModal.event, pendingEventDeleteConfirmation, isDemoMode, handleDeleteDemoEvent, handleEventReviewModalClose, showNotification, apiToken, graphToken, API_BASE_URL, allEvents]);
 
     /**
      * Delete an event
@@ -5281,6 +5537,11 @@
           isSaving={reviewModal.isSaving}
           isDeleting={reviewModal.isDeleting}
           showActionButtons={true}
+          deleteButtonText={
+            reviewModal.pendingDeleteConfirmation
+              ? '⚠️ Confirm Delete?'
+              : null
+          }
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -5300,6 +5561,7 @@
           title={eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
+          onDelete={handleEventReviewModalDelete}
           mode="edit"
           isPending={false}
           hasChanges={eventReviewModal.hasChanges}
@@ -5307,8 +5569,15 @@
           showActionButtons={true}
           showTabs={true}
           saveButtonText={
-            !eventReviewModal.event?.id && userPermissions.isAdmin
-              ? '✨ Create'
+            pendingMultiDayConfirmation
+              ? `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`
+              : (!eventReviewModal.event?.id && userPermissions.isAdmin
+                ? '✨ Create'
+                : null)
+          }
+          deleteButtonText={
+            pendingEventDeleteConfirmation
+              ? '⚠️ Confirm Delete?'
               : null
           }
         >
@@ -5326,6 +5595,14 @@
                   },
                   hasChanges: true
                 }));
+                // Reset multi-day confirmation when form data changes
+                if (pendingMultiDayConfirmation) {
+                  setPendingMultiDayConfirmation(null);
+                }
+                // Reset delete confirmation when form data changes
+                if (pendingEventDeleteConfirmation) {
+                  setPendingEventDeleteConfirmation(false);
+                }
               }}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}

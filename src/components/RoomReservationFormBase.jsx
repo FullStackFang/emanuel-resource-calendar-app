@@ -1,5 +1,5 @@
 // src/components/RoomReservationFormBase.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
@@ -99,6 +99,10 @@ export default function RoomReservationFormBase({
 
   const { rooms, loading: roomsLoading } = useRooms();
 
+  // Refs to prevent unnecessary re-initialization of form data
+  const isInitializedRef = useRef(false);
+  const lastReservationIdRef = useRef(null);
+
   // Expose formData, timeErrors, and validation function to parent
   useEffect(() => {
     if (onFormDataRef) {
@@ -133,8 +137,22 @@ export default function RoomReservationFormBase({
   }, [availability, onAvailabilityChange]);
 
   // Initialize form data when initialData prop changes
+  // Guard against unnecessary re-initialization to prevent user input from being reset
   useEffect(() => {
-    if (initialData && Object.keys(initialData).length > 0) {
+    // Only initialize if:
+    // 1. We have initialData with content
+    // 2. AND (this is first initialization OR reservation ID changed)
+    const hasInitialData = initialData && Object.keys(initialData).length > 0;
+    const isNewReservation = currentReservationId !== lastReservationIdRef.current;
+    const shouldInitialize = hasInitialData && (!isInitializedRef.current || isNewReservation);
+
+    if (shouldInitialize) {
+      logger.debug('[RoomReservationFormBase] Initializing form data', {
+        isFirstInit: !isInitializedRef.current,
+        isNewReservation,
+        reservationId: currentReservationId
+      });
+
       const newData = {
         ...initialData
       };
@@ -159,8 +177,12 @@ export default function RoomReservationFormBase({
         ...prev,
         ...newData
       }));
+
+      // Mark as initialized and store current reservation ID
+      isInitializedRef.current = true;
+      lastReservationIdRef.current = currentReservationId;
     }
-  }, [initialData]);
+  }, [initialData, currentReservationId]);
 
   // Helper function to convert time difference to minutes
   const calculateTimeBufferMinutes = (eventTime, bufferTime) => {

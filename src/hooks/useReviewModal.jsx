@@ -27,6 +27,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
   const [editableData, setEditableData] = useState(null);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
 
+  // Inline confirmation state for delete action
+  const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
+
   // Soft hold state
   const [reviewHold, setReviewHold] = useState(null);
   const [holdTimer, setHoldTimer] = useState(null);
@@ -67,6 +70,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     setEditableData(null);
     setOriginalChangeKey(null);
     setHasChanges(false);
+    setPendingDeleteConfirmation(false); // Reset delete confirmation
   }, [currentItem, reviewHold]);
 
   /**
@@ -162,7 +166,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       ...updates
     }));
     setHasChanges(true);
-  }, []);
+    // Reset delete confirmation when form data changes
+    if (pendingDeleteConfirmation) {
+      setPendingDeleteConfirmation(false);
+    }
+  }, [pendingDeleteConfirmation]);
 
   /**
    * Save changes to the reservation/event
@@ -345,36 +353,40 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
 
   /**
    * Delete the event (Graph event or internal event)
+   * Uses two-step inline confirmation instead of browser popup
    */
   const handleDelete = useCallback(async () => {
     if (!currentItem) return;
 
-    // Confirm deletion
-    const confirmMessage = currentItem._isNewUnifiedEvent
-      ? 'Are you sure you want to delete this event? This will remove it from the calendar.'
-      : 'Are you sure you want to delete this reservation?';
-
-    if (!window.confirm(confirmMessage)) {
-      return { success: false, cancelled: true };
+    // Two-step confirmation: First click shows confirmation, second click deletes
+    if (!pendingDeleteConfirmation) {
+      // First click: Set pending confirmation state and return
+      console.log('DEBUG: Delete button first click - showing confirmation');
+      setPendingDeleteConfirmation(true);
+      return { success: false, cancelled: true, needsConfirmation: true };
     }
 
+    // Second click: User confirmed, proceed with deletion
+    console.log('DEBUG: Delete button second click - deleting');
+    setPendingDeleteConfirmation(false); // Reset confirmation state
     setIsDeleting(true);
     try {
-      // Determine if this is a Graph event or internal event/reservation
-      const isGraphEvent = currentItem.id && !currentItem._id;
-      const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
-      const isReservation = !isGraphEvent && !isNewUnifiedEvent;
+      // Determine endpoint based on whether this is a room reservation (has status field)
+      const isRoomReservation = currentItem.status && (
+        currentItem.status === 'pending' ||
+        currentItem.status === 'room-reservation-request' ||
+        currentItem.status === 'approved' ||
+        currentItem.status === 'rejected'
+      );
 
       let endpoint;
-      if (isGraphEvent) {
-        // For Graph events, we need to delete via Graph API
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/graph/${currentItem.id}`;
-      } else if (isNewUnifiedEvent) {
-        // For unified internal events
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
-      } else {
-        // For room reservations
+      if (isRoomReservation) {
+        // Room reservations go to their own endpoint
         endpoint = `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
+      } else {
+        // All events (Graph-synced or internal) go to /admin/events/:id
+        // The backend will handle Graph deletion if the event has an eventId
+        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
       }
 
       const response = await fetch(endpoint, {
@@ -384,7 +396,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          graphToken: isGraphEvent ? graphToken : undefined
+          graphToken: graphToken // Always pass graphToken - backend will use it if needed
         })
       });
 
@@ -403,7 +415,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, onSuccess, onError, closeModal]);
+  }, [currentItem, apiToken, graphToken, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
 
   return {
     // State
@@ -415,6 +427,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     isDeleting,
     holdError,
     reviewHold,
+    pendingDeleteConfirmation,
 
     // Actions
     openModal,

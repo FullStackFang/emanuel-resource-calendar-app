@@ -1966,65 +1966,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
   }
 });
 
-// Delete event from MongoDB collections
-app.delete('/api/internal-events/:eventId', verifyToken, async (req, res) => {
-  try {
-    const { eventId } = req.params;
-    const userId = req.user.userId;
-    
-    logger.debug(`Deleting MongoDB records for event ${eventId} for user ${userId}`);
-    
-    // Track deletion results
-    const deletionResults = {
-      unifiedEventsDeleted: 0,
-      cacheEventsDeleted: 0
-    };
-    
-    // 1. Delete from unified events collection (templeEvents__Events)
-    const unifiedResult = await unifiedEventsCollection.deleteOne({
-      userId: userId,
-      eventId: eventId
-    });
-    deletionResults.unifiedEventsDeleted = unifiedResult.deletedCount;
-    logger.debug(`Deleted ${unifiedResult.deletedCount} records from unified events collection`);
-    
-    // Legacy internal events collection removed - no longer needed
-    
-    // Event cache collection removed - no longer needed
-    deletionResults.cacheEventsDeleted = 0;
-    
-    // Check if any deletion occurred
-    const totalDeleted = deletionResults.unifiedEventsDeleted +
-                        deletionResults.cacheEventsDeleted;
-    
-    if (totalDeleted === 0) {
-      logger.warn(`No MongoDB records found for event ${eventId} for user ${userId}`);
-      return res.status(404).json({ 
-        error: 'Event not found in MongoDB',
-        message: `No records found for event ${eventId}`,
-        deletionResults
-      });
-    }
-    
-    logger.debug(`Successfully deleted MongoDB records for event ${eventId}:`, deletionResults);
-    
-    res.status(200).json({
-      success: true,
-      message: `Successfully deleted event ${eventId} from MongoDB`,
-      eventId: eventId,
-      deletionResults
-    });
-    
-  } catch (error) {
-    logger.error(`Error deleting MongoDB records for event ${req.params.eventId}:`, error);
-    res.status(500).json({ 
-      error: 'Failed to delete event from MongoDB',
-      message: error.message,
-      eventId: req.params.eventId
-    });
-  }
-});
-
+// Legacy DELETE /api/internal-events/:eventId endpoint removed - now using unified DELETE /api/admin/events/:id
 // Legacy sync endpoint removed - now using unified manual sync endpoint
 
 // Get available MEC categories
@@ -2539,6 +2481,18 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         { userId: userId, 'graphData.id': graphEvent.id }
       ]
     });
+
+    // RACE CONDITION PROTECTION: Skip upsert if event was recently deleted
+    // This prevents re-insertion when Graph API deletion hasn't propagated yet
+    if (existingDoc?.isDeleted) {
+      logger.debug(`Skipping upsert for deleted event: ${graphEvent.subject}`, {
+        eventId: eventId,
+        graphId: graphEvent.id,
+        deletedAt: existingDoc.deletedAt,
+        deletedBy: existingDoc.deletedBy
+      });
+      return existingDoc; // Return existing deleted record unchanged
+    }
 
     // Only set creation tracking fields for NEW events
     if (!existingDoc) {
@@ -3403,20 +3357,33 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             logger.log(`📝 Adding ${newEvents.length} new events (${graphEvents.length - newEvents.length} already cached)`);
 
             // Query database for existing events by graphData.id to get their eventIds
+            // Also check for deleted events to prevent re-adding them
             const graphEventIds = newEvents.map(e => e.id);
             const existingEventsInDb = await unifiedEventsCollection.find({
               userId: userId,
               'graphData.id': { $in: graphEventIds }
             }).toArray();
 
-            // Create a map of graphData.id → eventId for quick lookup
+            // Create maps for quick lookup: graphData.id → eventId and graphData.id → isDeleted
             const graphIdToEventIdMap = new Map();
+            const graphIdToDeletedMap = new Map();
             existingEventsInDb.forEach(event => {
               graphIdToEventIdMap.set(event.graphData.id, event.eventId);
+              if (event.isDeleted) {
+                graphIdToDeletedMap.set(event.graphData.id, true);
+              }
             });
 
             // Add to unified events array
             newEvents.forEach(graphEvent => {
+              // Skip if this event was deleted (race condition protection)
+              if (graphIdToDeletedMap.get(graphEvent.id)) {
+                logger.debug(`Skipping deleted event from Graph API: ${graphEvent.subject}`, {
+                  graphId: graphEvent.id
+                });
+                return;
+              }
+
               // Check if this event already exists in database by graphData.id
               const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
@@ -15549,72 +15516,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * Delete a Graph API event (Admin only)
- * DELETE /api/admin/events/graph/:graphEventId
- * Deletes from Microsoft Graph calendar
+ * Legacy DELETE /api/admin/events/graph/:graphEventId endpoint removed
+ * Now using unified DELETE /api/admin/events/:id which handles both Graph and MongoDB deletion
  */
-app.delete('/api/admin/events/graph/:graphEventId', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    const graphEventId = req.params.graphEventId;
-    const { graphToken } = req.body;
-
-    if (!graphToken) {
-      return res.status(400).json({ error: 'Graph token required' });
-    }
-
-    // Delete from Graph API
-    const graphResponse = await fetch(
-      `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${graphToken}`
-        }
-      }
-    );
-
-    if (!graphResponse.ok && graphResponse.status !== 404) {
-      throw new Error(`Graph API delete failed: ${graphResponse.status}`);
-    }
-
-    // Also mark as deleted in our internal collection if it exists
-    await unifiedEventsCollection.updateOne(
-      { graphEventId },
-      {
-        $set: {
-          isDeleted: true,
-          deletedAt: new Date(),
-          deletedBy: userId
-        }
-      }
-    );
-
-    logger.info('Graph event deleted:', {
-      graphEventId,
-      deletedBy: userEmail
-    });
-
-    res.json({
-      success: true,
-      message: 'Event deleted successfully'
-    });
-
-  } catch (error) {
-    logger.error('Error deleting Graph event:', error);
-    res.status(500).json({ error: 'Failed to delete event' });
-  }
-});
 
 /**
  * Delete an internal event (Admin only)
@@ -15623,6 +15527,7 @@ app.delete('/api/admin/events/graph/:graphEventId', verifyToken, async (req, res
  */
 app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
   try {
+    console.log('\n========== DELETE /api/admin/events/:id CALLED ==========');
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
@@ -15635,8 +15540,86 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
+    const { graphToken } = req.body;
 
-    // Soft delete the event
+    console.log('DELETE request params:', {
+      mongoId: id,
+      hasGraphToken: !!graphToken,
+      graphTokenLength: graphToken?.length,
+      userEmail
+    });
+
+    // Step 1: Look up the event to check if it has a Graph eventId
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!event) {
+      console.log('❌ Event not found in MongoDB:', id);
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    console.log('✅ Event found in MongoDB:', {
+      mongoId: id,
+      eventId: event.eventId,
+      calendarId: event.calendarId,
+      subject: event.graphData?.subject || event.eventTitle,
+      hasEventId: !!event.eventId
+    });
+
+    let graphDeleted = false;
+
+    // Step 2: If event has eventId, delete from Microsoft Graph first
+    if (event.eventId && graphToken) {
+      console.log('🔄 Attempting Graph API delete...');
+      try {
+        // Use graphData.id (Graph API ID) instead of eventId (internal MongoDB UUID)
+        const graphEventId = event.graphData?.id || event.eventId;
+        const graphApiUrl = event.calendarId
+          ? `https://graph.microsoft.com/v1.0/me/calendars/${event.calendarId}/events/${graphEventId}`
+          : `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+
+        console.log('📡 Graph API URL:', graphApiUrl);
+        console.log('📡 Using Graph Event ID:', graphEventId);
+
+        const graphResponse = await fetch(graphApiUrl, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${graphToken}`
+          }
+        });
+
+        console.log('📊 Graph API response:', {
+          status: graphResponse.status,
+          statusText: graphResponse.statusText,
+          ok: graphResponse.ok
+        });
+
+        if (graphResponse.ok || graphResponse.status === 404) {
+          // 404 means already deleted from Graph - that's okay
+          graphDeleted = true;
+          console.log('✅ Event deleted from Microsoft Graph');
+          logger.info('Event deleted from Microsoft Graph:', {
+            eventId: event.eventId,
+            calendarId: event.calendarId
+          });
+        } else {
+          console.log('⚠️ Graph API delete returned non-OK status:', graphResponse.status);
+          logger.warn(`Graph API delete returned ${graphResponse.status}, continuing with MongoDB deletion`);
+          graphDeleted = false;
+        }
+      } catch (graphError) {
+        console.log('❌ Graph API delete error:', graphError.message);
+        logger.warn('Error deleting from Graph API, continuing with MongoDB deletion:', graphError);
+        graphDeleted = false;
+      }
+    } else {
+      console.log('⏭️ Skipping Graph API delete:', {
+        hasEventId: !!event.eventId,
+        hasGraphToken: !!graphToken
+      });
+    }
+
+    // Step 3: Soft delete the event from MongoDB
+    console.log('🔄 Soft-deleting from MongoDB...');
     const updateResult = await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },
       {
@@ -15648,18 +15631,29 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     );
 
+    console.log('📊 MongoDB update result:', {
+      matchedCount: updateResult.matchedCount,
+      modifiedCount: updateResult.modifiedCount
+    });
+
     if (updateResult.matchedCount === 0) {
+      console.log('❌ Event not found in MongoDB for update');
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    console.log('✅ Event soft-deleted from MongoDB');
     logger.info('Internal event deleted:', {
       mongoId: id,
+      eventId: event.eventId,
+      graphDeleted,
       deletedBy: userEmail
     });
 
+    console.log('========== DELETE COMPLETE ==========\n');
     res.json({
       success: true,
-      message: 'Event deleted successfully'
+      message: 'Event deleted successfully',
+      graphDeleted
     });
 
   } catch (error) {
