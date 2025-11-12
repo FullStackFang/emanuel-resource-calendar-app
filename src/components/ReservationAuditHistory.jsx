@@ -92,7 +92,6 @@ const ReservationAuditHistory = ({ reservationId, apiToken, refreshTrigger }) =>
       'specialRequirements': 'Special Requirements',
       'department': 'Department',
       'phone': 'Phone',
-      'priority': 'Priority',
       'setupTimeMinutes': 'Setup Time',
       'teardownTimeMinutes': 'Teardown Time',
       'setupTime': 'Setup Time',

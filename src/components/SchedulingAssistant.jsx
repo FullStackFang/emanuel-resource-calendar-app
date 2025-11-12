@@ -148,7 +148,7 @@ export default function SchedulingAssistant({
             title: reservation.eventTitle,
             startTime,
             endTime,
-            organizer: reservation.requesterName || reservation.requesterEmail,
+            organizer: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail,
             status: reservation.status,
             isConflict: false, // Will be calculated later
             ...position

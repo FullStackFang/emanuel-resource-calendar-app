@@ -138,16 +138,7 @@ export default function MyReservations({ apiToken }) {
       default: return '';
     }
   };
-  
-  const getPriorityBadgeClass = (priority) => {
-    switch (priority) {
-      case 'high': return 'priority-high';
-      case 'medium': return 'priority-medium';
-      case 'low': return 'priority-low';
-      default: return '';
-    }
-  };
-  
+
   if (loading && allReservations.length === 0) {
     return <div className="my-reservations loading">Loading your reservation requests...</div>;
   }
@@ -212,7 +203,6 @@ export default function MyReservations({ apiToken }) {
               <th>Event Details</th>
               <th>Date & Time</th>
               <th>Rooms</th>
-              <th>Priority</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -225,8 +215,8 @@ export default function MyReservations({ apiToken }) {
                 </td>
                 <td className="event-details">
                   <strong>{reservation.eventTitle}</strong>
-                  {reservation.isOnBehalfOf && reservation.contactName && (
-                    <div className="delegation-status">📋 On behalf of {reservation.contactName}</div>
+                  {reservation.roomReservationData?.contactPerson?.isOnBehalfOf && reservation.roomReservationData?.contactPerson?.name && (
+                    <div className="delegation-status">📋 On behalf of {reservation.roomReservationData.contactPerson.name}</div>
                   )}
                   {reservation.eventDescription && (
                     <div className="event-desc">{reservation.eventDescription}</div>
@@ -253,11 +243,6 @@ export default function MyReservations({ apiToken }) {
                       </div>
                     );
                   })}
-                </td>
-                <td>
-                  <span className={`priority-badge ${getPriorityBadgeClass(reservation.priority)}`}>
-                    {reservation.priority}
-                  </span>
                 </td>
                 <td>
                   <span className={`status-badge ${getStatusBadgeClass(reservation.status)}`}>

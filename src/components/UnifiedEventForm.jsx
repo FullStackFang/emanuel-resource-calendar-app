@@ -118,10 +118,10 @@ export default function UnifiedEventForm({
       }
 
       setInitialData({
-        requesterName: reservation.requesterName || '',
-        requesterEmail: reservation.requesterEmail || '',
-        department: reservation.department || '',
-        phone: reservation.phone || '',
+        requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
+        requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
+        department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
+        phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
         eventTitle: reservation.eventTitle || '',
         eventDescription: reservation.eventDescription || '',
         startDate: startDateTime.toISOString().split('T')[0],
@@ -138,13 +138,12 @@ export default function UnifiedEventForm({
         attendeeCount: reservation.attendeeCount || '',
         requestedRooms: reservation.requestedRooms || [],
         specialRequirements: reservation.specialRequirements || '',
-        priority: reservation.priority || 'medium',
         setupTimeMinutes: reservation.setupTimeMinutes || 0,
         teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-        contactEmail: reservation.contactEmail || '',
-        contactName: reservation.contactName || '',
-        isOnBehalfOf: reservation.isOnBehalfOf || false,
-        reviewNotes: reservation.reviewNotes || '',
+        contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
+        contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
+        isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false,
+        reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
         isAllDayEvent: reservation.isAllDayEvent || false
       });
 

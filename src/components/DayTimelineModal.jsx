@@ -68,7 +68,7 @@ export default function DayTimelineModal({
         end: { dateTime: event.end?.dateTime || event.endDateTime },
         organizer: {
           emailAddress: {
-            name: event.organizer?.emailAddress?.name || event.requesterName || 'Unknown'
+            name: event.organizer?.emailAddress?.name || event.roomReservationData?.requestedBy?.name || event.requesterName || 'Unknown'
           }
         },
         location: event.location,

@@ -81,7 +81,6 @@ export default function RoomReservationFormBase({
     attendeeCount: '',
     requestedRooms: [],
     specialRequirements: '',
-    priority: 'medium',
     setupTimeMinutes: 0,
     teardownTimeMinutes: 0,
     contactEmail: '',
@@ -136,9 +135,29 @@ export default function RoomReservationFormBase({
   // Initialize form data when initialData prop changes
   useEffect(() => {
     if (initialData && Object.keys(initialData).length > 0) {
+      const newData = {
+        ...initialData
+      };
+
+      // Auto-populate doorCloseTime with endTime if endTime exists
+      if (newData.endTime && !newData.doorCloseTime) {
+        newData.doorCloseTime = newData.endTime;
+      }
+
+      // Auto-populate teardownTime with endTime + 1 hour if not already set
+      if (newData.endTime && !newData.teardownTime) {
+        const [hours, minutes] = newData.endTime.split(':');
+        const endTimeDate = new Date();
+        endTimeDate.setHours(parseInt(hours), parseInt(minutes));
+        endTimeDate.setHours(endTimeDate.getHours() + 1);
+        const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
+        const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
+        newData.teardownTime = `${teardownHours}:${teardownMinutes}`;
+      }
+
       setFormData(prev => ({
         ...prev,
-        ...initialData
+        ...newData
       }));
     }
   }, [initialData]);
@@ -341,6 +360,24 @@ export default function RoomReservationFormBase({
       ...formData,
       [name]: value
     };
+
+    // Auto-populate doorCloseTime and teardownTime when endTime changes
+    if (name === 'endTime' && value) {
+      // Always sync doorCloseTime with endTime
+      updatedData.doorCloseTime = value;
+
+      // Pre-populate teardownTime with endTime + 1 hour (only if currently empty)
+      if (!formData.teardownTime) {
+        const [hours, minutes] = value.split(':');
+        const endTimeDate = new Date();
+        endTimeDate.setHours(parseInt(hours), parseInt(minutes));
+        endTimeDate.setHours(endTimeDate.getHours() + 1);
+        const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
+        const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
+        updatedData.teardownTime = `${teardownHours}:${teardownMinutes}`;
+      }
+    }
+
     setFormData(updatedData);
     setHasChanges(true);
 
@@ -450,21 +487,6 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                 />
               </div>
-
-              <div className="form-group">
-                <label htmlFor="priority">Priority</label>
-                <select
-                  id="priority"
-                  name="priority"
-                  value={formData.priority}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
             </div>
 
             {/* Date Fields */}
@@ -539,7 +561,7 @@ export default function RoomReservationFormBase({
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
               <div className="form-group">
-                <label htmlFor="setupTime">Setup Start Time</label>
+                <label htmlFor="setupTime">Setup Start Time *</label>
                 <input
                   type="time"
                   id="setupTime"
@@ -547,12 +569,13 @@ export default function RoomReservationFormBase({
                   value={formData.setupTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  required
                 />
                 <div className="help-text">When setup can begin</div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="doorOpenTime">Door Open Time</label>
+                <label htmlFor="doorOpenTime">Door Open Time *</label>
                 <input
                   type="time"
                   id="doorOpenTime"
@@ -560,6 +583,7 @@ export default function RoomReservationFormBase({
                   value={formData.doorOpenTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  required
                 />
                 <div className="help-text">When attendees can start entering</div>
               </div>
@@ -599,10 +623,11 @@ export default function RoomReservationFormBase({
                   id="doorCloseTime"
                   name="doorCloseTime"
                   value={formData.doorCloseTime}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  readOnly
+                  disabled
+                  className="readonly-field"
                 />
-                <div className="help-text">When doors will be locked</div>
+                <div className="help-text">when doors will be locked at end of event</div>
               </div>
 
               <div className="form-group">

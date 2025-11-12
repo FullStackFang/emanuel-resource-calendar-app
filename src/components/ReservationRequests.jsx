@@ -348,14 +348,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       attendeeCount: reservation.attendeeCount || 0,
       requestedRooms: reservation.requestedRooms || [],
       specialRequirements: reservation.specialRequirements || '',
-      requesterName: reservation.requesterName || '',
-      requesterEmail: reservation.requesterEmail || '',
-      contactName: reservation.contactName || '',
-      contactEmail: reservation.contactEmail || '',
-      phone: reservation.phone || '',
-      department: reservation.department || '',
+      requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
+      requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
+      contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
+      contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
+      phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
+      department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
       sponsoredBy: reservation.sponsoredBy || '',
-      isOnBehalfOf: reservation.isOnBehalfOf || false
+      isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false
     });
 
     setOriginalChangeKey(reservation.changeKey);
@@ -687,7 +687,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   const handleDelete = async (reservation) => {
     // Confirm deletion
-    const confirmMessage = `Are you sure you want to permanently delete this reservation?\n\nEvent: ${reservation.eventTitle}\nRequester: ${reservation.requesterName}\n\nThis action cannot be undone.`;
+    const confirmMessage = `Are you sure you want to permanently delete this reservation?\n\nEvent: ${reservation.eventTitle}\nRequester: ${reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}\n\nThis action cannot be undone.`;
     
     if (!window.confirm(confirmMessage)) {
       return;
@@ -816,16 +816,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       default: return '';
     }
   };
-  
-  const getPriorityBadgeClass = (priority) => {
-    switch (priority) {
-      case 'high': return 'priority-high';
-      case 'medium': return 'priority-medium';
-      case 'low': return 'priority-low';
-      default: return '';
-    }
-  };
-  
+
   if (loading && allReservations.length === 0) {
     return <div className="reservation-requests loading">Loading reservation requests...</div>;
   }
@@ -884,7 +875,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               <th>Requester</th>
               <th>Date & Time</th>
               <th>Rooms</th>
-              <th>Priority</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -910,19 +900,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <td className="requester-info">
                   <div className="submitter-info">
                     <strong>Submitted by:</strong>
-                    <div>{reservation.requesterName}</div>
-                    <div className="email">{reservation.requesterEmail}</div>
+                    <div>{reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}</div>
+                    <div className="email">{reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail}</div>
                   </div>
-                  {reservation.isOnBehalfOf && reservation.contactName && (
+                  {(reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf) && (reservation.roomReservationData?.contactPerson?.name || reservation.contactName) && (
                     <div className="contact-info">
                       <strong>Contact Person:</strong>
-                      <div>{reservation.contactName}</div>
-                      <div className="email">{reservation.contactEmail}</div>
+                      <div>{reservation.roomReservationData?.contactPerson?.name || reservation.contactName}</div>
+                      <div className="email">{reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail}</div>
                       <div className="delegation-badge">📋 On Behalf Of</div>
                     </div>
                   )}
-                  {reservation.department && (
-                    <div className="department">{reservation.department}</div>
+                  {(reservation.roomReservationData?.requestedBy?.department || reservation.department) && (
+                    <div className="department">{reservation.roomReservationData?.requestedBy?.department || reservation.department}</div>
                   )}
                   {reservation.sponsoredBy && (
                     <div className="sponsor">Sponsored by: {reservation.sponsoredBy}</div>
@@ -946,11 +936,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                       </div>
                     );
                   })}
-                </td>
-                <td>
-                  <span className={`priority-badge ${getPriorityBadgeClass(reservation.priority)}`}>
-                    {reservation.priority}
-                  </span>
                 </td>
                 <td>
                   <span className={`status-badge ${getStatusBadgeClass(reservation.status)}`}>

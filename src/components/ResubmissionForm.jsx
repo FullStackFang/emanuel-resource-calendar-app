@@ -23,7 +23,6 @@ export default function ResubmissionForm({ apiToken }) {
     attendeeCount: originalReservation?.attendeeCount?.toString() || '',
     requestedRooms: originalReservation?.requestedRooms || [],
     specialRequirements: originalReservation?.specialRequirements || '',
-    priority: originalReservation?.priority || 'medium',
     department: originalReservation?.department || '',
     phone: originalReservation?.phone || '',
     contactEmail: originalReservation?.contactEmail || '',
@@ -175,7 +174,6 @@ export default function ResubmissionForm({ apiToken }) {
         specialRequirements: formData.specialRequirements,
         department: formData.department,
         phone: formData.phone,
-        priority: formData.priority,
         contactEmail: formData.contactEmail,
         userMessage: formData.userMessage
       };
@@ -411,20 +409,6 @@ export default function ResubmissionForm({ apiToken }) {
                 placeholder="0"
               />
               <div className="help-text">Additional time after event for cleanup</div>
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="priority">Priority</label>
-              <select
-                id="priority"
-                name="priority"
-                value={formData.priority}
-                onChange={handleInputChange}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
             </div>
           </div>
         </section>

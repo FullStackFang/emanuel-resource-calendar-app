@@ -1727,7 +1727,7 @@ async function createRoomReservationCalendarEvent(reservation, calendarMode, use
         }
       ],
       categories: ['Room Reservation'],
-      importance: reservation.priority === 'high' ? 'high' : 'normal'
+      importance: 'normal'
     };
     
     // Add contact person if different from requester
@@ -3611,7 +3611,6 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         department: event.department,
         phone: event.phone,
         attendeeCount: event.attendeeCount,
-        priority: event.priority,
         specialRequirements: event.specialRequirements,
         contactName: event.contactName,
         contactEmail: event.contactEmail,
@@ -10907,7 +10906,6 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       specialRequirements,
       department,
       phone,
-      priority = 'medium',
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
@@ -10980,7 +10978,6 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       requestedRooms: reservationData.requestedRooms,
       requiredFeatures: reservationData.requiredFeatures,
       specialRequirements: reservationData.specialRequirements,
-      priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
       phone: reservationData.phone,
@@ -11014,7 +11011,6 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         requestedRooms,
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
-        priority,
         contactEmail: isOnBehalfOf ? contactEmail : null,
         department: department || '',
         phone: phone || '',
@@ -11071,7 +11067,6 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       eventNotes: eventNotes || '',
 
       status: 'pending',
-      priority,
 
       // New resubmission fields
       currentRevision: 1,
@@ -11161,7 +11156,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       specialRequirements,
       department,
       phone,
-      priority = 'medium',
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0,
@@ -11246,7 +11240,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       requestedRooms: reservationData.requestedRooms,
       requiredFeatures: reservationData.requiredFeatures,
       specialRequirements: reservationData.specialRequirements,
-      priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
       phone: reservationData.phone,
@@ -11271,7 +11264,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         requestedRooms,
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
-        priority,
         contactEmail: isOnBehalfOf ? contactEmail : null,
         department: department || '',
         phone: phone || '',
@@ -11328,7 +11320,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       eventNotes: eventNotes || '',
 
       status: 'pending',
-      priority,
 
       // New resubmission fields
       currentRevision: 1,
@@ -11622,7 +11613,6 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       specialRequirements,
       department,
       phone,
-      priority,
       contactEmail,
       userMessage,
       // Setup/teardown times (in minutes)
@@ -11681,7 +11671,6 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       requestedRooms: reservationData.requestedRooms,
       requiredFeatures: reservationData.requiredFeatures,
       specialRequirements: reservationData.specialRequirements,
-      priority: reservationData.priority,
       contactEmail: reservationData.contactEmail,
       department: reservationData.department,
       phone: reservationData.phone,
@@ -11719,7 +11708,6 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         requestedRooms,
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
-        priority,
         contactEmail: contactEmail || null,
         department: department || '',
         phone: phone || '',
@@ -11732,7 +11720,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
     const fieldsToTrack = [
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
       'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
-      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone', 'priority'
+      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone'
     ];
 
     const newData = {
@@ -11747,8 +11735,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       setupTimeMinutes: setupTimeMinutes || 0,
       teardownTimeMinutes: teardownTimeMinutes || 0,
       department: department || '',
-      phone: phone || '',
-      priority
+      phone: phone || ''
     };
 
     const changes = getChanges(reservation, newData, fieldsToTrack);
@@ -11766,7 +11753,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
     // Update reservation with new data and add communication history
     const updateDoc = {
       $set: {
-        // Update main reservation fields
+        // Update main reservation fields (top-level operational data)
         eventTitle,
         eventDescription: eventDescription || '',
         startDateTime: newStartDateTime,
@@ -11775,14 +11762,18 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         requestedRooms,
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
-        department: department || '',
-        phone: phone || '',
-        priority,
-        contactEmail: contactEmail || null,
 
         // Setup and teardown times
         setupTimeMinutes: setupTimeMinutes || 0,
         teardownTimeMinutes: teardownTimeMinutes || 0,
+
+        // Update requester info in roomReservationData
+        'roomReservationData.requestedBy.department': department || '',
+        'roomReservationData.requestedBy.phone': phone || '',
+        'roomReservationData.contactPerson': contactEmail ? {
+          email: contactEmail,
+          isOnBehalfOf: true
+        } : null,
 
         // Update status and revision tracking
         status: 'pending',
@@ -13160,7 +13151,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
       'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
       'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
-      'contactName', 'contactEmail', 'priority', 'reviewNotes',
+      'contactName', 'contactEmail', 'reviewNotes',
       'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
       'setupNotes', 'doorNotes', 'eventNotes'
     ];
@@ -14691,7 +14682,6 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       specialRequirements,
       department,
       phone,
-      priority,
       setupTimeMinutes,
       teardownTimeMinutes,
       setupTime,
@@ -14791,7 +14781,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         bodyPreview: eventDescription || '',
         categories: [],
         isAllDay: false,
-        importance: priority === 'high' ? 'high' : 'normal',
+        importance: 'normal',
         showAs: 'busy',
         sensitivity: 'normal',
         attendees: [],
@@ -14818,7 +14808,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         customFields: {}
       },
 
-      // NEW: Room reservation metadata
+      // NEW: Room reservation metadata (workflow-specific data only)
       roomReservationData: {
         requestedBy: {
           userId,
@@ -14832,31 +14822,14 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           email: contactEmail,
           isOnBehalfOf: true
         } : null,
-        // Note: locations field at top level is now the single source of truth
-        timing: {
-          setupTime: setupTime || '',
-          teardownTime: teardownTime || '',
-          doorOpenTime: doorOpenTime || '',
-          doorCloseTime: doorCloseTime || '',
-          setupTimeMinutes: setupTimeMinutes || 0,
-          teardownTimeMinutes: teardownTimeMinutes || 0
-        },
-        attendeeCount: parseInt(attendeeCount) || 0,
-        priority: priority || 'medium',
-        specialRequirements: specialRequirements || '',
-        internalNotes: {
-          setupNotes: setupNotes || '',
-          doorNotes: doorNotes || '',
-          eventNotes: eventNotes || ''
-        },
+        // Workflow metadata
         submittedAt: new Date(),
         changeKey: generateChangeKey({
           eventTitle,
           startDateTime,
           endDateTime,
           requestedRooms,
-          attendeeCount,
-          priority
+          attendeeCount
         }),
         currentRevision: 1,
         reviewingBy: null,
@@ -14886,17 +14859,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       eventNotes: eventNotes || '',
       location: roomNames.join('; '),
       locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
-      requesterName: requesterName || userEmail,
-      requesterEmail: requesterEmail || userEmail,
-      department: department || '',
-      phone: phone || '',
       attendeeCount: parseInt(attendeeCount) || 0,
-      priority: priority || 'medium',
       specialRequirements: specialRequirements || '',
-      contactName: isOnBehalfOf ? contactName : '',
-      contactEmail: isOnBehalfOf ? contactEmail : '',
-      isOnBehalfOf: isOnBehalfOf || false,
-      reviewNotes: '',
       isAllDayEvent: false,
       virtualMeetingUrl: null,
       virtualPlatform: null,

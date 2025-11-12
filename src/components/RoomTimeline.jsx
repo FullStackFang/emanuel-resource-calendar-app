@@ -84,7 +84,7 @@ export default function RoomTimeline({ room, conflicts, requestedWindow }) {
       left: timeToPosition(originalStart),
       width: timeToPosition(originalEnd) - timeToPosition(originalStart),
       title: reservation.eventTitle,
-      subtitle: `by ${reservation.requesterName}`,
+      subtitle: `by ${reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}`,
       time: `${formatTime(originalStart)} - ${formatTime(originalEnd)}`,
       color: '#dc2626',
       status: reservation.status

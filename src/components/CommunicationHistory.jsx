@@ -60,7 +60,7 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
     const fieldsToCheck = [
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
       'attendeeCount', 'requestedRooms', 'specialRequirements',
-      'priority', 'department', 'phone', 'contactEmail'
+      'department', 'phone', 'contactEmail'
     ];
 
     fieldsToCheck.forEach(field => {
@@ -104,7 +104,6 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
       case 'attendeeCount': return 'Attendees';
       case 'requestedRooms': return 'Requested Rooms';
       case 'specialRequirements': return 'Special Requirements';
-      case 'priority': return 'Priority';
       case 'department': return 'Department';
       case 'phone': return 'Phone';
       case 'contactEmail': return 'Contact Email';
@@ -195,7 +194,6 @@ export default function CommunicationHistory({ reservation, isAdmin = false }) {
                         <div><strong>Event:</strong> {entry.snapshot.eventTitle}</div>
                         <div><strong>Date:</strong> {formatDateTime(entry.snapshot.startDateTime)} - {formatDateTime(entry.snapshot.endDateTime)}</div>
                         <div><strong>Attendees:</strong> {entry.snapshot.attendeeCount || 'Not specified'}</div>
-                        <div><strong>Priority:</strong> {entry.snapshot.priority}</div>
                         {entry.snapshot.eventDescription && (
                           <div><strong>Description:</strong> {entry.snapshot.eventDescription}</div>
                         )}

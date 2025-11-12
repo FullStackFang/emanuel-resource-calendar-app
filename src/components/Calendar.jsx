@@ -3393,7 +3393,6 @@
         // Additional Details
         attendeeCount: '',
         specialRequirements: '',
-        priority: 'medium',
         reviewNotes: '',
 
         // Calendar Info
@@ -3567,7 +3566,6 @@
         // Additional Details
         attendeeCount: '',
         specialRequirements: '',
-        priority: 'medium',
         reviewNotes: '',
 
         // Calendar Info
