@@ -136,7 +136,7 @@ export default function RoomReservationReview({
           doorNotes: reservation.doorNotes || '',
           eventNotes: reservation.eventNotes || '',
           attendeeCount: reservation.attendeeCount || '',
-          requestedRooms: reservation.requestedRooms || [],
+          requestedRooms: reservation.locations || [],  // Use locations field as single source of truth
           specialRequirements: reservation.specialRequirements || '',
           priority: reservation.priority || 'medium',
           setupTimeMinutes: reservation.setupTimeMinutes || 0,
@@ -216,20 +216,34 @@ export default function RoomReservationReview({
         endDateTime,
         attendeeCount: parseInt(formData.attendeeCount) || 0,
         setupTimeMinutes,
-        teardownTimeMinutes
+        teardownTimeMinutes,
+        locations: formData.requestedRooms  // Use locations field as single source of truth
       };
 
-      // Remove separate date/time fields
+      // Remove separate date/time fields and old requestedRooms field
       delete updatedData.startDate;
       delete updatedData.startTime;
       delete updatedData.endDate;
       delete updatedData.endTime;
+      delete updatedData.requestedRooms;  // Remove old field name
 
-      console.log('📤 Sending save request to API...', { reservationId: reservation._id });
+      console.log('📤 Sending save request to API...', {
+        reservationId: reservation._id,
+        locationsCount: updatedData.locations?.length,
+        locationIds: updatedData.locations,
+        hasRequestedRooms: 'requestedRooms' in updatedData,
+        formDataRequestedRoomsCount: formData.requestedRooms?.length
+      });
+
+      // Use correct endpoint based on event type
+      // New unified events use /admin/events, legacy reservations use /admin/room-reservations
+      const updateEndpoint = reservation._isNewUnifiedEvent
+        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`
+        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`;
 
       // Make API call with If-Match header for optimistic concurrency control
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`,
+        updateEndpoint,
         {
           method: 'PUT',
           headers: {

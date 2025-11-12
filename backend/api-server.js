@@ -3179,13 +3179,17 @@ function combineNotes(existingNotes, newNotes) {
  */
 async function getUnifiedEvents(userId, calendarId = null, startDate = null, endDate = null) {
   try {
-    const query = { userId: userId, isDeleted: { $ne: true } };
-    
+    const query = {
+      userId: userId,
+      isDeleted: { $ne: true },
+      status: { $ne: 'room-reservation-request' }  // Exclude pending reservation requests from main calendar
+    };
+
     // Add calendar filter if specified
     if (calendarId) {
       query.calendarId = calendarId;
     }
-    
+
     // Add date range filter if specified
     if (startDate && endDate) {
       query.$and = [
@@ -3193,7 +3197,7 @@ async function getUnifiedEvents(userId, calendarId = null, startDate = null, end
         { "graphData.end.dateTime": { $gt: startDate.toISOString() } }
       ];
     }
-    
+
     const events = await unifiedEventsCollection.find(query).toArray();
     
     logger.debug(`Found ${events.length} unified events`, {
@@ -10747,9 +10751,9 @@ app.get('/api/rooms/availability', async (req, res) => {
     const availability = rooms.map(room => {
       const roomIdString = room._id.toString();
 
-      // Get ALL reservations for this room
+      // Get ALL reservations for this room (using locations field)
       const roomReservations = allReservations.filter(res =>
-        res.requestedRooms.some(reqRoomId => reqRoomId.toString() === roomIdString)
+        res.locations && res.locations.some(locId => locId.toString() === roomIdString)
       );
 
       // Get ALL events for this room using ObjectId matching on locations array
@@ -14824,7 +14828,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           email: contactEmail,
           isOnBehalfOf: true
         } : null,
-        requestedRooms: requestedRooms,
+        // Note: locations field at top level is now the single source of truth
         timing: {
           setupTime: setupTime || '',
           teardownTime: teardownTime || '',
@@ -14877,8 +14881,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
       location: roomNames.join('; '),
-      locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations
-      requestedRooms: requestedRooms,
+      locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
       requesterName: requesterName || userEmail,
       requesterEmail: requesterEmail || userEmail,
       department: department || '',
@@ -15277,6 +15280,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const updates = req.body;
     const graphToken = updates.graphToken;
 
+    // DEBUG: Log incoming request
+    logger.info('PUT /api/admin/events/:id - Incoming request:', {
+      eventId: id,
+      hasLocations: !!updates.locations,
+      locationsCount: Array.isArray(updates.locations) ? updates.locations.length : 0,
+      locationIds: updates.locations,
+      hasRequestedRooms: !!updates.requestedRooms,
+      requestedRoomsCount: Array.isArray(updates.requestedRooms) ? updates.requestedRooms.length : 0
+    });
+
     // Get event by _id
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!event) {
@@ -15458,25 +15471,48 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     // Handle requestedRooms -> locations array conversion and display name generation
-    if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
+    // If requestedRooms exists but locations doesn't, use requestedRooms (for backward compatibility)
+    if (!updates.locations && updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
+      logger.info('Using requestedRooms as fallback for locations');
+      updates.locations = updates.requestedRooms;
+    }
+
+    // Handle locations field updates (single source of truth)
+    if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
+      logger.info('Processing locations update - START:', {
+        incomingCount: updates.locations.length,
+        locationIds: updates.locations
+      });
+
       try {
-        // Convert requestedRooms to ObjectIds for locations array
-        const roomIds = updates.requestedRooms.map(id =>
+        // Convert to ObjectIds if needed
+        const locationIds = updates.locations.map(id =>
           typeof id === 'string' ? new ObjectId(id) : id
         );
 
-        // Set locations array (ObjectId references to templeEvents__Locations)
-        updateOperations.locations = roomIds;
+        logger.info('Converted to ObjectIds:', {
+          count: locationIds.length,
+          ids: locationIds.map(id => id.toString())
+        });
 
-        // Fetch room documents to get display names
-        const roomDocs = await locationsCollection.find({
-          _id: { $in: roomIds },
-          isReservable: true
+        // Set locations array (ObjectId references to templeEvents__Locations)
+        updateOperations.locations = locationIds;
+
+        // Fetch location documents to get display names
+        const locationDocs = await locationsCollection.find({
+          _id: { $in: locationIds }
         }).toArray();
 
+        logger.info('Location documents found:', {
+          requestedCount: locationIds.length,
+          foundCount: locationDocs.length,
+          foundIds: locationDocs.map(loc => loc._id.toString()),
+          foundNames: locationDocs.map(loc => loc.displayName || loc.name)
+        });
+
         // Generate concatenated display names for location field
-        const displayNames = roomDocs
-          .map(room => room.displayName || room.name || '')
+        const displayNames = locationDocs
+          .map(loc => loc.displayName || loc.name || '')
           .filter(Boolean)
           .join('; ');
 
@@ -15491,18 +15527,27 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           updateOperations['graphData.location.displayName'] = displayNames;
         }
 
-        logger.info('Updated locations from requestedRooms:', {
-          roomIds: roomIds.map(id => id.toString()),
+        logger.info('Updated locations - COMPLETE:', {
+          locationIds: locationIds.map(id => id.toString()),
           displayNames
         });
       } catch (error) {
-        logger.error('Error processing requestedRooms:', error);
+        logger.error('Error processing locations:', error);
         // Continue with update even if location processing fails
       }
     }
 
     // Update internal enrichments
     const newChangeKey = generateChangeKey({ ...event, ...updateOperations });
+
+    // DEBUG: Log final updateOperations before database save
+    logger.info('Final updateOperations before database save:', {
+      hasLocations: !!updateOperations.locations,
+      locationsCount: Array.isArray(updateOperations.locations) ? updateOperations.locations.length : 0,
+      locationIds: Array.isArray(updateOperations.locations)
+        ? updateOperations.locations.map(id => id.toString())
+        : []
+    });
 
     const updateResult = await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },

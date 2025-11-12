@@ -3504,7 +3504,16 @@
         isAllDayEvent: false,
 
         // Location & Setup
-        requestedRooms: eventLocation !== 'Unspecified' ? [eventLocation] : [],
+        locations: (() => {
+          // Convert location display name to ObjectId reference
+          if (groupBy === 'locations' && eventLocation !== 'Unspecified') {
+            const locationDoc = rooms.find(loc =>
+              loc.name === eventLocation || loc.displayName === eventLocation
+            );
+            return locationDoc ? [locationDoc._id] : [];
+          }
+          return [];
+        })(),
         setupTime: '',
         teardownTime: '',
         doorOpenTime: '',

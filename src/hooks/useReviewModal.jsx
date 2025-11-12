@@ -201,10 +201,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       }
 
       // Add graphToken for Graph events
+      // Convert requestedRooms to locations for backward compatibility
       const bodyData = {
         ...editableData,
+        locations: editableData.requestedRooms || editableData.locations,
         graphToken: isGraphEvent ? graphToken : undefined
       };
+
+      // Remove requestedRooms to avoid confusion (locations is the single source of truth)
+      delete bodyData.requestedRooms;
 
       const response = await fetch(endpoint, {
         method: 'PUT',
