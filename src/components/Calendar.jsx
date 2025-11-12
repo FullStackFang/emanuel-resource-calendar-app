@@ -553,11 +553,11 @@
             
       /**
        * Check if an event has no location assigned
-       * Reads from top-level locationDisplayNames (app field), not graphData
+       * Checks if the locations array (ObjectIds) is empty
        */
       const isUnspecifiedLocation = useCallback((event) => {
-        const locationText = event.locationDisplayNames?.trim() || '';
-        return !locationText;
+        // Unspecified = locations array is empty
+        return !event.locations || !Array.isArray(event.locations) || event.locations.length === 0;
       }, []);
 
       /** 
@@ -771,28 +771,41 @@
        */
       const getEventPosition = useCallback((event, day) => {
         try {
+          // Special handling for all-day events - use startDate field directly
+          if (event.isAllDayEvent && event.startDate) {
+            // event.startDate is already in "YYYY-MM-DD" format from backend
+            const eventDateStr = event.startDate;
+
+            // Compare with the day parameter
+            const compareDay = new Date(day);
+            const compareDateStr = compareDay.toISOString().split('T')[0];
+
+            return eventDateStr === compareDateStr;
+          }
+
+          // For regular timed events, use the existing timezone conversion logic
           // Ensure proper UTC format
-          const utcDateString = event.start.dateTime.endsWith('Z') ? 
+          const utcDateString = event.start.dateTime.endsWith('Z') ?
             event.start.dateTime : `${event.start.dateTime}Z`;
           const eventDateUTC = new Date(utcDateString);
-          
+
           if (isNaN(eventDateUTC.getTime())) {
             logger.error('Invalid event date:', event.start.dateTime, event);
             return false;
           }
-          
+
           // Convert event time to user timezone for date comparison
           const eventInUserTZ = new Date(eventDateUTC.toLocaleString('en-US', {
             timeZone: userTimezone
           }));
-          
+
           // Reset time to midnight for date-only comparison
           const eventDay = new Date(eventInUserTZ);
           eventDay.setHours(0, 0, 0, 0);
-          
+
           const compareDay = new Date(day);
           compareDay.setHours(0, 0, 0, 0);
-          
+
           // Compare dates in user timezone
           return eventDay.getTime() === compareDay.getTime();
         } catch (err) {
