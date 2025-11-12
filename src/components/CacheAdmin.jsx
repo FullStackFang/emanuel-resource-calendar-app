@@ -634,7 +634,7 @@ export default function CacheAdmin({ apiToken }) {
                         )}
                       </div>
                     </td>
-                    <td className="event-location">{event.location || 'N/A'}</td>
+                    <td className="event-location">{event.locationDisplayNames || 'N/A'}</td>
                     <td className="calendars-info">
                       <div className="source-calendars">
                         {event.sourceCalendars && event.sourceCalendars.map((cal, idx) => {

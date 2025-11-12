@@ -2562,7 +2562,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     unifiedEvent.startTime = startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '';
     unifiedEvent.endDate = endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '';
     unifiedEvent.endTime = endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '';
-    unifiedEvent.location = graphEvent.location?.displayName || '';
+    // location field removed - locationDisplayNames is the single source of truth
     unifiedEvent.isAllDayEvent = graphEvent.isAllDay || false;
 
     // Timing fields from internalData
@@ -4226,7 +4226,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.startTime = startDateTime ? new Date(startDateTime).toTimeString().slice(0, 5) : '';
       newEventDoc.endDate = endDateTime ? new Date(endDateTime).toISOString().split('T')[0] : '';
       newEventDoc.endTime = endDateTime ? new Date(endDateTime).toTimeString().slice(0, 5) : '';
-      newEventDoc.location = updatedGraphData.location?.displayName || '';
+      // location field removed - locationDisplayNames is the single source of truth
       newEventDoc.isAllDayEvent = updatedGraphData.isAllDay || false;
 
       // Timing fields from internalData
@@ -5604,7 +5604,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       const searchRegex = new RegExp(search, 'i'); // case-insensitive regex
       const searchConditions = [
         { subject: searchRegex },
-        { location: searchRegex },
+        { locationDisplayNames: searchRegex },  // Use locationDisplayNames instead of location
         { 'graphData.subject': searchRegex },
         { 'graphData.location.displayName': searchRegex },
         { 'graphData.bodyPreview': searchRegex }
@@ -8167,7 +8167,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   
                 case 'Location':
                   if (rawValue && rawValue.toString().trim()) {
-                    transformedEvent.location = rawValue.toString().trim();
+                    // location field removed - locationDisplayNames is the single source of truth
                     transformedEvent.graphData.location = { displayName: rawValue.toString().trim() };
                   }
                   break;
@@ -11932,12 +11932,12 @@ app.post('/api/admin/rooms', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
-    const { name, building, floor, capacity, features, accessibility, active, description, notes } = req.body;
-    
+    const { name, building, floor, capacity, features, accessibility, active, description, notes, parentLocationId } = req.body;
+
     if (!name || !building || !floor || capacity === undefined) {
       return res.status(400).json({ error: 'Missing required fields: name, building, floor, capacity' });
     }
-    
+
     const roomDoc = {
       name: name.trim(),
       displayName: name.trim(), // Set displayName same as name by default
@@ -11950,6 +11950,7 @@ app.post('/api/admin/rooms', verifyToken, async (req, res) => {
       isReservable: true, // All rooms created through admin are reservable
       description: description?.trim() || '',
       notes: notes?.trim() || '',
+      parentLocationId: parentLocationId ? new ObjectId(parentLocationId) : null,
       createdAt: new Date(),
       createdBy: userId,
       updatedAt: new Date()
@@ -11983,7 +11984,7 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const { name, building, floor, capacity, features, accessibility, active, description, notes, isReservable } = req.body;
+    const { name, building, floor, capacity, features, accessibility, active, description, notes, isReservable, parentLocationId } = req.body;
 
     // First, get the current location to check if status needs to be set
     const currentLocation = await db.collection('templeEvents__Locations').findOne({ _id: new ObjectId(id) });
@@ -12000,6 +12001,9 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
         ...(description !== undefined && { description: description?.trim() || '' }),
         ...(notes !== undefined && { notes: notes?.trim() || '' }),
         ...(isReservable !== undefined && { isReservable }),
+        ...(parentLocationId !== undefined && {
+          parentLocationId: parentLocationId ? new ObjectId(parentLocationId) : null
+        }),
         // Default status to 'approved' if it's currently undefined
         ...(!currentLocation?.status && { status: 'approved' }),
         updatedAt: new Date()
@@ -15519,9 +15523,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         if (displayNames) {
           // Set top-level locationDisplayNames field
           updateOperations.locationDisplayNames = displayNames;
-
-          // Also update the legacy location field for backward compatibility
-          updateOperations.location = displayNames;
 
           // Sync with graphData.location for Outlook display
           updateOperations['graphData.location.displayName'] = displayNames;

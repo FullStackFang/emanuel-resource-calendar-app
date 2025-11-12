@@ -332,10 +332,10 @@
             if (endDate <= startDate) {
               throw new Error(`Event ${index + 1}: End date must be after start date`);
             }
-            
-            // Your location field is a simple string, not an object
-            const location = event.location || '';
-            
+
+            // Use locationDisplayNames instead of deprecated location field
+            const location = event.locationDisplayNames || '';
+
             // Your categories field is an array
             const categories = event.categories || [];
             const category = categories.length > 0 ? categories[0] : 'Uncategorized';
@@ -3024,9 +3024,25 @@
 
       const groups = {};
 
+      // Build a map of location ObjectId -> location object for quick lookup
+      const locationIdMap = new Map();
+      generalLocations.forEach(loc => {
+        if (loc._id) {
+          locationIdMap.set(loc._id.toString(), loc);
+        }
+      });
+
       // Initialize groups for all selected locations
-      selectedLocations.forEach(location => {
-        groups[location] = [];
+      // selectedLocations contains location name strings
+      selectedLocations.forEach(locationName => {
+        // Find the location object from generalLocations
+        const locationObj = generalLocations.find(loc => loc.name === locationName);
+
+        groups[locationName] = {
+          locationId: locationObj?._id?.toString() || null,
+          displayName: locationName,
+          events: []
+        };
       });
 
       // Group filtered events by their actual location
@@ -3034,67 +3050,78 @@
         // Check for virtual meeting first
         if (event.virtualMeetingUrl) {
           if (!groups['Virtual Meeting']) {
-            groups['Virtual Meeting'] = [];
+            groups['Virtual Meeting'] = {
+              locationId: null,
+              displayName: 'Virtual Meeting',
+              events: []
+            };
           }
-          groups['Virtual Meeting'].push(event);
+          groups['Virtual Meeting'].events.push(event);
           console.log(`[Location Grouping] Event "${event.subject}" added to Virtual Meeting group`);
         } else if (isUnspecifiedLocation(event)) {
           if (!groups['Unspecified']) {
-            groups['Unspecified'] = [];
+            groups['Unspecified'] = {
+              locationId: null,
+              displayName: 'Unspecified',
+              events: []
+            };
           }
-          groups['Unspecified'].push(event);
+          groups['Unspecified'].events.push(event);
         } else {
-          // Handle all events with locations
-          // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
-          const locationText = event.locationDisplayNames?.trim() || '';
-          const eventLocations = locationText
-            .split(/[;,]/)
-            .map(loc => loc.trim())
-            .filter(loc => loc.length > 0);
-
-          if (eventLocations.length === 0) {
-            // Edge case: parsing resulted in empty - treat as Unspecified
-            if (!groups['Unspecified']) {
-              groups['Unspecified'] = [];
-            }
-            groups['Unspecified'].push(event);
-          } else {
-            // Add event to each location group it belongs to
+          // Handle all events with locations array (ObjectIds)
+          if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) {
+            // Event has location ObjectIds - use them for direct matching
             let addedToAnyGroup = false;
 
-            eventLocations.forEach(eventLocation => {
-              console.log(`[Location Grouping] Event "${event.subject}" has location "${eventLocation}"`);
-              console.log(`[Location Grouping] Available groups:`, Object.keys(groups));
+            event.locations.forEach(locationId => {
+              const locationIdStr = locationId.toString();
+              console.log(`[Location Grouping] Event "${event.subject}" has locationId "${locationIdStr}"`);
 
-              // Use fuzzy matching to find the correct group key
-              const matchingGroup = Object.keys(groups).find(groupKey =>
-                locationsMatch(eventLocation, groupKey)
-              );
+              // Find the group with matching locationId
+              const matchingGroupKey = Object.keys(groups).find(groupKey => {
+                const group = groups[groupKey];
+                return group.locationId === locationIdStr;
+              });
 
-              console.log(`[Location Grouping] Matching group found: ${matchingGroup}`);
+              console.log(`[Location Grouping] Matching group found: ${matchingGroupKey}`);
 
-              if (matchingGroup) {
-                groups[matchingGroup].push(event);
+              if (matchingGroupKey) {
+                groups[matchingGroupKey].events.push(event);
                 addedToAnyGroup = true;
               } else {
-                console.warn(`[Location Grouping] No matching group for event "${event.subject}" with location "${eventLocation}"`);
+                console.warn(`[Location Grouping] No matching group for event "${event.subject}" with locationId "${locationIdStr}"`);
               }
             });
 
-            // If event has a location but wasn't added to any recognized group, add to Unspecified
+            // If event has locations but wasn't added to any recognized group, add to Unspecified
             if (!addedToAnyGroup) {
               console.log(`[Location Grouping] Event "${event.subject}" has unrecognized location, adding to Unspecified`);
               if (!groups['Unspecified']) {
-                groups['Unspecified'] = [];
+                groups['Unspecified'] = {
+                  locationId: null,
+                  displayName: 'Unspecified',
+                  events: []
+                };
               }
-              groups['Unspecified'].push(event);
+              groups['Unspecified'].events.push(event);
             }
+          } else {
+            // Fallback for events without locations array - treat as Unspecified
+            console.log(`[Location Grouping] Event "${event.subject}" has no locations array, adding to Unspecified`);
+            if (!groups['Unspecified']) {
+              groups['Unspecified'] = {
+                locationId: null,
+                displayName: 'Unspecified',
+                events: []
+              };
+            }
+            groups['Unspecified'].events.push(event);
           }
         }
       });
 
       return groups;
-    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation]);
+    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation, generalLocations]);
     
 
     /**
@@ -3555,21 +3582,9 @@
      * @param {string} locationName - The name of the location
      * @param {Date|Array<Date>} dateOrDates - Single date for day view, array of dates for week view
      * @param {string} viewType - 'day' or 'week'
+     * @param {string|null} locationId - Optional ObjectId of the location for precise matching
      */
-    const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType) => {
-      // Helper to get event display location (same logic as in WeekView/DayView)
-      const getEventDisplayLocation = (event) => {
-        if (isUnspecifiedLocation(event)) return 'Unspecified';
-
-        const locationText = event.location?.displayName?.trim() || '';
-        const eventLocations = locationText.split(/[;,]/).map(loc => loc.trim()).filter(loc => loc.length > 0);
-
-        if (eventLocations.length > 0) {
-          return eventLocations[0]; // Return first location
-        }
-        return 'Unspecified';
-      };
-
+    const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType, locationId = null) => {
       // Filter events by location and date range
       let filteredModalEvents = [];
       let dateRangeArray = [];
@@ -3592,13 +3607,27 @@
         // Filter events within date range and matching location
         filteredModalEvents = allEventsRef.current.filter(event => {
           const eventStart = new Date(event.start?.dateTime || event.startDateTime);
-          const eventDisplayLocation = getEventDisplayLocation(event);
 
-          return (
-            eventDisplayLocation === locationName &&
-            eventStart >= startDate &&
-            eventStart <= new Date(endDate.getTime() + 24 * 60 * 60 * 1000) // Include end date
-          );
+          // Check date range
+          const inDateRange = eventStart >= startDate &&
+            eventStart <= new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+
+          if (!inDateRange) return false;
+
+          // Check location match using ObjectId if available
+          if (locationId) {
+            // Direct ObjectId matching
+            return event.locations && Array.isArray(event.locations) &&
+              event.locations.some(locId => locId.toString() === locationId);
+          } else {
+            // Fallback for special locations (Virtual Meeting, Unspecified)
+            if (locationName === 'Virtual Meeting') {
+              return !!event.virtualMeetingUrl;
+            } else if (locationName === 'Unspecified') {
+              return isUnspecifiedLocation(event);
+            }
+            return false;
+          }
         });
       } else if (viewType === 'day') {
         // Day view: dateOrDates is a single Date object
@@ -3614,21 +3643,34 @@
         filteredModalEvents = allEventsRef.current.filter(event => {
           const eventStart = new Date(event.start?.dateTime || event.startDateTime);
           const eventDateStr = `${eventStart.getFullYear()}-${String(eventStart.getMonth() + 1).padStart(2, '0')}-${String(eventStart.getDate()).padStart(2, '0')}`;
-          const eventDisplayLocation = getEventDisplayLocation(event);
 
-          return (
-            eventDisplayLocation === locationName &&
-            eventDateStr === dateStr
-          );
+          // Check date match
+          if (eventDateStr !== dateStr) return false;
+
+          // Check location match using ObjectId if available
+          if (locationId) {
+            // Direct ObjectId matching
+            return event.locations && Array.isArray(event.locations) &&
+              event.locations.some(locId => locId.toString() === locationId);
+          } else {
+            // Fallback for special locations (Virtual Meeting, Unspecified)
+            if (locationName === 'Virtual Meeting') {
+              return !!event.virtualMeetingUrl;
+            } else if (locationName === 'Unspecified') {
+              return isUnspecifiedLocation(event);
+            }
+            return false;
+          }
         });
       }
 
-      logger.debug(`Found ${filteredModalEvents.length} events for location "${locationName}"`, filteredModalEvents);
+      logger.debug(`Found ${filteredModalEvents.length} events for location "${locationName}" (ID: ${locationId})`, filteredModalEvents);
 
       // Open the appropriate timeline modal
       setTimelineModal({
         isOpen: true,
         locationName,
+        locationId, // Include locationId for future use
         dateRange: dateRangeArray,
         events: filteredModalEvents,
         viewType
@@ -4553,7 +4595,7 @@
           logger.debug(`${i + 1}. ${event.subject}`);
           logger.debug(`   Start: ${event.startDateTime}`);
           logger.debug(`   End: ${event.endDateTime}`);
-          logger.debug(`   Location: ${event.location}`);
+          logger.debug(`   Location: ${event.locationDisplayNames}`);
           logger.debug(`   Categories: ${JSON.stringify(event.categories)}`);
         });
         
@@ -5185,9 +5227,11 @@
             isOpen={timelineModal.isOpen}
             onClose={() => setTimelineModal(prev => ({ ...prev, isOpen: false }))}
             locationName={timelineModal.locationName}
+            locationId={timelineModal.locationId}
             dateRange={timelineModal.dateRange}
             events={timelineModal.events}
             calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}
+            generalLocations={generalLocations}
           />
         )}
 
@@ -5195,7 +5239,16 @@
           <DayTimelineModal
             isOpen={timelineModal.isOpen}
             onClose={() => setTimelineModal(prev => ({ ...prev, isOpen: false }))}
-            location={{ name: timelineModal.locationName }}
+            location={(() => {
+              // Find the full location object by locationId if available
+              if (timelineModal.locationId) {
+                const fullLocation = generalLocations.find(loc =>
+                  loc._id && loc._id.toString() === timelineModal.locationId
+                );
+                return fullLocation || { name: timelineModal.locationName };
+              }
+              return { name: timelineModal.locationName };
+            })()}
             date={timelineModal.dateRange[0]}
             events={timelineModal.events}
             calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}

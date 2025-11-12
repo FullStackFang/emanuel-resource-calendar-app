@@ -131,7 +131,10 @@ const DayView = memo(({
               onClick={() => {
                 // Only make clickable when grouping by locations
                 if (groupBy === 'locations' && handleLocationRowClick) {
-                  handleLocationRowClick(group, currentDay, 'day');
+                  // Pass locationId from the group data
+                  const groupData = locationGroups[group];
+                  const locationId = groupData?.locationId;
+                  handleLocationRowClick(group, currentDay, 'day', locationId);
                 }
               }}
               style={{

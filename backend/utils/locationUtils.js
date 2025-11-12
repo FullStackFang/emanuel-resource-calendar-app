@@ -42,6 +42,7 @@ function parseLocationString(locationString) {
 /**
  * Calculate the display name string from an array of location IDs
  * Fetches location documents and joins their displayName fields
+ * If a location has a parent, uses the parent's displayName for calendar grouping
  * @param {ObjectId[]|string[]} locationIds - Array of location ObjectIds
  * @param {object} db - MongoDB database instance
  * @returns {Promise<string>} Semicolon-delimited location display names
@@ -67,11 +68,39 @@ async function calculateLocationDisplayNames(locationIds, db) {
       locations.map(loc => [loc._id.toString(), loc])
     );
 
+    // Collect parent IDs to fetch in one query
+    const parentIds = locations
+      .filter(loc => loc.parentLocationId)
+      .map(loc => loc.parentLocationId);
+
+    // Fetch parent location documents if any exist
+    let parentMap = new Map();
+    if (parentIds.length > 0) {
+      const parents = await db.collection('templeEvents__Locations')
+        .find({ _id: { $in: parentIds } })
+        .toArray();
+      parentMap = new Map(
+        parents.map(parent => [parent._id.toString(), parent])
+      );
+    }
+
     // Build display names in the same order as input IDs
+    // Use parent's displayName if location has a parent
     const displayNames = objectIds
       .map(id => {
         const location = locationMap.get(id.toString());
-        return location ? (location.displayName || location.name) : null;
+        if (!location) return null;
+
+        // If location has a parent, use parent's displayName for grouping
+        if (location.parentLocationId) {
+          const parent = parentMap.get(location.parentLocationId.toString());
+          if (parent) {
+            return parent.displayName || parent.name;
+          }
+        }
+
+        // Otherwise use location's own displayName
+        return location.displayName || location.name;
       })
       .filter(name => name !== null);
 

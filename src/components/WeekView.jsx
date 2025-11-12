@@ -87,7 +87,8 @@ const WeekView = memo(({
       // Use pre-computed location groups from Calendar.jsx
       // Filter to only show groups that have events
       return Object.keys(locationGroups).filter(groupName => {
-        return locationGroups[groupName] && locationGroups[groupName].length > 0;
+        const groupData = locationGroups[groupName];
+        return groupData && groupData.events && groupData.events.length > 0;
       }).sort();
     }
   }, [groupBy, filteredEvents, selectedCategories, locationGroups]);
@@ -117,7 +118,10 @@ const WeekView = memo(({
                 if (groupBy === 'locations' && handleLocationRowClick) {
                   const days = getDaysInRange();
                   if (days.length > 0) {
-                    handleLocationRowClick(group, days, 'week');
+                    // Pass locationId from the group data
+                    const groupData = locationGroups[group];
+                    const locationId = groupData?.locationId;
+                    handleLocationRowClick(group, days, 'week', locationId);
                   }
                 }
               }}
@@ -173,7 +177,8 @@ const WeekView = memo(({
                     });
                   } else {
                     // For locations, use pre-computed locationGroups
-                    groupEvents = locationGroups[group] || [];
+                    const groupData = locationGroups[group];
+                    groupEvents = groupData?.events || [];
                   }
 
                   // Filter to events for this specific day

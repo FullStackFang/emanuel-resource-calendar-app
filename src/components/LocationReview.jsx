@@ -8,7 +8,7 @@ export default function LocationReview({ apiToken }) {
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'all', 'merge', 'assignment'
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'merge', 'assignment', 'hierarchy'
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'approved', 'merged', 'deleted'
 
   // Merge wizard state
@@ -47,6 +47,9 @@ export default function LocationReview({ apiToken }) {
     description: '',
     notes: ''
   });
+
+  // Hierarchy view state - tracks which parent cards are expanded
+  const [expandedParents, setExpandedParents] = useState({});
 
   // Show toast notification
   const showToast = (message, type = 'success') => {
@@ -564,6 +567,12 @@ export default function LocationReview({ apiToken }) {
         >
           Location Assignment ({unassignedStrings.length})
         </button>
+        <button
+          className={`tab ${activeTab === 'hierarchy' ? 'active' : ''}`}
+          onClick={() => setActiveTab('hierarchy')}
+        >
+          Hierarchy View
+        </button>
       </div>
 
       {activeTab === 'all' && (
@@ -1077,6 +1086,170 @@ export default function LocationReview({ apiToken }) {
           </div>
         </div>
       )}
+
+      {activeTab === 'hierarchy' && (() => {
+        // Build parent-child hierarchy
+        const reservableParents = allLocations.filter(loc =>
+          loc.isReservable &&
+          loc.status !== 'merged' &&
+          loc.status !== 'deleted'
+        );
+
+        const locationsWithParents = allLocations.filter(loc =>
+          loc.parentLocationId &&
+          loc.status !== 'merged' &&
+          loc.status !== 'deleted'
+        );
+
+        const standaloneLocations = allLocations.filter(loc =>
+          !loc.parentLocationId &&
+          loc.status !== 'merged' &&
+          loc.status !== 'deleted'
+        );
+
+        // Group children by parent
+        const childrenByParent = {};
+        locationsWithParents.forEach(child => {
+          const parentId = child.parentLocationId.toString();
+          if (!childrenByParent[parentId]) {
+            childrenByParent[parentId] = [];
+          }
+          childrenByParent[parentId].push(child);
+        });
+
+        return (
+          <div className="hierarchy-section">
+            <div className="hierarchy-header">
+              <h3>Location Hierarchy</h3>
+              <p className="description">
+                Reservable locations with their linked child locations. Child locations will group under their parent on the calendar.
+              </p>
+            </div>
+
+            {/* Reservable Parents with Children */}
+            <div className="hierarchy-group">
+              <h4 className="group-title">Reservable Locations ({reservableParents.length})</h4>
+
+              {reservableParents.map(parent => {
+                const children = childrenByParent[parent._id.toString()] || [];
+                const parentId = parent._id.toString();
+                const isExpanded = expandedParents[parentId] ?? (children.length > 0);
+
+                const toggleExpanded = () => {
+                  setExpandedParents(prev => ({
+                    ...prev,
+                    [parentId]: !isExpanded
+                  }));
+                };
+
+                return (
+                  <div key={parent._id} className="parent-card">
+                    <div className="parent-header">
+                      <div className="parent-info">
+                        {children.length > 0 && (
+                          <button
+                            className="expand-toggle"
+                            onClick={toggleExpanded}
+                          >
+                            {isExpanded ? '▼' : '▶'}
+                          </button>
+                        )}
+                        <div className="parent-details">
+                          <div className="parent-name">
+                            {parent.displayName || parent.name}
+                            {parent.locationCode && (
+                              <span className="location-code"> ({parent.locationCode})</span>
+                            )}
+                          </div>
+                          <div className="parent-meta">
+                            {parent.building && <span>🏢 {parent.building}</span>}
+                            {parent.floor && <span>📍 {parent.floor}</span>}
+                            {parent.capacity && <span>👥 {parent.capacity}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="parent-actions">
+                        <span className="child-count">
+                          {children.length > 0
+                            ? `${children.length} linked location${children.length !== 1 ? 's' : ''}`
+                            : 'No linked locations'}
+                        </span>
+                        <button
+                          onClick={() => handleEditLocation(parent)}
+                          className="action-btn"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && children.length > 0 && (
+                      <div className="children-list">
+                        {children.map(child => (
+                          <div key={child._id} className="child-item">
+                            <div className="child-details">
+                              <span className="child-name">
+                                {child.displayName || child.name}
+                              </span>
+                              {child.importSource && (
+                                <span className="import-badge">{child.importSource}</span>
+                              )}
+                              {child.usageCount > 0 && (
+                                <span className="usage-info">
+                                  {child.usageCount} event{child.usageCount !== 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <div className="child-actions">
+                              <button
+                                onClick={() => handleEditLocation(child)}
+                                className="action-btn-small"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Standalone Locations */}
+            {standaloneLocations.length > 0 && (
+              <div className="hierarchy-group">
+                <h4 className="group-title">
+                  Standalone Locations ({standaloneLocations.filter(l => !l.isReservable).length} non-reservable)
+                </h4>
+                <div className="standalone-list">
+                  {standaloneLocations
+                    .filter(loc => !loc.isReservable)
+                    .map(location => (
+                      <div key={location._id} className="standalone-item">
+                        <div className="standalone-details">
+                          <span className="standalone-name">
+                            {location.displayName || location.name}
+                          </span>
+                          {location.importSource && (
+                            <span className="import-badge">{location.importSource}</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleEditLocation(location)}
+                          className="action-btn-small"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Location Create/Edit Modal */}
       {showLocationModal && (
