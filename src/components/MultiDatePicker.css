@@ -225,6 +225,36 @@
   cursor: not-allowed;
 }
 
+.series-event-btn.pending {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+  font-weight: 600;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.series-event-btn.pending:hover:not(:disabled) {
+  background: #ffe69c;
+  border-color: #ffb300;
+}
+
+.series-event-btn.loading {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #1a73e8;
+  cursor: wait;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 /* Series Navigation Scrollbar */
 .series-navigation-list::-webkit-scrollbar {
   width: 6px;

@@ -26,6 +26,97 @@
   font-weight: 500;
 }
 
+/* Series Navigation Confirmation Banner */
+.series-navigation-confirmation-banner {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.series-navigation-confirmation-banner .confirmation-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.series-navigation-confirmation-banner .warning-icon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.series-navigation-confirmation-banner .confirmation-text {
+  flex: 1;
+}
+
+.series-navigation-confirmation-banner .confirmation-text strong {
+  display: block;
+  font-size: 15px;
+  color: #856404;
+  margin-bottom: 4px;
+}
+
+.series-navigation-confirmation-banner .confirmation-text p {
+  margin: 0;
+  font-size: 13px;
+  color: #856404;
+}
+
+.series-navigation-confirmation-banner .confirmation-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.series-navigation-confirmation-banner .btn-confirm,
+.series-navigation-confirmation-banner .btn-cancel {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.series-navigation-confirmation-banner .btn-confirm {
+  background: #dc3545;
+  color: white;
+}
+
+.series-navigation-confirmation-banner .btn-confirm:hover {
+  background: #c82333;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.series-navigation-confirmation-banner .btn-cancel {
+  background: #6c757d;
+  color: white;
+}
+
+.series-navigation-confirmation-banner .btn-cancel:hover {
+  background: #5a6268;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 .success-message {
   background: #f0f9ff;
   border: 1px solid #0284c7;

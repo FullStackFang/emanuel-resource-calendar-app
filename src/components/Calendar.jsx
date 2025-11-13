@@ -230,7 +230,8 @@
       isOpen: false,
       event: null,
       mode: 'event', // 'event' for direct creation, 'create' for reservation requests
-      hasChanges: false // Track if form has been modified
+      hasChanges: false, // Track if form has been modified
+      isNavigating: false // Track if navigating between series events
     });
 
     // Multi-day event confirmation state
@@ -247,6 +248,9 @@
       events: [],
       viewType: 'week' // 'week' or 'day'
     });
+
+    // Navigation state for reviewModal
+    const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
 
     // Review modal hook for handling review functionality
     const reviewModal = useReviewModal({
@@ -4692,6 +4696,51 @@
     }, []);
 
     /**
+     * Handle navigation to another event in the series (close and reopen modal)
+     * @param {string} targetEventId - The eventId to navigate to
+     */
+    const handleNavigateToSeriesEvent = useCallback((targetEventId) => {
+      logger.debug('Navigating to series event:', targetEventId);
+
+      // Find the target event in allEvents
+      const targetEvent = allEvents.find(event => event.eventId === targetEventId);
+
+      if (!targetEvent) {
+        logger.error('Could not find target event in allEvents:', targetEventId);
+        showNotification('Could not find the selected event', 'error');
+        return;
+      }
+
+      logger.debug('Found target event, reopening modal:', targetEvent);
+
+      // Determine which modal is open and reopen with new event
+      if (eventReviewModal.isOpen) {
+        // Close and reopen eventReviewModal with new event
+        setEventReviewModal({
+          isOpen: true,
+          event: targetEvent,
+          mode: eventReviewModal.mode,
+          hasChanges: false,
+          isNavigating: false
+        });
+
+        // Clear any pending confirmations
+        setPendingMultiDayConfirmation(null);
+        setPendingEventDeleteConfirmation(false);
+      } else if (reviewModal.isOpen) {
+        // Close current modal
+        reviewModal.closeModal();
+
+        // Reopen with new event after a brief delay to ensure clean state
+        setTimeout(() => {
+          reviewModal.openModal(targetEvent);
+        }, 100);
+      }
+
+      logger.debug('Modal reopened with new event');
+    }, [allEvents, showNotification, eventReviewModal, reviewModal]);
+
+    /**
      * Handle deletion of registration events when a TempleEvents event is deleted
      * @param {string} eventId - The event ID that was deleted
      */
@@ -5731,6 +5780,7 @@
           hasChanges={reviewModal.hasChanges}
           isSaving={reviewModal.isSaving}
           isDeleting={reviewModal.isDeleting}
+          isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
@@ -5744,6 +5794,8 @@
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
+              onIsNavigatingChange={setReviewModalIsNavigating}
+              onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}
             />
@@ -5761,6 +5813,7 @@
           isPending={false}
           hasChanges={eventReviewModal.hasChanges}
           isSaving={savingEvent}
+          isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
           showTabs={true}
           saveButtonText={
@@ -5799,6 +5852,13 @@
                   setPendingEventDeleteConfirmation(false);
                 }
               }}
+              onIsNavigatingChange={(isNavigating) => {
+                setEventReviewModal(prev => ({
+                  ...prev,
+                  isNavigating
+                }));
+              }}
+              onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}
             />

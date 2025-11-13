@@ -40,6 +40,7 @@ export default function RoomReservationFormBase({
   // Callbacks
   onDataChange = null,          // Called when form data changes (for parent tracking)
   onHasChangesChange = null,    // Called when hasChanges state changes (for Review)
+  onIsNavigatingChange = null,  // Called when navigation loading state changes
   onAvailabilityChange = null,  // Called when availability data updates
 
   // Mode-specific props
@@ -48,6 +49,7 @@ export default function RoomReservationFormBase({
   reservationStatus = null,     // Status of reservation (for Review mode)
   currentReservationId = null,  // ID of current reservation (for Review mode)
   onLockedEventClick = null,    // Callback for locked events in scheduling assistant
+  onNavigateToSeriesEvent = null, // Callback for navigating to another event in series
   defaultCalendar = '',         // Default calendar for scheduling assistant
   apiToken = null,              // API token for authenticated requests
 
@@ -106,6 +108,7 @@ export default function RoomReservationFormBase({
   // Series navigation state
   const [seriesEvents, setSeriesEvents] = useState([]); // Array of events in the series
   const [currentEventId, setCurrentEventId] = useState(null); // Current event ID for highlighting
+  const [loadingEventId, setLoadingEventId] = useState(null); // Event ID currently being loaded
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -139,12 +142,34 @@ export default function RoomReservationFormBase({
     }
   }, [hasChanges, onHasChangesChange]);
 
+  // Notify parent when navigation loading state changes
+  useEffect(() => {
+    if (onIsNavigatingChange) {
+      onIsNavigatingChange(!!loadingEventId);
+    }
+  }, [loadingEventId, onIsNavigatingChange]);
+
   // Notify parent when availability changes
   useEffect(() => {
     if (onAvailabilityChange) {
       onAvailabilityChange(availability);
     }
   }, [availability, onAvailabilityChange]);
+
+  // Clear loading state when event changes (navigation completed)
+  useEffect(() => {
+    logger.debug('Checking if navigation completed:', {
+      loadingEventId,
+      initialDataEventId: initialData.eventId,
+      match: loadingEventId && initialData.eventId && loadingEventId === initialData.eventId
+    });
+
+    if (loadingEventId && initialData.eventId && loadingEventId === initialData.eventId) {
+      // Navigation completed - clear loading state
+      logger.debug('✅ Navigation completed, clearing loading state');
+      setLoadingEventId(null);
+    }
+  }, [initialData.eventId, loadingEventId]);
 
   // Initialize form data when initialData prop changes
   // Guard against unnecessary re-initialization to prevent user input from being reset
@@ -532,32 +557,16 @@ export default function RoomReservationFormBase({
     }
   };
 
-  // Handle series event navigation click
+  // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
-    logger.debug('Series event clicked:', event);
+    logger.debug('Series event navigation confirmed:', event);
 
-    // Check if there are unsaved changes
-    if (hasChanges) {
-      const confirmed = window.confirm(
-        'You have unsaved changes. Are you sure you want to navigate to another event in the series? Your changes will be lost.'
-      );
+    // Set loading state
+    setLoadingEventId(event.eventId);
 
-      if (!confirmed) {
-        return; // User cancelled navigation
-      }
-    }
-
-    // Call parent callback to handle navigation (close modal and open new event)
-    if (onLockedEventClick) {
-      // Use onLockedEventClick as the navigation callback
-      // Parent components should handle this to close current modal and open the clicked event
-      onLockedEventClick({
-        eventId: event.eventId,
-        graphId: event.graphId,
-        startDate: event.startDate,
-        subject: event.subject,
-        isSeriesNavigation: true
-      });
+    // Call parent callback to handle in-place modal update
+    if (onNavigateToSeriesEvent) {
+      onNavigateToSeriesEvent(event.eventId);
     }
   };
 
@@ -664,6 +673,8 @@ export default function RoomReservationFormBase({
                   seriesEvents={seriesEvents}
                   currentEventId={currentEventId}
                   onSeriesEventClick={handleSeriesEventClick}
+                  hasUnsavedChanges={hasChanges}
+                  loadingEventId={loadingEventId}
                 />
               </div>
             )}

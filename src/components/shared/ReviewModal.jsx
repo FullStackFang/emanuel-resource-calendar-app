@@ -27,6 +27,7 @@ export default function ReviewModal({
   hasChanges = false,
   isSaving = false,
   isDeleting = false,
+  isNavigating = false,
   // Mode: 'review' (for pending reservations) or 'edit' (for editing any event)
   mode = 'review',
   // Feature flags
@@ -207,10 +208,20 @@ export default function ReviewModal({
         )}
 
         {/* Content Area */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, position: 'relative' }}>
           {React.isValidElement(children)
             ? React.cloneElement(children, { activeTab })
             : children}
+
+          {/* Loading Overlay for Series Navigation */}
+          {isNavigating && (
+            <div className="navigation-loading-overlay">
+              <div className="navigation-loading-spinner">
+                <div className="spinner"></div>
+                <div className="loading-text">Loading event...</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

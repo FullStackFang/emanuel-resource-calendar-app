@@ -27,9 +27,11 @@ export default function RoomReservationReview({
   onSave,
   onHasChangesChange,
   onIsSavingChange,
+  onIsNavigatingChange,
   onSaveFunctionReady,
   onDataChange,
   onLockedEventClick,
+  onNavigateToSeriesEvent,
   isAdmin = false,
   availableCalendars = [],
   defaultCalendar = '',
@@ -42,6 +44,7 @@ export default function RoomReservationReview({
   // Review-specific state
   const [initialData, setInitialData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
 
@@ -56,6 +59,13 @@ export default function RoomReservationReview({
       onIsSavingChange(isSaving);
     }
   }, [isSaving, onIsSavingChange]);
+
+  // Notify parent when isNavigating changes
+  useEffect(() => {
+    if (onIsNavigatingChange) {
+      onIsNavigatingChange(isNavigating);
+    }
+  }, [isNavigating, onIsNavigatingChange]);
 
   // Track if form has been initialized to prevent re-initialization on every change
   const isInitializedRef = React.useRef(false);
@@ -372,11 +382,13 @@ export default function RoomReservationReview({
           initialData={initialData}
           onDataChange={handleDataChange}
           onHasChangesChange={onHasChangesChange}
+          onIsNavigatingChange={setIsNavigating}
           readOnly={false}
           isAdmin={isAdmin}
           reservationStatus={reservation?.status}
           currentReservationId={reservation?._id}
           onLockedEventClick={onLockedEventClick}
+          onNavigateToSeriesEvent={onNavigateToSeriesEvent}
           defaultCalendar={defaultCalendar}
           apiToken={apiToken}
           activeTab={activeTab}

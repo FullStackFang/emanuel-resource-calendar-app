@@ -19,15 +19,22 @@ const MultiDatePicker = ({
   disabled = false,
   seriesEvents = [],
   currentEventId = null,
-  onSeriesEventClick = null
+  onSeriesEventClick = null,
+  hasUnsavedChanges = false,
+  loadingEventId = null
 }) => {
+
+  const [pendingEventId, setPendingEventId] = React.useState(null);
 
   console.log('📅 MultiDatePicker Render:', {
     selectedDatesCount: selectedDates.length,
     seriesEventsCount: seriesEvents?.length || 0,
     hasSeriesEvents: !!(seriesEvents && seriesEvents.length > 0),
     currentEventId,
-    seriesEvents
+    seriesEvents,
+    hasUnsavedChanges,
+    loadingEventId,
+    pendingEventId
   });
 
   // Convert YYYY-MM-DD strings to Date objects for highlighting
@@ -75,9 +82,22 @@ const MultiDatePicker = ({
 
   // Handle series event navigation click
   const handleSeriesEventClick = (event) => {
-    if (onSeriesEventClick && !disabled) {
+    if (disabled) return;
+
+    // If there are unsaved changes and this event hasn't been confirmed yet
+    if (hasUnsavedChanges && pendingEventId !== event.eventId) {
+      // Show confirmation state for this event
+      setPendingEventId(event.eventId);
+      return;
+    }
+
+    // Either no unsaved changes or user clicked Confirm
+    if (onSeriesEventClick) {
       onSeriesEventClick(event);
     }
+
+    // Clear pending state after navigation
+    setPendingEventId(null);
   };
 
   return (
@@ -112,15 +132,28 @@ const MultiDatePicker = ({
             <div className="series-navigation-list">
               {seriesEvents.map(event => {
                 const isCurrent = event.eventId === currentEventId;
+                const isPending = pendingEventId === event.eventId;
+                const isLoading = loadingEventId === event.eventId;
+
+                // Determine button text
+                let buttonText;
+                if (isLoading) {
+                  buttonText = 'Redirecting...';
+                } else if (isPending) {
+                  buttonText = 'Confirm?';
+                } else {
+                  buttonText = formatDate(event.startDate);
+                }
+
                 return (
                   <button
                     key={event.eventId}
                     type="button"
-                    className={`series-event-btn ${isCurrent ? 'current' : ''}`}
+                    className={`series-event-btn ${isCurrent ? 'current' : ''} ${isPending ? 'pending' : ''} ${isLoading ? 'loading' : ''}`}
                     onClick={() => handleSeriesEventClick(event)}
-                    disabled={disabled || isCurrent}
+                    disabled={disabled || isCurrent || isLoading}
                   >
-                    {formatDate(event.startDate)}
+                    {buttonText}
                   </button>
                 );
               })}
