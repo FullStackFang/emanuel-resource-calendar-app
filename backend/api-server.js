@@ -4250,6 +4250,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.mecCategories = internalFields?.mecCategories || [];
       newEventDoc.assignedTo = internalFields?.assignedTo || '';
 
+      // Event series fields (for multi-day events)
+      newEventDoc.eventSeriesId = internalFields?.eventSeriesId || null;
+      newEventDoc.seriesLength = internalFields?.seriesLength || null;
+      newEventDoc.seriesIndex = internalFields?.seriesIndex !== undefined ? internalFields.seriesIndex : null;
+
       // Virtual meeting fields
       newEventDoc.virtualMeetingUrl = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
       newEventDoc.virtualPlatform = null; // Not typically in Graph data
@@ -4282,6 +4287,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         if (internalFields.eventNotes !== undefined) updateOperations['eventNotes'] = internalFields.eventNotes;
         if (internalFields.mecCategories !== undefined) updateOperations['mecCategories'] = internalFields.mecCategories;
         if (internalFields.assignedTo !== undefined) updateOperations['assignedTo'] = internalFields.assignedTo;
+
+        // Event series fields (for multi-day events)
+        if (internalFields.eventSeriesId !== undefined) updateOperations['eventSeriesId'] = internalFields.eventSeriesId;
+        if (internalFields.seriesLength !== undefined) updateOperations['seriesLength'] = internalFields.seriesLength;
+        if (internalFields.seriesIndex !== undefined) updateOperations['seriesIndex'] = internalFields.seriesIndex;
       }
 
       // Always update graphData if we got new data from Graph API
@@ -4434,6 +4444,213 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error in unified audit update:', error);
     res.status(500).json({ error: 'Failed to update event with audit logging' });
+  }
+});
+
+/**
+ * Batch create multiple events
+ * Accepts an array of events and creates them all efficiently
+ */
+app.post('/api/events/batch', verifyToken, async (req, res) => {
+  try {
+    const { events } = req.body;
+    const graphToken = req.headers['x-graph-token'];
+    const userId = req.user.userId;
+
+    // Validation
+    if (!events || !Array.isArray(events)) {
+      return res.status(400).json({ error: 'events array is required' });
+    }
+
+    if (events.length === 0) {
+      return res.status(400).json({ error: 'events array cannot be empty' });
+    }
+
+    if (events.length > 5) {
+      return res.status(400).json({ error: 'Cannot create more than 5 events in a single batch' });
+    }
+
+    if (!graphToken) {
+      return res.status(400).json({ error: 'Graph API token required (x-graph-token header)' });
+    }
+
+    logger.debug(`Batch create: Creating ${events.length} events for user ${userId}`);
+
+    // Build batch requests for Graph API
+    const batchRequests = events.map((event, index) => {
+      const { graphFields, calendarId } = event;
+
+      return {
+        id: String(index + 1),
+        method: 'POST',
+        url: calendarId ? `/me/calendars/${calendarId}/events` : `/me/events`,
+        body: graphFields,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      };
+    });
+
+    // Call Graph API batch endpoint
+    const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${graphToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ requests: batchRequests })
+    });
+
+    if (!graphResponse.ok) {
+      const errorText = await graphResponse.text();
+      logger.error('Graph API batch request failed:', {
+        status: graphResponse.status,
+        error: errorText
+      });
+      return res.status(502).json({ error: `Graph API batch failed: ${graphResponse.status}` });
+    }
+
+    const batchResult = await graphResponse.json();
+    const results = [];
+
+    // Process each response and save to MongoDB
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      const graphResp = batchResult.responses.find(r => r.id === String(i + 1));
+
+      if (!graphResp || graphResp.status < 200 || graphResp.status >= 300) {
+        // Graph API failed for this event
+        results.push({
+          index: i,
+          success: false,
+          error: graphResp ? `Graph API error: ${graphResp.status}` : 'No response from Graph API'
+        });
+        continue;
+      }
+
+      const graphData = graphResp.body;
+      const internalFields = event.internalFields || {};
+      const calendarId = event.calendarId;
+
+      try {
+        // Generate internal UUID
+        const actualEventId = crypto.randomUUID();
+
+        // Prepare location display names
+        let processedLocationDisplayName = '';
+        if (internalFields.locations && Array.isArray(internalFields.locations)) {
+          processedLocationDisplayName = internalFields.locations
+            .map(loc => loc.displayName || loc.name || '')
+            .filter(Boolean)
+            .join('; ');
+        }
+
+        // Create new event document
+        const newEventDoc = {
+          userId: userId,
+          eventId: actualEventId,
+          calendarId: calendarId,
+          graphData: graphData,
+          internalData: internalFields,
+          createdAt: new Date(),
+          createdBy: req.user.userId,
+          createdByEmail: req.user.email,
+          createdByName: req.user.name || req.user.email,
+          createdSource: 'batch-create',
+          lastAccessedAt: new Date(),
+          syncedAt: new Date()
+        };
+
+        // Initialize location fields
+        newEventDoc.locations = internalFields.locations || [];
+        newEventDoc.locationDisplayNames = processedLocationDisplayName || graphData.location?.displayName || '';
+
+        // TOP-LEVEL APPLICATION FIELDS
+        const startDateTime = graphData.start?.dateTime;
+        const endDateTime = graphData.end?.dateTime;
+
+        newEventDoc.eventTitle = graphData.subject || 'Untitled Event';
+        newEventDoc.eventDescription = graphData.body?.content || graphData.bodyPreview || '';
+
+        const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
+        const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
+
+        newEventDoc.startDateTime = utcStartString;
+        newEventDoc.endDateTime = utcEndString;
+        newEventDoc.startDate = utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '';
+        newEventDoc.startTime = utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '';
+        newEventDoc.endDate = utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '';
+        newEventDoc.endTime = utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '';
+        newEventDoc.isAllDayEvent = graphData.isAllDay || false;
+
+        // Timing fields
+        newEventDoc.setupTime = internalFields.setupTime || '';
+        newEventDoc.teardownTime = internalFields.teardownTime || '';
+        newEventDoc.doorOpenTime = internalFields.doorOpenTime || '';
+        newEventDoc.doorCloseTime = internalFields.doorCloseTime || '';
+        newEventDoc.setupTimeMinutes = internalFields.setupMinutes || 0;
+        newEventDoc.teardownTimeMinutes = internalFields.teardownMinutes || 0;
+
+        // Notes fields
+        newEventDoc.setupNotes = internalFields.setupNotes || '';
+        newEventDoc.doorNotes = internalFields.doorNotes || '';
+        newEventDoc.eventNotes = internalFields.eventNotes || '';
+
+        // Category and assignment fields
+        newEventDoc.mecCategories = internalFields.mecCategories || [];
+        newEventDoc.assignedTo = internalFields.assignedTo || '';
+
+        // Event series fields (for multi-day events)
+        newEventDoc.eventSeriesId = internalFields.eventSeriesId || null;
+        newEventDoc.seriesLength = internalFields.seriesLength || null;
+        newEventDoc.seriesIndex = internalFields.seriesIndex !== undefined ? internalFields.seriesIndex : null;
+
+        // Virtual meeting fields
+        newEventDoc.virtualMeetingUrl = graphData.onlineMeetingUrl || graphData.onlineMeeting?.joinUrl || null;
+        newEventDoc.virtualPlatform = null;
+
+        // Insert into MongoDB
+        const dbResult = await unifiedEventsCollection.insertOne(newEventDoc);
+
+        logger.debug(`Batch create: Event ${i + 1}/${events.length} created successfully`, {
+          eventId: actualEventId,
+          graphId: graphData.id
+        });
+
+        results.push({
+          index: i,
+          success: true,
+          eventId: actualEventId,
+          graphId: graphData.id,
+          subject: graphData.subject
+        });
+
+      } catch (dbError) {
+        logger.error(`Batch create: Failed to save event ${i + 1} to database:`, dbError);
+        results.push({
+          index: i,
+          success: false,
+          error: `Database error: ${dbError.message}`
+        });
+      }
+    }
+
+    // Count successes and failures
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+
+    logger.debug(`Batch create complete: ${successCount} succeeded, ${failCount} failed`);
+
+    res.status(200).json({
+      message: `Batch create complete: ${successCount}/${events.length} events created`,
+      successCount,
+      failCount,
+      results
+    });
+
+  } catch (error) {
+    logger.error('Error in batch event creation:', error);
+    res.status(500).json({ error: 'Failed to create events in batch' });
   }
 });
 

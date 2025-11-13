@@ -4119,6 +4119,157 @@
     };
 
     /**
+     * Batch create multiple events efficiently using the batch API endpoint
+     * @param {Array} eventsData - Array of event data objects (same format as handleSaveApiEvent)
+     * @param {Function} onProgress - Optional callback for progress updates (current, total)
+     * @returns {Object} { successCount, failCount, results }
+     */
+    const handleBatchCreateEvents = async (eventsData, onProgress = null) => {
+      try {
+        if (!eventsData || eventsData.length === 0) {
+          return { successCount: 0, failCount: 0, results: [] };
+        }
+
+        logger.debug(`[handleBatchCreateEvents] Creating ${eventsData.length} events in batches of 5`);
+
+        // Validate that tokens are available (they come from component props)
+        if (!apiToken || !graphToken) {
+          throw new Error('Authentication tokens not available');
+        }
+
+        // Get target calendar ID (same logic as handleSaveApiEvent)
+        let targetCalendarId = selectedCalendarId;
+        if (!targetCalendarId) {
+          const writableCalendars = availableCalendars.filter(cal =>
+            cal.canEdit !== false &&
+            !cal.name?.toLowerCase().includes('birthday') &&
+            !cal.name?.toLowerCase().includes('holiday') &&
+            !cal.name?.toLowerCase().includes('vacation')
+          );
+
+          const preferredCalendar = writableCalendars.find(cal =>
+            cal.name?.toLowerCase().includes('temple events') ||
+            cal.name?.toLowerCase() === 'calendar'
+          ) || writableCalendars[0];
+
+          targetCalendarId = preferredCalendar?.id;
+        }
+
+        if (!targetCalendarId) {
+          throw new Error('No writable calendar available for event creation');
+        }
+
+        // Split events into batches of 5
+        const batchSize = 5;
+        const batches = [];
+        for (let i = 0; i < eventsData.length; i += batchSize) {
+          batches.push(eventsData.slice(i, i + batchSize));
+        }
+
+        logger.debug(`[handleBatchCreateEvents] Split into ${batches.length} batches`);
+
+        let allResults = [];
+        let totalSuccessCount = 0;
+        let totalFailCount = 0;
+
+        // Process each batch
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+          const batch = batches[batchIndex];
+
+          logger.debug(`[handleBatchCreateEvents] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} events`);
+
+          // Format events for batch API
+          const formattedEvents = batch.map(data => {
+            // Prepare graph fields
+            const graphFields = {
+              subject: data.subject,
+              start: data.start,
+              end: data.end,
+              location: data.location,
+              categories: data.categories || [],
+              isAllDay: data.isAllDay || false,
+              body: data.body || { contentType: 'text', content: '' }
+            };
+
+            // Prepare internal fields
+            const internalFields = {
+              locations: data.locations || [],
+              setupMinutes: data.setupMinutes || 0,
+              teardownMinutes: data.teardownMinutes || 0,
+              setupTime: data.setupTime || '',
+              teardownTime: data.teardownTime || '',
+              doorOpenTime: data.doorOpenTime || '',
+              doorCloseTime: data.doorCloseTime || '',
+              setupNotes: data.setupNotes || '',
+              doorNotes: data.doorNotes || '',
+              eventNotes: data.eventNotes || '',
+              registrationNotes: data.registrationNotes || '',
+              assignedTo: data.assignedTo || '',
+              eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
+              seriesLength: data.seriesLength || null,
+              seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null
+            };
+
+            return {
+              graphFields,
+              internalFields,
+              calendarId: targetCalendarId
+            };
+          });
+
+          // Call batch API
+          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/batch`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'x-graph-token': graphToken,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ events: formattedEvents })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            logger.error(`Batch ${batchIndex + 1} failed:`, errorText);
+            // Mark all events in this batch as failed
+            totalFailCount += batch.length;
+            allResults.push(...batch.map((_, idx) => ({
+              index: batchIndex * batchSize + idx,
+              success: false,
+              error: `Batch API call failed: ${response.status}`
+            })));
+            continue;
+          }
+
+          const result = await response.json();
+          logger.debug(`Batch ${batchIndex + 1} result:`, result);
+
+          totalSuccessCount += result.successCount || 0;
+          totalFailCount += result.failCount || 0;
+          allResults.push(...result.results);
+
+          // Report progress
+          if (onProgress) {
+            const currentProgress = Math.min((batchIndex + 1) * batchSize, eventsData.length);
+            onProgress(currentProgress, eventsData.length);
+          }
+        }
+
+        logger.debug(`[handleBatchCreateEvents] Complete: ${totalSuccessCount} succeeded, ${totalFailCount} failed`);
+
+        return {
+          successCount: totalSuccessCount,
+          failCount: totalFailCount,
+          results: allResults
+        };
+
+      } catch (error) {
+        logger.error('[handleBatchCreateEvents] Error:', error);
+        throw error;
+      }
+    };
+
+    /**
      * Called by EventForm or EventSearch when the user hits "Save"
      * @param {Object} data - The payload from EventForm.handleSubmit
      * @returns {boolean} Success indicator
@@ -4260,6 +4411,7 @@
             });
             logger.debug('User confirmed multi-day event creation via button click');
             setPendingMultiDayConfirmation(null); // Reset confirmation state
+            setSavingEvent(true); // Show "Saving..." message
 
             // Generate unique series ID for linking events
             const eventSeriesId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -4300,17 +4452,18 @@
               }
             }
 
-            // Create events for each date
-            let successCount = 0;
-            let failCount = 0;
+            // Create events using batch API for better performance
+            logger.debug(`Creating ${dates.length} events using batch API`);
 
-            for (let i = 0; i < dates.length; i++) {
-              const dateStr = dates[i];
+            // Show progress notification
+            showNotification(`Creating ${dates.length} events...`, 'info');
+
+            // Prepare all events data
+            const eventsData = dates.map((dateStr, i) => {
               const startDateTime = `${dateStr}T${reservationData.startTime}:00`;
               const endDateTime = `${dateStr}T${reservationData.endTime}:00`;
 
-              // Transform reservation structure to event structure
-              const eventData = {
+              return {
                 subject: reservationData.eventTitle || 'Untitled Event',
                 start: {
                   dateTime: startDateTime,
@@ -4352,31 +4505,36 @@
                 seriesLength: dayCount,
                 seriesIndex: i
               };
+            });
 
-              try {
-                const success = await handleSaveApiEvent(eventData);
-                if (success) {
-                  successCount++;
-                  logger.debug(`Created event ${i + 1}/${dayCount} for ${dateStr}`);
-                } else {
-                  failCount++;
-                  logger.error(`Failed to create event ${i + 1}/${dayCount} for ${dateStr}`);
-                }
-              } catch (error) {
-                failCount++;
-                logger.error(`Error creating event ${i + 1}/${dayCount} for ${dateStr}:`, error);
+            try {
+              // Create all events in batches with progress callback
+              const result = await handleBatchCreateEvents(eventsData, (current, total) => {
+                showNotification(`Creating events... ${current}/${total}`, 'info');
+              });
+
+              const { successCount, failCount } = result;
+
+              // Show summary notification
+              if (successCount === dayCount) {
+                showNotification(`Successfully created ${successCount} events`);
+              } else if (successCount > 0) {
+                showNotification(`Created ${successCount} events, ${failCount} failed`, 'warning');
+              } else {
+                showNotification(`Failed to create events`, 'error');
               }
+
+              logger.debug(`Multi-day batch creation complete: ${successCount} succeeded, ${failCount} failed`);
+
+            } catch (error) {
+              logger.error('Batch creation error:', error);
+              showNotification('Error creating multi-day events', 'error');
+            } finally {
+              // Always clear the saving state
+              setSavingEvent(false);
             }
 
-            // Show summary notification
-            if (successCount === dayCount) {
-              showNotification(`Successfully created ${successCount} events`);
-            } else if (successCount > 0) {
-              showNotification(`Created ${successCount} events, ${failCount} failed`);
-            } else {
-              showNotification(`Failed to create events`, 'error');
-            }
-
+            // Close modal and refresh calendar ONCE after all events are created
             setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
             loadEvents(true);
           } else {
