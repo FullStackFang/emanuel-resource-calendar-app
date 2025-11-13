@@ -94,8 +94,8 @@ const EventDetailsModal = ({ isOpen, onClose, events, title, migrationConfig }) 
           ) : (
             <div className="events-list">
               {events.map((event, index) => {
-                const startTime = formatDateTime(event.startDateTime);
-                const endTime = formatEndTime(event.endDateTime);
+                const startTime = formatDateTime(event.start.dateTime);
+                const endTime = formatEndTime(event.end.dateTime);
                 
                 return (
                   <div key={index} className="event-card">

@@ -83,13 +83,7 @@ class CalendarDebugLogger {
   // Log event loading
   logEventLoading(calendarId, dateRange, method) {
     if (!this.isEnabled) return;
-    
-    console.group('📥 Loading Events');
-    console.log('Calendar ID:', calendarId);
-    console.log('Date range:', dateRange);
-    console.log('Method:', method);
-    console.log('Timestamp:', new Date().toISOString());
-    console.groupEnd();
+    // Logging disabled to reduce console spam
   }
 
   // Log event loading completion

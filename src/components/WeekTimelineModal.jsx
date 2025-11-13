@@ -55,8 +55,8 @@ export default function WeekTimelineModal({
 
   // Helper function: Check if event is all-day (>= 23 hours)
   const isAllDayEvent = (event) => {
-    const start = new Date(event.start?.dateTime || event.startDateTime);
-    const end = new Date(event.end?.dateTime || event.endDateTime);
+    const start = new Date(event.start.dateTime);
+    const end = new Date(event.end.dateTime);
     const durationHours = (end - start) / (1000 * 60 * 60);
     return durationHours >= 23;
   };
@@ -67,10 +67,10 @@ export default function WeekTimelineModal({
     const overlapping = dayEvents.filter(other => {
       if (other.id === event.id || other.eventId === event.eventId) return false;
 
-      const otherStart = new Date(other.start?.dateTime || other.startDateTime);
-      const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-      const eventStart = new Date(event.start?.dateTime || event.startDateTime);
-      const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+      const otherStart = new Date(other.start.dateTime);
+      const otherEnd = new Date(other.end.dateTime);
+      const eventStart = new Date(event.start.dateTime);
+      const eventEnd = new Date(event.end.dateTime);
 
       return eventStart < otherEnd && eventEnd > otherStart;
     });
@@ -175,7 +175,7 @@ export default function WeekTimelineModal({
         dateKey = event.startDate;  // Already in "YYYY-MM-DD" format
       } else {
         // For regular events, parse the dateTime
-        const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+        const eventStart = new Date(event.start.dateTime);
         dateKey = formatDateKey(eventStart);
       }
 
@@ -193,8 +193,8 @@ export default function WeekTimelineModal({
 
   // Calculate event block position and height
   const calculateEventPosition = (event) => {
-    const start = new Date(event.start?.dateTime || event.startDateTime);
-    const end = new Date(event.end?.dateTime || event.endDateTime);
+    const start = new Date(event.start.dateTime);
+    const end = new Date(event.end.dateTime);
 
     const startHour = start.getHours() + start.getMinutes() / 60;
     const endHour = end.getHours() + end.getMinutes() / 60;
@@ -207,8 +207,8 @@ export default function WeekTimelineModal({
 
   // Format time for event display
   const formatEventTime = (event) => {
-    const start = new Date(event.start?.dateTime || event.startDateTime);
-    const end = new Date(event.end?.dateTime || event.endDateTime);
+    const start = new Date(event.start.dateTime);
+    const end = new Date(event.end.dateTime);
 
     const formatTime = (date) => {
       return date.toLocaleTimeString('en-US', {

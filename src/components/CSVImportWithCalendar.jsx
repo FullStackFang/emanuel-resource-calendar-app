@@ -578,7 +578,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
                         <div key={idx} className="preview-event">
                           <strong>{event.subject}</strong>
                           <br />
-                          {event.startDateTime} - {event.endDateTime}
+                          {event.start?.dateTime || event.startDateTime} - {event.end?.dateTime || event.endDateTime}
                           <br />
                           {event.location && `Location: ${event.location}`}
                         </div>

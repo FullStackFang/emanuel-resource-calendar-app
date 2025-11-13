@@ -2889,22 +2889,7 @@
      * Filter and sort events based on selected categories and locations
      */
     const filteredEvents = useMemo(() => {
-      console.log('\n========== FILTERING ALL EVENTS ==========');
-      console.log('[Filter] Starting filter, allEvents count:', allEvents.length);
-      console.log('[Filter] Date range:', dateRange);
-
-      // Log all events before filtering
-      allEvents.forEach((event, index) => {
-        console.log(`\n[Event ${index + 1}/${allEvents.length}] "${event.subject}"`);
-        console.log(`  Start: ${event.start?.dateTime}`);
-        console.log(`  End: ${event.end?.dateTime}`);
-        console.log(`  Location: ${event.location?.displayName || 'NONE'}`);
-        console.log(`  Category: ${event.category || 'NONE'}`);
-      });
-      console.log('\n========== STARTING FILTER LOGIC ==========\n');
-
       const filtered = allEvents.filter(event => {
-        console.log(`\n[Filter] Processing event: "${event.subject}"`);
 
         // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
         let categoryMatch = true;
@@ -2914,23 +2899,18 @@
         if (selectedCategories.length === 0) {
           // No categories selected = show NO events
           categoryMatch = false;
-          console.log(`[Category Filter] Event "${event.subject}" - NO categories selected, categoryMatch: false`);
         } else if (selectedCategories.length === dynamicCategories.length) {
           // All categories selected = show ALL events regardless of category
           categoryMatch = true;
-          console.log(`[Category Filter] Event "${event.subject}" - ALL categories selected, categoryMatch: true`);
         } else {
           // Partial categories selected, check if event matches
           if (isUncategorizedEvent(event)) {
             categoryMatch = selectedCategories.includes('Uncategorized');
-            console.log(`[Category Filter] Event "${event.subject}" is Uncategorized, categoryMatch: ${categoryMatch}`);
           } else if (dynamicCategories.includes(event.category)) {
             categoryMatch = selectedCategories.includes(event.category);
-            console.log(`[Category Filter] Event "${event.subject}" category "${event.category}", categoryMatch: ${categoryMatch}`);
           } else {
             // For unknown categories, only show if explicitly selected
             categoryMatch = selectedCategories.includes(event.category);
-            console.log(`[Category Filter] Event "${event.subject}" unknown category "${event.category}", categoryMatch: ${categoryMatch}`);
           }
         }
 
@@ -2947,7 +2927,6 @@
           if (event.virtualMeetingUrl) {
             // This is a virtual meeting - check if "Virtual Meeting" is selected
             locationMatch = selectedLocations.includes('Virtual Meeting');
-            console.log(`[Location Filter] Event "${event.subject}" is virtual meeting, match: ${locationMatch}`);
           }
           // Handle unspecified locations
           else if (isUnspecifiedLocation(event)) {
@@ -2971,17 +2950,14 @@
                 const matches = selectedLocations.some(selectedLoc =>
                   locationsMatch(location, selectedLoc)
                 );
-                console.log(`[Location Filter] Event "${event.subject}" location "${location}" matches: ${matches}`);
                 return matches;
               });
-              console.log(`[Location Filter] Event "${event.subject}" final locationMatch: ${locationMatch}`);
             }
           }
         }
 
         // Event must pass BOTH category AND location filters
         const finalResult = categoryMatch && locationMatch;
-        console.log(`[Filter] Event "${event.subject}" FINAL: categoryMatch=${categoryMatch}, locationMatch=${locationMatch}, result=${finalResult}\n`);
         return finalResult;
       });
       
@@ -3613,7 +3589,7 @@
 
         // Filter events within date range and matching location
         filteredModalEvents = allEventsRef.current.filter(event => {
-          const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+          const eventStart = new Date(event.start.dateTime);
 
           // Check date range
           const inDateRange = eventStart >= startDate &&
@@ -3648,7 +3624,7 @@
 
         // Filter events for this specific day and location
         filteredModalEvents = allEventsRef.current.filter(event => {
-          const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+          const eventStart = new Date(event.start.dateTime);
           const eventDateStr = `${eventStart.getFullYear()}-${String(eventStart.getMonth() + 1).padStart(2, '0')}-${String(eventStart.getDate()).padStart(2, '0')}`;
 
           // Check date match
@@ -4034,6 +4010,7 @@
         
         // Internal fields payload (for setup/teardown and other internal data)
         const internal = {
+          locations: data.locations || [],
           setupMinutes: data.setupMinutes || 0,
           teardownMinutes: data.teardownMinutes || 0,
           setupTime: data.setupTime || '',
@@ -4297,6 +4274,32 @@
               dates.push(dateStr);
             }
 
+            // Transform locations array to Graph API location format (once for all events)
+            // Check both 'locations' and 'requestedRooms' (form uses requestedRooms)
+            console.log('DEBUG MULTI-DAY reservationData:', {
+              requestedRooms: reservationData.requestedRooms,
+              locations: reservationData.locations,
+              allKeys: Object.keys(reservationData)
+            });
+            // FIX: Empty arrays are truthy! Check length, not existence
+            const multiDayRoomIds = reservationData.locations?.length > 0
+              ? reservationData.locations
+              : (reservationData.requestedRooms || []);
+            console.log('DEBUG MULTI-DAY roomIds extracted:', multiDayRoomIds);
+            let locationField = undefined;
+            if (multiDayRoomIds.length > 0) {
+              const locationDocs = rooms.filter(room =>
+                multiDayRoomIds.includes(room._id)
+              );
+              if (locationDocs.length > 0) {
+                const locationNames = locationDocs.map(loc => loc.displayName || loc.name).join(', ');
+                locationField = {
+                  displayName: locationNames,
+                  locationType: 'default'
+                };
+              }
+            }
+
             // Create events for each date
             let successCount = 0;
             let failCount = 0;
@@ -4317,11 +4320,7 @@
                   dateTime: endDateTime,
                   timeZone: getOutlookTimezone(userTimezone)
                 },
-                location: {
-                  displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
-                    ? reservationData.requestedRooms.join(', ')
-                    : 'Unspecified'
-                },
+                location: locationField,
                 body: {
                   contentType: 'text',
                   content: reservationData.eventDescription || ''
@@ -4335,7 +4334,8 @@
                   }
                 }] : [],
                 calendarId: reservationData.calendarId,
-                // Include internal enrichments
+                // Include internal enrichments (use whichever field exists)
+                locations: multiDayRoomIds,
                 setupMinutes: reservationData.setupTimeMinutes || 0,
                 teardownMinutes: reservationData.teardownTimeMinutes || 0,
                 setupTime: reservationData.setupTime || '',
@@ -4396,6 +4396,32 @@
               endDateTime = reservationData.endDateTime;
             }
 
+            // Transform locations array to Graph API location format
+            // Check both 'locations' and 'requestedRooms' (form uses requestedRooms)
+            console.log('DEBUG reservationData:', {
+              requestedRooms: reservationData.requestedRooms,
+              locations: reservationData.locations,
+              allKeys: Object.keys(reservationData)
+            });
+            // FIX: Empty arrays are truthy! Check length, not existence
+            const roomIds = reservationData.locations?.length > 0
+              ? reservationData.locations
+              : (reservationData.requestedRooms || []);
+            console.log('DEBUG roomIds extracted:', roomIds);
+            let locationField = undefined;
+            if (roomIds.length > 0) {
+              const locationDocs = rooms.filter(room =>
+                roomIds.includes(room._id)
+              );
+              if (locationDocs.length > 0) {
+                const locationNames = locationDocs.map(loc => loc.displayName || loc.name).join(', ');
+                locationField = {
+                  displayName: locationNames,
+                  locationType: 'default'
+                };
+              }
+            }
+
             // Transform reservation structure to event structure expected by handleSaveEvent
             const eventData = {
               subject: reservationData.eventTitle || 'Untitled Event',
@@ -4407,11 +4433,7 @@
                 dateTime: endDateTime,
                 timeZone: getOutlookTimezone(userTimezone)
               },
-              location: {
-                displayName: reservationData.requestedRooms && reservationData.requestedRooms.length > 0
-                  ? reservationData.requestedRooms.join(', ')
-                  : 'Unspecified'
-              },
+              location: locationField,
               body: {
                 contentType: 'text',
                 content: reservationData.eventDescription || ''
@@ -4425,7 +4447,8 @@
                 }
               }] : [],
               calendarId: reservationData.calendarId,
-              // Include internal enrichments
+              // Include internal enrichments (use whichever field exists)
+              locations: roomIds,
               setupMinutes: reservationData.setupTimeMinutes || 0,
               teardownMinutes: reservationData.teardownTimeMinutes || 0,
               setupTime: reservationData.setupTime || '',

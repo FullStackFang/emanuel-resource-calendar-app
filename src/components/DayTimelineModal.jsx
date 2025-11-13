@@ -64,8 +64,8 @@ export default function DayTimelineModal({
       events: events.map(event => ({
         id: event.id || event.eventId,
         subject: event.subject || event.eventTitle || 'Untitled Event',
-        start: { dateTime: event.start?.dateTime || event.startDateTime },
-        end: { dateTime: event.end?.dateTime || event.endDateTime },
+        start: { dateTime: event.start.dateTime },
+        end: { dateTime: event.end.dateTime },
         organizer: {
           emailAddress: {
             name: event.organizer?.emailAddress?.name || event.roomReservationData?.requestedBy?.name || event.requesterName || 'Unknown'

@@ -1342,7 +1342,7 @@ function generateChangeKey(reservation) {
     endDateTime: reservation.endDateTime instanceof Date
       ? reservation.endDateTime.toISOString()
       : reservation.endDateTime,
-    requestedRooms: reservation.requestedRooms,
+    requestedRooms: reservation.locations || reservation.requestedRooms, // Use locations or requestedRooms
     setupTimeMinutes: reservation.setupTimeMinutes || 0,
     teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
     attendeeCount: reservation.attendeeCount || 0,
@@ -1380,22 +1380,32 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const effectiveEnd = new Date(endTime.getTime() + (teardownMinutes * 60 * 1000));
 
     // Build query to find overlapping reservations
+    const roomIds = reservation.locations || reservation.requestedRooms;
     const query = {
-      status: { $in: ['pending', 'approved'] }, // Only check against pending and approved
-      requestedRooms: { $in: reservation.requestedRooms }, // Any shared rooms
-      $or: [
+      $and: [
+        { status: { $in: ['pending', 'approved'] } }, // Only check against pending and approved
         {
-          // Case 1: Existing reservation starts during our window
-          startDateTime: { $gte: effectiveStart, $lt: effectiveEnd }
+          $or: [
+            { requestedRooms: { $in: roomIds } }, // Check requestedRooms field
+            { locations: { $in: roomIds } }        // Check locations field
+          ]
         },
         {
-          // Case 2: Existing reservation ends during our window
-          endDateTime: { $gt: effectiveStart, $lte: effectiveEnd }
-        },
-        {
-          // Case 3: Existing reservation completely encompasses our window
-          startDateTime: { $lte: effectiveStart },
-          endDateTime: { $gte: effectiveEnd }
+          $or: [
+            {
+              // Case 1: Existing reservation starts during our window
+              startDateTime: { $gte: effectiveStart, $lt: effectiveEnd }
+            },
+            {
+              // Case 2: Existing reservation ends during our window
+              endDateTime: { $gt: effectiveStart, $lte: effectiveEnd }
+            },
+            {
+              // Case 3: Existing reservation completely encompasses our window
+              startDateTime: { $lte: effectiveStart },
+              endDateTime: { $gte: effectiveEnd }
+            }
+          ]
         }
       ]
     };
@@ -1665,13 +1675,14 @@ async function createRoomReservationCalendarEvent(reservation, calendarMode, use
     }
     
     const graphToken = userGraphToken;
-    // Get room names for location
+    // Get room names for location (check both locations and requestedRooms for backward compatibility)
     const roomNames = [];
-    if (reservation.requestedRooms && reservation.requestedRooms.length > 0) {
+    const roomIds = reservation.locations || reservation.requestedRooms;
+    if (roomIds && roomIds.length > 0) {
       // Try to get room names from the database (rooms are locations with isReservable: true)
       try {
         const roomDocs = await locationsCollection.find({
-          _id: { $in: reservation.requestedRooms.map(id => typeof id === 'string' ? new ObjectId(id) : id) },
+          _id: { $in: roomIds.map(id => typeof id === 'string' ? new ObjectId(id) : id) },
           isReservable: true
         }).toArray();
 
@@ -1681,7 +1692,7 @@ async function createRoomReservationCalendarEvent(reservation, calendarMode, use
       } catch (roomError) {
         logger.warn('Error fetching room names:', roomError);
         // Fallback to room IDs if name lookup fails
-        roomNames.push(...reservation.requestedRooms);
+        roomNames.push(...roomIds);
       }
     }
     
@@ -4071,6 +4082,37 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     let graphUpdateResult = null;
     let updatedGraphData = currentEvent?.graphData || {};
 
+    // Pre-process locations to generate location display names for Graph API
+    // This must happen BEFORE building the Graph API request (mirroring UPDATE endpoint logic)
+    if (internalFields?.locations && Array.isArray(internalFields.locations) && internalFields.locations.length > 0) {
+      try {
+        const roomIds = internalFields.locations.map(id =>
+          typeof id === 'string' ? new ObjectId(id) : id
+        );
+
+        const roomDocs = await locationsCollection.find({
+          _id: { $in: roomIds },
+          isReservable: true
+        }).toArray();
+
+        const processedLocationDisplayName = roomDocs
+          .map(room => room.displayName || room.name || '')
+          .filter(Boolean)
+          .join('; ');
+
+        // Add location to graphFields if we have display names
+        if (processedLocationDisplayName && graphFields) {
+          graphFields.location = {
+            displayName: processedLocationDisplayName,
+            locationType: 'default'
+          };
+          logger.debug('Pre-processed location display name from internalFields.locations:', processedLocationDisplayName);
+        }
+      } catch (error) {
+        logger.error('Error pre-processing locations for Graph API:', error);
+      }
+    }
+
     // 1. Update or Create event in Graph API if graphFields provided
     if (graphFields && graphToken) {
       try {
@@ -4168,7 +4210,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       };
 
       // Initialize location fields for new events
-      newEventDoc.locations = [];
+      newEventDoc.locations = internalFields?.locations || [];
       newEventDoc.locationDisplayNames = updatedGraphData.location?.displayName || '';
 
       // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
@@ -13117,7 +13159,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
     // Fields that can be updated
     const allowedFields = [
       'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
-      'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
+      'attendeeCount', 'requestedRooms', 'locations', 'requiredFeatures', 'specialRequirements',
       'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
       'contactName', 'contactEmail', 'reviewNotes',
       'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
