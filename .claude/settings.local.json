@@ -35,7 +35,8 @@
       "Bash(source .env)",
       "Read(//mnt/c/Users/Stephen.Fang/Downloads/**)",
       "Bash(lsof:*)",
-      "Bash(netstat:*)"
+      "Bash(netstat:*)",
+      "Bash(TZ='Asia/Tokyo' node:*)"
     ],
     "deny": []
   }

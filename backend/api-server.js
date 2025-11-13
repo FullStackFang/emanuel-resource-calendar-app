@@ -2482,17 +2482,8 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       ]
     });
 
-    // RACE CONDITION PROTECTION: Skip upsert if event was recently deleted
-    // This prevents re-insertion when Graph API deletion hasn't propagated yet
-    if (existingDoc?.isDeleted) {
-      logger.debug(`Skipping upsert for deleted event: ${graphEvent.subject}`, {
-        eventId: eventId,
-        graphId: graphEvent.id,
-        deletedAt: existingDoc.deletedAt,
-        deletedBy: existingDoc.deletedBy
-      });
-      return existingDoc; // Return existing deleted record unchanged
-    }
+    // Note: With hard deletes, deleted events won't have existingDoc
+    // They will be treated as new events if re-synced from Graph API
 
     // Only set creation tracking fields for NEW events
     if (!existingDoc) {
@@ -3364,26 +3355,14 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               'graphData.id': { $in: graphEventIds }
             }).toArray();
 
-            // Create maps for quick lookup: graphData.id → eventId and graphData.id → isDeleted
+            // Create map for quick lookup: graphData.id → eventId
             const graphIdToEventIdMap = new Map();
-            const graphIdToDeletedMap = new Map();
             existingEventsInDb.forEach(event => {
               graphIdToEventIdMap.set(event.graphData.id, event.eventId);
-              if (event.isDeleted) {
-                graphIdToDeletedMap.set(event.graphData.id, true);
-              }
             });
 
             // Add to unified events array
             newEvents.forEach(graphEvent => {
-              // Skip if this event was deleted (race condition protection)
-              if (graphIdToDeletedMap.get(graphEvent.id)) {
-                logger.debug(`Skipping deleted event from Graph API: ${graphEvent.subject}`, {
-                  graphId: graphEvent.id
-                });
-                return;
-              }
-
               // Check if this event already exists in database by graphData.id
               const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
@@ -15618,30 +15597,22 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Step 3: Soft delete the event from MongoDB
-    console.log('🔄 Soft-deleting from MongoDB...');
-    const updateResult = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          isDeleted: true,
-          deletedAt: new Date(),
-          deletedBy: userId
-        }
-      }
+    // Step 3: Hard delete the event from MongoDB
+    console.log('🔄 Deleting from MongoDB...');
+    const deleteResult = await unifiedEventsCollection.deleteOne(
+      { _id: new ObjectId(id) }
     );
 
-    console.log('📊 MongoDB update result:', {
-      matchedCount: updateResult.matchedCount,
-      modifiedCount: updateResult.modifiedCount
+    console.log('📊 MongoDB delete result:', {
+      deletedCount: deleteResult.deletedCount
     });
 
-    if (updateResult.matchedCount === 0) {
-      console.log('❌ Event not found in MongoDB for update');
+    if (deleteResult.deletedCount === 0) {
+      console.log('❌ Event not found in MongoDB for deletion');
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    console.log('✅ Event soft-deleted from MongoDB');
+    console.log('✅ Event deleted from MongoDB');
     logger.info('Internal event deleted:', {
       mongoId: id,
       eventId: event.eventId,

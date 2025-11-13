@@ -777,8 +777,8 @@
        */
       const getEventPosition = useCallback((event, day) => {
         try {
-          // Special handling for all-day events - use startDate field directly
-          if (event.isAllDayEvent && event.startDate) {
+          // Use startDate field directly for all events to avoid timezone issues
+          if (event.startDate) {
             // event.startDate is already in "YYYY-MM-DD" format from backend
             const eventDateStr = event.startDate;
 
@@ -789,36 +789,21 @@
             return eventDateStr === compareDateStr;
           }
 
-          // For regular timed events, use the existing timezone conversion logic
-          // Ensure proper UTC format
-          const utcDateString = event.start.dateTime.endsWith('Z') ?
-            event.start.dateTime : `${event.start.dateTime}Z`;
-          const eventDateUTC = new Date(utcDateString);
-
-          if (isNaN(eventDateUTC.getTime())) {
-            logger.error('Invalid event date:', event.start.dateTime, event);
-            return false;
+          // Fallback: extract date from datetime string if startDate not available
+          if (event.start?.dateTime) {
+            const eventDateStr = event.start.dateTime.split('T')[0];
+            const compareDay = new Date(day);
+            const compareDateStr = compareDay.toISOString().split('T')[0];
+            return eventDateStr === compareDateStr;
           }
 
-          // Convert event time to user timezone for date comparison
-          const eventInUserTZ = new Date(eventDateUTC.toLocaleString('en-US', {
-            timeZone: userTimezone
-          }));
-
-          // Reset time to midnight for date-only comparison
-          const eventDay = new Date(eventInUserTZ);
-          eventDay.setHours(0, 0, 0, 0);
-
-          const compareDay = new Date(day);
-          compareDay.setHours(0, 0, 0, 0);
-
-          // Compare dates in user timezone
-          return eventDay.getTime() === compareDay.getTime();
+          logger.error('Event missing both startDate and start.dateTime:', event);
+          return false;
         } catch (err) {
           logger.error('Error comparing event date:', err, event);
           return false;
         }
-      }, [userTimezone]);
+      }, []);
 
       
     //---------------------------------------------------------------------------
@@ -1220,11 +1205,14 @@
           const convertedEvent = {
             id: evt.id,
             subject: evt.subject,
-            // Always store ISO strings with Z to indicate UTC
-            start: { dateTime: evt.start.dateTime.endsWith('Z') ?
-                    evt.start.dateTime : `${evt.start.dateTime}Z` },
-            end: { dateTime: evt.end.dateTime.endsWith('Z') ?
-                  evt.end.dateTime : `${evt.end.dateTime}Z` },
+            // Preserve datetime strings as-is without forcing UTC interpretation
+            start: { dateTime: evt.start.dateTime },
+            end: { dateTime: evt.end.dateTime },
+            // Include top-level date/time fields from backend
+            startDate: evt.startDate,
+            startTime: evt.startTime,
+            endDate: evt.endDate,
+            endTime: evt.endTime,
             location: { displayName: evt.location?.displayName || "" },
             category: evt.categories?.[0] || "Uncategorized",
             // CRITICAL: Include body field for descriptions

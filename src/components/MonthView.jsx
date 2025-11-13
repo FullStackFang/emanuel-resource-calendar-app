@@ -278,27 +278,29 @@ const MonthView = memo(({
                       {(() => {
                         // Use filteredEvents from Calendar's main filtering system
                         const dayFilteredEvents = filteredEvents.filter(event => {
-                          // Use registration times if showing setup/teardown
-                          const eventStartTime = (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) 
-                            ? event.registrationStart 
-                            : event.start.dateTime;
-                          const eventDate = new Date(eventStartTime);
-                          
-                          // DEBUG: Log when showRegistrationTimes is true
-                          if (showRegistrationTimes && event.hasRegistrationEvent) {
-                            console.log('Using registration time for event:', {
-                              subject: event.subject,
-                              originalStart: event.start.dateTime,
-                              registrationStart: event.registrationStart,
-                              usingRegistrationTime: !!event.registrationStart
-                            });
+                          // Use startDate field directly to avoid timezone issues
+                          // Format: "YYYY-MM-DD"
+                          let eventDateStr;
+
+                          if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) {
+                            // For registration times, parse the datetime
+                            const regDate = new Date(event.registrationStart);
+                            eventDateStr = regDate.toISOString().split('T')[0];
+                          } else if (event.startDate) {
+                            // Use the top-level startDate field (already formatted as YYYY-MM-DD)
+                            eventDateStr = event.startDate;
+                          } else {
+                            // Fallback: extract date from datetime string
+                            eventDateStr = event.start.dateTime.split('T')[0];
                           }
-                          
-                          return (
-                            eventDate.getFullYear() === day.date.getFullYear() &&
-                            eventDate.getMonth() === day.date.getMonth() &&
-                            eventDate.getDate() === day.date.getDate()
-                          );
+
+                          // Compare date strings directly (YYYY-MM-DD format)
+                          const year = day.date.getFullYear();
+                          const month = String(day.date.getMonth() + 1).padStart(2, '0');
+                          const dayNum = String(day.date.getDate()).padStart(2, '0');
+                          const dayDateStr = `${year}-${month}-${dayNum}`;
+
+                          return eventDateStr === dayDateStr;
                         });
 
                         // Show event count circle if there are filtered events
