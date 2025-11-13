@@ -4350,45 +4350,74 @@
           logger.debug('Creating event directly via handleSaveEvent', reservationData);
           console.log('DEBUG: Mode is EVENT - direct creation path');
 
-          // Validate required fields
-          if (!reservationData.startDate || !reservationData.endDate || !reservationData.startTime || !reservationData.endTime) {
+          // Validate required fields - date range is always required (even if ad hoc dates are added)
+          const hasDateRange = reservationData.startDate && reservationData.endDate;
+          const hasTimes = reservationData.startTime && reservationData.endTime;
+
+          if (!hasDateRange || !hasTimes) {
             console.log('DEBUG: VALIDATION FAILED - missing required fields', {
               hasStartDate: !!reservationData.startDate,
               hasEndDate: !!reservationData.endDate,
+              hasAdHocDates: !!reservationData.adHocDates,
+              adHocDatesLength: reservationData.adHocDates?.length,
               hasStartTime: !!reservationData.startTime,
-              hasEndTime: !!reservationData.endTime
+              hasEndTime: !!reservationData.endTime,
+              hasDateRange,
+              hasTimes
             });
-            showNotification('Start date, end date, and times are required');
+            showNotification('Date range and times are required');
             return;
           }
 
           console.log('DEBUG: Validation passed');
 
-          // Check for multi-day event creation
-          const isMultiDay = reservationData.startDate !== reservationData.endDate;
+          // Check for multi-day event creation - combines date range with ad hoc dates
+          const hasAdHocDates = reservationData.adHocDates && reservationData.adHocDates.length > 0;
+          const isMultiDayRange = reservationData.startDate !== reservationData.endDate;
+          const isMultiDay = hasAdHocDates || isMultiDayRange;
+
           console.log('DEBUG: Multi-day check', {
             startDate: reservationData.startDate,
             endDate: reservationData.endDate,
-            startDateType: typeof reservationData.startDate,
-            endDateType: typeof reservationData.endDate,
-            comparison: `"${reservationData.startDate}" !== "${reservationData.endDate}"`,
+            adHocDates: reservationData.adHocDates,
+            hasAdHocDates,
+            isMultiDayRange,
             isMultiDay,
             pendingConfirmation: pendingMultiDayConfirmation
           });
 
           if (isMultiDay) {
-            console.log('DEBUG: ✅ MULTI-DAY DETECTED - Entering multi-day block');
+            console.log('DEBUG: ✅ MULTI-DAY DETECTED - Entering multi-day block', {
+              hasDateRange: isMultiDayRange,
+              hasAdHocDates: hasAdHocDates
+            });
 
-            // Calculate number of days in the range
+            // Generate combined list of dates (range + ad hoc, removing duplicates)
+            const allDates = new Set();
+
+            // Add dates from range
             const startDate = new Date(reservationData.startDate);
             const endDate = new Date(reservationData.endDate);
-            const dayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            const rangeDayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+            for (let i = 0; i < rangeDayCount; i++) {
+              const currentDate = new Date(startDate);
+              currentDate.setDate(startDate.getDate() + i);
+              const dateStr = currentDate.toISOString().split('T')[0];
+              allDates.add(dateStr);
+            }
+
+            // Add ad hoc dates (if any)
+            if (hasAdHocDates) {
+              reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
+            }
+
+            const dayCount = allDates.size;
 
             console.log('DEBUG: Day count calculation', {
-              startDateObj: startDate,
-              endDateObj: endDate,
-              timeDiff: endDate - startDate,
-              dayCount
+              rangeDates: rangeDayCount,
+              adHocDates: reservationData.adHocDates?.length || 0,
+              totalUniqueDates: dayCount,
+              allDates: Array.from(allDates).sort()
             });
 
             // Two-step confirmation: First click shows confirmation, second click creates
@@ -4417,14 +4446,9 @@
             const eventSeriesId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
             logger.debug(`Creating multi-day event series: ${dayCount} events, seriesId: ${eventSeriesId}`);
 
-            // Generate array of dates
-            const dates = [];
-            for (let i = 0; i < dayCount; i++) {
-              const currentDate = new Date(startDate);
-              currentDate.setDate(startDate.getDate() + i);
-              const dateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
-              dates.push(dateStr);
-            }
+            // Convert Set to sorted array
+            const dates = Array.from(allDates).sort();
+            console.log('DEBUG: Final dates list', { dates, count: dates.length });
 
             // Transform locations array to Graph API location format (once for all events)
             // Check both 'locations' and 'requestedRooms' (form uses requestedRooms)

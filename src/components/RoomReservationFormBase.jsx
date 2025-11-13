@@ -5,6 +5,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
+import MultiDatePicker from './MultiDatePicker';
 import './RoomReservationForm.css';
 
 /**
@@ -96,6 +97,10 @@ export default function RoomReservationFormBase({
   const [assistantRooms, setAssistantRooms] = useState([]);
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Ad hoc dates state - persistent container of additional dates
+  const [showAdHocPicker, setShowAdHocPicker] = useState(false); // Show/hide calendar picker
+  const [adHocDates, setAdHocDates] = useState([]); // Array of YYYY-MM-DD strings for ad hoc dates
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -448,6 +453,22 @@ export default function RoomReservationFormBase({
     logger.debug('Time slot clicked:', hour);
   };
 
+  // Toggle ad hoc calendar picker visibility
+  const handleToggleAdHocPicker = () => {
+    setShowAdHocPicker(prev => !prev);
+  };
+
+  // Handle changes to ad hoc dates
+  const handleAdHocDatesChange = (newDates) => {
+    setAdHocDates(newDates);
+    setHasChanges(true);
+
+    // Also notify parent component of change
+    if (onDataChange) {
+      onDataChange({ ...formData, adHocDates: newDates });
+    }
+  };
+
   const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
       return {
@@ -495,7 +516,10 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                 />
               </div>
+            </div>
 
+            {/* Expected Attendees and Toggle Ad Hoc Button Row */}
+            <div className="time-field-row">
               <div className="form-group">
                 <label htmlFor="attendeeCount">Expected Attendees</label>
                 <input
@@ -509,9 +533,88 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                 />
               </div>
+
+              <div className="form-group">
+                <label style={{ visibility: 'hidden' }}>.</label>
+                <button
+                  type="button"
+                  onClick={handleToggleAdHocPicker}
+                  disabled={fieldsDisabled}
+                  style={{
+                    padding: '8px 16px',
+                    background: showAdHocPicker ? '#e8f0fe' : '#f8f9fa',
+                    border: '1px solid #dadce0',
+                    borderRadius: '4px',
+                    cursor: fieldsDisabled ? 'not-allowed' : 'pointer',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: showAdHocPicker ? '#1a73e8' : '#5f6368',
+                    transition: 'all 0.2s ease',
+                    whiteSpace: 'nowrap',
+                    width: '100%'
+                  }}
+                >
+                  {showAdHocPicker ? '✓ ' : ''}Toggle Ad Hoc
+                </button>
+              </div>
             </div>
 
-            {/* Date Fields */}
+            {/* Ad Hoc Calendar Picker - Show when toggled on */}
+            {showAdHocPicker && (
+              <div className="multi-date-picker-wrapper" style={{ marginBottom: '16px' }}>
+                <div style={{ marginBottom: '8px', fontSize: '13px', color: '#5f6368' }}>
+                  Click dates on the calendar to add additional ad hoc dates
+                </div>
+                <MultiDatePicker
+                  selectedDates={adHocDates}
+                  onDatesChange={handleAdHocDatesChange}
+                  disabled={fieldsDisabled}
+                />
+              </div>
+            )}
+
+            {/* Ad Hoc Dates Container - Always show when there are dates */}
+            {!showAdHocPicker && adHocDates.length > 0 && (
+              <div style={{ marginBottom: '16px', background: '#f8f9fa', borderRadius: '8px', padding: '16px' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '12px'
+                }}>
+                  <span style={{ fontSize: '13px', fontWeight: '500', color: '#5f6368' }}>
+                    {adHocDates.length} ad hoc date{adHocDates.length !== 1 ? 's' : ''} added
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {[...adHocDates].sort().map(dateStr => {
+                    const date = new Date(dateStr + 'T00:00:00');
+                    const formattedDate = date.toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    });
+                    return (
+                      <div key={dateStr} className="date-chip">
+                        <span className="date-text">{formattedDate}</span>
+                        <button
+                          type="button"
+                          className="remove-date-btn"
+                          onClick={() => handleAdHocDatesChange(adHocDates.filter(d => d !== dateStr))}
+                          disabled={fieldsDisabled}
+                          aria-label={`Remove ${formattedDate}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Date Fields - Always visible */}
             <div className="time-field-row">
               <div className="form-group">
                 <label htmlFor="startDate">Event Date *</label>

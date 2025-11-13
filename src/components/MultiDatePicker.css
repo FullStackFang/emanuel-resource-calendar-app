@@ -1,0 +1,147 @@
+/* MultiDatePicker.css - Google-style multi-date picker */
+
+.multi-date-picker-container {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.multi-date-picker-calendar {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.multi-date-calendar {
+  border: none !important;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3);
+  border-radius: 8px;
+  font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+}
+
+/* Selected Dates Section */
+.selected-dates-section {
+  margin-top: 16px;
+}
+
+.selected-dates-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+
+.selected-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: #5f6368;
+}
+
+.selected-dates-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+/* Date Chip */
+.date-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #dadce0;
+  border-radius: 16px;
+  font-size: 13px;
+  color: #202124;
+  transition: all 0.2s ease;
+  flex: 0 0 calc(50% - 4px); /* Always 2 per row, accounting for 8px gap */
+  max-width: calc(50% - 4px);
+  min-width: 0; /* Allow text to truncate if needed */
+}
+
+.date-chip:hover {
+  background: #f8f9fa;
+  border-color: #bdc1c6;
+}
+
+.date-text {
+  white-space: nowrap;
+}
+
+.remove-date-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  color: #5f6368;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.remove-date-btn:hover {
+  background: #f1f3f4;
+  color: #202124;
+}
+
+.remove-date-btn:active {
+  background: #e8eaed;
+}
+
+.remove-date-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* No Dates Message */
+.no-dates-message {
+  text-align: center;
+  padding: 20px;
+  color: #5f6368;
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Customize react-datepicker highlighted dates */
+.react-datepicker__day--highlighted {
+  background-color: #e8f0fe !important;
+  color: #1a73e8 !important;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.react-datepicker__day--highlighted:hover {
+  background-color: #d2e3fc !important;
+}
+
+/* Scrollbar styling for selected dates list */
+.selected-dates-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.selected-dates-list::-webkit-scrollbar-track {
+  background: #f1f3f4;
+  border-radius: 3px;
+}
+
+.selected-dates-list::-webkit-scrollbar-thumb {
+  background: #bdc1c6;
+  border-radius: 3px;
+}
+
+.selected-dates-list::-webkit-scrollbar-thumb:hover {
+  background: #9aa0a6;
+}
