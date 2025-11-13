@@ -7,6 +7,24 @@
   margin: 12px 0;
 }
 
+/* Two-column layout */
+.multi-date-picker-two-column {
+  display: flex;
+  gap: 20px;
+}
+
+.multi-date-picker-calendar-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.series-navigation-column {
+  flex: 0 0 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .multi-date-picker-calendar {
   display: flex;
   justify-content: center;
@@ -143,5 +161,85 @@
 }
 
 .selected-dates-list::-webkit-scrollbar-thumb:hover {
+  background: #9aa0a6;
+}
+
+/* Series Navigation Styles */
+.series-navigation-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #dadce0;
+}
+
+.series-navigation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+/* Series Event Button */
+.series-event-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #202124;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  width: 100%;
+}
+
+.series-event-btn:hover:not(:disabled) {
+  background: #f1f3f4;
+  border-color: #bdc1c6;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1);
+}
+
+.series-event-btn:active:not(:disabled) {
+  background: #e8eaed;
+}
+
+.series-event-btn.current {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  color: #1a73e8;
+  font-weight: 600;
+  cursor: default;
+}
+
+.series-event-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Series Navigation Scrollbar */
+.series-navigation-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.series-navigation-list::-webkit-scrollbar-track {
+  background: #f1f3f4;
+  border-radius: 3px;
+}
+
+.series-navigation-list::-webkit-scrollbar-thumb {
+  background: #bdc1c6;
+  border-radius: 3px;
+}
+
+.series-navigation-list::-webkit-scrollbar-thumb:hover {
   background: #9aa0a6;
 }

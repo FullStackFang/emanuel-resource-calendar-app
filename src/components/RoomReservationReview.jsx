@@ -146,7 +146,11 @@ export default function RoomReservationReview({
           reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
           isAllDayEvent: reservation.isAllDayEvent || false,
           virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
-          graphData: reservation.graphData || null
+          graphData: reservation.graphData || null,
+          eventId: reservation.eventId || null,
+          eventSeriesId: reservation.eventSeriesId || null,
+          seriesIndex: reservation.seriesIndex || null,
+          seriesLength: reservation.seriesLength || null
         });
 
         // Store original changeKey for optimistic concurrency control
@@ -374,6 +378,7 @@ export default function RoomReservationReview({
           currentReservationId={reservation?._id}
           onLockedEventClick={onLockedEventClick}
           defaultCalendar={defaultCalendar}
+          apiToken={apiToken}
           activeTab={activeTab}
           showAllTabs={false}
           onFormDataRef={(getter) => { formDataRef.current = getter; }}

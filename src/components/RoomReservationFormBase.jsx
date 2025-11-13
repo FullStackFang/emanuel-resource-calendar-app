@@ -49,6 +49,7 @@ export default function RoomReservationFormBase({
   currentReservationId = null,  // ID of current reservation (for Review mode)
   onLockedEventClick = null,    // Callback for locked events in scheduling assistant
   defaultCalendar = '',         // Default calendar for scheduling assistant
+  apiToken = null,              // API token for authenticated requests
 
   // Rendering control
   activeTab = 'details',        // Which tab is active (for Review mode)
@@ -101,6 +102,10 @@ export default function RoomReservationFormBase({
   // Ad hoc dates state - persistent container of additional dates
   const [showAdHocPicker, setShowAdHocPicker] = useState(false); // Show/hide calendar picker
   const [adHocDates, setAdHocDates] = useState([]); // Array of YYYY-MM-DD strings for ad hoc dates
+
+  // Series navigation state
+  const [seriesEvents, setSeriesEvents] = useState([]); // Array of events in the series
+  const [currentEventId, setCurrentEventId] = useState(null); // Current event ID for highlighting
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -186,8 +191,66 @@ export default function RoomReservationFormBase({
       // Mark as initialized and store current reservation ID
       isInitializedRef.current = true;
       lastReservationIdRef.current = currentReservationId;
+
+      // Set current event ID for series navigation highlighting
+      if (newData.eventId) {
+        setCurrentEventId(newData.eventId);
+      }
     }
   }, [initialData, currentReservationId]);
+
+  // Fetch series events when opening an event with eventSeriesId
+  useEffect(() => {
+    const fetchSeriesEvents = async () => {
+      console.log('🔍 Series Events Fetch - Initial Data:', {
+        hasEventSeriesId: !!initialData?.eventSeriesId,
+        eventSeriesId: initialData?.eventSeriesId,
+        eventId: initialData?.eventId,
+        fullInitialData: initialData
+      });
+
+      if (!initialData?.eventSeriesId) {
+        console.log('❌ No eventSeriesId in initialData, skipping series fetch');
+        setSeriesEvents([]);
+        return;
+      }
+
+      try {
+        logger.debug(`Fetching series events for eventSeriesId: ${initialData.eventSeriesId}`);
+        const headers = {
+          'Content-Type': 'application/json'
+        };
+
+        // Add Authorization header if apiToken is available
+        if (apiToken) {
+          headers['Authorization'] = `Bearer ${apiToken}`;
+        }
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/series/${initialData.eventSeriesId}`,
+          { headers }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch series events');
+        }
+
+        const data = await response.json();
+        console.log('✅ Series Events Fetched:', {
+          count: data.events?.length || 0,
+          events: data.events,
+          fullResponse: data
+        });
+        setSeriesEvents(data.events || []);
+        logger.debug(`Loaded ${data.events?.length || 0} events in series`);
+      } catch (error) {
+        logger.error('Error fetching series events:', error);
+        setSeriesEvents([]);
+      }
+    };
+
+    fetchSeriesEvents();
+  }, [initialData?.eventSeriesId, apiToken]);
 
   // Helper function to convert time difference to minutes
   const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
@@ -469,6 +532,35 @@ export default function RoomReservationFormBase({
     }
   };
 
+  // Handle series event navigation click
+  const handleSeriesEventClick = (event) => {
+    logger.debug('Series event clicked:', event);
+
+    // Check if there are unsaved changes
+    if (hasChanges) {
+      const confirmed = window.confirm(
+        'You have unsaved changes. Are you sure you want to navigate to another event in the series? Your changes will be lost.'
+      );
+
+      if (!confirmed) {
+        return; // User cancelled navigation
+      }
+    }
+
+    // Call parent callback to handle navigation (close modal and open new event)
+    if (onLockedEventClick) {
+      // Use onLockedEventClick as the navigation callback
+      // Parent components should handle this to close current modal and open the clicked event
+      onLockedEventClick({
+        eventId: event.eventId,
+        graphId: event.graphId,
+        startDate: event.startDate,
+        subject: event.subject,
+        isSeriesNavigation: true
+      });
+    }
+  };
+
   const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
       return {
@@ -554,7 +646,7 @@ export default function RoomReservationFormBase({
                     width: '100%'
                   }}
                 >
-                  {showAdHocPicker ? '✓ ' : ''}Toggle Ad Hoc
+                  {showAdHocPicker ? '✓ ' : ''}Toggle Event Series
                 </button>
               </div>
             </div>
@@ -569,6 +661,9 @@ export default function RoomReservationFormBase({
                   selectedDates={adHocDates}
                   onDatesChange={handleAdHocDatesChange}
                   disabled={fieldsDisabled}
+                  seriesEvents={seriesEvents}
+                  currentEventId={currentEventId}
+                  onSeriesEventClick={handleSeriesEventClick}
                 />
               </div>
             )}

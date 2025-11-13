@@ -121,7 +121,25 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       const newData = await newEventsResponse.json();
 
       // Transform new events to match old reservation format for display
-      const transformedNewEvents = (newData.events || []).map(event => ({
+      console.log('🔧 RAW BACKEND EVENT (first event):', newData.events?.[0]);
+      console.log('🔧 RAW BACKEND - First event series fields:', {
+        eventId: newData.events?.[0]?.eventId,
+        hasEventSeriesId: !!newData.events?.[0]?.eventSeriesId,
+        eventSeriesId: newData.events?.[0]?.eventSeriesId,
+        seriesIndex: newData.events?.[0]?.seriesIndex,
+        seriesLength: newData.events?.[0]?.seriesLength
+      });
+
+      const transformedNewEvents = (newData.events || []).map(event => {
+        console.log('🔧 Transforming event:', {
+          eventId: event.eventId,
+          hasEventSeriesId: !!event.eventSeriesId,
+          eventSeriesId: event.eventSeriesId,
+          seriesIndex: event.seriesIndex,
+          seriesLength: event.seriesLength
+        });
+
+        return {
         _id: event._id,
         eventId: event.eventId,
         eventTitle: event.graphData?.subject || 'Untitled Event',
@@ -152,8 +170,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         contactEmail: event.roomReservationData?.contactPerson?.email || '',
         isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || false,
         reviewNotes: event.roomReservationData?.reviewNotes || '',
+        eventSeriesId: event.eventSeriesId || null,
+        seriesIndex: event.seriesIndex || null,
+        seriesLength: event.seriesLength || null,
         _isNewUnifiedEvent: true // Flag to identify source
-      }));
+      };
+      });
+
+      console.log('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
+        eventId: transformedNewEvents?.[0]?.eventId,
+        hasEventSeriesId: !!transformedNewEvents?.[0]?.eventSeriesId,
+        eventSeriesId: transformedNewEvents?.[0]?.eventSeriesId,
+        seriesIndex: transformedNewEvents?.[0]?.seriesIndex,
+        seriesLength: transformedNewEvents?.[0]?.seriesLength
+      });
 
       // Sort by submission date (newest first)
       transformedNewEvents.sort((a, b) => {
@@ -360,6 +390,16 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     setOriginalChangeKey(reservation.changeKey);
     setHasChanges(false);
+
+    console.log('📦 OPENING REVIEW MODAL - Reservation Object:', {
+      eventId: reservation.eventId,
+      hasEventSeriesId: !!reservation.eventSeriesId,
+      eventSeriesId: reservation.eventSeriesId,
+      seriesIndex: reservation.seriesIndex,
+      seriesLength: reservation.seriesLength,
+      fullObject: reservation
+    });
+
     setSelectedReservation(reservation);
     setShowReviewModal(true);
 

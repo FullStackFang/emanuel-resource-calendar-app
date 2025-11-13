@@ -3590,6 +3590,11 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         mecCategories: event.mecCategories,
         assignedTo: event.assignedTo,
 
+        // Event series fields (for multi-day events)
+        eventSeriesId: event.eventSeriesId || null,
+        seriesIndex: event.seriesIndex !== undefined ? event.seriesIndex : null,
+        seriesLength: event.seriesLength || null,
+
         // Additional metadata
         virtualMeetingUrl: event.virtualMeetingUrl,
         virtualPlatform: event.virtualPlatform,
@@ -3815,6 +3820,54 @@ app.get('/api/events', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error getting unified events:', error);
     res.status(500).json({ error: 'Failed to get events' });
+  }
+});
+
+/**
+ * Get all events in a series by eventSeriesId
+ * GET /api/events/series/:eventSeriesId
+ */
+app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
+  try {
+    const { eventSeriesId } = req.params;
+    const userId = req.user.userId;
+
+    logger.debug(`Fetching series events for eventSeriesId: ${eventSeriesId}`);
+
+    // Query for all events with this eventSeriesId
+    const query = {
+      eventSeriesId: eventSeriesId,
+      isDeleted: { $ne: true }
+    };
+
+    // Fetch events from unified collection
+    const seriesEvents = await unifiedEventsCollection
+      .find(query)
+      .sort({ 'graphData.start.dateTime': 1 }) // Sort by date ascending
+      .toArray();
+
+    logger.debug(`Found ${seriesEvents.length} events in series ${eventSeriesId}`);
+
+    // Transform to simplified format for series navigation
+    const transformedEvents = seriesEvents.map(event => ({
+      eventId: event.eventId,
+      graphId: event.graphData?.id || null,
+      startDate: event.graphData?.start?.dateTime?.split('T')[0] || null,
+      startDateTime: event.graphData?.start?.dateTime || null,
+      subject: event.graphData?.subject || 'Untitled Event',
+      seriesIndex: event.seriesIndex !== undefined ? event.seriesIndex : null,
+      seriesLength: event.seriesLength || null,
+      eventSeriesId: event.eventSeriesId
+    }));
+
+    res.status(200).json({
+      events: transformedEvents,
+      count: transformedEvents.length
+    });
+
+  } catch (error) {
+    logger.error('Error fetching series events:', error);
+    res.status(500).json({ error: 'Failed to fetch series events' });
   }
 });
 
