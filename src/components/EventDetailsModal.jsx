@@ -1,19 +1,33 @@
 import React from 'react';
 import './EventDetailsModal.css';
+import { useTimezone } from '../context/TimezoneContext';
+import { getSafeTimezone } from '../utils/timezoneUtils';
 
 const EventDetailsModal = ({ isOpen, onClose, events, title, migrationConfig }) => {
+  const { userTimezone } = useTimezone();
+
   if (!isOpen) return null;
 
   const formatDateTime = (dateTimeString) => {
     const date = new Date(dateTimeString);
-    const dateStr = date.toLocaleDateString();
-    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const safeTimezone = getSafeTimezone(userTimezone);
+    const dateStr = date.toLocaleDateString('en-US', { timeZone: safeTimezone });
+    const timeStr = date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: safeTimezone
+    });
     return { dateStr, timeStr };
   };
 
   const formatEndTime = (dateTimeString) => {
     const date = new Date(dateTimeString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const safeTimezone = getSafeTimezone(userTimezone);
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: safeTimezone
+    });
   };
 
   // Check if a location string is a URL

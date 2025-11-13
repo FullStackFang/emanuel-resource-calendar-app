@@ -168,23 +168,6 @@
     const [selectedLocations, setSelectedLocations] = useState([]);
 
     const [currentDate, setCurrentDate] = useState(new Date());
-    const dateRange = useMemo(() => {
-      let start = new Date(currentDate);
-      let end;
-      
-      if (viewType === 'week') {
-        start = snapToStartOfWeek(currentDate);
-        end = calculateEndDate(start, 'week');
-      } else if (viewType === 'month') {
-        start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-        end = calculateEndDate(start, 'month');
-      } else {
-        // day view
-        end = calculateEndDate(start, 'day');
-      }
-      
-      return { start, end };
-    }, [currentDate, viewType]);
 
     // Separate filters for month view
     const [, setSelectedCategoryFilter] = useState('');
@@ -216,6 +199,25 @@
     });
     
     // User permissions initialized
+
+    // Calculate date range based on current view and user preferences
+    const dateRange = useMemo(() => {
+      let start = new Date(currentDate);
+      let end;
+
+      if (viewType === 'week') {
+        start = snapToStartOfWeek(currentDate, userPermissions.startOfWeek);
+        end = calculateEndDate(start, 'week');
+      } else if (viewType === 'month') {
+        start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        end = calculateEndDate(start, 'month');
+      } else {
+        // day view
+        end = calculateEndDate(start, 'day');
+      }
+
+      return { start, end };
+    }, [currentDate, viewType, userPermissions.startOfWeek]);
 
     // Modal state
     const [isModalOpen, setIsModalOpen] = useState(false);

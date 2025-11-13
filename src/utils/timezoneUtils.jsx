@@ -167,9 +167,9 @@ export const formatEventTime = (dateString, timezone = DEFAULT_TIMEZONE, eventSu
   if (!dateString) return '';
 
   try {
-    // Parse date string directly - DON'T add 'Z' suffix
-    // Graph API returns timezone-aware strings like "2025-01-15T08:45:00.0000000"
-    // Adding 'Z' would incorrectly force UTC interpretation
+    // Parse datetime string as UTC - backend now ensures all datetimes have 'Z' suffix
+    // Graph API returns: "2025-01-15T08:45:00.0000000" (without Z)
+    // Backend stores: "2025-01-15T08:45:00.0000000Z" (with Z for proper UTC parsing)
     const date = new Date(dateString);
 
     if (isNaN(date.getTime())) {
@@ -296,9 +296,12 @@ export const isEventOnDay = (event, day, timezone = DEFAULT_TIMEZONE) => {
  * @returns {Date} Date snapped to start of week
  */
 export const snapToStartOfWeek = (date, startOfWeek = 'Monday') => {
+  // Create a clean Date object and reset to midnight to avoid time-based issues
   const newDate = new Date(date);
+  newDate.setHours(0, 0, 0, 0);
+
   const day = newDate.getDay(); // 0 = Sunday, 1 = Monday, ...
-  
+
   let daysToSubtract;
   if (startOfWeek === 'Sunday') {
     daysToSubtract = day;
@@ -306,8 +309,9 @@ export const snapToStartOfWeek = (date, startOfWeek = 'Monday') => {
     // For Monday start
     daysToSubtract = day === 0 ? 6 : day - 1;
   }
-  
+
   newDate.setDate(newDate.getDate() - daysToSubtract);
+
   return newDate;
 };
 

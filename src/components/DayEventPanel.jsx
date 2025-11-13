@@ -22,14 +22,14 @@ const DayEventPanel = memo(({
   // Create timezone-aware event time formatter
   const formatEventTimeWithContext = useCallback((dateTimeString, eventSubject) => {
     try {
-      // Use the timezone context for consistent formatting
+      // Use formatEventTime for proper time-only display with timezone conversion
+      if (formatEventTime && typeof formatEventTime === 'function') {
+        return formatEventTime(dateTimeString, userTimezone, eventSubject);
+      }
+      // Fallback: use formatDateTimeWithTimezone if formatEventTime not available
       return formatDateTimeWithTimezone(dateTimeString, userTimezone);
     } catch (error) {
       console.error('Error formatting event time in DayEventPanel:', error);
-      // Fallback to original formatter if available
-      if (formatEventTime && typeof formatEventTime === 'function') {
-        return formatEventTime(dateTimeString, eventSubject);
-      }
       return 'Time unavailable';
     }
   }, [userTimezone, formatEventTime]);

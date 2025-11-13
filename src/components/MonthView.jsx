@@ -233,9 +233,10 @@ const MonthView = memo(({
   const formatEventTimeWithTimezone = useCallback((event) => {
     if (formatEventTime && typeof formatEventTime === 'function') {
       // Use the original formatEventTime if it exists and handles timezone properly
-      return formatEventTime(event, userTimezone); // Pass timezone explicitly
+      // Pass the datetime string, not the event object
+      return formatEventTime(event.start.dateTime, userTimezone, event.subject);
     }
-    
+
     // Fallback: format using timezone context
     try {
       const startTime = formatDateTimeWithTimezone(event.start.dateTime, userTimezone);
