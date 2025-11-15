@@ -386,6 +386,7 @@ export default function UnifiedEventForm({
         location: {
           displayName: formData.requestedRooms.join('; ')
         },
+        recurrence: formData.recurrence || null,  // Include recurrence pattern if exists
         internalEnrichment: {
           setupTimeMinutes: formData.setupTimeMinutes,
           teardownTimeMinutes: formData.teardownTimeMinutes,

@@ -339,10 +339,9 @@
 /* All-Day Event Toggle - Google Style */
 .all-day-toggle-wrapper {
   margin: 12px 0 16px 0;
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .all-day-toggle {
@@ -355,9 +354,11 @@
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  width: 100%;
 }
 
 .all-day-toggle:hover:not(:disabled) {

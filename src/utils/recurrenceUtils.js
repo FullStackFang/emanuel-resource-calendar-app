@@ -5,6 +5,39 @@
  */
 
 /**
+ * Transform internal recurrence format to Microsoft Graph API format
+ * @param {Object} recurrence - Internal recurrence object { pattern, range, additions, exclusions }
+ * @param {string} timeZone - Timezone for the recurrence (e.g., 'Eastern Standard Time')
+ * @returns {Object} Graph API compatible recurrence object
+ */
+export function transformRecurrenceForGraphAPI(recurrence, timeZone = 'Eastern Standard Time') {
+  if (!recurrence || !recurrence.pattern || !recurrence.range) {
+    return null;
+  }
+
+  const { pattern, range } = recurrence;
+
+  // Build Graph API recurrence object
+  const graphRecurrence = {
+    pattern: {
+      type: pattern.type,
+      interval: pattern.interval || 1,
+      ...(pattern.daysOfWeek && pattern.daysOfWeek.length > 0 && { daysOfWeek: pattern.daysOfWeek }),
+      ...(pattern.firstDayOfWeek && { firstDayOfWeek: pattern.firstDayOfWeek })
+    },
+    range: {
+      type: range.type,
+      startDate: range.startDate,
+      recurrenceTimeZone: timeZone,
+      ...(range.type === 'endDate' && range.endDate && { endDate: range.endDate }),
+      ...(range.type === 'numbered' && range.numberOfOccurrences && { numberOfOccurrences: range.numberOfOccurrences })
+    }
+  };
+
+  return graphRecurrence;
+}
+
+/**
  * Check if a date matches the recurrence pattern
  * @param {Date} date - Date to check
  * @param {Object} pattern - Recurrence pattern { type, interval, daysOfWeek }

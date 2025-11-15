@@ -14,6 +14,7 @@
   import DayTimelineModal from './DayTimelineModal';
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
+  import { transformRecurrenceForGraphAPI } from '../utils/recurrenceUtils';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -3983,6 +3984,20 @@
      */
     const handleSaveApiEvent = async (data) => {
       try {
+        // Transform recurrence to Graph API format if present
+        const graphRecurrence = data.recurrence
+          ? transformRecurrenceForGraphAPI(data.recurrence, data.start?.timeZone || 'Eastern Standard Time')
+          : null;
+
+        // Debug logging for recurrence transformation
+        if (data.recurrence) {
+          logger.debug('[handleSaveApiEvent] Recurrence transformation:', {
+            'original': data.recurrence,
+            'transformed': graphRecurrence,
+            'timeZone': data.start?.timeZone || 'Eastern Standard Time'
+          });
+        }
+
         // Core payload
         const core = {
           subject: data.subject,
@@ -3991,9 +4006,11 @@
           location: data.location,
           categories: data.categories,
           isAllDay: data.isAllDay,
-          body: data.body
+          body: data.body,
+          // Include recurrence pattern if exists (in Graph API format)
+          ...(graphRecurrence && { recurrence: graphRecurrence })
         };
-        
+
         // Debug logging for category mapping
         logger.debug('[handleSaveApiEvent] Event data received:', {
           'data.category': data.category,
@@ -4029,7 +4046,9 @@
           // Multi-day event series metadata
           eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
           seriesLength: data.seriesLength || null,
-          seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null
+          seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null,
+          // Recurrence pattern (for internal tracking)
+          recurrence: data.recurrence || null
         };
         
         // Use the selected calendar from the calendar toggle
@@ -4650,6 +4669,8 @@
                 }
               }] : [],
               calendarId: reservationData.calendarId,
+              // Include recurrence pattern if exists
+              recurrence: reservationData.recurrence || null,
               // Include internal enrichments (use whichever field exists)
               locations: roomIds,
               setupMinutes: reservationData.setupTimeMinutes || 0,
@@ -4663,8 +4684,8 @@
               eventNotes: reservationData.eventNotes || '',
               requesterName: reservationData.requesterName || '',
               requesterEmail: reservationData.requesterEmail || '',
-              // Single event has null eventSeriesId
-              eventSeriesId: null
+              // Single event has null eventSeriesId (recurring events will have this set by backend)
+              eventSeriesId: reservationData.recurrence ? undefined : null
             };
 
             const success = await handleSaveEvent(eventData);

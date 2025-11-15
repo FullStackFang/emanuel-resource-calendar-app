@@ -7,6 +7,7 @@ import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
+import VirtualMeetingModal from './VirtualMeetingModal';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import './RoomReservationForm.css';
 
@@ -116,6 +117,10 @@ export default function RoomReservationFormBase({
   const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
   const [recurrencePattern, setRecurrencePattern] = useState(null); // { pattern, range }
 
+  // Virtual meeting state
+  const [showVirtualModal, setShowVirtualModal] = useState(false);
+  const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
+
   const { rooms, loading: roomsLoading } = useRooms();
 
   // Refs to prevent unnecessary re-initialization of form data
@@ -212,6 +217,12 @@ export default function RoomReservationFormBase({
         const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
         const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
         newData.teardownTime = `${teardownHours}:${teardownMinutes}`;
+      }
+
+      // Update virtual meeting URL state if it exists in initialData
+      if (newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) {
+        const url = newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl;
+        setVirtualMeetingUrl(url);
       }
 
       setFormData(prev => ({
@@ -586,6 +597,18 @@ export default function RoomReservationFormBase({
     }
   };
 
+  // Handle virtual meeting URL save
+  const handleVirtualMeetingSave = (url) => {
+    setVirtualMeetingUrl(url);
+    setFormData(prev => ({ ...prev, virtualMeetingUrl: url }));
+    setHasChanges(true);
+
+    // Notify parent component
+    if (onDataChange) {
+      onDataChange({ ...formData, virtualMeetingUrl: url });
+    }
+  };
+
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
     logger.debug('Series event navigation confirmed:', event);
@@ -666,26 +689,18 @@ export default function RoomReservationFormBase({
 
               <div className="form-group">
                 <label style={{ visibility: 'hidden' }}>.</label>
-                <button
-                  type="button"
-                  onClick={handleToggleAdHocPicker}
-                  disabled={fieldsDisabled}
-                  style={{
-                    padding: '8px 16px',
-                    background: showAdHocPicker ? '#e8f0fe' : '#f8f9fa',
-                    border: '1px solid #dadce0',
-                    borderRadius: '4px',
-                    cursor: fieldsDisabled ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: showAdHocPicker ? '#1a73e8' : '#5f6368',
-                    transition: 'all 0.2s ease',
-                    whiteSpace: 'nowrap',
-                    width: '100%'
-                  }}
-                >
-                  {showAdHocPicker ? '✓ ' : ''}Toggle Event Series
-                </button>
+                {/* Make Recurring Button - Moved from All Day toggle section */}
+                {!initialData.eventId && !initialData.id && (
+                  <button
+                    type="button"
+                    className={`all-day-toggle ${recurrencePattern ? 'active' : ''}`}
+                    onClick={() => setShowRecurrenceModal(true)}
+                    disabled={fieldsDisabled}
+                    style={{ width: '100%', justifyContent: 'center' }}
+                  >
+                    {recurrencePattern ? '↻ Edit Recurring' : '↻ Make Recurring'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -749,37 +764,7 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Date Fields - Always visible */}
-            <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="startDate">Event Date *</label>
-                <input
-                  type="date"
-                  id="startDate"
-                  name="startDate"
-                  value={formData.startDate}
-                  onChange={handleInputChange}
-                  disabled={fieldsDisabled}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="endDate">End Date *</label>
-                <input
-                  type="date"
-                  id="endDate"
-                  name="endDate"
-                  value={formData.endDate}
-                  onChange={handleInputChange}
-                  min={formData.startDate}
-                  disabled={fieldsDisabled}
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Recurrence Summary */}
+            {/* Recurrence Summary - Moved above date fields */}
             {recurrencePattern && (
               <div className="recurrence-summary-display">
                 <div className="recurrence-summary-content">
@@ -818,7 +803,37 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* All Day Event Toggle with Virtual Event Platform */}
+            {/* Date Fields - Always visible */}
+            <div className="time-field-row">
+              <div className="form-group">
+                <label htmlFor="startDate">Event Date *</label>
+                <input
+                  type="date"
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="endDate">End Date *</label>
+                <input
+                  type="date"
+                  id="endDate"
+                  name="endDate"
+                  value={formData.endDate}
+                  onChange={handleInputChange}
+                  min={formData.startDate}
+                  disabled={fieldsDisabled}
+                  required
+                />
+              </div>
+            </div>
+
+            {/* All Day Event Toggle and Virtual Meeting Toggle */}
             <div className="all-day-toggle-wrapper">
               <button
                 type="button"
@@ -829,41 +844,31 @@ export default function RoomReservationFormBase({
                 }}
                 disabled={fieldsDisabled}
               >
-                {formData.isAllDayEvent ? '✓ ' : ''}All Day Event
+                {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
               </button>
 
-              {/* Make Recurring Button - Next to All Day */}
-              {!initialData.eventId && !initialData.id && (
-                <button
-                  type="button"
-                  className={`all-day-toggle ${recurrencePattern ? 'active' : ''}`}
-                  onClick={() => setShowRecurrenceModal(true)}
-                  disabled={fieldsDisabled}
-                >
-                  {recurrencePattern ? '↻ Edit Recurring' : '↻ Make Recurring'}
-                </button>
-              )}
-
-              {/* Virtual Event Platform Pill - Inline */}
-              {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
-                <div className="virtual-platform-pill">
-                  {getVirtualPlatform(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl)}
-                </div>
-              )}
+              <button
+                type="button"
+                className={`all-day-toggle ${virtualMeetingUrl ? 'active' : ''}`}
+                onClick={() => setShowVirtualModal(true)}
+                disabled={fieldsDisabled}
+              >
+                {virtualMeetingUrl ? '✓ ' : ''}Set Virtual
+              </button>
             </div>
 
-            {/* Virtual Meeting Link Pill */}
-            {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
+            {/* Virtual Meeting Link Display - Only show when URL exists */}
+            {virtualMeetingUrl && (
               <div className="virtual-link-wrapper">
                 <a
-                  href={initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl}
+                  href={virtualMeetingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="virtual-link-pill"
                 >
                   <span className="virtual-link-icon">🌐</span>
                   <span className="virtual-link-text">
-                    {initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl}
+                    Join {getVirtualPlatform(virtualMeetingUrl)} Meeting
                   </span>
                 </a>
               </div>
@@ -1006,17 +1011,7 @@ export default function RoomReservationFormBase({
             )}
 
             <div className="room-selection-container">
-              <div className={`room-cards-section ${
-                (initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl)
-                  ? 'room-cards-disabled'
-                  : ''
-              }`}>
-                {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
-                  <div className="room-cards-disabled-message">
-                    <h4>🌐 Virtual Event</h4>
-                    <p>Physical location not required for virtual meetings</p>
-                  </div>
-                )}
+              <div className="room-cards-section">
                 {roomsLoading ? (
                   <div className="loading-message">Loading locations...</div>
                 ) : rooms.length === 0 ? (
@@ -1266,6 +1261,14 @@ export default function RoomReservationFormBase({
         initialPattern={recurrencePattern}
         eventStartDate={formData.startDate}
         existingSeriesDates={seriesEvents.map(e => e.startDate?.split('T')[0]).filter(Boolean)}
+      />
+
+      {/* Virtual Meeting Modal */}
+      <VirtualMeetingModal
+        isOpen={showVirtualModal}
+        onClose={() => setShowVirtualModal(false)}
+        onSave={handleVirtualMeetingSave}
+        initialUrl={virtualMeetingUrl}
       />
     </div>
   );
