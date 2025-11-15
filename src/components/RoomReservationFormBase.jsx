@@ -6,6 +6,8 @@ import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
+import RecurrencePatternModal from './RecurrencePatternModal';
+import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import './RoomReservationForm.css';
 
 /**
@@ -109,6 +111,10 @@ export default function RoomReservationFormBase({
   const [seriesEvents, setSeriesEvents] = useState([]); // Array of events in the series
   const [currentEventId, setCurrentEventId] = useState(null); // Current event ID for highlighting
   const [loadingEventId, setLoadingEventId] = useState(null); // Event ID currently being loaded
+
+  // Recurrence state
+  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
+  const [recurrencePattern, setRecurrencePattern] = useState(null); // { pattern, range }
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -557,6 +563,29 @@ export default function RoomReservationFormBase({
     }
   };
 
+  // Handle recurrence pattern save (memoized to prevent infinite loops)
+  const handleRecurrenceSave = useCallback((pattern) => {
+    setRecurrencePattern(pattern);
+    setHasChanges(true);
+
+    // Notify parent component
+    if (onDataChange) {
+      onDataChange({ ...formData, recurrence: pattern });
+    }
+  }, [formData, onDataChange]);
+
+  // Handle remove recurrence
+  const handleRemoveRecurrence = () => {
+    logger.debug('Recurrence removed');
+    setRecurrencePattern(null);
+    setHasChanges(true);
+
+    // Notify parent component
+    if (onDataChange) {
+      onDataChange({ ...formData, recurrence: null });
+    }
+  };
+
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
     logger.debug('Series event navigation confirmed:', event);
@@ -750,6 +779,34 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
+            {/* Recurrence Summary */}
+            {recurrencePattern && (
+              <div className="recurrence-summary-display">
+                <div className="recurrence-summary-content">
+                  <span className="recurrence-icon">↻</span>
+                  <span className="recurrence-text">
+                    {formatRecurrenceSummaryEnhanced(
+                      recurrencePattern.pattern,
+                      recurrencePattern.range,
+                      recurrencePattern.additions,
+                      recurrencePattern.exclusions
+                    )}
+                  </span>
+                </div>
+                {!initialData.eventId && !initialData.id && (
+                  <button
+                    type="button"
+                    className="recurrence-remove-btn"
+                    onClick={handleRemoveRecurrence}
+                    disabled={fieldsDisabled}
+                    title="Remove recurrence pattern"
+                  >
+                    ✕ Remove
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* All Day Event Toggle with Virtual Event Platform */}
             <div className="all-day-toggle-wrapper">
               <button
@@ -763,6 +820,18 @@ export default function RoomReservationFormBase({
               >
                 {formData.isAllDayEvent ? '✓ ' : ''}All Day Event
               </button>
+
+              {/* Make Recurring Button - Next to All Day */}
+              {!initialData.eventId && !initialData.id && (
+                <button
+                  type="button"
+                  className={`all-day-toggle ${recurrencePattern ? 'active' : ''}`}
+                  onClick={() => setShowRecurrenceModal(true)}
+                  disabled={fieldsDisabled}
+                >
+                  {recurrencePattern ? '✓ ' : ''}↻ Make Recurring
+                </button>
+              )}
 
               {/* Virtual Event Platform Pill - Inline */}
               {(initialData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) && (
@@ -1177,6 +1246,16 @@ export default function RoomReservationFormBase({
 
       {/* Render additional content (tabs, attachments, history, etc.) */}
       {renderAdditionalContent && renderAdditionalContent()}
+
+      {/* Recurrence Pattern Modal */}
+      <RecurrencePatternModal
+        isOpen={showRecurrenceModal}
+        onClose={() => setShowRecurrenceModal(false)}
+        onSave={handleRecurrenceSave}
+        initialPattern={recurrencePattern}
+        eventStartDate={formData.startDate}
+        existingSeriesDates={seriesEvents.map(e => e.startDate?.split('T')[0]).filter(Boolean)}
+      />
     </div>
   );
 }

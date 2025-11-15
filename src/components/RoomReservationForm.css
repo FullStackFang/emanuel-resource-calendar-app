@@ -250,6 +250,65 @@
   margin-bottom: 0;
 }
 
+/* Recurrence Summary Display */
+.recurrence-summary-display {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #e8f0fe;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 0 0 16px 0;
+}
+
+.recurrence-summary-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+}
+
+.recurrence-icon {
+  font-size: 1.2rem;
+  color: #1a73e8;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.recurrence-text {
+  color: #1a73e8;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-line;
+  flex: 1;
+}
+
+.recurrence-summary-display .recurrence-remove-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #dc2626;
+  color: white;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.recurrence-summary-display .recurrence-remove-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.recurrence-summary-display .recurrence-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Compact time fields - 2 per row */
 .time-fields-stack {
   display: grid;
@@ -1397,3 +1456,99 @@
 }
 
 /* ===== Nested History Tabs (REMOVED - Now using main tabs in ReviewModal) ===== */
+/* ===== Recurrence UI Styles ===== */
+
+/* Make Recurring Button */
+.recurrence-button-wrapper {
+  margin: 16px 0;
+}
+
+.make-recurring-btn {
+  padding: 10px 20px;
+  background: white;
+  border: 1px solid #1a73e8;
+  border-radius: 6px;
+  color: #1a73e8;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.make-recurring-btn:hover:not(:disabled) {
+  background: #e8f0fe;
+  border-color: #1557b0;
+  color: #1557b0;
+}
+
+.make-recurring-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Recurrence Summary */
+.recurrence-summary {
+  background: #e8f0fe;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+}
+
+.recurrence-summary-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.recurrence-icon {
+  font-size: 1.2rem;
+}
+
+.recurrence-summary-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.recurrence-edit-btn,
+.recurrence-remove-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.recurrence-edit-btn {
+  background: white;
+  color: #1a73e8;
+  border: 1px solid #1a73e8;
+}
+
+.recurrence-edit-btn:hover:not(:disabled) {
+  background: #d2e3fc;
+}
+
+.recurrence-remove-btn {
+  background: #dc2626;
+  color: white;
+}
+
+.recurrence-remove-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.recurrence-edit-btn:disabled,
+.recurrence-remove-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -4375,12 +4375,16 @@
 
           console.log('DEBUG: Validation passed');
 
+          // Detect if editing existing event or creating new one
+          const isEditingExistingEvent = !!(reservationData.eventId || reservationData.id);
+
           // Check for multi-day event creation - combines date range with ad hoc dates
           const hasAdHocDates = reservationData.adHocDates && reservationData.adHocDates.length > 0;
           const isMultiDayRange = reservationData.startDate !== reservationData.endDate;
           const isMultiDay = hasAdHocDates || isMultiDayRange;
 
           console.log('DEBUG: Multi-day check', {
+            isEditingExistingEvent,
             startDate: reservationData.startDate,
             endDate: reservationData.endDate,
             adHocDates: reservationData.adHocDates,
@@ -4392,27 +4396,40 @@
 
           if (isMultiDay) {
             console.log('DEBUG: ✅ MULTI-DAY DETECTED - Entering multi-day block', {
+              isEditingExistingEvent,
               hasDateRange: isMultiDayRange,
               hasAdHocDates: hasAdHocDates
             });
 
-            // Generate combined list of dates (range + ad hoc, removing duplicates)
+            // Generate list of dates based on whether this is new or existing event
             const allDates = new Set();
 
-            // Add dates from range
-            const startDate = new Date(reservationData.startDate);
-            const endDate = new Date(reservationData.endDate);
-            const rangeDayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-            for (let i = 0; i < rangeDayCount; i++) {
-              const currentDate = new Date(startDate);
-              currentDate.setDate(startDate.getDate() + i);
-              const dateStr = currentDate.toISOString().split('T')[0];
-              allDates.add(dateStr);
-            }
+            if (isEditingExistingEvent) {
+              // EDITING EXISTING EVENT: Only create events for NEW ad hoc dates
+              // Don't regenerate the date range - those events already exist
+              console.log('DEBUG: Editing existing event - using ONLY ad hoc dates');
+              if (hasAdHocDates) {
+                reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
+              }
+            } else {
+              // CREATING NEW EVENT: Combine range + ad hoc dates
+              console.log('DEBUG: Creating new event - combining range + ad hoc dates');
 
-            // Add ad hoc dates (if any)
-            if (hasAdHocDates) {
-              reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
+              // Add dates from range
+              const startDate = new Date(reservationData.startDate);
+              const endDate = new Date(reservationData.endDate);
+              const rangeDayCount = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+              for (let i = 0; i < rangeDayCount; i++) {
+                const currentDate = new Date(startDate);
+                currentDate.setDate(startDate.getDate() + i);
+                const dateStr = currentDate.toISOString().split('T')[0];
+                allDates.add(dateStr);
+              }
+
+              // Add ad hoc dates (if any)
+              if (hasAdHocDates) {
+                reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
+              }
             }
 
             const dayCount = allDates.size;
@@ -4739,6 +4756,16 @@
 
       logger.debug('Modal reopened with new event');
     }, [allEvents, showNotification, eventReviewModal, reviewModal]);
+
+    /**
+     * Handle navigation state changes for event review modal
+     */
+    const handleEventReviewIsNavigatingChange = useCallback((isNavigating) => {
+      setEventReviewModal(prev => ({
+        ...prev,
+        isNavigating
+      }));
+    }, []);
 
     /**
      * Handle deletion of registration events when a TempleEvents event is deleted
@@ -5818,7 +5845,9 @@
           showTabs={true}
           saveButtonText={
             pendingMultiDayConfirmation
-              ? `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`
+              ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
+                  ? `⚠️ Confirm Adding (${pendingMultiDayConfirmation.eventCount}) Events to Series`
+                  : `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`)
               : (!eventReviewModal.event?.id && userPermissions.isAdmin
                 ? '✨ Create'
                 : null)
@@ -5852,12 +5881,7 @@
                   setPendingEventDeleteConfirmation(false);
                 }
               }}
-              onIsNavigatingChange={(isNavigating) => {
-                setEventReviewModal(prev => ({
-                  ...prev,
-                  isNavigating
-                }));
-              }}
+              onIsNavigatingChange={handleEventReviewIsNavigatingChange}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}
