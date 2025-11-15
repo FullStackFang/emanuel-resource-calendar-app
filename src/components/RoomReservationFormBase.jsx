@@ -785,25 +785,36 @@ export default function RoomReservationFormBase({
                 <div className="recurrence-summary-content">
                   <span className="recurrence-icon">↻</span>
                   <span className="recurrence-text">
-                    {formatRecurrenceSummaryEnhanced(
-                      recurrencePattern.pattern,
-                      recurrencePattern.range,
-                      recurrencePattern.additions,
-                      recurrencePattern.exclusions
-                    )}
+                    {(() => {
+                      const summary = formatRecurrenceSummaryEnhanced(
+                        recurrencePattern.pattern,
+                        recurrencePattern.range,
+                        recurrencePattern.additions,
+                        recurrencePattern.exclusions
+                      );
+
+                      return (
+                        <>
+                          {summary.base}
+                          {summary.exclusions.length > 0 && (
+                            <> {summary.exclusions.map((d, i) => (
+                              <span key={`exc-${i}`} style={{color: 'red', fontWeight: '500'}}>
+                                {i === 0 ? ' (excluded: ' : ', '}{d.text}
+                              </span>
+                            ))}<span style={{color: 'red'}}>)</span></>
+                          )}
+                          {summary.additions.length > 0 && (
+                            <> {summary.additions.map((d, i) => (
+                              <span key={`add-${i}`} style={{color: 'green', fontWeight: '500'}}>
+                                {i === 0 ? ' (ad-hoc: ' : ', '}{d.text}
+                              </span>
+                            ))}<span style={{color: 'green'}}>)</span></>
+                          )}
+                        </>
+                      );
+                    })()}
                   </span>
                 </div>
-                {!initialData.eventId && !initialData.id && (
-                  <button
-                    type="button"
-                    className="recurrence-remove-btn"
-                    onClick={handleRemoveRecurrence}
-                    disabled={fieldsDisabled}
-                    title="Remove recurrence pattern"
-                  >
-                    ✕ Remove
-                  </button>
-                )}
               </div>
             )}
 
@@ -829,7 +840,7 @@ export default function RoomReservationFormBase({
                   onClick={() => setShowRecurrenceModal(true)}
                   disabled={fieldsDisabled}
                 >
-                  {recurrencePattern ? '✓ ' : ''}↻ Make Recurring
+                  {recurrencePattern ? '↻ Edit Recurring' : '↻ Make Recurring'}
                 </button>
               )}
 

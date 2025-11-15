@@ -39,7 +39,6 @@ export default function RecurrencePatternModal({
   const [occurrenceCount, setOccurrenceCount] = useState(10);
 
   // Calendar preview state
-  const [calendarMode, setCalendarMode] = useState('add'); // 'add' | 'exclude'
   const [adHocAdditions, setAdHocAdditions] = useState([]);
   const [adHocExclusions, setAdHocExclusions] = useState([]);
   const [viewMonth, setViewMonth] = useState(new Date());
@@ -72,6 +71,15 @@ export default function RecurrencePatternModal({
       if (additions) setAdHocAdditions(additions);
       if (exclusions) setAdHocExclusions(exclusions);
     } else {
+      // Reset all state to defaults when no pattern exists
+      setFrequency('weekly');
+      setInterval(1);
+      setDaysOfWeek(['monday']);
+      setEndType('endDate');
+      setOccurrenceCount(10);
+      setAdHocAdditions([]);
+      setAdHocExclusions([]);
+
       // Set default start date to event start date or today
       const defaultStart = eventStartDate || new Date().toISOString().split('T')[0];
       setStartDate(defaultStart);
@@ -125,11 +133,10 @@ export default function RecurrencePatternModal({
     } else if (isAdded) {
       // Already added - remove from additions
       setAdHocAdditions(prev => prev.filter(d => d !== dateStr));
-    } else if (calendarMode === 'add') {
-      // Not in pattern, not added - add it in Add mode
+    } else {
+      // Not in pattern, not added - add it as ad-hoc date
       setAdHocAdditions(prev => [...prev, dateStr]);
     }
-    // In Exclude mode on non-pattern dates, do nothing
   };
 
   // Remove ad hoc date chip
@@ -152,10 +159,8 @@ export default function RecurrencePatternModal({
     );
   };
 
-  // Auto-save pattern whenever state changes
-  useEffect(() => {
-    if (!isOpen) return;
-
+  // Save pattern
+  const handleSave = () => {
     // Build recurrence pattern object
     const pattern = {
       type: frequency,
@@ -171,17 +176,41 @@ export default function RecurrencePatternModal({
       numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined
     };
 
+    // Calculate ALL pattern dates (not just current month view)
+    const allPatternDates = startDate ? calculateRecurrenceDates(
+      pattern,
+      range,
+      new Date(startDate) // Use start date as base
+    ) : [];
+
+    // Clean up: Remove ad-hoc additions that are now covered by the pattern
+    const cleanedAdditions = adHocAdditions.filter(dateStr => !allPatternDates.includes(dateStr));
+
+    // Clean up: Remove exclusions that are no longer in the pattern
+    const cleanedExclusions = adHocExclusions.filter(dateStr => allPatternDates.includes(dateStr));
+
+    logger.debug('Recurrence pattern saved:', {
+      pattern,
+      range,
+      additions: cleanedAdditions,
+      exclusions: cleanedExclusions,
+      removed: {
+        additionsNowInPattern: adHocAdditions.filter(d => !cleanedAdditions.includes(d)),
+        exclusionsNoLongerInPattern: adHocExclusions.filter(d => !cleanedExclusions.includes(d))
+      }
+    });
+
     onSave({
       pattern,
       range,
-      additions: adHocAdditions,
-      exclusions: adHocExclusions
+      additions: cleanedAdditions,
+      exclusions: cleanedExclusions
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frequency, interval, daysOfWeek, startDate, endType, endDate, occurrenceCount, adHocAdditions, adHocExclusions, isOpen]);
+    onClose();
+  };
 
-  // Close handler
-  const handleClose = () => {
+  // Discard changes and close
+  const handleDiscard = () => {
     onClose();
   };
 
@@ -208,14 +237,14 @@ export default function RecurrencePatternModal({
   const patternDates = getPatternDates();
 
   return (
-    <div className="recurrence-modal-overlay" onClick={handleClose}>
+    <div className="recurrence-modal-overlay" onClick={handleDiscard}>
       <div className="recurrence-modal" onClick={(e) => e.stopPropagation()}>
         <div className="recurrence-modal-header">
           <h2>Repeat</h2>
           <button
             type="button"
             className="recurrence-close-btn"
-            onClick={handleClose}
+            onClick={handleDiscard}
             aria-label="Close"
           >
             ×
@@ -226,24 +255,6 @@ export default function RecurrencePatternModal({
           <div className="recurrence-modal-columns">
             {/* Left Column - Calendar Preview */}
             <div className="recurrence-calendar-column">
-              {/* Mode Toggle */}
-              <div className="calendar-mode-toggle">
-                <button
-                  type="button"
-                  className={`mode-btn ${calendarMode === 'add' ? 'active' : ''}`}
-                  onClick={() => setCalendarMode('add')}
-                >
-                  ➕ Add Mode
-                </button>
-                <button
-                  type="button"
-                  className={`mode-btn ${calendarMode === 'exclude' ? 'active' : ''}`}
-                  onClick={() => setCalendarMode('exclude')}
-                >
-                  ➖ Exclude Mode
-                </button>
-              </div>
-
               {/* Calendar */}
               <DatePicker
                 inline
@@ -380,56 +391,58 @@ export default function RecurrencePatternModal({
                 </div>
               )}
 
-              {/* Ad Hoc Dates Section - Moved to right column */}
+              {/* Ad Hoc Dates Section - Two columns */}
               {(adHocAdditions.length > 0 || adHocExclusions.length > 0) && (
                 <div className="adhoc-dates-section">
-                  {adHocAdditions.length > 0 && (
-                    <div className="adhoc-dates-group">
-                      <h4>Added Dates:</h4>
-                      <div className="adhoc-dates-grid">
-                        {adHocAdditions.map(dateStr => (
-                          <div key={dateStr} className="adhoc-date-chip addition">
-                            <span>{new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric'
-                            })}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAdHocDate(dateStr, 'addition')}
-                              aria-label="Remove"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
+                  <div className="adhoc-dates-columns">
+                    {adHocAdditions.length > 0 && (
+                      <div className="adhoc-dates-group">
+                        <h4>Ad-hoc Dates:</h4>
+                        <div className="adhoc-dates-grid">
+                          {adHocAdditions.map(dateStr => (
+                            <div key={dateStr} className="adhoc-date-chip addition">
+                              <span>{new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric'
+                              })}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAdHocDate(dateStr, 'addition')}
+                                aria-label="Remove"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {adHocExclusions.length > 0 && (
-                    <div className="adhoc-dates-group">
-                      <h4>Excluded Dates:</h4>
-                      <div className="adhoc-dates-grid">
-                        {adHocExclusions.map(dateStr => (
-                          <div key={dateStr} className="adhoc-date-chip exclusion">
-                            <span>{new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric'
-                            })}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveAdHocDate(dateStr, 'exclusion')}
-                              aria-label="Remove"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
+                    {adHocExclusions.length > 0 && (
+                      <div className="adhoc-dates-group">
+                        <h4>Excluded Dates:</h4>
+                        <div className="adhoc-dates-grid">
+                          {adHocExclusions.map(dateStr => (
+                            <div key={dateStr} className="adhoc-date-chip exclusion">
+                              <span>{new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric'
+                              })}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAdHocDate(dateStr, 'exclusion')}
+                                aria-label="Remove"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -440,19 +453,25 @@ export default function RecurrencePatternModal({
           <button
             type="button"
             className="recurrence-btn recurrence-btn-save"
-            onClick={handleClose}
+            onClick={handleSave}
           >
-            Done
+            Save
           </button>
-          {initialPattern && (
-            <button
-              type="button"
-              className="recurrence-btn recurrence-btn-remove"
-              onClick={handleRemove}
-            >
-              Remove recurrence
-            </button>
-          )}
+          <button
+            type="button"
+            className="recurrence-btn recurrence-btn-discard"
+            onClick={handleDiscard}
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            className="recurrence-btn recurrence-btn-remove"
+            onClick={handleRemove}
+            disabled={!initialPattern}
+          >
+            Remove
+          </button>
         </div>
       </div>
     </div>

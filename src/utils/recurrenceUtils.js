@@ -199,47 +199,57 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
 export function formatRecurrenceSummary(pattern, range) {
   if (!pattern) return '';
 
-  let summary = 'Occurs ';
+  const dayAbbreviations = {
+    sunday: 'Su',
+    monday: 'M',
+    tuesday: 'Tu',
+    wednesday: 'W',
+    thursday: 'Th',
+    friday: 'F',
+    saturday: 'S'
+  };
+
+  let summary = 'Occurs every ';
   const { type, interval = 1, daysOfWeek } = pattern;
 
   switch (type) {
     case 'daily':
-      summary += interval === 1 ? 'daily' : `every ${interval} days`;
+      summary += interval === 1 ? 'day' : `${interval} days`;
       break;
 
     case 'weekly': {
       if (daysOfWeek && daysOfWeek.length > 0) {
-        const dayNames = daysOfWeek.map(d => d.charAt(0).toUpperCase() + d.slice(1));
-        summary += `every ${dayNames.join(', ')}`;
+        const dayAbbrevs = daysOfWeek.map(d => dayAbbreviations[d.toLowerCase()] || d);
+        summary += dayAbbrevs.join(', ');
       } else {
-        summary += interval === 1 ? 'weekly' : `every ${interval} weeks`;
+        summary += interval === 1 ? 'week' : `${interval} weeks`;
       }
       break;
     }
 
     case 'monthly':
-      summary += interval === 1 ? 'monthly' : `every ${interval} months`;
+      summary += interval === 1 ? 'month' : `${interval} months`;
       break;
 
     case 'yearly':
-      summary += interval === 1 ? 'yearly' : `every ${interval} years`;
+      summary += interval === 1 ? 'year' : `${interval} years`;
       break;
 
     default:
       return '';
   }
 
-  // Add end information
+  // Add end information on new line
   if (range) {
     if (range.type === 'endDate' && range.endDate) {
       const date = new Date(range.endDate);
-      summary += ` until ${date.toLocaleDateString('en-US', {
+      summary += `\nUntil ${date.toLocaleDateString('en-US', {
         month: 'short',
-        day: '2-digit',
+        day: 'numeric',
         year: 'numeric'
       })}`;
     } else if (range.type === 'numbered' && range.numberOfOccurrences) {
-      summary += ` for ${range.numberOfOccurrences} occurrence${range.numberOfOccurrences > 1 ? 's' : ''}`;
+      summary += `\nFor ${range.numberOfOccurrences} occurrence${range.numberOfOccurrences > 1 ? 's' : ''}`;
     }
   }
 
@@ -275,27 +285,29 @@ export function stringsToDates(dateStrings) {
 export function formatRecurrenceSummaryEnhanced(pattern, range, additions = [], exclusions = []) {
   if (!pattern) return '';
 
-  let summary = formatRecurrenceSummary(pattern, range);
+  const baseSummary = formatRecurrenceSummary(pattern, range);
 
-  // Add exclusions on new line
-  if (exclusions.length > 0) {
-    const excludeDates = exclusions.map(dateStr => {
-      const date = new Date(dateStr + 'T00:00:00');
-      return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
-    }).join(', ');
+  // Build arrays of formatted dates with color metadata
+  const formattedExclusions = exclusions.map(dateStr => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return {
+      text: date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
+      color: 'red'
+    };
+  });
 
-    summary += `\nExcl Dates: ${excludeDates}`;
-  }
+  const formattedAdditions = additions.map(dateStr => {
+    const date = new Date(dateStr + 'T00:00:00');
+    return {
+      text: date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
+      color: 'green'
+    };
+  });
 
-  // Add additions on new line
-  if (additions.length > 0) {
-    const addDates = additions.map(dateStr => {
-      const date = new Date(dateStr + 'T00:00:00');
-      return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
-    }).join(', ');
-
-    summary += `\nAdded Dates: ${addDates}`;
-  }
-
-  return summary;
+  // Return object with base summary and colored dates for React rendering
+  return {
+    base: baseSummary,
+    exclusions: formattedExclusions,
+    additions: formattedAdditions
+  };
 }

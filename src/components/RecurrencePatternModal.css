@@ -515,8 +515,14 @@
   border-top: 1px solid #e5e7eb;
 }
 
+.adhoc-dates-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
 .adhoc-dates-group {
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .adhoc-dates-group:last-child {
@@ -623,9 +629,15 @@
   border: 1px solid #d1d5db;
 }
 
-.recurrence-btn-remove:hover {
+.recurrence-btn-remove:hover:not(:disabled) {
   background: #f3f4f6;
   border-color: #9ca3af;
+}
+
+.recurrence-btn-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #9ca3af;
 }
 
 /* Responsive Design */
@@ -667,6 +679,18 @@
 @media (max-width: 640px) {
   .calendar-mode-toggle {
     flex-direction: column;
+  }
+
+  .adhoc-dates-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .adhoc-dates-group {
+    margin-bottom: 12px;
+  }
+
+  .adhoc-dates-group:last-child {
+    margin-bottom: 0;
   }
 
   .adhoc-dates-grid {

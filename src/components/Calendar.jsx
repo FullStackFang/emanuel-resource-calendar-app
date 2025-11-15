@@ -179,7 +179,7 @@
     // Profile states
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
-    const { generalLocations } = useLocations();
+    const { generalLocations, loading: locationsLoading } = useLocations();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -2830,7 +2830,7 @@
       return days;
     }, [dateRange.start, dateRange.end]);
 
-    const dynamicLocations = useMemo(() => getDynamicLocations(), [getDynamicLocations]);
+    const dynamicLocations = useMemo(() => getDynamicLocations(), [getDynamicLocations, generalLocations.length]);
     const dynamicCategories = useMemo(() => getDynamicCategories(), [getDynamicCategories]);
 
     /**
@@ -5356,14 +5356,14 @@
         return groups;
       }
       return {};
-    }, [groupBy, getLocationGroups]);
+    }, [groupBy, getLocationGroups, generalLocations.length]);
 
     //---------------------------------------------------------------------------
     // RENDERING
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        {(loading || initializing) && <LoadingOverlay/>}
+        {(loading || initializing || locationsLoading) && <LoadingOverlay/>}
         
         {/* Calendar Header */}
         <CalendarHeader
