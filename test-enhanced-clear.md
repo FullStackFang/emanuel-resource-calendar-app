@@ -8,11 +8,11 @@
 
 ### Enhanced `/admin/csv-import/clear-stream` Endpoint
 
-1. **Multi-Collection Deletion**: Now deletes from 4 collections instead of just 1:
-   - `templeEvents__Events` (unifiedEvents) - Main event data
-   - `templeEvents__Events` (registrationEvents) - Registration-specific events  
-   - `templeEvents__InternalEvents` - Internal event enrichments
-   - `eventCache` - Cached event data
+1. **Multi-Collection Deletion**: Now deletes from the unified collection:
+   - `templeEvents__Events` (unifiedEvents) - Main event data with all enrichments
+
+   **Note**: Previously deleted from multiple collections (`templeEvents__InternalEvents`, `eventCache`)
+   which have been deprecated and consolidated into `templeEvents__Events`
 
 2. **Detailed Progress Tracking**: 
    - Collection-specific progress updates

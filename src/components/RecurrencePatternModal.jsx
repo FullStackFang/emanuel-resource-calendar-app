@@ -74,7 +74,6 @@ export default function RecurrencePatternModal({
       // Reset all state to defaults when no pattern exists
       setFrequency('weekly');
       setInterval(1);
-      setDaysOfWeek(['monday']);
       setEndType('endDate');
       setOccurrenceCount(10);
       setAdHocAdditions([]);
@@ -84,6 +83,13 @@ export default function RecurrencePatternModal({
       const defaultStart = eventStartDate || new Date().toISOString().split('T')[0];
       setStartDate(defaultStart);
       setViewMonth(new Date(defaultStart));
+
+      // Auto-calculate day of week from event start date
+      const startDateObj = new Date(defaultStart);
+      const dayOfWeekIndex = startDateObj.getDay(); // 0=Sunday, 1=Monday, etc.
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const defaultDay = dayNames[dayOfWeekIndex];
+      setDaysOfWeek([defaultDay]);
 
       // Set default end date to 3 months from start date
       const defaultEnd = new Date(eventStartDate || new Date());
@@ -161,6 +167,41 @@ export default function RecurrencePatternModal({
 
   // Save pattern
   const handleSave = () => {
+    // Validate and adjust start date for weekly recurrence
+    let adjustedStartDate = startDate;
+    if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
+      const startDateObj = new Date(startDate);
+      const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+      const startDayOfWeek = dayNames[startDateObj.getDay()];
+
+      // Check if start date's day of week is in the selected days
+      if (!daysOfWeek.includes(startDayOfWeek)) {
+        // Find the next valid day in the pattern
+        // Convert selected days to day indices for comparison
+        const selectedDayIndices = daysOfWeek.map(day => dayNames.indexOf(day)).sort((a, b) => a - b);
+        const currentDayIndex = startDateObj.getDay();
+
+        // Find the next day that matches the pattern
+        let nextDayIndex = selectedDayIndices.find(idx => idx > currentDayIndex);
+        if (nextDayIndex === undefined) {
+          // Wrap to next week
+          nextDayIndex = selectedDayIndices[0] + 7;
+        }
+
+        const daysToAdd = nextDayIndex - currentDayIndex;
+        const adjustedDate = new Date(startDateObj);
+        adjustedDate.setDate(adjustedDate.getDate() + daysToAdd);
+        adjustedStartDate = adjustedDate.toISOString().split('T')[0];
+
+        logger.debug('Adjusted start date to match recurrence pattern:', {
+          originalStartDate: startDate,
+          adjustedStartDate,
+          selectedDays: daysOfWeek,
+          reason: `Start date was ${startDayOfWeek}, but pattern requires ${daysOfWeek.join(', ')}`
+        });
+      }
+    }
+
     // Build recurrence pattern object
     const pattern = {
       type: frequency,
@@ -171,7 +212,7 @@ export default function RecurrencePatternModal({
 
     const range = {
       type: endType,
-      startDate: startDate,
+      startDate: adjustedStartDate,
       endDate: endType === 'endDate' ? endDate : undefined,
       numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined
     };

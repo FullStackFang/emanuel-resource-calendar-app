@@ -68,10 +68,19 @@ export function isDateInPattern(date, pattern, startDate) {
       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const checkDayName = dayNames[checkDate.getDay()];
 
-      if (!daysOfWeek.includes(checkDayName)) return false;
+      // Normalize day names to lowercase for case-insensitive comparison
+      const normalizedDaysOfWeek = daysOfWeek.map(d => d.toLowerCase());
+      if (!normalizedDaysOfWeek.includes(checkDayName)) return false;
 
       // Check if it's the right week interval
-      const weeksDiff = Math.floor((checkDate - start) / (1000 * 60 * 60 * 24 * 7));
+      // Normalize both dates to midnight to avoid time-of-day and timezone issues
+      const checkMidnight = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
+      const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+
+      // Calculate days difference first, then weeks (more reliable than millisecond division)
+      const daysDiff = Math.floor((checkMidnight - startMidnight) / (1000 * 60 * 60 * 24));
+      const weeksDiff = Math.floor(daysDiff / 7);
+
       return weeksDiff % interval === 0;
     }
 
@@ -171,7 +180,11 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
 
   while (current <= rangeEnd && count < maxOccurrences) {
     if (isDateInPattern(current, pattern, new Date(range.startDate))) {
-      const occurrenceDate = current.toISOString().split('T')[0];
+      // Use local date components to avoid UTC conversion/timezone shifts
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0');
+      const day = String(current.getDate()).padStart(2, '0');
+      const occurrenceDate = `${year}-${month}-${day}`;
 
       // Check if this occurrence has an exception
       const exception = exceptions.find(ex =>
@@ -190,10 +203,15 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
         // If cancelled, skip this occurrence
       } else {
         // Create occurrence from master
-        const startTime = masterEvent.start.dateTime.split('T')[1];
-        const endTime = masterEvent.end.dateTime.split('T')[1];
+        // Extract time portion, keeping Graph API format (HH:MM:SS.0000000, no Z)
+        // Explicitly strip any Z suffix before taking substring
+        const startTime = masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+        const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
 
         occurrences.push({
+          // Include fields from master first, then override with occurrence-specific values
+          ...masterEvent,
+          // Override with occurrence-specific fields
           eventId: `${masterEvent.eventId}-${occurrenceDate}`,
           seriesMasterId: masterEvent.eventId,
           subject: masterEvent.subject,
@@ -207,9 +225,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
           },
           location: masterEvent.location,
           isRecurring: true,
-          isException: false,
-          // Include any other fields from master
-          ...masterEvent
+          isException: false
         });
       }
 

@@ -93,21 +93,24 @@ The application uses a **hybrid storage model**:
   }
 }
 
-// Collection: templeEvents__InternalEvents
+// Collection: templeEvents__Events (Unified Event Storage)
 {
   eventId: "event-guid",
+  userId: "user-id",
+  calendarId: "calendar-id",
+  graphData: {
+    // Original Graph API event data
+  },
   internalData: {
-    // Extended event metadata
-  }
+    // Extended event metadata and enrichments
+  },
+  lastSyncedAt: Date,
+  isDeleted: false
 }
 
-// Collection: eventCache
-{
-  // Temporary cache for performance
-  userId, calendarId, eventId,
-  cachedAt: Date,
-  ttl: 900 // 15 minutes
-}
+// DEPRECATED Collections (no longer used):
+// - templeEvents__InternalEvents (consolidated into templeEvents__Events)
+// - templeEvents__EventCache (consolidated into templeEvents__Events)
 ```
 
 #### 2. **Microsoft Graph API** (Source of Truth for Calendar Data)

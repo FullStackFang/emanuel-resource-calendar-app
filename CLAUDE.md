@@ -43,13 +43,18 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 - **Database**: MongoDB (Azure Cosmos DB)
 - **Collections**:
   - `templeEvents__Users`: User profiles and preferences
-  - `templeEvents__InternalEvents`: Event data with internal enrichments
+  - `templeEvents__Events`: Unified event storage with Graph data and internal enrichments
+  - `templeEvents__CalendarDeltas`: Delta token storage for efficient syncing
   - `templeEvents__Locations`: Location and room data (replaces templeEvents__Rooms)
     - Locations with `isReservable: true` are available for room reservations
     - Also stores event locations from Graph API with alias management
-  - `templeEvents__Rooms`: **DEPRECATED** - Room data migrated to templeEvents__Locations
   - `templeEvents__RoomReservations`: Room reservation requests
   - `templeEvents__ReservationTokens`: Guest access tokens for public forms
+  - `templeEvents__EventAttachments`: File attachments for events (GridFS)
+  - `templeEvents__EventAuditHistory`: Event change tracking and audit logs
+  - **DEPRECATED**: `templeEvents__Rooms` (migrated to templeEvents__Locations)
+  - **DEPRECATED**: `templeEvents__InternalEvents` (consolidated into templeEvents__Events)
+  - **DEPRECATED**: `templeEvents__EventCache` (consolidated into templeEvents__Events)
 - **Authentication**: JWT validation with JWKS
 
 ### Key Services

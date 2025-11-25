@@ -1,13 +1,21 @@
 // migrate-remove-location-field.js
-// Migration script to remove the redundant 'location' field from templeEvents__InternalEvents collection
-// This field is redundant with 'locationDisplayNames' and should be removed
+// ⚠️  DEPRECATED MIGRATION SCRIPT - DO NOT USE ⚠️
+//
+// This migration script was for the old templeEvents__InternalEvents collection
+// which has been deprecated and consolidated into templeEvents__Events.
+//
+// This script is kept for historical reference only.
+// Use the unified templeEvents__Events collection instead.
+//
+// Original purpose: Remove the redundant 'location' field from templeEvents__InternalEvents collection
+// This field was redundant with 'locationDisplayNames' and was removed
 
 require('dotenv').config();
 const { MongoClient, ObjectId } = require('mongodb');
 
 const MONGO_URI = process.env.MONGODB_URI;
 const DB_NAME = process.env.MONGODB_DB_NAME || 'templeEventsDB';
-const COLLECTION_NAME = 'templeEvents__InternalEvents';
+const COLLECTION_NAME = 'templeEvents__Events'; // Updated to use unified collection
 
 async function migrateRemoveLocationField() {
   console.log('🚀 Starting migration: Remove redundant location field');

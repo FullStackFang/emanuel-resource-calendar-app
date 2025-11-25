@@ -163,10 +163,13 @@ Temple Events Calendar application with Microsoft 365 integration, providing com
 
 **Database Collections:**
 - `templeEvents__Users`: User profiles and preferences
-- `templeEvents__InternalEvents`: Enhanced event data
-- `templeEvents__Rooms`: Room definitions
+- `templeEvents__Events`: Unified event storage with Graph data and enrichments
+- `templeEvents__CalendarDeltas`: Delta token storage for efficient syncing
+- `templeEvents__Locations`: Location and room definitions (replaces templeEvents__Rooms)
 - `templeEvents__RoomReservations`: Reservation requests
 - `templeEvents__ReservationTokens`: Guest access tokens
+- `templeEvents__EventAttachments`: File attachments (GridFS)
+- `templeEvents__EventAuditHistory`: Event change tracking
 
 ---
 

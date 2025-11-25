@@ -2336,6 +2336,9 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         showAs: graphEvent.showAs || 'busy',
         sensitivity: graphEvent.sensitivity || 'normal',
         isAllDay: graphEvent.isAllDay || false,
+        type: graphEvent.type || 'singleInstance',
+        seriesMasterId: graphEvent.seriesMasterId || null,
+        recurrence: graphEvent.recurrence || null,
         organizer: graphEvent.organizer,
         attendees: graphEvent.attendees || [],
         lastModifiedDateTime: graphEvent.lastModifiedDateTime,
@@ -2542,6 +2545,14 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // Category/assignment fields
     unifiedEvent.mecCategories = internalData.mecCategories || [];
     unifiedEvent.assignedTo = internalData.assignedTo || '';
+
+    // Preserve original user-defined recurrence pattern if it exists
+    // Graph API may adjust the recurrence (e.g., change start date to match day of week)
+    // We want to keep the user's original pattern in internalData for reference
+    // Note: existingEvent was already queried at line 2312
+    if (existingEvent?.internalData?.recurrence) {
+      unifiedEvent.internalData.recurrence = existingEvent.internalData.recurrence;
+    }
 
     // Use upsert to handle updates while preserving internal data
     // Query using $or to match either unique index constraint:
@@ -3153,14 +3164,89 @@ async function getUnifiedEvents(userId, calendarId = null, startDate = null, end
 
     // Add date range filter if specified
     if (startDate && endDate) {
-      query.$and = [
-        { "graphData.start.dateTime": { $lt: endDate.toISOString() } },
-        { "graphData.end.dateTime": { $gt: startDate.toISOString() } }
+      const startDateOnly = startDate.toISOString().split('T')[0];  // YYYY-MM-DD
+      const endDateOnly = endDate.toISOString().split('T')[0];      // YYYY-MM-DD
+
+      query.$or = [
+        // Regular events (NOT series masters): include if they overlap with view range
+        {
+          $and: [
+            { "graphData.type": { $ne: "seriesMaster" } },  // Exclude series masters from this branch
+            { "graphData.start.dateTime": { $lt: endDate.toISOString() } },
+            { "graphData.end.dateTime": { $gt: startDate.toISOString() } }
+          ]
+        },
+        // Series masters: include if their recurrence pattern overlaps with view range
+        {
+          $and: [
+            { "graphData.type": "seriesMaster" },
+            { "graphData.recurrence": { $exists: true, $ne: null } },
+            // Recurrence has started before or during view
+            { "graphData.recurrence.range.startDate": { $lte: endDateOnly } },
+            // Recurrence hasn't ended before view starts
+            {
+              $or: [
+                { "graphData.recurrence.range.type": "noEnd" },
+                { "graphData.recurrence.range.endDate": { $gte: startDateOnly } }
+              ]
+            }
+          ]
+        }
       ];
+
+      // DEBUG: Log query details for recurring event troubleshooting
+      logger.debug('🔍 Query details for date range:', {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        startDateOnly,
+        endDateOnly
+      });
+    }
+
+    // DEBUG: Check all series masters in the database for this user/calendar
+    if (startDate && endDate) {
+      const seriesMastersQuery = {
+        userId: userId,
+        isDeleted: { $ne: true },
+        "graphData.type": "seriesMaster",
+        ...(calendarId && { calendarId })
+      };
+      const allSeriesMasters = await unifiedEventsCollection.find(seriesMastersQuery).toArray();
+
+      logger.debug('📊 All series masters in database:', {
+        count: allSeriesMasters.length,
+        masters: allSeriesMasters.map(e => ({
+          subject: e.graphData?.subject,
+          firstOccurrenceStart: e.graphData?.start?.dateTime,
+          firstOccurrenceEnd: e.graphData?.end?.dateTime,
+          recurrenceRangeStart: e.graphData?.recurrence?.range?.startDate,
+          recurrenceRangeEnd: e.graphData?.recurrence?.range?.endDate,
+          recurrenceType: e.graphData?.recurrence?.range?.type,
+          patternType: e.graphData?.recurrence?.pattern?.type,
+          daysOfWeek: e.graphData?.recurrence?.pattern?.daysOfWeek
+        }))
+      });
     }
 
     const events = await unifiedEventsCollection.find(query).toArray();
-    
+
+    // DEBUG: Categorize returned events
+    if (startDate && endDate) {
+      const regularEvents = events.filter(e => e.graphData?.type !== 'seriesMaster');
+      const seriesMasters = events.filter(e => e.graphData?.type === 'seriesMaster');
+
+      logger.debug('✅ Query returned events:', {
+        totalEvents: events.length,
+        regularEvents: regularEvents.length,
+        seriesMasters: seriesMasters.length,
+        seriesMasterDetails: seriesMasters.map(e => ({
+          subject: e.graphData?.subject,
+          recurrenceRangeStart: e.graphData?.recurrence?.range?.startDate,
+          recurrenceRangeEnd: e.graphData?.recurrence?.range?.endDate
+        }))
+      });
+    }
+
     logger.debug(`Found ${events.length} unified events`, {
       userId,
       calendarId,
@@ -3304,7 +3390,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             `startDateTime=${encodeURIComponent(startISO)}` +
             `&endDateTime=${encodeURIComponent(endISO)}` +
             `&$top=250` +
-            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
+            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
 
           logger.log(`🌐 Calling Graph API (/calendarView) for calendar ${calendarId.substring(0, 20)}...`);
 
@@ -3379,9 +3465,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
             // Add to unified events array
             newEvents.forEach(graphEvent => {
+              // Skip occurrences and exceptions - only store series masters and standalone events
+              // Frontend will expand series masters into occurrences for display
+              if (graphEvent.type === 'occurrence' || graphEvent.type === 'exception') {
+                logger.debug('Skipping Graph API occurrence/exception (frontend will expand):', {
+                  subject: graphEvent.subject,
+                  type: graphEvent.type,
+                  seriesMasterId: graphEvent.seriesMasterId
+                });
+                return; // Skip this event
+              }
+
               // Check if this event already exists in database by graphData.id
               const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
+
+              // Extract top-level date/time fields from Graph data
+              const startDateTime = graphEvent.start?.dateTime;
+              const endDateTime = graphEvent.end?.dateTime;
+              const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
+              const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
 
               const unifiedEvent = {
                 eventId: eventId, // Use existing UUID or generate new one
@@ -3400,6 +3503,9 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   importance: graphEvent.importance,
                   showAs: graphEvent.showAs,
                   sensitivity: graphEvent.sensitivity,
+                  type: graphEvent.type || 'singleInstance',
+                  seriesMasterId: graphEvent.seriesMasterId || null,
+                  recurrence: graphEvent.recurrence || null,
                   organizer: graphEvent.organizer,
                   attendees: graphEvent.attendees || [],
                   extensions: graphEvent.extensions || [],
@@ -3419,6 +3525,27 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   actualCost: null,
                   customFields: {}
                 },
+                // TOP-LEVEL APPLICATION FIELDS (for forms/UI)
+                eventTitle: graphEvent.subject || 'Untitled Event',
+                eventDescription: graphEvent.body?.content || graphEvent.bodyPreview || '',
+                startDateTime: utcStartString,
+                endDateTime: utcEndString,
+                startDate: utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '',
+                startTime: utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '',
+                endDate: utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '',
+                endTime: utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '',
+                isAllDayEvent: graphEvent.isAllDay || false,
+                setupTime: '',
+                teardownTime: '',
+                doorOpenTime: '',
+                doorCloseTime: '',
+                setupTimeMinutes: 0,
+                teardownTimeMinutes: 0,
+                setupNotes: '',
+                doorNotes: '',
+                eventNotes: '',
+                mecCategories: [],
+                assignedTo: '',
                 lastModifiedDateTime: new Date(graphEvent.lastModifiedDateTime || new Date()),
                 lastSyncedAt: new Date(),
                 sourceCalendars: [{
@@ -4170,14 +4297,17 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     if (graphFields && graphToken) {
       try {
         // Construct batch request - use POST for new events, PATCH for existing events
+        // Include $select to ensure response contains type, seriesMasterId, and recurrence fields
+        const selectParams = '$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
+
         const batchBody = {
           requests: [
             {
               id: '1',
               method: isNewEvent ? 'POST' : 'PATCH',
               url: isNewEvent ?
-                (calendarId ? `/me/calendars/${calendarId}/events` : `/me/events`) :
-                (calendarId ? `/me/calendars/${calendarId}/events/${eventId}` : `/me/events/${eventId}`),
+                (calendarId ? `/me/calendars/${calendarId}/events?${selectParams}` : `/me/events?${selectParams}`) :
+                (calendarId ? `/me/calendars/${calendarId}/events/${eventId}?${selectParams}` : `/me/events/${eventId}?${selectParams}`),
               body: graphFields,
               headers: {
                 'Content-Type': 'application/json'
@@ -4214,6 +4344,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           const mainResponse = batchResult.responses[0];
           if (mainResponse.status >= 200 && mainResponse.status < 300) {
             graphUpdateResult = mainResponse.body;
+
             logger.debug(`Graph API ${isNewEvent ? 'create' : 'update'} successful:`, {
               eventId: graphUpdateResult.id,
               subject: graphUpdateResult.subject
@@ -9977,20 +10108,21 @@ app.get('/api/admin/cache/events/:eventId', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { eventId } = req.params;
-    
-    const cacheEntry = await eventCacheCollection.findOne({
+
+    // eventCacheCollection removed - using unifiedEventsCollection instead
+    const cacheEntry = await unifiedEventsCollection.findOne({
       userId: userId,
       eventId: eventId
     });
-    
+
     if (!cacheEntry) {
-      return res.status(404).json({ error: 'Cached event not found' });
+      return res.status(404).json({ error: 'Event not found' });
     }
-    
+
     res.status(200).json({
-      cacheEntry: cacheEntry,
+      event: cacheEntry,
       metadata: {
-        isExpired: cacheEntry.expiresAt < new Date(),
+        lastSyncedAt: cacheEntry.lastSyncedAt,
         timeToExpire: Math.max(0, cacheEntry.expiresAt - new Date()),
         lastAccessedAgo: new Date() - cacheEntry.lastAccessedAt,
         cacheAge: new Date() - cacheEntry.cachedAt,
@@ -10091,30 +10223,30 @@ app.post('/api/admin/cache/test-performance', verifyToken, async (req, res) => {
       calendarId: calendarId
     };
     
-    // Test 1: Cache lookup performance
+    // Test 1: Event lookup performance (using unified collection)
     const cacheStartTime = Date.now();
-    const cachedEventCount = await eventCacheCollection.countDocuments({
+    const cachedEventCount = await unifiedEventsCollection.countDocuments({
       userId: userId,
       calendarId: calendarId,
-      expiresAt: { $gte: new Date() }
+      isDeleted: { $ne: true }
     });
     const cacheLookupTime = Date.now() - cacheStartTime;
-    
-    // Test 2: Sample cache queries
+
+    // Test 2: Sample event queries
     const queryStartTime = Date.now();
-    const sampleEvents = await eventCacheCollection
-      .find({ 
-        userId: userId, 
+    const sampleEvents = await unifiedEventsCollection
+      .find({
+        userId: userId,
         calendarId: calendarId,
-        expiresAt: { $gte: new Date() }
+        isDeleted: { $ne: true }
       })
       .limit(10)
       .toArray();
     const queryTime = Date.now() - queryStartTime;
-    
-    // Test 3: Cache utilization
-    const totalCacheSize = await eventCacheCollection.estimatedDocumentCount();
-    const userCacheSize = await eventCacheCollection.countDocuments({ userId: userId });
+
+    // Test 3: Collection utilization
+    const totalCacheSize = await unifiedEventsCollection.estimatedDocumentCount();
+    const userCacheSize = await unifiedEventsCollection.countDocuments({ userId: userId, isDeleted: { $ne: true } });
     
     results.performance = {
       cacheLookupTimeMs: cacheLookupTime,
@@ -10136,7 +10268,7 @@ app.post('/api/admin/cache/test-performance', verifyToken, async (req, res) => {
     // Test 4: Index performance (if requested)
     if (testType === 'detailed') {
       const indexStartTime = Date.now();
-      const indexStats = await eventCacheCollection.aggregate([
+      const indexStats = await unifiedEventsCollection.aggregate([
         { $indexStats: {} }
       ]).toArray();
       const indexAnalysisTime = Date.now() - indexStartTime;

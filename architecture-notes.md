@@ -29,8 +29,10 @@ This document describes how datetime data flows through the application from Mic
 
 ---
 
-### 2. Backend Storage (MongoDB - templeEvents__InternalEvents)
+### 2. Backend Storage (MongoDB - templeEvents__Events)
 **Format**: Top-level fields WITH 'Z' suffix (UTC), graphData preserves original
+
+**Note**: Previously stored in `templeEvents__InternalEvents` (now deprecated and consolidated into `templeEvents__Events`)
 
 ```javascript
 {
