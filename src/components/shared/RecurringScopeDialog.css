@@ -1,0 +1,203 @@
+/* RecurringScopeDialog.css */
+
+.recurring-scope-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.recurring-scope-dialog {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  max-width: 400px;
+  width: 100%;
+  overflow: hidden;
+  animation: recurring-scope-slide-in 0.2s ease-out;
+}
+
+@keyframes recurring-scope-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Header */
+.recurring-scope-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.recurring-scope-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.recurring-scope-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.recurring-scope-close:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+/* Content */
+.recurring-scope-content {
+  padding: 20px;
+}
+
+.recurring-scope-date {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.recurring-scope-prompt {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+/* Options */
+.recurring-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recurring-scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: white;
+}
+
+.recurring-scope-option:hover {
+  border-color: #d1d5db;
+  background: #f9fafb;
+}
+
+.recurring-scope-option.selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.recurring-scope-option input[type="radio"] {
+  margin: 2px 0 0 0;
+  accent-color: #3b82f6;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.recurring-scope-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recurring-scope-option-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.recurring-scope-option-desc {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+/* Footer */
+.recurring-scope-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.recurring-scope-btn {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.recurring-scope-btn-cancel {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #374151;
+}
+
+.recurring-scope-btn-cancel:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.recurring-scope-btn-continue {
+  background: #3b82f6;
+  border: none;
+  color: white;
+}
+
+.recurring-scope-btn-continue:hover {
+  background: #2563eb;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .recurring-scope-dialog {
+    max-width: 100%;
+    margin: 10px;
+  }
+
+  .recurring-scope-title {
+    max-width: 200px;
+  }
+}

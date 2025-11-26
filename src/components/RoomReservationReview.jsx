@@ -21,6 +21,7 @@ import './RoomReservationForm.css';
 export default function RoomReservationReview({
   reservation,
   apiToken,
+  graphToken, // Graph API token for calendar operations
   onApprove,
   onReject,
   onCancel,
@@ -39,7 +40,8 @@ export default function RoomReservationReview({
   onTargetCalendarChange = () => {},
   createCalendarEvent = true,
   onCreateCalendarEventChange = () => {},
-  activeTab = 'details'
+  activeTab = 'details',
+  editScope = null // For recurring events: 'thisEvent' | 'allEvents' | null
 }) {
   // Review-specific state
   const [initialData, setInitialData] = useState({});
@@ -230,7 +232,19 @@ export default function RoomReservationReview({
         attendeeCount: parseInt(formData.attendeeCount) || 0,
         setupTimeMinutes,
         teardownTimeMinutes,
-        locations: formData.requestedRooms  // Use locations field as single source of truth
+        locations: formData.requestedRooms,  // Use locations field as single source of truth
+        // Include Graph token for calendar updates
+        graphToken: graphToken,
+        // Include edit scope for recurring events
+        editScope: editScope,
+        // For 'thisEvent' scope, include occurrence identification data
+        occurrenceDate: editScope === 'thisEvent' ? reservation.start?.dateTime || startDateTime : null,
+        // Series master ID for recurring events - check multiple possible locations
+        seriesMasterId: editScope ? (
+          reservation.seriesMasterId ||
+          reservation.graphData?.seriesMasterId ||
+          (reservation.graphData?.type === 'seriesMaster' ? reservation.graphData?.id : null)
+        ) : null
       };
 
       // Remove separate date/time fields and old requestedRooms field
@@ -245,7 +259,12 @@ export default function RoomReservationReview({
         locationsCount: updatedData.locations?.length,
         locationIds: updatedData.locations,
         hasRequestedRooms: 'requestedRooms' in updatedData,
-        formDataRequestedRoomsCount: formData.requestedRooms?.length
+        formDataRequestedRoomsCount: formData.requestedRooms?.length,
+        hasRecurrence: !!updatedData.recurrence,
+        recurrenceData: updatedData.recurrence,
+        editScope: updatedData.editScope,
+        seriesMasterId: updatedData.seriesMasterId,
+        hasGraphToken: !!updatedData.graphToken
       });
 
       // Use correct endpoint based on event type
@@ -312,7 +331,7 @@ export default function RoomReservationReview({
       setIsSaving(false);
       console.log('💾 Save process complete');
     }
-  }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave]);
+  }, [formDataRef, validateRef, reservation, apiToken, graphToken, editScope, originalChangeKey, onSave]);
 
   // Expose save function to parent
   useEffect(() => {
@@ -393,6 +412,7 @@ export default function RoomReservationReview({
           apiToken={apiToken}
           activeTab={activeTab}
           showAllTabs={false}
+          editScope={editScope}
           onFormDataRef={(getter) => { formDataRef.current = getter; }}
           onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
           onValidateRef={(getter) => { validateRef.current = getter; }}

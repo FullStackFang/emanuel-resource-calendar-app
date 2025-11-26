@@ -35,11 +35,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
   const [holdTimer, setHoldTimer] = useState(null);
   const [holdError, setHoldError] = useState(null);
 
+  // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
+  const [editScope, setEditScope] = useState(null);
+
   /**
    * Open modal with a reservation or event
+   * @param {Object} item - The reservation or event to open
+   * @param {Object} options - Optional settings
+   * @param {string} options.editScope - For recurring events: 'thisEvent' or 'allEvents'
    */
-  const openModal = useCallback(async (item) => {
+  const openModal = useCallback(async (item, options = {}) => {
     if (!item) return;
+
+    const { editScope: scope = null } = options;
 
     // Try to acquire soft hold if item is pending
     if (item.status === 'pending' && !item._isNewUnifiedEvent) {
@@ -53,6 +61,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     setEditableData(item);
     setOriginalChangeKey(item.changeKey);
     setHasChanges(false);
+    setEditScope(scope);
     setIsOpen(true);
   }, [apiToken]);
 
@@ -71,6 +80,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     setOriginalChangeKey(null);
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
+    setEditScope(null); // Reset edit scope for recurring events
   }, [currentItem, reviewHold]);
 
   /**
@@ -213,7 +223,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       const bodyData = {
         ...editableData,
         locations: editableData.requestedRooms || editableData.locations,
-        graphToken: isGraphEvent ? graphToken : undefined
+        graphToken: isGraphEvent ? graphToken : undefined,
+        // Include edit scope for recurring events
+        editScope: editScope,
+        // For 'thisEvent' scope, include occurrence identification data
+        occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
+        seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null
       };
 
       // Remove requestedRooms to avoid confusion (locations is the single source of truth)
@@ -260,7 +275,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, originalChangeKey, apiToken, onSuccess, onError]);
+  }, [hasChanges, currentItem, editableData, originalChangeKey, apiToken, graphToken, editScope, onSuccess, onError]);
 
   /**
    * Approve the reservation/event
@@ -396,7 +411,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          graphToken: graphToken // Always pass graphToken - backend will use it if needed
+          graphToken: graphToken, // Always pass graphToken - backend will use it if needed
+          // Include edit scope for recurring events
+          editScope: editScope,
+          // For 'thisEvent' scope, include occurrence identification data
+          occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
+          seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
+          calendarId: currentItem.calendarId
         })
       });
 
@@ -415,7 +436,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
+  }, [currentItem, apiToken, graphToken, editScope, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
 
   return {
     // State
@@ -428,6 +449,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     holdError,
     reviewHold,
     pendingDeleteConfirmation,
+    editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
 
     // Actions
     openModal,

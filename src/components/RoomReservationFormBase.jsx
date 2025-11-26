@@ -60,6 +60,7 @@ export default function RoomReservationFormBase({
   activeTab = 'details',        // Which tab is active (for Review mode)
   showAllTabs = false,          // If true, render all content inline (for Creation mode)
   renderAdditionalContent = null, // Function to render additional content after form
+  editScope = null,             // For recurring events: 'thisEvent' | 'allEvents' | null
 
   // Data exposure
   onFormDataRef = null,         // Callback to expose formData getter
@@ -128,11 +129,12 @@ export default function RoomReservationFormBase({
   const lastReservationIdRef = useRef(null);
 
   // Expose formData, timeErrors, and validation function to parent
+  // Include recurrencePattern in the returned data so it's available for saving
   useEffect(() => {
     if (onFormDataRef) {
-      onFormDataRef(() => formData);
+      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern }));
     }
-  }, [formData, onFormDataRef]);
+  }, [formData, recurrencePattern, onFormDataRef]);
 
   useEffect(() => {
     if (onTimeErrorsRef) {
@@ -223,6 +225,13 @@ export default function RoomReservationFormBase({
       if (newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) {
         const url = newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl;
         setVirtualMeetingUrl(url);
+      }
+
+      // Initialize recurrence pattern from existing event data (for editing entire series)
+      if (initialData.graphData?.recurrence || initialData.recurrence) {
+        const existingRecurrence = initialData.recurrence || initialData.graphData?.recurrence;
+        setRecurrencePattern(existingRecurrence);
+        logger.debug('[RoomReservationFormBase] Initialized recurrence pattern from existing event:', existingRecurrence);
       }
 
       setFormData(prev => ({
@@ -644,6 +653,20 @@ export default function RoomReservationFormBase({
           <section className="form-section event-details-compact">
             <h2>Event Details</h2>
 
+            {/* Edit Scope Indicator for Recurring Events */}
+            {editScope === 'thisEvent' && (
+              <div className="edit-scope-indicator single-occurrence">
+                <span className="edit-scope-icon">📌</span>
+                <span className="edit-scope-text">Editing this occurrence only. Changes will not affect other events in the series.</span>
+              </div>
+            )}
+            {editScope === 'allEvents' && (
+              <div className="edit-scope-indicator all-events">
+                <span className="edit-scope-icon">🔄</span>
+                <span className="edit-scope-text">Editing entire series. Changes will apply to all events in the series.</span>
+              </div>
+            )}
+
             <div className="form-grid">
               <div className="form-group full-width">
                 <label htmlFor="eventTitle">Event Title *</label>
@@ -689,16 +712,19 @@ export default function RoomReservationFormBase({
 
               <div className="form-group">
                 <label style={{ visibility: 'hidden' }}>.</label>
-                {/* Make Recurring Button - Moved from All Day toggle section */}
-                {!initialData.eventId && !initialData.id && (
+                {/* Make Recurring Button - Show for:
+                    1. New events (no eventId) when not editing single occurrence
+                    2. Existing events when editing entire series (editScope === 'allEvents') */}
+                {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
+                  editScope === 'allEvents') && (
                   <button
                     type="button"
-                    className={`all-day-toggle ${recurrencePattern ? 'active' : ''}`}
+                    className={`all-day-toggle ${recurrencePattern || initialData.graphData?.recurrence ? 'active' : ''}`}
                     onClick={() => setShowRecurrenceModal(true)}
                     disabled={fieldsDisabled}
                     style={{ width: '100%', justifyContent: 'center' }}
                   >
-                    {recurrencePattern ? '↻ Edit Recurring' : '↻ Make Recurring'}
+                    {(recurrencePattern || initialData.graphData?.recurrence) ? '↻ Edit Recurrence' : '↻ Make Recurring'}
                   </button>
                 )}
               </div>
@@ -765,30 +791,36 @@ export default function RoomReservationFormBase({
             )}
 
             {/* Recurrence Summary - Moved above date fields */}
-            {recurrencePattern && (
+            {/* Show when: recurrencePattern exists AND not editing single occurrence */}
+            {/* Also use initialData.graphData?.recurrence as fallback for existing events */}
+            {(recurrencePattern || (editScope === 'allEvents' && initialData.graphData?.recurrence)) && editScope !== 'thisEvent' && (
               <div className="recurrence-summary-display">
                 <div className="recurrence-summary-content">
                   <span className="recurrence-icon">↻</span>
                   <span className="recurrence-text">
                     {(() => {
+                      // Use recurrencePattern state, or fall back to initialData for existing events
+                      const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
+                      if (!activeRecurrence) return 'Recurring event';
+
                       const summary = formatRecurrenceSummaryEnhanced(
-                        recurrencePattern.pattern,
-                        recurrencePattern.range,
-                        recurrencePattern.additions,
-                        recurrencePattern.exclusions
+                        activeRecurrence.pattern,
+                        activeRecurrence.range,
+                        activeRecurrence.additions,
+                        activeRecurrence.exclusions
                       );
 
                       return (
                         <>
                           {summary.base}
-                          {summary.exclusions.length > 0 && (
+                          {summary.exclusions && summary.exclusions.length > 0 && (
                             <> {summary.exclusions.map((d, i) => (
                               <span key={`exc-${i}`} style={{color: 'red', fontWeight: '500'}}>
                                 {i === 0 ? ' (excluded: ' : ', '}{d.text}
                               </span>
                             ))}<span style={{color: 'red'}}>)</span></>
                           )}
-                          {summary.additions.length > 0 && (
+                          {summary.additions && summary.additions.length > 0 && (
                             <> {summary.additions.map((d, i) => (
                               <span key={`add-${i}`} style={{color: 'green', fontWeight: '500'}}>
                                 {i === 0 ? ' (ad-hoc: ' : ', '}{d.text}

@@ -27,6 +27,7 @@
   import calendarDataService from '../services/calendarDataService';
   import { useReviewModal } from '../hooks/useReviewModal';
   import ReviewModal from './shared/ReviewModal';
+  import RecurringScopeDialog from './shared/RecurringScopeDialog';
   import RoomReservationReview from './RoomReservationReview';
     // import { getCalendars } from '../services/graphService';
   import { 
@@ -252,6 +253,12 @@
 
     // Navigation state for reviewModal
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
+
+    // Recurring event scope dialog state
+    const [recurringScopeDialog, setRecurringScopeDialog] = useState({
+      isOpen: false,
+      pendingEvent: null
+    });
 
     // Review modal hook for handling review functionality
     const reviewModal = useReviewModal({
@@ -3835,6 +3842,20 @@
     }, [isUnspecifiedLocation]);
 
     /**
+     * Check if an event is part of a recurring series
+     * @param {Object} event - The event to check
+     * @returns {boolean} - True if the event is recurring
+     */
+    const isRecurringEvent = useCallback((event) => {
+      return !!(
+        event.seriesMasterId ||
+        event.graphData?.seriesMasterId ||
+        event.graphData?.recurrence ||
+        event.graphData?.type === 'seriesMaster'
+      );
+    }, []);
+
+    /**
      * Handle clicking on an event to open the context menu
      * @param {Object} event - The event that was clicked
      * @param {Object} e - The click event
@@ -3845,17 +3866,53 @@
       // DEBUG: Log full event object
       console.log('📦 FULL EVENT OBJECT:', event);
 
-      // Bypass event details modal - go directly to review modal
-      (async () => {
-        try {
-          // Events now have top-level fields from backend - no transformation needed
-          await reviewModal.openModal(event);
-        } catch (error) {
-          logger.error('Error opening review modal:', error);
-          alert('Failed to open review modal: ' + error.message);
-        }
-      })();
-    }, [reviewModal]); // Updated dependency for direct review modal access
+      // Check if this is a recurring event
+      if (isRecurringEvent(event)) {
+        // Show scope selection dialog for recurring events
+        setRecurringScopeDialog({
+          isOpen: true,
+          pendingEvent: event
+        });
+      } else {
+        // Non-recurring: open review modal directly
+        (async () => {
+          try {
+            await reviewModal.openModal(event);
+          } catch (error) {
+            logger.error('Error opening review modal:', error);
+            alert('Failed to open review modal: ' + error.message);
+          }
+        })();
+      }
+    }, [reviewModal, isRecurringEvent]);
+
+    /**
+     * Handle scope selection from recurring scope dialog
+     * @param {string} scope - 'thisEvent' or 'allEvents'
+     */
+    const handleRecurringScopeSelected = useCallback(async (scope) => {
+      const event = recurringScopeDialog.pendingEvent;
+
+      // Close the scope dialog
+      setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
+
+      if (!event) return;
+
+      try {
+        // Open review modal with the selected scope
+        await reviewModal.openModal(event, { editScope: scope });
+      } catch (error) {
+        logger.error('Error opening review modal:', error);
+        alert('Failed to open review modal: ' + error.message);
+      }
+    }, [recurringScopeDialog.pendingEvent, reviewModal]);
+
+    /**
+     * Handle closing the recurring scope dialog
+     */
+    const handleRecurringScopeClose = useCallback(() => {
+      setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
+    }, []);
 
     /**
      * Handle review button click
@@ -5995,6 +6052,23 @@
           />
         )}
 
+        {/* Recurring Event Scope Selection Dialog */}
+        <RecurringScopeDialog
+          isOpen={recurringScopeDialog.isOpen}
+          onClose={handleRecurringScopeClose}
+          onSelectScope={handleRecurringScopeSelected}
+          eventSubject={recurringScopeDialog.pendingEvent?.subject || recurringScopeDialog.pendingEvent?.eventTitle || 'Recurring Event'}
+          eventDate={recurringScopeDialog.pendingEvent?.start?.dateTime
+            ? new Date(recurringScopeDialog.pendingEvent.start.dateTime).toLocaleDateString('en-US', {
+                weekday: 'short',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              })
+            : ''
+          }
+        />
+
         {/* Review Modal for Room Reservations and Event Review */}
         <ReviewModal
           isOpen={reviewModal.isOpen}
@@ -6027,6 +6101,7 @@
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
               isAdmin={userPermissions.isAdmin}
+              editScope={reviewModal.editScope}
             />
           )}
         </ReviewModal>

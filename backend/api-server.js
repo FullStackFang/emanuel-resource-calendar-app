@@ -15661,6 +15661,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const id = req.params.id;
     const updates = req.body;
     const graphToken = updates.graphToken;
+    const editScope = updates.editScope; // 'thisEvent' | 'allEvents' | null
+    const occurrenceDate = updates.occurrenceDate; // For single occurrence edits
+    const seriesMasterId = updates.seriesMasterId; // Series master ID for recurring events
 
     // DEBUG: Log incoming request
     logger.info('PUT /api/admin/events/:id - Incoming request:', {
@@ -15669,7 +15672,12 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       locationsCount: Array.isArray(updates.locations) ? updates.locations.length : 0,
       locationIds: updates.locations,
       hasRequestedRooms: !!updates.requestedRooms,
-      requestedRoomsCount: Array.isArray(updates.requestedRooms) ? updates.requestedRooms.length : 0
+      requestedRoomsCount: Array.isArray(updates.requestedRooms) ? updates.requestedRooms.length : 0,
+      editScope: editScope,
+      seriesMasterId: seriesMasterId,
+      hasRecurrence: !!updates.recurrence,
+      recurrencePattern: updates.recurrence?.pattern?.type,
+      recurrenceRange: updates.recurrence?.range?.type
     });
 
     // Get event by _id
@@ -15708,6 +15716,66 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const graphEventId = event.graphData?.id;
     if (graphEventId && graphToken) {
       try {
+        // Determine the correct Graph API endpoint based on editScope for recurring events
+        let graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+        let targetOccurrenceId = null;
+
+        // Handle recurring event single occurrence updates
+        if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
+          logger.info('Updating single occurrence of recurring event:', {
+            seriesMasterId,
+            occurrenceDate,
+            editScope
+          });
+
+          // Query Graph API to find the specific occurrence
+          const occurrenceDateObj = new Date(occurrenceDate);
+          const startRange = new Date(occurrenceDateObj);
+          startRange.setHours(0, 0, 0, 0);
+          const endRange = new Date(occurrenceDateObj);
+          endRange.setHours(23, 59, 59, 999);
+
+          const instancesUrl = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+
+          logger.info('Fetching occurrence instances:', { instancesUrl });
+
+          const instancesResponse = await fetch(instancesUrl, {
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (instancesResponse.ok) {
+            const instancesData = await instancesResponse.json();
+            if (instancesData.value && instancesData.value.length > 0) {
+              // Find the occurrence matching the date
+              const targetOccurrence = instancesData.value.find(occ => {
+                const occStart = new Date(occ.start.dateTime);
+                return occStart.toDateString() === occurrenceDateObj.toDateString();
+              });
+
+              if (targetOccurrence) {
+                targetOccurrenceId = targetOccurrence.id;
+                graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId}`;
+                logger.info('Found occurrence ID:', { targetOccurrenceId });
+              } else {
+                logger.warn('No matching occurrence found for date, falling back to series master');
+              }
+            } else {
+              logger.warn('No instances returned for date range, falling back to series master');
+            }
+          } else {
+            const errorText = await instancesResponse.text();
+            logger.error('Failed to fetch instances:', { status: instancesResponse.status, error: errorText });
+            // Fall back to updating series master
+          }
+        } else if (editScope === 'allEvents' && seriesMasterId) {
+          // For "all events" edits, update the series master directly
+          graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+          logger.info('Updating entire series via series master:', { seriesMasterId });
+        }
+
         // Prepare Graph API update payload
         // Build Graph API update with ONLY Graph-compatible fields
         const graphUpdate = {
@@ -15768,20 +15836,102 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           graphUpdate.categories = event.graphData.categories;
         }
 
-        logger.info('Updating Graph event:', { graphEventId, updates: Object.keys(updates) });
+        // Handle recurrence pattern updates (only when editing entire series)
+        // Graph API recurrence format: { pattern: {...}, range: {...} }
+        if (editScope === 'allEvents' && updates.recurrence) {
+          logger.info('Processing recurrence update for series:', {
+            hasPattern: !!updates.recurrence.pattern,
+            hasRange: !!updates.recurrence.range,
+            patternType: updates.recurrence.pattern?.type,
+            rangeType: updates.recurrence.range?.type
+          });
 
-        // Update in Graph API
-        const graphResponse = await fetch(
-          `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`,
-          {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${graphToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(graphUpdate)
+          // Build the recurrence object for Graph API
+          const recurrenceUpdate = {};
+
+          // Pattern (required for recurrence)
+          if (updates.recurrence.pattern) {
+            recurrenceUpdate.pattern = {
+              type: updates.recurrence.pattern.type || 'weekly',
+              interval: updates.recurrence.pattern.interval || 1
+            };
+
+            // Add daysOfWeek for weekly/relativeMonthly patterns
+            if (updates.recurrence.pattern.daysOfWeek) {
+              recurrenceUpdate.pattern.daysOfWeek = updates.recurrence.pattern.daysOfWeek;
+            }
+
+            // Add dayOfMonth for monthly patterns
+            if (updates.recurrence.pattern.dayOfMonth) {
+              recurrenceUpdate.pattern.dayOfMonth = updates.recurrence.pattern.dayOfMonth;
+            }
+
+            // Add month for yearly patterns
+            if (updates.recurrence.pattern.month) {
+              recurrenceUpdate.pattern.month = updates.recurrence.pattern.month;
+            }
+
+            // Add index for relativeMonthly/relativeYearly patterns
+            if (updates.recurrence.pattern.index) {
+              recurrenceUpdate.pattern.index = updates.recurrence.pattern.index;
+            }
+
+            // Add firstDayOfWeek if specified
+            if (updates.recurrence.pattern.firstDayOfWeek) {
+              recurrenceUpdate.pattern.firstDayOfWeek = updates.recurrence.pattern.firstDayOfWeek;
+            }
           }
-        );
+
+          // Range (required for recurrence)
+          if (updates.recurrence.range) {
+            recurrenceUpdate.range = {
+              type: updates.recurrence.range.type || 'noEnd',
+              startDate: updates.recurrence.range.startDate
+            };
+
+            // Add endDate for 'endDate' range type
+            if (updates.recurrence.range.type === 'endDate' && updates.recurrence.range.endDate) {
+              recurrenceUpdate.range.endDate = updates.recurrence.range.endDate;
+            }
+
+            // Add numberOfOccurrences for 'numbered' range type
+            if (updates.recurrence.range.type === 'numbered' && updates.recurrence.range.numberOfOccurrences) {
+              recurrenceUpdate.range.numberOfOccurrences = updates.recurrence.range.numberOfOccurrences;
+            }
+
+            // Add recurrenceTimeZone if specified
+            if (updates.recurrence.range.recurrenceTimeZone) {
+              recurrenceUpdate.range.recurrenceTimeZone = updates.recurrence.range.recurrenceTimeZone;
+            }
+          }
+
+          // Only add recurrence if we have both pattern and range
+          if (recurrenceUpdate.pattern && recurrenceUpdate.range) {
+            graphUpdate.recurrence = recurrenceUpdate;
+            logger.info('Added recurrence to Graph update:', {
+              pattern: recurrenceUpdate.pattern,
+              range: recurrenceUpdate.range
+            });
+          }
+        }
+
+        logger.info('Updating Graph event:', {
+          graphEventId,
+          graphEndpoint,
+          editScope,
+          targetOccurrenceId,
+          updates: Object.keys(updates)
+        });
+
+        // Update in Graph API using the appropriate endpoint
+        const graphResponse = await fetch(graphEndpoint, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(graphUpdate)
+        });
 
         if (!graphResponse.ok) {
           const errorText = await graphResponse.text();
@@ -15810,6 +15960,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       createdByName: _createdByName,
       createdSource: _createdSource,
       graphData: _graphData,
+      editScope: _editScope,
+      occurrenceDate: _occurrenceDate,
+      seriesMasterId: _seriesMasterId,
       ...safeUpdates
     } = updates;
 
@@ -15849,6 +16002,15 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // Sync isAllDay
       if (updates.isAllDayEvent !== undefined) {
         updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
+      }
+
+      // Sync recurrence (only when editing entire series)
+      if (editScope === 'allEvents' && updates.recurrence) {
+        updateOperations['graphData.recurrence'] = updates.recurrence;
+        logger.info('Syncing recurrence to graphData:', {
+          pattern: updates.recurrence.pattern?.type,
+          range: updates.recurrence.range?.type
+        });
       }
     }
 
@@ -15987,13 +16149,16 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
-    const { graphToken } = req.body;
+    const { graphToken, editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId } = req.body;
 
     console.log('DELETE request params:', {
       mongoId: id,
       hasGraphToken: !!graphToken,
       graphTokenLength: graphToken?.length,
-      userEmail
+      userEmail,
+      editScope,
+      occurrenceDate,
+      seriesMasterId
     });
 
     // Step 1: Look up the event to check if it has a Graph eventId
@@ -16020,12 +16185,81 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       try {
         // Use graphData.id (Graph API ID) instead of eventId (internal MongoDB UUID)
         const graphEventId = event.graphData?.id || event.eventId;
-        const graphApiUrl = event.calendarId
-          ? `https://graph.microsoft.com/v1.0/me/calendars/${event.calendarId}/events/${graphEventId}`
-          : `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+        const calendarId = reqCalendarId || event.calendarId;
+        let graphApiUrl;
+        let targetOccurrenceId = null;
+
+        // Handle recurring event deletion based on editScope
+        if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
+          // Delete single occurrence - need to find the occurrence ID first
+          console.log('🔄 Deleting single occurrence of recurring event:', {
+            seriesMasterId,
+            occurrenceDate,
+            editScope
+          });
+
+          // Query Graph API to find the specific occurrence
+          const occurrenceDateObj = new Date(occurrenceDate);
+          const startRange = new Date(occurrenceDateObj);
+          startRange.setHours(0, 0, 0, 0);
+          const endRange = new Date(occurrenceDateObj);
+          endRange.setHours(23, 59, 59, 999);
+
+          const instancesUrl = calendarId
+            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`
+            : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+
+          console.log('📡 Fetching occurrence instances:', instancesUrl);
+
+          const instancesResponse = await fetch(instancesUrl, {
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (instancesResponse.ok) {
+            const instancesData = await instancesResponse.json();
+            if (instancesData.value && instancesData.value.length > 0) {
+              // Find the occurrence matching the date
+              const targetOccurrence = instancesData.value.find(occ => {
+                const occStart = new Date(occ.start.dateTime);
+                return occStart.toDateString() === occurrenceDateObj.toDateString();
+              });
+
+              if (targetOccurrence) {
+                targetOccurrenceId = targetOccurrence.id;
+                console.log('✅ Found occurrence ID:', targetOccurrenceId);
+              } else {
+                console.log('⚠️ No matching occurrence found for date');
+              }
+            }
+          } else {
+            const errorText = await instancesResponse.text();
+            console.log('⚠️ Failed to fetch instances:', instancesResponse.status, errorText);
+          }
+
+          // Use occurrence ID if found, otherwise fall back to series master
+          graphApiUrl = calendarId
+            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId || graphEventId}`
+            : `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId || graphEventId}`;
+
+        } else if (editScope === 'allEvents' && seriesMasterId) {
+          // Delete entire series - delete the series master
+          console.log('🔄 Deleting entire recurring series:', { seriesMasterId });
+          graphApiUrl = calendarId
+            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`
+            : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+        } else {
+          // Regular single event delete (non-recurring)
+          graphApiUrl = calendarId
+            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`
+            : `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+        }
 
         console.log('📡 Graph API URL:', graphApiUrl);
-        console.log('📡 Using Graph Event ID:', graphEventId);
+        console.log('📡 Using Graph Event ID:', targetOccurrenceId || graphEventId);
+        console.log('📡 Edit scope:', editScope || 'single event');
 
         const graphResponse = await fetch(graphApiUrl, {
           method: 'DELETE',
@@ -16046,7 +16280,9 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           console.log('✅ Event deleted from Microsoft Graph');
           logger.info('Event deleted from Microsoft Graph:', {
             eventId: event.eventId,
-            calendarId: event.calendarId
+            calendarId: calendarId,
+            editScope: editScope || 'single',
+            targetOccurrenceId
           });
         } else {
           console.log('⚠️ Graph API delete returned non-OK status:', graphResponse.status);

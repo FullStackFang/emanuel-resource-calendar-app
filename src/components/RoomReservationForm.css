@@ -1553,3 +1553,36 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Edit Scope Indicator for Recurring Events */
+.edit-scope-indicator {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.edit-scope-indicator.single-occurrence {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+}
+
+.edit-scope-indicator.all-events {
+  background: #dbeafe;
+  border: 1px solid #3b82f6;
+  color: #1e40af;
+}
+
+.edit-scope-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.edit-scope-text {
+  flex: 1;
+}

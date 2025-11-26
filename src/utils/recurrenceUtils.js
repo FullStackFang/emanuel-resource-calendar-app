@@ -291,7 +291,9 @@ export function formatRecurrenceSummary(pattern, range) {
   // Add end information on new line
   if (range) {
     if (range.type === 'endDate' && range.endDate) {
-      const date = new Date(range.endDate);
+      // Add T00:00:00 to parse as local midnight, not UTC midnight
+      // Otherwise dates display 1 day earlier in timezones west of UTC
+      const date = new Date(range.endDate + 'T00:00:00');
       summary += `\nUntil ${date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
