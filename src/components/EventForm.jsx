@@ -360,28 +360,38 @@ function EventForm({
         setSetupTime(minutesToTimeString(setupMins));
         setTeardownTime(minutesToTimeString(teardownMins));
       }
-      console.log('EventForm DEBUG - event object:', event);
-      console.log('EventForm DEBUG - event.body:', event.body);
-      console.log('EventForm DEBUG - event.body type:', typeof event.body);
-      console.log('EventForm DEBUG - event.description:', event.description);
-
-      // Handle both string and object formats for body field
+      // Handle all possible event body field structures in priority order
       let description = '';
-      if (typeof event.body === 'string') {
-        // Body is a plain string (from backend/cache issue)
+
+      // 1. Check eventDescription (from eventTransformers or unified events)
+      if (event.eventDescription && typeof event.eventDescription === 'string') {
+        description = extractTextFromHtml(event.eventDescription);
+      }
+      // 2. Check bodyPreview (Graph API plain text preview - preferred source, already clean)
+      else if (event.bodyPreview && typeof event.bodyPreview === 'string') {
+        description = extractTextFromHtml(event.bodyPreview);
+      }
+      // 3. Check body as string (from calendarDataService transformation)
+      else if (typeof event.body === 'string') {
         description = extractTextFromHtml(event.body);
-        console.log('EventForm DEBUG - body is string, using directly:', description);
-      } else if (event.body?.content) {
-        // Body is proper object format from Graph API
+      }
+      // 4. Check body.content (Graph API object format)
+      else if (event.body?.content) {
         description = extractTextFromHtml(event.body.content);
-        console.log('EventForm DEBUG - body is object, using content:', description);
-      } else if (event.description) {
-        // Fallback to description field
+      }
+      // 5. Check graphData.body.content (unified events from MongoDB)
+      else if (event.graphData?.body?.content) {
+        description = extractTextFromHtml(event.graphData.body.content);
+      }
+      // 6. Check graphData.bodyPreview (unified events fallback)
+      else if (event.graphData?.bodyPreview) {
+        description = extractTextFromHtml(event.graphData.bodyPreview);
+      }
+      // 7. Legacy fallback to description field
+      else if (event.description) {
         description = extractTextFromHtml(event.description);
-        console.log('EventForm DEBUG - using description field:', description);
       }
 
-      console.log('EventForm DEBUG - final description:', description);
       setEventDescription(description);
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');

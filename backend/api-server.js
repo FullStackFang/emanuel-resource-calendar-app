@@ -2514,7 +2514,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     const endDateTime = graphEvent.end?.dateTime;
 
     unifiedEvent.eventTitle = graphEvent.subject || 'Untitled Event';
-    unifiedEvent.eventDescription = graphEvent.body?.content || graphEvent.bodyPreview || '';
+    unifiedEvent.eventDescription = extractTextFromHtml(graphEvent.body?.content) || graphEvent.bodyPreview || '';
     // Convert to UTC strings with Z suffix
     const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
     const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
@@ -3527,7 +3527,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 },
                 // TOP-LEVEL APPLICATION FIELDS (for forms/UI)
                 eventTitle: graphEvent.subject || 'Untitled Event',
-                eventDescription: graphEvent.body?.content || graphEvent.bodyPreview || '',
+                eventDescription: extractTextFromHtml(graphEvent.body?.content) || graphEvent.bodyPreview || '',
                 startDateTime: utcStartString,
                 endDateTime: utcEndString,
                 startDate: utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '',
@@ -4402,7 +4402,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       const endDateTime = updatedGraphData.end?.dateTime;
 
       newEventDoc.eventTitle = updatedGraphData.subject || 'Untitled Event';
-      newEventDoc.eventDescription = updatedGraphData.body?.content || updatedGraphData.bodyPreview || '';
+      newEventDoc.eventDescription = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
       // Convert to UTC strings with Z suffix
       const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
       const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
@@ -4494,7 +4494,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         const endDateTime = updatedGraphData.end?.dateTime;
 
         updateOperations['eventTitle'] = updatedGraphData.subject || 'Untitled Event';
-        updateOperations['eventDescription'] = updatedGraphData.body?.content || updatedGraphData.bodyPreview || '';
+        updateOperations['eventDescription'] = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
         // Convert to UTC strings with Z suffix
         const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
         const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
@@ -4754,7 +4754,7 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         const endDateTime = graphData.end?.dateTime;
 
         newEventDoc.eventTitle = graphData.subject || 'Untitled Event';
-        newEventDoc.eventDescription = graphData.body?.content || graphData.bodyPreview || '';
+        newEventDoc.eventDescription = extractTextFromHtml(graphData.body?.content) || graphData.bodyPreview || '';
 
         const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
         const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
