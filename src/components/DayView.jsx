@@ -27,6 +27,7 @@ const DayView = memo(({
   isEventVirtual,
   isUnspecifiedLocation,
   hasPhysicalLocation,
+  isVirtualLocation,
   dynamicLocations,
   showRegistrationTimes,
   handleLocationRowClick // New prop for location timeline modal

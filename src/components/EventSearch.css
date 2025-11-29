@@ -55,24 +55,6 @@ html {
     color: #333;
   }
 
-  /* Context indicators */
-  .search-context-indicators {
-    padding: 8px 16px;
-    background-color: #f9f9f9;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 0.85rem;
-    color: #666;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .current-calendar-indicator,
-  .timezone-indicator {
-    font-weight: 500;
-  }
-  
   /* Full-width search form */
   .search-form-full {
     padding: 12px 16px;
@@ -569,68 +551,173 @@ html {
     font-style: italic;
   }
   
-  /* Event detail panel - IMPROVED */
-  .event-detail-panel {
+  /* Read-only Event Detail Card */
+  .event-detail-card {
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #fff;
-    border: 1px solid #e0e0e0;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
     border-radius: 8px;
     overflow: hidden;
-    min-height: 0; /* Important for proper flex behavior */
+    min-height: 0;
   }
-  
-  .detail-header {
+
+  .detail-card-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    border-bottom: 1px solid #e0e0e0;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px;
+    border-bottom: 1px solid #e5e7eb;
     background-color: #f8f9fa;
     flex-shrink: 0;
   }
-  
-  /* Scrollable container for EventForm */
-  .event-detail-panel > form {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    min-height: 0; /* Important for proper flex behavior */
-  }
-  
-  .detail-header h3 {
-    margin: 0;
-    font-size: 1.1rem;
-    color: #333;
+
+  .detail-card-title {
+    font-size: 18px;
     font-weight: 600;
+    color: #111827;
+    margin: 0;
+    line-height: 1.4;
+    word-break: break-word;
+    flex: 1;
   }
-  
-  .detail-actions {
-    display: flex;
-    gap: 8px;
-  }
-  
-  .view-in-calendar-button {
-    padding: 8px 14px;
+
+  .recurrence-badge {
     background-color: #e8f0fe;
     color: #1a73e8;
-    border: 1px solid rgba(26, 115, 232, 0.2);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.9rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
     font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .detail-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    overflow-y: auto;
+  }
+
+  .detail-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .detail-icon {
+    font-size: 16px;
+    width: 22px;
+    flex-shrink: 0;
+    opacity: 0.85;
+    text-align: center;
+  }
+
+  .detail-value {
+    font-size: 15px;
+    color: #374151;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* Detail content for multi-line rows */
+  .detail-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .detail-secondary {
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  /* Description styling */
+  .detail-row-description {
+    align-items: flex-start;
+  }
+
+  .detail-description {
+    flex: 1;
+    font-size: 13px;
+    color: #4b5563;
+    line-height: 1.4;
+    background-color: #f9fafb;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+
+  /* Time schedule grid styling */
+  .detail-time-grid-section {
+    margin-top: 6px;
+    padding: 8px;
+    background-color: #f8fafc;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+  }
+
+  .detail-section-header {
     display: flex;
     align-items: center;
     gap: 6px;
-    transition: all 0.2s ease;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e2e8f0;
   }
-  
-  .view-in-calendar-button:hover {
-    background-color: #d2e3fc;
-    border-color: rgba(26, 115, 232, 0.3);
+
+  .detail-section-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: #374151;
   }
-  
+
+  .detail-time-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .time-grid-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 6px;
+    background-color: white;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+  }
+
+  .time-grid-label {
+    font-size: 9px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    font-weight: 500;
+  }
+
+  .time-grid-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
   .no-event-selected {
     display: flex;
     flex-direction: column;

@@ -3667,15 +3667,11 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
         // Top-level compatibility fields for frontend (extracted from nested data)
         subject: event.graphData?.subject,
-        // Use corrected UTC timestamps from top-level fields instead of stale graphData
-        start: {
-          dateTime: event.startDateTime,  // Corrected UTC with Z suffix
-          timeZone: event.graphData?.start?.timeZone || 'UTC'
-        },
-        end: {
-          dateTime: event.endDateTime,  // Corrected UTC with Z suffix
-          timeZone: event.graphData?.end?.timeZone || 'UTC'
-        },
+        // Use original graphData start/end directly - Graph API returns datetime in the
+        // specified timezone (e.g., "2025-11-28T19:30:00" with timeZone: "Eastern Standard Time")
+        // Do NOT override with top-level startDateTime which incorrectly has Z suffix appended
+        start: event.graphData?.start,
+        end: event.graphData?.end,
         location: event.graphData?.location,
         bodyPreview: event.graphData?.bodyPreview,
         isAllDay: event.graphData?.isAllDay,
@@ -9854,10 +9850,8 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     // Build query for unified events
     const query = { userId: userId };
     
-    // Apply calendar filter
-    if (calendarId) {
-      query["sourceCalendars.calendarId"] = calendarId;
-    }
+    // Note: calendarId filter removed - search all user's events across all calendars
+    // This allows finding CSV-imported events and events from any calendar source
     
     // Apply status filter
     if (status === 'deleted') {
@@ -10011,10 +10005,17 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     let filteredEvents = allEvents;
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => 
+      filteredEvents = filteredEvents.filter(event =>
+        // Graph API fields
         (event.graphData?.subject || '').toLowerCase().includes(searchLower) ||
-        (event.eventId || '').toLowerCase().includes(searchLower) ||
         (event.graphData?.location?.displayName || '').toLowerCase().includes(searchLower) ||
+        (event.graphData?.bodyPreview || '').toLowerCase().includes(searchLower) ||
+        // Top-level fields (for CSV imports and enriched events)
+        (event.eventTitle || '').toLowerCase().includes(searchLower) ||
+        (event.locationDisplayNames || '').toLowerCase().includes(searchLower) ||
+        (event.eventDescription || '').toLowerCase().includes(searchLower) ||
+        // IDs
+        (event.eventId || '').toLowerCase().includes(searchLower) ||
         (event.calendarId || '').toLowerCase().includes(searchLower)
       );
     }

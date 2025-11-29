@@ -8,15 +8,13 @@ import {
   useQueryClient 
 } from '@tanstack/react-query';
 import MultiSelect from './MultiSelect';
-import EventForm from './EventForm';
 import EventSearchExport from './EventSearchExport';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
-import { 
+import {
   AVAILABLE_TIMEZONES,
-  getOutlookTimezone,
-  formatDateTimeWithTimezone 
+  formatDateTimeWithTimezone
 } from '../utils/timezoneUtils';
 
 // Create a client
@@ -30,7 +28,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     const params = new URLSearchParams({
       page: page.toString(),
       sortBy: 'startTime',
-      sortOrder: 'asc'
+      sortOrder: 'desc'
     });
     
     // Add limit only if specified (no arbitrary limit)
@@ -69,20 +67,6 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     // Filter by active events only
     params.append('status', 'active');
 
-    console.log("=== EventSearch Debug ===");
-    console.log("Search parameters sent to backend:", {
-      searchTerm,
-      dateRange,
-      categories,
-      locations,
-      page,
-      limit,
-      calendarId,
-      timezone
-    });
-    console.log("Unified search params:", params.toString());
-    console.log("Display timezone:", timezone);
-
     // Make the API request to unified search endpoint
     const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/cache/events?${params.toString()}`, {
       headers: {
@@ -97,29 +81,9 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     }
 
     const data = await response.json();
-    console.log("Unified search response:", data);
-    console.log("Backend filters applied:", data.filters);
-    console.log("Result summary:", {
-      totalCount: data.pagination?.totalCount,
-      returnedCount: data.events?.length,
-      totalPages: data.pagination?.totalPages,
-      currentPage: data.pagination?.page
-    });
 
     // Get results from unified search
     let results = data.events || [];
-    
-    // Debug: Log category data for first few events
-    if (results.length > 0) {
-      console.log("Category debugging - first 3 events:");
-      results.slice(0, 3).forEach((event, index) => {
-        console.log(`Event ${index + 1}:`, {
-          subject: event.graphData?.subject || event.subject,
-          graphCategories: event.graphData?.categories,
-          mecCategories: event.internalData?.mecCategories
-        });
-      });
-    }
 
     // Backend now handles all filtering - no client-side filtering needed!
 
@@ -148,7 +112,15 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       teardownMinutes: event.internalData?.teardownMinutes,
       assignedTo: event.internalData?.assignedTo,
       estimatedCost: event.internalData?.estimatedCost,
-      actualCost: event.internalData?.actualCost
+      actualCost: event.internalData?.actualCost,
+      // Additional time and attendee fields - read from TOP LEVEL (canonical location)
+      doorOpenTime: event.doorOpenTime || '',
+      setupTime: event.setupTime || '',
+      teardownTime: event.teardownTime || '',
+      startTime: event.startTime || '',
+      endTime: event.endTime || '',
+      doorCloseTime: event.doorCloseTime || '',
+      attendeeCount: event.attendeeCount || event.internalData?.attendeeCount || 0
     }));
 
     return {
@@ -164,18 +136,16 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 }
 
 // The internal component that uses the query hooks
-function EventSearchInner({ 
-  graphToken, 
+function EventSearchInner({
+  graphToken,
   apiToken,
-  onEventSelect, 
-  onClose, 
-  outlookCategories, 
-  availableLocations, 
+  onClose,
+  outlookCategories,
+  availableLocations,
   onSaveEvent,
-  onViewInCalendar,
   selectedCalendarId,
   availableCalendars
-  // REMOVED: userTimeZone, setUserTimeZone, updateUserProfilePreferences
+  // REMOVED: userTimeZone, setUserTimeZone, updateUserProfilePreferences, onViewInCalendar, onEventSelect
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -201,7 +171,82 @@ function EventSearchInner({
   // Selected event state
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [searchError, setSearchError] = useState(null);
-  
+
+  // Format recurrence pattern for display
+  const formatRecurrencePattern = useCallback((recurrence) => {
+    if (!recurrence?.pattern) return null;
+
+    const { type, interval, daysOfWeek } = recurrence.pattern;
+    const { range } = recurrence;
+
+    let patternText = '';
+
+    switch (type) {
+      case 'daily':
+        patternText = interval === 1 ? 'Daily' : `Every ${interval} days`;
+        break;
+      case 'weekly':
+        const days = daysOfWeek?.map(d => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ');
+        patternText = interval === 1
+          ? `Weekly on ${days}`
+          : `Every ${interval} weeks on ${days}`;
+        break;
+      case 'absoluteMonthly':
+      case 'relativeMonthly':
+        patternText = interval === 1 ? 'Monthly' : `Every ${interval} months`;
+        break;
+      case 'absoluteYearly':
+      case 'relativeYearly':
+        patternText = 'Yearly';
+        break;
+      default:
+        patternText = 'Recurring';
+    }
+
+    // Add end info
+    if (range?.type === 'endDate' && range.endDate) {
+      patternText += ` until ${new Date(range.endDate).toLocaleDateString()}`;
+    } else if (range?.type === 'numbered' && range.numberOfOccurrences) {
+      patternText += ` (${range.numberOfOccurrences} occurrences)`;
+    }
+
+    return patternText;
+  }, []);
+
+  // Check if event is recurring
+  const isRecurringEvent = useCallback((event) => {
+    return event.graphData?.recurrence || event.isRecurringOccurrence || event.recurrence;
+  }, []);
+
+  // Format time value - extracts just the time from ISO datetime or returns time string
+  const formatTimeValue = useCallback((timeValue) => {
+    if (!timeValue || timeValue === '') return '--:--';
+
+    // If it's already in HH:MM format, return as-is
+    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeValue)) {
+      return timeValue.substring(0, 5); // Return HH:MM
+    }
+
+    // If it's an ISO datetime string, extract the time and convert to user timezone
+    if (timeValue.includes('T') || timeValue.includes('-')) {
+      try {
+        const date = new Date(timeValue);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone
+          });
+        }
+      } catch {
+        // Fall through to return as-is
+      }
+    }
+
+    return timeValue;
+  }, [userTimezone]);
+
   // Flag to control when to run the search query
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
   
@@ -228,8 +273,6 @@ function EventSearchInner({
       try {
         let result;
 
-        console.log(`Searching in calendar: ${selectedCalendarId || 'default'} with timezone: ${userTimezone}`);
-
         result = await searchEvents(
           apiToken, 
           searchTerm, 
@@ -251,20 +294,15 @@ function EventSearchInner({
         setHasNextPage(result.nextLink !== null);
         setCurrentPage(1); // Reset to page 1 for new search
 
-        // Sort results by start date (earliest first)
+        // Sort results by start date (most recent first)
         const sortedResults = [...result.results].sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          
-          // For ascending order: earliest first (a - b)
-          return aStartTime - bStartTime;
+
+          // For descending order: most recent first (b - a)
+          return bStartTime - aStartTime;
         });
-        
-        console.log("Query function returning:", {
-          resultsCount: sortedResults.length,
-          sampleTitles: sortedResults.slice(0, 3).map(r => r.subject)
-        });
-        
+
         return sortedResults;
       } finally {
         if (!autoLoadMore) {
@@ -306,7 +344,6 @@ function EventSearchInner({
   // Setup mutation for updating events
   const updateEventMutation = useMutation({
     mutationFn: (updatedEvent) => {
-      console.log("Saving event to calendar:", updatedEvent.calendarId || selectedCalendarId);
       return onSaveEvent(updatedEvent);
     },
     onSuccess: () => {
@@ -322,14 +359,6 @@ function EventSearchInner({
   
   // Calculate total results
   const searchResults = searchData || [];
-  
-  console.log("React Query Result:", {
-    searchData: searchData,
-    searchResultsLength: searchResults.length,
-    isLoading,
-    isFetching,
-    shouldRunSearch
-  });
 
   // Load more results function (updated to use page-based pagination)
   const loadMoreResults = useCallback(async () => {
@@ -371,7 +400,7 @@ function EventSearchInner({
         const sortedResults = combinedResults.sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          return aStartTime - bStartTime;
+          return bStartTime - aStartTime; // Descending: most recent first
         });
         
         if (totalAvailableEvents) {
@@ -441,13 +470,15 @@ function EventSearchInner({
   
   // Handle search execution
   const handleSearch = () => {
-    if (!searchTerm && !dateRange.start && !dateRange.end && 
+    if (!searchTerm && !dateRange.start && !dateRange.end &&
         !selectedCategories.length && !selectedLocations.length) {
       setSearchError('Please enter a search term or select search criteria');
       return;
     }
-    
+
     setSearchError(null);
+    // Clear previously selected event when starting new search
+    setSelectedEvent(null);
     setShouldRunSearch(true);
     // Collapse filters after initiating search
     setShowAdvancedOptions(false);
@@ -578,18 +609,6 @@ function EventSearchInner({
         <button className="close-button" onClick={onClose}>×</button>
       </div>
 
-      {/* Add calendar and timezone indicators */}
-      <div className="search-context-indicators">
-        {selectedCalendarId && availableCalendars && (
-          <div className="current-calendar-indicator">
-            Searching in: {availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || 'Selected Calendar'}
-          </div>
-        )}
-        
-        <div className="timezone-indicator">
-          Results shown in: {AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label || userTimezone}
-        </div>
-      </div>
       
       {/* Full-width search form */}
       <div className="search-form-full">
@@ -598,6 +617,11 @@ function EventSearchInner({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
             placeholder="Search for events..."
             className="search-input"
           />
@@ -799,42 +823,185 @@ function EventSearchInner({
           </div>
         </div>
         
-        {/* Right column - Event form */}
+        {/* Right column - Event details (read-only) */}
         <div className="event-edit-column">
           {selectedEvent ? (
-            <div className="event-detail-panel">
-              <div className="detail-header">
-                <h3>Edit Event</h3>
-                <div className="detail-actions">
-                  <button 
-                    className="view-in-calendar-button" 
-                    onClick={() => {
-                      onClose();
-                      onEventSelect(selectedEvent, true);
-                    }}
-                  >
-                    📅 View in Calendar
-                  </button>
-                </div>
+            <div className="event-detail-card">
+              {/* Header with title and recurrence badge */}
+              <div className="detail-card-header">
+                <h3 className="detail-card-title">{selectedEvent.subject || selectedEvent.eventTitle || 'Untitled Event'}</h3>
+                {isRecurringEvent(selectedEvent) && (
+                  <span className="recurrence-badge">🔁 Recurring</span>
+                )}
               </div>
-              
-              {/* Pass shared timezone to EventForm for consistent date/time display */}
-              <EventForm
-                event={selectedEvent}
-                categories={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
-                availableLocations={availableLocations}
-                onSave={handleSaveEvent}
-                onCancel={() => setSelectedEvent(null)}
-                readOnly={false}
-                isLoading={updateEventMutation.isPending}
-                userTimeZone={userTimezone} // Pass shared timezone to form
-                apiToken={apiToken}
-              />
+
+              <div className="detail-card-body">
+                {/* Date & Time */}
+                <div className="detail-row">
+                  <span className="detail-icon">📅</span>
+                  <div className="detail-content">
+                    <div className="detail-value">
+                      {selectedEvent.start?.dateTime
+                        ? new Date(selectedEvent.start.dateTime).toLocaleDateString('en-US', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            timeZone: userTimezone
+                          })
+                        : 'No date'}
+                    </div>
+                    <div className="detail-secondary">
+                      {selectedEvent.start?.dateTime && selectedEvent.end?.dateTime
+                        ? `${new Date(selectedEvent.start.dateTime).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            timeZone: userTimezone
+                          })} - ${new Date(selectedEvent.end.dateTime).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            timeZone: userTimezone
+                          })}`
+                        : 'No time'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recurrence Pattern (if recurring) */}
+                {isRecurringEvent(selectedEvent) && (
+                  <div className="detail-row">
+                    <span className="detail-icon">🔁</span>
+                    <span className="detail-value">
+                      {formatRecurrencePattern(selectedEvent.graphData?.recurrence || selectedEvent.recurrence) || 'Recurring event'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Location */}
+                <div className="detail-row">
+                  <span className="detail-icon">📍</span>
+                  <span className="detail-value">
+                    {selectedEvent.location?.displayName || 'No location specified'}
+                  </span>
+                </div>
+
+                {/* Organizer */}
+                {selectedEvent.organizer?.emailAddress && (
+                  <div className="detail-row">
+                    <span className="detail-icon">👤</span>
+                    <span className="detail-value">
+                      {selectedEvent.organizer.emailAddress.name || selectedEvent.organizer.emailAddress.address}
+                    </span>
+                  </div>
+                )}
+
+                {/* Expected Attendees */}
+                {selectedEvent.attendeeCount > 0 && (
+                  <div className="detail-row">
+                    <span className="detail-icon">👥</span>
+                    <span className="detail-value">Expected: {selectedEvent.attendeeCount} attendees</span>
+                  </div>
+                )}
+
+                {/* Categories */}
+                <div className="detail-row">
+                  <span className="detail-icon">🏷️</span>
+                  <div className="detail-tags">
+                    {selectedEvent.categories && selectedEvent.categories.length > 0 ? (
+                      selectedEvent.categories.map((cat, index) => (
+                        <span key={index} className="category-tag">{cat}</span>
+                      ))
+                    ) : (
+                      <span className="category-tag uncategorized">Uncategorized</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Description */}
+                {(selectedEvent.bodyPreview || selectedEvent.internalData?.description) && (
+                  <div className="detail-row detail-row-description">
+                    <span className="detail-icon">📝</span>
+                    <div className="detail-description">
+                      {selectedEvent.bodyPreview || selectedEvent.internalData?.description}
+                    </div>
+                  </div>
+                )}
+
+                {/* Time Schedule Grid - 2 rows x 3 columns, earliest to latest */}
+                <div className="detail-time-grid-section">
+                  <div className="detail-section-header">
+                    <span className="detail-icon">🕐</span>
+                    <span className="detail-section-title">Time Schedule</span>
+                  </div>
+                  <div className="detail-time-grid">
+                    {/* Row 1: Setup Start, Doors Open, Event Start */}
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Setup Start</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.setupTime)}</span>
+                    </div>
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Doors Open</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.doorOpenTime)}</span>
+                    </div>
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Event Start</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.startTime)}</span>
+                    </div>
+                    {/* Row 2: Event End, Doors Close, Teardown End */}
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Event End</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.endTime)}</span>
+                    </div>
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Doors Close</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.doorCloseTime)}</span>
+                    </div>
+                    <div className="time-grid-cell">
+                      <span className="time-grid-label">Teardown End</span>
+                      <span className="time-grid-value">{formatTimeValue(selectedEvent.teardownTime)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Setup/Teardown Duration (fallback if no specific times) */}
+                {!(selectedEvent.setupTime || selectedEvent.doorOpenTime || selectedEvent.teardownTime) &&
+                 (selectedEvent.setupMinutes > 0 || selectedEvent.teardownMinutes > 0) && (
+                  <div className="detail-row">
+                    <span className="detail-icon">⏱️</span>
+                    <span className="detail-value">
+                      {selectedEvent.setupMinutes > 0 && `Setup: ${selectedEvent.setupMinutes}min`}
+                      {selectedEvent.setupMinutes > 0 && selectedEvent.teardownMinutes > 0 && ' | '}
+                      {selectedEvent.teardownMinutes > 0 && `Teardown: ${selectedEvent.teardownMinutes}min`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Cost Information */}
+                {(selectedEvent.estimatedCost || selectedEvent.actualCost) && (
+                  <div className="detail-row">
+                    <span className="detail-icon">💰</span>
+                    <span className="detail-value">
+                      {selectedEvent.estimatedCost && `Est: $${selectedEvent.estimatedCost}`}
+                      {selectedEvent.estimatedCost && selectedEvent.actualCost && ' | '}
+                      {selectedEvent.actualCost && `Actual: $${selectedEvent.actualCost}`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Assigned To */}
+                {selectedEvent.assignedTo && (
+                  <div className="detail-row">
+                    <span className="detail-icon">👥</span>
+                    <span className="detail-value">Assigned to: {selectedEvent.assignedTo}</span>
+                  </div>
+                )}
+              </div>
+
             </div>
           ) : (
             <div className="no-event-selected">
               <div className="no-event-message">
-                <p>Select an event from the search results to edit it.</p>
+                <p>Select an event from the search results to view details.</p>
                 <p>You can search by text, date range, categories, or locations.</p>
                 <p>Times are displayed in: <strong>{AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label}</strong></p>
               </div>
@@ -842,6 +1009,7 @@ function EventSearchInner({
           )}
         </div>
       </div>
+
     </div>
   );
 }

@@ -182,6 +182,11 @@
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
     const { generalLocations, loading: locationsLoading } = useLocations();
+
+    // Computed flag: locations are ready when they're actually loaded (not just done loading)
+    // This fixes the race condition where locationsLoading=false but generalLocations isn't populated yet
+    // Edge case: if no locations exist in DB, proceed after loading finishes
+    const locationsReady = generalLocations.length > 0 || (!locationsLoading && !initializing);
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -3464,17 +3469,15 @@
     const handleEventSelect = (event, viewOnly = false) => {
       // Close the search panel
       setShowSearch(false);
-      
+
       // Navigate to the event's date in the calendar
       const eventDate = new Date(event.start.dateTime);
-      
+
       // Set calendar to day view centered on the event date
+      // Setting currentDate triggers useMemo to recalculate dateRange
       setViewType('day');
-      setDateRange({
-        start: eventDate,
-        end: calculateEndDate(eventDate, 'day')
-      });
-      
+      setCurrentDate(eventDate);
+
       // Only open the edit form if not viewOnly
       if (!viewOnly) {
         setCurrentEvent(event);
@@ -5459,11 +5462,12 @@
     //---------------------------------------------------------------------------
     useEffect(() => {
       // Check if tokens are available for initialization
-      if (graphToken && apiToken && initializing) {
-        logger.debug("Tokens available, starting initialization");
+      // Wait for locations to be ACTUALLY POPULATED before initializing to prevent "Unspecified" flash
+      if (graphToken && apiToken && initializing && locationsReady) {
+        logger.debug("Tokens available and locations ready, starting initialization");
         initializeApp();
       }
-    }, [graphToken, apiToken, initializing, initializeApp]);
+    }, [graphToken, apiToken, initializing, initializeApp, locationsReady]);
 
     useEffect(() => {
       if (apiToken) {
@@ -5478,8 +5482,8 @@
 
     // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
-
-      if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
+      // Wait for locations to be ACTUALLY POPULATED before loading events to prevent all events showing as "Unspecified"
+      if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0 && locationsReady) {
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
         const startTime = Date.now();
@@ -5509,7 +5513,7 @@
       }
       // Skipping event loading if requirements not met
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
+    }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length, locationsReady]);
 
     // Set user time zone from user permissions
     useEffect(() => {
