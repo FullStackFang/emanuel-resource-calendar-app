@@ -242,6 +242,9 @@
     // Event delete confirmation state
     const [pendingEventDeleteConfirmation, setPendingEventDeleteConfirmation] = useState(false);
 
+    // Save/Create confirmation state (for single events - multi-day has its own confirmation)
+    const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -277,7 +280,38 @@
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
     //---------------------------------------------------------------------------
-    
+
+    /**
+     * Generate save confirmation button text with event summary
+     * Format: ⚠️ Create "Event Name" at Location (Start - End)?
+     */
+    const getSaveConfirmationText = useCallback(() => {
+      if (!pendingSaveConfirmation || !eventReviewModal.event) return null;
+
+      const event = eventReviewModal.event;
+      const title = event.eventTitle || 'Untitled Event';
+
+      // Get location names - check requestedRooms first (current form state), then locations
+      const locationIds = event.requestedRooms?.length > 0
+        ? event.requestedRooms
+        : (event.locations || []);
+      const locationNames = locationIds
+        .map(id => rooms.find(r => r._id === id || r._id?.toString() === id?.toString())?.name)
+        .filter(Boolean)
+        .join(', ') || 'No location';
+
+      // Format time
+      const startTime = event.startTime || '';
+      const endTime = event.endTime || '';
+      const timeStr = startTime && endTime ? `${startTime} - ${endTime}` : '';
+
+      // Determine if creating new or editing existing
+      const isEditing = !!(event.eventId || event.id);
+      const actionWord = isEditing ? 'Save' : 'Create';
+
+      return `⚠️ ${actionWord} "${title}" at ${locationNames} (${timeStr})?`;
+    }, [pendingSaveConfirmation, eventReviewModal.event, rooms]);
+
     /**
      * Handle registration times toggle
      */
@@ -4628,6 +4662,20 @@
           const isMultiDayRange = reservationData.startDate !== reservationData.endDate;
           const isMultiDay = hasAdHocDates || isMultiDayRange;
 
+          // Two-step save confirmation for SINGLE-DAY events only
+          // (multi-day events already have their own confirmation via pendingMultiDayConfirmation)
+          if (!isMultiDay && !pendingSaveConfirmation) {
+            console.log('DEBUG: Single-day event - requesting confirmation');
+            setPendingSaveConfirmation(true);
+            return; // Exit early on first click - button text will change to show confirmation
+          }
+
+          // Reset single-day confirmation after second click (user confirmed)
+          if (!isMultiDay && pendingSaveConfirmation) {
+            console.log('DEBUG: Single-day confirmation received - proceeding with save');
+            setPendingSaveConfirmation(false);
+          }
+
           console.log('DEBUG: Multi-day check', {
             isEditingExistingEvent,
             startDate: reservationData.startDate,
@@ -4723,10 +4771,10 @@
               locations: reservationData.locations,
               allKeys: Object.keys(reservationData)
             });
-            // FIX: Empty arrays are truthy! Check length, not existence
-            const multiDayRoomIds = reservationData.locations?.length > 0
-              ? reservationData.locations
-              : (reservationData.requestedRooms || []);
+            /// FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
+            const multiDayRoomIds = reservationData.requestedRooms?.length > 0
+              ? reservationData.requestedRooms
+              : (reservationData.locations || []);
             console.log('DEBUG MULTI-DAY roomIds extracted:', multiDayRoomIds);
             let locationField = undefined;
             if (multiDayRoomIds.length > 0) {
@@ -4851,10 +4899,10 @@
               locations: reservationData.locations,
               allKeys: Object.keys(reservationData)
             });
-            // FIX: Empty arrays are truthy! Check length, not existence
-            const roomIds = reservationData.locations?.length > 0
-              ? reservationData.locations
-              : (reservationData.requestedRooms || []);
+            /// FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
+            const roomIds = reservationData.requestedRooms?.length > 0
+              ? reservationData.requestedRooms
+              : (reservationData.locations || []);
             console.log('DEBUG roomIds extracted:', roomIds);
             let locationField = undefined;
             if (roomIds.length > 0) {
@@ -4948,7 +4996,7 @@
         showNotification(`Error: ${error.message}`);
         throw error;
       }
-    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, userTimezone, getOutlookTimezone]);
+    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone]);
 
     /**
      * Handle closing the EventReviewModal
@@ -4957,6 +5005,7 @@
       setEventReviewModal({ isOpen: false, event: null, mode: 'event' });
       setPendingEventDeleteConfirmation(false); // Reset delete confirmation
       setPendingMultiDayConfirmation(null); // Reset multi-day confirmation
+      setPendingSaveConfirmation(false); // Reset save confirmation
     }, []);
 
     /**
@@ -4991,6 +5040,7 @@
         // Clear any pending confirmations
         setPendingMultiDayConfirmation(null);
         setPendingEventDeleteConfirmation(false);
+        setPendingSaveConfirmation(false);
       } else if (reviewModal.isOpen) {
         // Close current modal
         reviewModal.closeModal();
@@ -6125,9 +6175,11 @@
               ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
                   ? `⚠️ Confirm Adding (${pendingMultiDayConfirmation.eventCount}) Events to Series`
                   : `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`)
-              : (!eventReviewModal.event?.id && userPermissions.isAdmin
-                ? '✨ Create'
-                : null)
+              : pendingSaveConfirmation
+                ? getSaveConfirmationText()
+                : (!eventReviewModal.event?.id && userPermissions.isAdmin
+                  ? '✨ Create'
+                  : null)
           }
           deleteButtonText={
             pendingEventDeleteConfirmation
@@ -6156,6 +6208,10 @@
                 // Reset delete confirmation when form data changes
                 if (pendingEventDeleteConfirmation) {
                   setPendingEventDeleteConfirmation(false);
+                }
+                // Reset save confirmation when form data changes
+                if (pendingSaveConfirmation) {
+                  setPendingSaveConfirmation(false);
                 }
               }}
               onIsNavigatingChange={handleEventReviewIsNavigatingChange}

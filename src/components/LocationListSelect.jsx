@@ -15,6 +15,15 @@ export default function LocationListSelect({
 }) {
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Helper function to normalize IDs for comparison (handles ObjectId vs string mismatch)
+  const normalizeId = (id) => id?.toString() || id;
+
+  // Check if a room is selected using normalized comparison
+  const isRoomSelected = (roomId) => {
+    const normalizedRoomId = normalizeId(roomId);
+    return selectedRooms.some(selectedId => normalizeId(selectedId) === normalizedRoomId);
+  };
+
   // Helper function to check if two time ranges overlap
   const checkTimeOverlap = (start1, end1, start2, end2) => {
     return start1 < end2 && end1 > start2;
@@ -27,7 +36,7 @@ export default function LocationListSelect({
       return { hasConflicts: false, conflictCount: 0 };
     }
 
-    const roomAvailability = availability.find(a => a.room._id === room._id);
+    const roomAvailability = availability.find(a => normalizeId(a.room._id) === normalizeId(room._id));
     if (!roomAvailability) {
       return { hasConflicts: false, conflictCount: 0 };
     }
@@ -71,8 +80,11 @@ export default function LocationListSelect({
   );
 
   const toggleRoom = (room) => {
-    const newSelected = selectedRooms.includes(room._id)
-      ? selectedRooms.filter(id => id !== room._id)
+    const roomId = normalizeId(room._id);
+    const isCurrentlySelected = selectedRooms.some(id => normalizeId(id) === roomId);
+
+    const newSelected = isCurrentlySelected
+      ? selectedRooms.filter(id => normalizeId(id) !== roomId)
       : [...selectedRooms, room._id];
     onRoomSelectionChange(newSelected);
   };
@@ -154,7 +166,7 @@ export default function LocationListSelect({
         ) : (
           filteredRooms.map(room => {
             const roomStatus = getRoomStatus(room);
-            const isSelected = selectedRooms.includes(room._id);
+            const isSelected = isRoomSelected(room._id);
 
             return (
               <div
