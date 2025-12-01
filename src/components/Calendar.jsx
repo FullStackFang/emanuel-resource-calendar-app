@@ -571,21 +571,16 @@
 
             {/* Right side - Action buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <RegistrationTimesToggle
-                showRegistrationTimes={showRegistrationTimes}
-                onToggle={handleRegistrationTimesToggle}
-              />
-              
               {/* Cache Control Buttons (only show when API token is available) */}
-              <button 
-                className="search-button" 
+              <button
+                className="search-button"
                 onClick={() => setShowSearch(true)}
                 style={{
-                  padding: '6px 14px',
-                  border: '1px solid #e5e7eb',
+                  padding: '8px 16px',
+                  border: 'none',
                   borderRadius: '6px',
-                  backgroundColor: '#ffffff',
-                  color: '#111827',
+                  backgroundColor: '#0078d4',
+                  color: 'white',
                   fontSize: '14px',
                   fontWeight: '500',
                   cursor: 'pointer',
