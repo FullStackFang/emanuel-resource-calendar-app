@@ -265,16 +265,28 @@ async function createUnifiedEventIndexes() {
     
     // Index for multi-calendar source tracking
     await unifiedEventsCollection.createIndex(
-      { 
-        userId: 1, 
-        "sourceCalendars.calendarId": 1 
+      {
+        userId: 1,
+        "sourceCalendars.calendarId": 1
       },
-      { 
+      {
         name: "userId_sourceCalendars",
-        background: true 
+        background: true
       }
     );
-    
+
+    // Index for location filtering in event search
+    await unifiedEventsCollection.createIndex(
+      {
+        userId: 1,
+        "graphData.location.displayName": 1
+      },
+      {
+        name: "userId_location_displayName",
+        background: true
+      }
+    );
+
     console.log('Unified event indexes created successfully');
   } catch (error) {
     // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
@@ -9935,12 +9947,17 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
       }
     }
     
-    // Apply location filter
+    // Apply location filter - use single combined regex for case-insensitive matching
     if (locations) {
       const locationList = locations.split(',').map(loc => loc.trim());
-      // Use regex for partial matching (case-insensitive)
-      const locationRegexes = locationList.map(loc => new RegExp(loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-      query["graphData.location.displayName"] = { $in: locationRegexes };
+      // Escape special regex characters and combine into single pattern
+      const escapedLocations = locationList.map(loc =>
+        loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      );
+      // Single regex pattern matching any of the locations (case-insensitive)
+      query["graphData.location.displayName"] = {
+        $regex: new RegExp(`^(${escapedLocations.join('|')})$`, 'i')
+      };
     }
     
     // Apply date range filter
@@ -9987,78 +10004,78 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
     }
     logger.debug('Query state after date filtering:', JSON.stringify(query, null, 2));
     logger.debug('=== END DATE FILTERING DEBUG ===');
-    
+
+    // Apply search filter in MongoDB query (not in memory)
+    if (search) {
+      const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const searchConditions = [
+        // Top-level fields (CSV imports, source of truth)
+        { eventTitle: searchRegex },
+        { eventDescription: searchRegex },
+        { location: searchRegex },
+        { locationDisplayNames: searchRegex },
+        // graphData fields (Outlook sync fallback)
+        { "graphData.subject": searchRegex },
+        { "graphData.bodyPreview": searchRegex },
+        { "graphData.location.displayName": searchRegex }
+      ];
+
+      // Handle existing $or from category filtering
+      if (query.$or) {
+        // Wrap existing $or and search in $and
+        const existingOr = query.$or;
+        delete query.$or;
+        if (!query.$and) query.$and = [];
+        query.$and.push({ $or: existingOr });
+        query.$and.push({ $or: searchConditions });
+      } else {
+        query.$or = searchConditions;
+      }
+    }
+
     logger.debug('Executing query for unified events');
     logger.debug('MongoDB query:', JSON.stringify(query, null, 2));
     logger.debug('Query parameters:', { categories, locations, startDate, endDate, search, sortBy, sortOrder });
-    
-    const allEvents = await unifiedEventsCollection.find(query).toArray();
-    logger.debug('Found total events for user:', allEvents.length);
-    
-    // Debug: Show sample event dates to understand format
-    if (allEvents.length > 0) {
-      logger.debug('=== SAMPLE EVENT DATES DEBUG ===');
-      const sampleEvents = allEvents.slice(0, 3);
-      sampleEvents.forEach((event, index) => {
-        logger.debug(`Event ${index + 1}:`, {
-          subject: event.graphData?.subject,
-          startTime: event.graphData?.start?.dateTime,
-          endTime: event.graphData?.end?.dateTime,
-          startType: typeof event.graphData?.start?.dateTime,
-          endType: typeof event.graphData?.end?.dateTime
-        });
-      });
-      logger.debug('=== END SAMPLE EVENT DATES DEBUG ===');
-    }
-    
-    // Apply search filter in memory - check both top-level and graphData fields
-    let filteredEvents = allEvents;
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredEvents = filteredEvents.filter(event =>
-        // Top-level fields (CSV imports, source of truth)
-        (event.eventTitle || '').toLowerCase().includes(searchLower) ||
-        (event.eventDescription || '').toLowerCase().includes(searchLower) ||
-        (event.location || '').toLowerCase().includes(searchLower) ||
-        (event.locationDisplayNames || '').toLowerCase().includes(searchLower) ||
-        // graphData fields (Outlook sync fallback)
-        (event.graphData?.subject || '').toLowerCase().includes(searchLower) ||
-        (event.graphData?.bodyPreview || '').toLowerCase().includes(searchLower) ||
-        (event.graphData?.location?.displayName || '').toLowerCase().includes(searchLower)
-      );
-    }
-    
-    // Sort in memory
-    filteredEvents.sort((a, b) => {
-      if (sortBy === 'lastSyncedAt') {
-        const dateA = new Date(a.lastSyncedAt || 0);
-        const dateB = new Date(b.lastSyncedAt || 0);
-        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
-      } else if (sortBy === 'subject') {
-        const subjectA = (a.graphData?.subject || '').toLowerCase();
-        const subjectB = (b.graphData?.subject || '').toLowerCase();
-        const result = subjectA.localeCompare(subjectB);
-        return sortOrder === 'desc' ? -result : result;
-      } else if (sortBy === 'startTime') {
-        const dateA = new Date(a.graphData?.start?.dateTime || 0);
-        const dateB = new Date(b.graphData?.start?.dateTime || 0);
-        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
-      }
-      return 0;
-    });
-    
-    // Apply pagination in memory
-    const totalCount = filteredEvents.length;
-    let paginatedEvents;
-    
-    if (limitNum === null) {
-      // Return all results when no limit is specified
-      paginatedEvents = filteredEvents;
+
+    // Determine sort field and direction for MongoDB
+    let sortField;
+    if (sortBy === 'lastSyncedAt') {
+      sortField = 'lastSyncedAt';
+    } else if (sortBy === 'subject') {
+      sortField = 'graphData.subject';
+    } else if (sortBy === 'startTime') {
+      sortField = 'graphData.start.dateTime';
     } else {
-      // Apply pagination when limit is specified
-      const startIdx = (pageNum - 1) * limitNum;
-      paginatedEvents = filteredEvents.slice(startIdx, startIdx + limitNum);
+      sortField = 'graphData.start.dateTime'; // Default sort by start time
     }
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    // Get total count for pagination
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
+    logger.debug('Total matching events:', totalCount);
+
+    // Database-level pagination - only fetch the page we need
+    const pageSize = limitNum || 50; // Default to 50 if no limit specified
+    const skip = (pageNum - 1) * pageSize;
+
+    let paginatedEvents;
+    if (limitNum === null) {
+      // Return all results when explicitly no limit
+      paginatedEvents = await unifiedEventsCollection
+        .find(query)
+        .sort({ [sortField]: sortDirection })
+        .toArray();
+    } else {
+      // Apply pagination at database level
+      paginatedEvents = await unifiedEventsCollection
+        .find(query)
+        .sort({ [sortField]: sortDirection })
+        .skip(skip)
+        .limit(pageSize)
+        .toArray();
+    }
+
+    logger.debug('Fetched events for page:', paginatedEvents.length)
     
     res.status(200).json({
       events: paginatedEvents.map(event => ({

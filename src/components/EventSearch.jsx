@@ -241,11 +241,14 @@ function EventSearchInner({
   
   // Flag to control when to run the search query
   const [shouldRunSearch, setShouldRunSearch] = useState(false);
-  
-  // Create a query key based on search parameters (using shared timezone)
-  const searchQueryKey = useMemo(() => 
-    ['events', searchTerm, dateRange, selectedCategories, selectedLocations, userTimezone],
-    [searchTerm, dateRange, selectedCategories, selectedLocations, userTimezone]
+
+  // Search version - only increments when Search button is clicked (prevents auto-search on typing)
+  const [searchVersion, setSearchVersion] = useState(0);
+
+  // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing)
+  const searchQueryKey = useMemo(() =>
+    ['events', searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone],
+    [searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone]
   );
   
   // Get the query client
@@ -310,7 +313,6 @@ function EventSearchInner({
       }
     },
     enabled: shouldRunSearch && !!apiToken,
-    keepPreviousData: true,
     staleTime: 5 * 60 * 1000,
     retry: (failureCount, error) => {
       // Don't retry token expiration errors
@@ -331,8 +333,8 @@ function EventSearchInner({
       setShouldRunSearch(false);
     },
     onSuccess: (data) => {
-      // Don't immediately set shouldRunSearch to false - let the query stay enabled
-      // setShouldRunSearch(false);
+      // Reset search flag after successful search to prevent re-fetching on every keystroke
+      setShouldRunSearch(false);
       // Don't clear loading status immediately to maintain smooth transitions
       if (!autoLoadMore && !nextLink) {
         setTimeout(() => setLoadingStatus(''), 2000);
@@ -476,30 +478,31 @@ function EventSearchInner({
     }, dynamicDelay);
   }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchData, loadMoreResults]);
   
-  // Handle search execution
+  // Handle search execution - only triggered by button click
   const handleSearch = () => {
-    if (!searchTerm && !dateRange.start && !dateRange.end && 
+    if (!searchTerm && !dateRange.start && !dateRange.end &&
         !selectedCategories.length && !selectedLocations.length) {
       setSearchError('Please enter a search term or select search criteria');
       return;
     }
-    
+
     setSearchError(null);
+    setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
     // Collapse filters after initiating search
     setShowAdvancedOptions(false);
-    refetch();
   };
 
   // Handle timezone change - now uses context
   const handleTimezoneChange = (newTimezone) => {
     setUserTimezone(newTimezone);
     // Context automatically handles API persistence
-    
+
     // If there are existing search results, trigger a new search with the new timezone
+    // Timezone is in query key, so incrementing version will refresh with new timezone
     if (searchResults.length > 0) {
+      setSearchVersion(v => v + 1);
       setShouldRunSearch(true);
-      setTimeout(() => refetch(), 100);
     }
   };
 
@@ -645,6 +648,11 @@ function EventSearchInner({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
             placeholder="Search for events..."
             className="search-input"
           />
