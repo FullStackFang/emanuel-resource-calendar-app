@@ -8,7 +8,6 @@ import {
   useQueryClient 
 } from '@tanstack/react-query';
 import MultiSelect from './MultiSelect';
-import EventForm from './EventForm';
 import EventSearchExport from './EventSearchExport';
 import CalendarSelector from './CalendarSelector';
 import './EventSearch.css';
@@ -22,6 +21,30 @@ import {
 
 // Create a client
 const queryClient = new QueryClient();
+
+// Helper function to format time values as "9:30 AM" or show placeholder
+const formatTimeOrPlaceholder = (timeValue) => {
+  // If empty string, null, undefined, or "0", show placeholder
+  if (!timeValue || timeValue === '' || timeValue === '0') {
+    return '--:--:--';
+  }
+
+  // If it's an ISO timestamp, extract just the time
+  if (timeValue.includes('T')) {
+    const date = new Date(timeValue);
+    const hours = date.getUTCHours();
+    const minutes = date.getUTCMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 || 12;
+    return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+  }
+
+  // Parse HH:MM format and convert to 12-hour AM/PM
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+};
 
 
 // Search function implementation using unified backend search (includes CSV events)
@@ -149,7 +172,17 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       teardownMinutes: event.internalData?.teardownMinutes,
       assignedTo: event.internalData?.assignedTo,
       estimatedCost: event.internalData?.estimatedCost,
-      actualCost: event.internalData?.actualCost
+      actualCost: event.internalData?.actualCost,
+      // Top-level time fields from unified events collection
+      startDate: event.startDate,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      setupTime: event.setupTime,
+      teardownTime: event.teardownTime,
+      doorOpenTime: event.doorOpenTime,
+      doorCloseTime: event.doorCloseTime,
+      eventDescription: event.eventDescription,
+      locationDisplayNames: event.locationDisplayNames
     }));
 
     return {
@@ -813,15 +846,15 @@ function EventSearchInner({
           </div>
         </div>
         
-        {/* Right column - Event form */}
+        {/* Right column - Event Summary (Read-Only) */}
         <div className="event-edit-column">
           {selectedEvent ? (
             <div className="event-detail-panel">
               <div className="detail-header">
-                <h3>Edit Event</h3>
+                <h3>Event Summary</h3>
                 <div className="detail-actions">
-                  <button 
-                    className="view-in-calendar-button" 
+                  <button
+                    className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
                       onEventSelect(selectedEvent, true);
@@ -831,24 +864,97 @@ function EventSearchInner({
                   </button>
                 </div>
               </div>
-              
-              {/* Pass shared timezone to EventForm for consistent date/time display */}
-              <EventForm
-                event={selectedEvent}
-                categories={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
-                availableLocations={availableLocations}
-                onSave={handleSaveEvent}
-                onCancel={() => setSelectedEvent(null)}
-                readOnly={false}
-                isLoading={updateEventMutation.isPending}
-                userTimeZone={userTimezone} // Pass shared timezone to form
-                apiToken={apiToken}
-              />
+
+              {/* Read-only summary */}
+              <div className="event-summary-readonly">
+                {/* Title */}
+                <div className="summary-row">
+                  <div className="form-icon">📌</div>
+                  <div className="summary-value title">{selectedEvent.subject}</div>
+                </div>
+
+                {/* Date */}
+                <div className="summary-row">
+                  <div className="form-icon">📅</div>
+                  <div className="summary-value">{selectedEvent.startDate || '--'}</div>
+                </div>
+
+                {/* Category */}
+                <div className="summary-row">
+                  <div className="form-icon">🏷️</div>
+                  <div className="summary-value">
+                    {(selectedEvent.categories?.length > 0 ? selectedEvent.categories.join(', ') : null) ||
+                     (selectedEvent.mecCategories?.length > 0 ? selectedEvent.mecCategories.join(', ') : null) ||
+                     'Uncategorized'}
+                  </div>
+                </div>
+
+                {/* Time Grid - 2 rows x 3 columns */}
+                <div className="summary-row">
+                  <div className="form-icon">🕒</div>
+                  <div className="summary-time-grid">
+                    {/* Row 1: Setup Time | Door Open | Event Start */}
+                    <div className="time-cell">
+                      <span className="time-label">Setup Time</span>
+                      <span className={`time-value ${!selectedEvent.setupTime ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.setupTime)}
+                      </span>
+                    </div>
+                    <div className="time-cell">
+                      <span className="time-label">Door Open</span>
+                      <span className={`time-value ${!selectedEvent.doorOpenTime ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.doorOpenTime)}
+                      </span>
+                    </div>
+                    <div className="time-cell">
+                      <span className="time-label">Event Start</span>
+                      <span className="time-value">
+                        {formatTimeOrPlaceholder(selectedEvent.startTime || selectedEvent.start?.dateTime)}
+                      </span>
+                    </div>
+                    {/* Row 2: Event End | Door Close | Teardown */}
+                    <div className="time-cell">
+                      <span className="time-label">Event End</span>
+                      <span className="time-value">
+                        {formatTimeOrPlaceholder(selectedEvent.endTime || selectedEvent.end?.dateTime)}
+                      </span>
+                    </div>
+                    <div className="time-cell">
+                      <span className="time-label">Door Close</span>
+                      <span className={`time-value ${!selectedEvent.doorCloseTime ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.doorCloseTime)}
+                      </span>
+                    </div>
+                    <div className="time-cell">
+                      <span className="time-label">Teardown</span>
+                      <span className={`time-value ${!selectedEvent.teardownTime ? 'placeholder' : ''}`}>
+                        {formatTimeOrPlaceholder(selectedEvent.teardownTime)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Location */}
+                <div className="summary-row">
+                  <div className="form-icon">📍</div>
+                  <div className="summary-value">
+                    {selectedEvent.locationDisplayNames || selectedEvent.location?.displayName || '--'}
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="summary-row">
+                  <div className="form-icon">📝</div>
+                  <div className="summary-value description">
+                    {selectedEvent.eventDescription || selectedEvent.bodyPreview || '--'}
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="no-event-selected">
               <div className="no-event-message">
-                <p>Select an event from the search results to edit it.</p>
+                <p>Select an event from the search results to view details.</p>
                 <p>You can search by text, date range, categories, or locations.</p>
                 <p>Times are displayed in: <strong>{AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label}</strong></p>
               </div>

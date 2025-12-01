@@ -746,6 +746,82 @@ html {
     background-color: #005a9e;
   }
   
+  /* Read-only Event Summary Styles - Compact */
+  .event-summary-readonly {
+    padding: 12px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .summary-row {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    gap: 8px;
+  }
+
+  .summary-row .form-icon {
+    flex-shrink: 0;
+    width: 20px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .summary-value {
+    flex: 1;
+    font-size: 13px;
+    color: #3c4043;
+    padding: 6px 10px;
+    background-color: #f8f9fa;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+  }
+
+  .summary-value.title {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .summary-value.description {
+    white-space: pre-wrap;
+    min-height: 40px;
+  }
+
+  /* Time Grid - 2 rows x 3 columns - Compact */
+  .summary-time-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: repeat(2, auto);
+    gap: 6px;
+    flex: 1;
+  }
+
+  .time-cell {
+    display: flex;
+    flex-direction: column;
+    padding: 6px 8px;
+    background-color: #f8f9fa;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+  }
+
+  .time-label {
+    font-size: 10px;
+    color: #5f6368;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .time-value {
+    font-size: 13px;
+    color: #3c4043;
+    font-family: monospace;
+  }
+
+  .time-value.placeholder {
+    color: #9aa0a6;
+  }
+
   /* Responsive adjustments - IMPROVED */
   @media (max-width: 1200px) {
     .event-search-container {
