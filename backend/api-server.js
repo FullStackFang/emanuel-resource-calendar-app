@@ -6009,15 +6009,19 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       ];
     }
     
-    // Search filter - add to database query
+    // Search filter - check both top-level and graphData fields
     if (search) {
       const searchRegex = new RegExp(search, 'i'); // case-insensitive regex
       const searchConditions = [
-        { subject: searchRegex },
-        { locationDisplayNames: searchRegex },  // Use locationDisplayNames instead of location
+        // Top-level fields (CSV imports, source of truth)
+        { eventTitle: searchRegex },
+        { eventDescription: searchRegex },
+        { location: searchRegex },
+        { locationDisplayNames: searchRegex },
+        // graphData fields (Outlook sync fallback)
         { 'graphData.subject': searchRegex },
-        { 'graphData.location.displayName': searchRegex },
-        { 'graphData.bodyPreview': searchRegex }
+        { 'graphData.bodyPreview': searchRegex },
+        { 'graphData.location.displayName': searchRegex }
       ];
       
       // If there's already an $or condition (for enriched status), combine them
@@ -10007,15 +10011,20 @@ app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
       logger.debug('=== END SAMPLE EVENT DATES DEBUG ===');
     }
     
-    // Apply search filter in memory (easier than complex MongoDB text search)
+    // Apply search filter in memory - check both top-level and graphData fields
     let filteredEvents = allEvents;
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredEvents = filteredEvents.filter(event => 
+      filteredEvents = filteredEvents.filter(event =>
+        // Top-level fields (CSV imports, source of truth)
+        (event.eventTitle || '').toLowerCase().includes(searchLower) ||
+        (event.eventDescription || '').toLowerCase().includes(searchLower) ||
+        (event.location || '').toLowerCase().includes(searchLower) ||
+        (event.locationDisplayNames || '').toLowerCase().includes(searchLower) ||
+        // graphData fields (Outlook sync fallback)
         (event.graphData?.subject || '').toLowerCase().includes(searchLower) ||
-        (event.eventId || '').toLowerCase().includes(searchLower) ||
-        (event.graphData?.location?.displayName || '').toLowerCase().includes(searchLower) ||
-        (event.calendarId || '').toLowerCase().includes(searchLower)
+        (event.graphData?.bodyPreview || '').toLowerCase().includes(searchLower) ||
+        (event.graphData?.location?.displayName || '').toLowerCase().includes(searchLower)
       );
     }
     

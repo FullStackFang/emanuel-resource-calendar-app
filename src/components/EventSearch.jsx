@@ -10,6 +10,7 @@ import {
 import MultiSelect from './MultiSelect';
 import EventForm from './EventForm';
 import EventSearchExport from './EventSearchExport';
+import CalendarSelector from './CalendarSelector';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
@@ -181,7 +182,10 @@ function EventSearchInner({
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedLocations, setSelectedLocations] = useState([]);
-  
+
+  // Local calendar state for search - allows changing calendar without affecting main calendar
+  const [searchCalendarId, setSearchCalendarId] = useState(selectedCalendarId);
+
   // Collapsible search form state - show initially, collapse after search
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(true);
   
@@ -228,17 +232,17 @@ function EventSearchInner({
       try {
         let result;
 
-        console.log(`Searching in calendar: ${selectedCalendarId || 'default'} with timezone: ${userTimezone}`);
+        console.log(`Searching in calendar: ${searchCalendarId || 'default'} with timezone: ${userTimezone}`);
 
         result = await searchEvents(
-          apiToken, 
-          searchTerm, 
-          dateRange, 
-          selectedCategories, 
+          apiToken,
+          searchTerm,
+          dateRange,
+          selectedCategories,
           selectedLocations,
           1, // Start with page 1
           null, // No limit - let backend return all matching results
-          selectedCalendarId,
+          searchCalendarId,
           userTimezone // Use shared timezone
         );
 
@@ -306,7 +310,7 @@ function EventSearchInner({
   // Setup mutation for updating events
   const updateEventMutation = useMutation({
     mutationFn: (updatedEvent) => {
-      console.log("Saving event to calendar:", updatedEvent.calendarId || selectedCalendarId);
+      console.log("Saving event to calendar:", updatedEvent.calendarId || searchCalendarId);
       return onSaveEvent(updatedEvent);
     },
     onSuccess: () => {
@@ -349,14 +353,14 @@ function EventSearchInner({
       
       const nextPage = currentPage + 1;
       const result = await searchEvents(
-        apiToken, 
-        searchTerm, 
-        dateRange, 
-        selectedCategories, 
-        selectedLocations, 
+        apiToken,
+        searchTerm,
+        dateRange,
+        selectedCategories,
+        selectedLocations,
         nextPage,
         null, // No limit - let backend return all matching results
-        selectedCalendarId,
+        searchCalendarId,
         userTimezone // Use shared timezone
       );
       
@@ -403,17 +407,17 @@ function EventSearchInner({
       setIsLoadingMore(false);
     }
   }, [
-    hasNextPage, 
-    isLoadingMore, 
-    searchResults.length, 
-    totalAvailableEvents, 
-    apiToken, 
-    searchTerm, 
-    dateRange, 
-    selectedCalendarId,
-    selectedCategories, 
-    selectedLocations, 
-    userTimezone, 
+    hasNextPage,
+    isLoadingMore,
+    searchResults.length,
+    totalAvailableEvents,
+    apiToken,
+    searchTerm,
+    dateRange,
+    searchCalendarId,
+    selectedCategories,
+    selectedLocations,
+    userTimezone,
     searchQueryKey,
     queryClient,
     currentPage
@@ -490,22 +494,22 @@ function EventSearchInner({
   const handleSelectEvent = (event) => {
     const eventWithCalendar = {
       ...event,
-      calendarId: selectedCalendarId || event.calendarId,
-      calendarName: selectedCalendarId 
-        ? availableCalendars?.find(cal => cal.id === selectedCalendarId)?.name 
+      calendarId: searchCalendarId || event.calendarId,
+      calendarName: searchCalendarId
+        ? availableCalendars?.find(cal => cal.id === searchCalendarId)?.name
         : event.calendarName
     };
-    
+
     setSelectedEvent(eventWithCalendar);
   };
-  
+
   // Handle saving the event
   const handleSaveEvent = (updatedEvent) => {
     const eventToUpdate = {
       ...updatedEvent,
-      calendarId: selectedCalendarId || updatedEvent.calendarId
+      calendarId: searchCalendarId || updatedEvent.calendarId
     };
-    
+
     updateEventMutation.mutate(eventToUpdate);
   };
 
@@ -578,14 +582,24 @@ function EventSearchInner({
         <button className="close-button" onClick={onClose}>×</button>
       </div>
 
-      {/* Add calendar and timezone indicators */}
+      {/* Add calendar selector and timezone indicators */}
       <div className="search-context-indicators">
-        {selectedCalendarId && availableCalendars && (
-          <div className="current-calendar-indicator">
-            Searching in: {availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || 'Selected Calendar'}
+        {availableCalendars && availableCalendars.length > 0 && (
+          <div className="search-calendar-selector">
+            <label>Search in calendar:</label>
+            <CalendarSelector
+              selectedCalendarId={searchCalendarId}
+              availableCalendars={availableCalendars}
+              onCalendarChange={(calendarId) => {
+                setSearchCalendarId(calendarId);
+                // Clear previous results when calendar changes
+                setShouldRunSearch(false);
+              }}
+              changingCalendar={false}
+            />
           </div>
         )}
-        
+
         <div className="timezone-indicator">
           Results shown in: {AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label || userTimezone}
         </div>
