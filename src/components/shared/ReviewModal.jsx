@@ -45,7 +45,9 @@ export default function ReviewModal({
   overlayClassName = 'review-modal-overlay',
   // Button text customization
   saveButtonText = null,
-  deleteButtonText = null
+  deleteButtonText = null,
+  // Admin access
+  isAdmin = false
 }) {
   // Tab state
   const [activeTab, setActiveTab] = useState('details');
@@ -204,6 +206,14 @@ export default function ReviewModal({
             >
               {historyCount > 0 ? `History (${historyCount})` : 'History'}
             </div>
+            {isAdmin && (
+              <div
+                className={`event-type-tab ${activeTab === 'admin' ? 'active' : ''}`}
+                onClick={() => setActiveTab('admin')}
+              >
+                Admin
+              </div>
+            )}
           </div>
         )}
 

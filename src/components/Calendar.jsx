@@ -2627,8 +2627,8 @@
           return;
         }
 
-        // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
-        const locationText = event.locationDisplayNames?.trim() || '';
+        // Read from top-level locationDisplayNames (app field), with fallback to location.displayName for Graph events
+        const locationText = event.locationDisplayNames?.trim() || event.location?.displayName?.trim() || '';
 
         if (!locationText) {
           // Empty or null location - we'll need Unspecified
@@ -2658,8 +2658,10 @@
           if (matchingGeneral) {
             // Use the canonical name from the general locations database
             locationsSet.add(matchingGeneral.name);
+          } else {
+            // Location doesn't match any database location - will go to Unspecified
+            hasEventsWithoutLocation = true;
           }
-          // Note: We no longer add non-database locations
         });
       });
 
@@ -3144,8 +3146,8 @@
           }
           // Handle all events with locations
           else {
-            // Read from top-level locationDisplayNames (app field), not graphData.location.displayName
-            const locationText = event.locationDisplayNames?.trim() || '';
+            // Read from top-level locationDisplayNames (app field), with fallback to location.displayName for Graph events
+            const locationText = event.locationDisplayNames?.trim() || event.location?.displayName?.trim() || '';
             const eventLocations = locationText
               .split(/[;,]/)
               .map(loc => loc.trim())
@@ -3162,6 +3164,20 @@
                 );
                 return matches;
               });
+
+              // If no match, check if location exists in database at all
+              // Unknown locations should go to "Unspecified"
+              if (!locationMatch) {
+                const hasKnownLocation = eventLocations.some(loc =>
+                  generalLocations.some(dbLoc =>
+                    dbLoc.name && dbLoc.name.toLowerCase() === loc.toLowerCase()
+                  )
+                );
+                if (!hasKnownLocation) {
+                  // Event has unknown location - treat as Unspecified
+                  locationMatch = selectedLocations.includes('Unspecified');
+                }
+              }
             }
           }
         }
@@ -3611,18 +3627,21 @@
      * @param {Object} event - The event object
      * @param {Date} eventDate - The date of the event
      */
-    const handleViewInCalendar = (event) => {
-      logger.debug("View in calendar clicked", event); // Add debugging
-      
+    const handleViewInCalendar = (event, targetViewType = 'day') => {
+      logger.debug("View in calendar clicked", { event, targetViewType });
+
       // Navigate to the event's date in the calendar
       const eventDate = new Date(event.start.dateTime);
-      
-      // Set calendar to day view centered on the event date
-      setViewType('day');
-      setDateRange({
-        start: eventDate,
-        end: calculateEndDate(eventDate, 'day')
-      });
+
+      // Switch to the calendar containing this event
+      if (event.calendarId && event.calendarId !== selectedCalendarId) {
+        setSelectedCalendarId(event.calendarId);
+      }
+
+      // Set calendar to specified view centered on the event date
+      // dateRange is a useMemo that recalculates based on currentDate and viewType
+      setViewType(targetViewType);
+      setCurrentDate(eventDate);
     };
 
     /**
@@ -6130,6 +6149,7 @@
           isDeleting={reviewModal.isDeleting}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
+          isAdmin={userPermissions.isAdmin}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
               ? '⚠️ Confirm Delete?'
@@ -6165,6 +6185,7 @@
           isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
           showTabs={true}
+          isAdmin={userPermissions.isAdmin}
           saveButtonText={
             pendingMultiDayConfirmation
               ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id

@@ -152,11 +152,17 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       id: event.eventId,
       subject: event.graphData?.subject || event.subject,
       start: {
-        dateTime: event.graphData?.start?.dateTime || event.startTime,
+        dateTime: event.graphData?.start?.dateTime ||
+                  (event.startDate && event.startTime
+                    ? `${event.startDate}T${event.startTime}`
+                    : event.startTime),
         timeZone: event.graphData?.start?.timeZone || timezone
       },
       end: {
-        dateTime: event.graphData?.end?.dateTime || event.endTime,
+        dateTime: event.graphData?.end?.dateTime ||
+                  (event.startDate && event.endTime
+                    ? `${event.startDate}T${event.endTime}`
+                    : event.endTime),
         timeZone: event.graphData?.end?.timeZone || timezone
       },
       location: event.graphData?.location || { displayName: event.location || '' },
@@ -865,10 +871,19 @@ function EventSearchInner({
                     className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
-                      onEventSelect(selectedEvent, true);
+                      onViewInCalendar(selectedEvent, 'week');
                     }}
                   >
-                    📅 View in Calendar
+                    📅 Week
+                  </button>
+                  <button
+                    className="view-in-calendar-button"
+                    onClick={() => {
+                      onClose();
+                      onViewInCalendar(selectedEvent, 'day');
+                    }}
+                  >
+                    📅 Day
                   </button>
                 </div>
               </div>
@@ -884,7 +899,16 @@ function EventSearchInner({
                 {/* Date */}
                 <div className="summary-row">
                   <div className="form-icon">📅</div>
-                  <div className="summary-value">{selectedEvent.startDate || '--'}</div>
+                  <div className="summary-value">
+                    {selectedEvent.startDate ||
+                     (selectedEvent.start?.dateTime
+                       ? new Date(selectedEvent.start.dateTime).toLocaleDateString('en-US', {
+                           year: 'numeric',
+                           month: 'short',
+                           day: 'numeric'
+                         })
+                       : '--')}
+                  </div>
                 </div>
 
                 {/* Category */}
