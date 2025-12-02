@@ -3,12 +3,15 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
+import { usePermissions } from '../hooks/usePermissions';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
 import ReviewModal from './shared/ReviewModal';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
+  // Permission check for Approver/Admin role
+  const { canApproveReservations } = usePermissions();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -857,10 +860,22 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
+  // Access control - only Approvers and Admins can view this page
+  if (!canApproveReservations) {
+    return (
+      <div className="reservation-requests">
+        <div className="access-denied">
+          <h2>Access Restricted</h2>
+          <p>You do not have permission to view and approve reservation requests.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && allReservations.length === 0) {
     return <div className="reservation-requests loading">Loading reservation requests...</div>;
   }
-  
+
   return (
     <div className="reservation-requests">
       <h1>Reservation Requests</h1>

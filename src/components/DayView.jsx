@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 
 const DayView = memo(({
@@ -33,6 +34,9 @@ const DayView = memo(({
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
+
+  // Get permissions for role simulation
+  const { canCreateEvents } = usePermissions();
 
   // For day view, we only need the current day
   const currentDay = dateRange.start;
@@ -334,20 +338,23 @@ const DayView = memo(({
             <div style={{ fontSize: '16px', marginBottom: '10px' }}>
               No events found for {formatDateHeader(currentDay)}
             </div>
-            <button
-              onClick={() => handleDayCellClick(currentDay)}
-              style={{
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px'
-              }}
-            >
-              + Add Event
-            </button>
+            {/* Add Event button - only show if user has create permission */}
+            {canCreateEvents && (
+              <button
+                onClick={() => handleDayCellClick(currentDay)}
+                style={{
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                + Add Event
+              </button>
+            )}
           </div>
         </div>
       )}

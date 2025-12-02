@@ -19,8 +19,10 @@ import ReservationRequests from './components/ReservationRequests';
 import FeatureManagement from './components/FeatureManagement';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
-import { TimezoneProvider } from './context/TimezoneContext'; // Add this import
+import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
+import { RoleSimulationProvider } from './context/RoleSimulationContext';
+import { RoleSimulationBanner } from './components/RoleSimulationBanner';
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
@@ -203,6 +205,7 @@ function App() {
 
   return (
     <Router>
+      <RoleSimulationProvider>
       <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
         <header className="app-header">
           <h1 className="app-title">Temple Events Scheduler</h1>
@@ -211,12 +214,13 @@ function App() {
         <main>
           {apiToken && graphToken ? (
             // Wrap authenticated routes with providers
-            <TimezoneProvider 
+            <TimezoneProvider
               apiToken={apiToken}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
+              <RoleSimulationBanner />
               <Navigation />
               <Routes>
                 <Route path="/" element={
@@ -268,6 +272,7 @@ function App() {
           )}
         </main>
       </div>
+      </RoleSimulationProvider>
     </Router>
   );
 }

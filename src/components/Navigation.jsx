@@ -1,9 +1,15 @@
 // src/components/Navigation.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { usePermissions } from '../hooks/usePermissions';
 import './Navigation.css';
 
 export default function Navigation() {
+  const {
+    canSubmitReservation,
+    canApproveReservations,
+    isAdmin
+  } = usePermissions();
   const [adminExpanded, setAdminExpanded] = useState(false);
   const location = useLocation();
   const dropdownRef = useRef(null);
@@ -46,111 +52,128 @@ export default function Navigation() {
           </NavLink>
         </li>
 
-        <li>
-          <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
-            My Reservations
-          </NavLink>
-        </li>
+        {/* My Reservations - visible for Requester, Approver, Admin */}
+        {canSubmitReservation && (
+          <li>
+            <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
+              My Reservations
+            </NavLink>
+          </li>
+        )}
+
+        {/* Reservation Requests - visible for Approver (when not full Admin) */}
+        {canApproveReservations && !isAdmin && (
+          <li>
+            <NavLink to="/admin/reservation-requests" className={({ isActive }) => isActive ? 'active' : ''}>
+              Reservation Requests
+            </NavLink>
+          </li>
+        )}
 
         <li>
           <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
             My Profile
           </NavLink>
         </li>
-        <li className="has-dropdown" ref={dropdownRef}>
-          <div 
-            className="dropdown-toggle"
-            onClick={() => setAdminExpanded(!adminExpanded)}
-          >
-            Admin
-            <span className={`dropdown-arrow ${adminExpanded ? 'expanded' : ''}`}>▼</span>
-          </div>
-          {adminExpanded && (
-            <ul className="dropdown-menu">
-              <li>
-                <NavLink
-                  to="/admin/users"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  User Management
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/events"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Unified Events Admin
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/locations"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Location Management
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/booking"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  ✨ External Form (Unified)
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/room-reservation"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  📋 Legacy Form
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/reservation-requests"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Reservation Requests
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/feature-management"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Feature Management
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/categories"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Category Management
-                </NavLink>
-              </li>
-              <li>
-                <NavLink
-                  to="/admin/calendar-config"
-                  className={({ isActive }) => isActive ? 'active' : ''}
-                  onClick={handleDropdownLinkClick}
-                >
-                  Calendar Configuration
-                </NavLink>
-              </li>
-            </ul>
-          )}
-        </li>
+
+        {/* Admin dropdown - only visible for Admin role */}
+        {isAdmin && (
+          <li className="has-dropdown" ref={dropdownRef}>
+            <div
+              className="dropdown-toggle"
+              onClick={() => setAdminExpanded(!adminExpanded)}
+            >
+              Admin
+              <span className={`dropdown-arrow ${adminExpanded ? 'expanded' : ''}`}>▼</span>
+            </div>
+            {adminExpanded && (
+              <ul className="dropdown-menu">
+                <li>
+                  <NavLink
+                    to="/admin/users"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    User Management
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/events"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Unified Events Admin
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/locations"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Location Management
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/booking"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    ✨ External Form (Unified)
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/room-reservation"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    📋 Legacy Form
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/reservation-requests"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Reservation Requests
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/feature-management"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Feature Management
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/categories"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Category Management
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
+                    to="/admin/calendar-config"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Calendar Configuration
+                  </NavLink>
+                </li>
+              </ul>
+            )}
+          </li>
+        )}
+
       </ul>
     </nav>
   );

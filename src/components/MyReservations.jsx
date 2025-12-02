@@ -4,11 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
+import { usePermissions } from '../hooks/usePermissions';
 import CommunicationHistory from './CommunicationHistory';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
   const navigate = useNavigate();
+  const { canSubmitReservation } = usePermissions();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -139,10 +141,22 @@ export default function MyReservations({ apiToken }) {
     }
   };
 
+  // Access control - hide for Viewer role
+  if (!canSubmitReservation) {
+    return (
+      <div className="my-reservations">
+        <div className="access-denied">
+          <h2>Access Restricted</h2>
+          <p>You do not have permission to view reservations.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && allReservations.length === 0) {
     return <div className="my-reservations loading">Loading your reservation requests...</div>;
   }
-  
+
   return (
     <div className="my-reservations">
       <h1>My Room Reservations</h1>

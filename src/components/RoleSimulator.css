@@ -1,0 +1,126 @@
+/* src/components/RoleSimulator.css */
+
+.role-simulator {
+  position: relative;
+  display: inline-block;
+}
+
+.role-simulator-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #6f42c1, #8854d0);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.role-simulator-toggle:hover {
+  background: linear-gradient(135deg, #5a32a3, #7545c4);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(111, 66, 193, 0.3);
+}
+
+.role-simulator-toggle:active {
+  transform: translateY(0);
+}
+
+.role-simulator-icon {
+  font-size: 16px;
+}
+
+.role-simulator-toggle .dropdown-arrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.role-simulator-toggle .dropdown-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.role-simulator-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  list-style: none;
+  padding: 0;
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.role-simulator-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.role-simulator-dropdown li:not(.role-simulator-header) {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.role-simulator-dropdown li:last-child {
+  border-bottom: none;
+}
+
+.role-simulator-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.role-simulator-option:hover {
+  background: #f5f0ff;
+}
+
+.role-simulator-option.active {
+  background: #e8e0f5;
+}
+
+.role-simulator-option .role-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.role-simulator-option .role-description {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .role-simulator-dropdown {
+    right: auto;
+    left: 0;
+    min-width: 200px;
+  }
+
+  .role-simulator-toggle {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}

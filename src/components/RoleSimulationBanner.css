@@ -1,0 +1,89 @@
+/* src/components/RoleSimulationBanner.css */
+
+.role-simulation-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg, #ff6b35 0%, #f7931e 100%);
+  color: white;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+}
+
+.role-simulation-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.role-simulation-icon {
+  font-size: 18px;
+}
+
+.role-simulation-text {
+  font-weight: 500;
+}
+
+.role-simulation-text strong {
+  font-weight: 700;
+}
+
+.role-simulation-note {
+  font-size: 12px;
+  opacity: 0.9;
+  font-style: italic;
+}
+
+.role-simulation-exit-button {
+  background: white;
+  color: #ff6b35;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.role-simulation-exit-button:hover {
+  background: #fff5f0;
+  transform: translateY(-1px);
+}
+
+.role-simulation-exit-button:active {
+  transform: translateY(0);
+}
+
+/* Offset main content when banner is visible */
+/* This class should be added to body or a wrapper when simulating */
+.app-simulating .app-header,
+.app-simulating .navigation-container {
+  margin-top: 44px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .role-simulation-banner {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .role-simulation-banner-content {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .role-simulation-note {
+    display: block;
+    width: 100%;
+  }
+}

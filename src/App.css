@@ -90,6 +90,14 @@
     box-shadow: var(--shadow);
     flex-shrink: 0;
     position: relative;
+    z-index: 100;
+  }
+
+  /* Offset for role simulation banner - banner is 44px tall */
+  .role-simulation-banner ~ .main-navigation,
+  .role-simulation-banner ~ .calendar-container,
+  .role-simulation-banner ~ main {
+    margin-top: 44px;
   }
 
   .app-title {

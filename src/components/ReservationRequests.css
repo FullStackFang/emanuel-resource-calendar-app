@@ -36,6 +36,27 @@
   color: #666;
 }
 
+/* Access denied message */
+.reservation-requests .access-denied {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 40px auto;
+  max-width: 500px;
+}
+
+.reservation-requests .access-denied h2 {
+  color: #6c757d;
+  margin-bottom: 12px;
+  font-size: 1.25rem;
+}
+
+.reservation-requests .access-denied p {
+  color: #888;
+  font-size: 0.9rem;
+}
+
 /* Tab Navigation - Pill Style */
 .tabs-container {
   margin-bottom: 30px;

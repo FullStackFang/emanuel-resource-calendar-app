@@ -1,5 +1,6 @@
 import React, { memo, useCallback } from 'react';
 import { useTimezone } from '../context/TimezoneContext';
+import { usePermissions } from '../hooks/usePermissions';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import './DayEventPanel.css';
 
@@ -16,6 +17,9 @@ const DayEventPanel = memo(({
 }) => {
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
+
+  // Get permissions for role simulation
+  const { canEditEvents, canDeleteEvents } = usePermissions();
 
   // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
 
@@ -112,8 +116,9 @@ const DayEventPanel = memo(({
                   }}
                 >
                   <div className="event-actions">
-                    {onEventEdit && (
-                      <button 
+                    {/* Edit button - only show if user has edit permission */}
+                    {onEventEdit && canEditEvents && (
+                      <button
                         className="event-action-btn edit"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -124,8 +129,9 @@ const DayEventPanel = memo(({
                         ✏️
                       </button>
                     )}
-                    {onEventDelete && (
-                      <button 
+                    {/* Delete button - only show if user has delete permission */}
+                    {onEventDelete && canDeleteEvents && (
+                      <button
                         className="event-action-btn delete"
                         onClick={(e) => {
                           e.stopPropagation();
