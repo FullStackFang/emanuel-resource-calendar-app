@@ -465,6 +465,7 @@ export default function RoomReservationReview({
                       <tbody>
                         <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>_id</td><td>{reservation._id || '--'}</td></tr>
                         <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>eventId</td><td>{reservation.eventId || '--'}</td></tr>
+                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>graphData.id</td><td style={{ wordBreak: 'break-all' }}>{reservation.graphData?.id || '--'}</td></tr>
                         <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>userId</td><td>{reservation.userId || '--'}</td></tr>
                         <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>source</td><td>{reservation.source || '--'}</td></tr>
                         <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>status</td><td>{reservation.status || '--'}</td></tr>

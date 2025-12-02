@@ -2581,14 +2581,29 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       { upsert: true }
     );
 
+    // Add _id to the returned event for immediate use
+    if (result.upsertedId) {
+      unifiedEvent._id = result.upsertedId;
+    } else {
+      // For updates, query to get the existing _id
+      const savedEvent = await unifiedEventsCollection.findOne({
+        userId: userId,
+        'graphData.id': graphEvent.id
+      }, { projection: { _id: 1 } });
+      if (savedEvent) {
+        unifiedEvent._id = savedEvent._id;
+      }
+    }
+
     logger.debug(`Upserted unified event: ${graphEvent.subject}`, {
       eventId: eventId, // Internal UUID
       graphId: graphEvent.id, // Graph ID
+      _id: unifiedEvent._id, // MongoDB document ID
       matched: result.matchedCount,
       modified: result.modifiedCount,
       upserted: result.upsertedCount
     });
-    
+
     return unifiedEvent;
   } catch (error) {
     logger.error('Error upserting unified event:', error);
@@ -3625,10 +3640,10 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       logger.warn(`   - graphToken: ${!!graphToken}`);
     }
 
-    // STEP 3: Asynchronously sync new Graph events to cache for future renders
+    // STEP 3: Synchronously persist new Graph events to ensure _id is available
+    // Following "read your own writes" pattern for immediate interactivity
     if (newGraphEvents.length > 0) {
-      // Don't await - let this run in background
-      Promise.all(
+      const persistedEvents = await Promise.all(
         newGraphEvents.map(event =>
           upsertUnifiedEvent(
             userId,
@@ -3638,11 +3653,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             event.sourceCalendars
           ).catch(err => {
             logger.warn(`Failed to cache event ${event.eventId}:`, err.message);
+            return event; // Return original on failure
           })
         )
-      ).catch(err => {
-        logger.warn('Error in background cache sync:', err);
+      );
+
+      // Update events in unifiedEvents array with their MongoDB _ids
+      const persistedMap = new Map(
+        persistedEvents
+          .filter(e => e && e._id)
+          .map(e => [e.graphData?.id || e.eventId, e._id])
+      );
+
+      unifiedEvents.forEach(event => {
+        const key = event.graphData?.id || event.eventId;
+        if (persistedMap.has(key)) {
+          event._id = persistedMap.get(key);
+        }
       });
+
+      logger.log(`📦 Persisted ${persistedMap.size} new events to MongoDB`);
     }
 
     // STEP 2: Return events with full database structure (preserving graphData and internalData)
@@ -6135,13 +6165,183 @@ app.post('/api/admin/unified/clean-deleted', verifyToken, async (req, res) => {
       isDeleted: true
     });
     
-    res.status(200).json({ 
+    res.status(200).json({
       message: 'Deleted events cleaned',
-      removed: result.deletedCount 
+      removed: result.deletedCount
     });
   } catch (error) {
     logger.error('Error cleaning deleted:', error);
     res.status(500).json({ error: 'Failed to clean deleted events' });
+  }
+});
+
+/**
+ * Admin endpoint - Clean up CSV-imported events by linking them to Graph API
+ * or deleting orphaned records that don't exist in Outlook
+ */
+app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
+  try {
+    const graphToken = req.headers['x-graph-token'];
+    if (!graphToken) {
+      return res.status(400).json({ error: 'Graph token required in X-Graph-Token header' });
+    }
+
+    const { calendarId, dryRun = true, startDate, endDate, limit } = req.body;
+
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+
+    // Find all events without graphData.id (CSV imports)
+    const query = {
+      'graphData.id': { $exists: false }
+    };
+    if (calendarId) {
+      query.calendarId = calendarId;
+    }
+
+    // Filter by date range if provided
+    if (startDate || endDate) {
+      query.startDateTime = {};
+      if (startDate) {
+        query.startDateTime.$gte = new Date(startDate).toISOString();
+      }
+      if (endDate) {
+        query.startDateTime.$lte = new Date(endDate).toISOString();
+      }
+    }
+
+    // Build the query with optional limit
+    let csvEventsQuery = unifiedEventsCollection.find(query).sort({ startDateTime: 1 });
+    if (limit && typeof limit === 'number' && limit > 0) {
+      csvEventsQuery = csvEventsQuery.limit(limit);
+    }
+
+    const csvEvents = await csvEventsQuery.toArray();
+    logger.log(`[CSV Cleanup] Found ${csvEvents.length} events without graphData.id`);
+
+    const results = {
+      total: csvEvents.length,
+      matched: 0,
+      updated: 0,
+      deleted: 0,
+      errors: [],
+      details: []
+    };
+
+    for (const event of csvEvents) {
+      try {
+        // Search Graph API for matching event by title + datetime
+        const startISO = event.startDateTime || event.graphData?.start?.dateTime;
+        const endISO = event.endDateTime || event.graphData?.end?.dateTime;
+        const title = event.eventTitle || event.graphData?.subject;
+
+        if (!startISO || !title) {
+          results.errors.push({ eventId: event.eventId, title: title || '(no title)', error: 'Missing title or startDateTime' });
+          continue;
+        }
+
+        // Query Graph API calendarView for the specific time range (with 1 minute buffer)
+        const searchStart = new Date(startISO);
+        const searchEnd = new Date(endISO || startISO);
+        searchStart.setMinutes(searchStart.getMinutes() - 1);
+        searchEnd.setMinutes(searchEnd.getMinutes() + 1);
+
+        const eventCalendarId = event.calendarId;
+        const calendarPath = eventCalendarId === 'primary'
+          ? '/me/calendar/calendarView'
+          : `/me/calendars/${eventCalendarId}/calendarView`;
+
+        // Note: $filter with 'eq' on subject requires exact match
+        const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
+          `startDateTime=${encodeURIComponent(searchStart.toISOString())}` +
+          `&endDateTime=${encodeURIComponent(searchEnd.toISOString())}` +
+          `&$select=id,subject,start,end,location,categories`;
+
+        const graphResponse = await fetch(graphUrl, {
+          headers: { 'Authorization': `Bearer ${graphToken}` }
+        });
+
+        if (!graphResponse.ok) {
+          const errorText = await graphResponse.text();
+          results.errors.push({
+            eventId: event.eventId,
+            title: title,
+            error: `Graph API error: ${graphResponse.status} - ${errorText.substring(0, 100)}`
+          });
+          continue;
+        }
+
+        const graphData = await graphResponse.json();
+        const allEvents = graphData.value || [];
+
+        // Filter by title match (case-insensitive)
+        const matchingEvents = allEvents.filter(ge =>
+          ge.subject && ge.subject.toLowerCase() === title.toLowerCase()
+        );
+
+        if (matchingEvents.length > 0) {
+          // Found matching Graph event - update the record
+          const graphEvent = matchingEvents[0];
+          results.matched++;
+
+          if (!dryRun) {
+            await unifiedEventsCollection.updateOne(
+              { _id: event._id },
+              {
+                $set: {
+                  'graphData.id': graphEvent.id,
+                  'graphData.subject': graphEvent.subject,
+                  'graphData.start': graphEvent.start,
+                  'graphData.end': graphEvent.end,
+                  'graphData.location': graphEvent.location,
+                  'graphData.categories': graphEvent.categories || [],
+                  updatedAt: new Date()
+                }
+              }
+            );
+            results.updated++;
+          }
+
+          results.details.push({
+            eventId: event.eventId,
+            title: title,
+            startDateTime: startISO,
+            action: dryRun ? 'would_update' : 'updated',
+            graphId: graphEvent.id
+          });
+        } else {
+          // No match found - delete orphaned record
+          if (!dryRun) {
+            await unifiedEventsCollection.deleteOne({ _id: event._id });
+            results.deleted++;
+          }
+
+          results.details.push({
+            eventId: event.eventId,
+            title: title,
+            startDateTime: startISO,
+            action: dryRun ? 'would_delete' : 'deleted',
+            reason: `No matching Graph event found (searched ${allEvents.length} events in time window)`
+          });
+        }
+      } catch (eventError) {
+        results.errors.push({ eventId: event.eventId, error: eventError.message });
+      }
+    }
+
+    logger.log(`[CSV Cleanup] Complete - Matched: ${results.matched}, Updated: ${results.updated}, Deleted: ${results.deleted}, Errors: ${results.errors.length}`);
+
+    res.json({
+      success: true,
+      dryRun: dryRun,
+      message: dryRun ? 'Dry run complete - no changes made' : 'Cleanup complete',
+      results
+    });
+
+  } catch (error) {
+    logger.error('Error in CSV cleanup:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
