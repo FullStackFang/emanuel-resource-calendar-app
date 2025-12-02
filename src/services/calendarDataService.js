@@ -1,4 +1,5 @@
 // Updated calendarDataService.js with timezone fixes
+import { logger } from '../utils/logger';
 
 class CalendarDataService {
   constructor() {
@@ -29,14 +30,14 @@ class CalendarDataService {
   setDemoMode(demoData) {
     this.isDemoMode = true;
     this.demoData = demoData;
-    console.log(`Demo mode enabled with ${demoData?.events?.length || 0} events`);
+    logger.debug(`Demo mode enabled with ${demoData?.events?.length || 0} events`);
   }
 
   // Switch back to API mode
   setApiMode() {
     this.isDemoMode = false;
     this.demoData = null;
-    console.log('API mode enabled');
+    logger.debug('API mode enabled');
   }
 
   // Check if we're in demo mode
@@ -82,83 +83,65 @@ class CalendarDataService {
 
   // DEMO MODE METHODS WITH TIMEZONE FIXES
   _getDemoEvents(dateRange) {
-    console.log('_getDemoEvents called with timezone:', this.userTimeZone, { 
-      dateRange, 
-      hasDemoData: !!this.demoData,
-      eventCount: this.demoData?.events?.length 
-    });
-    
     if (!this.demoData?.events) {
-      console.warn('No demo data or events available');
+      logger.warn('No demo data or events available');
       return [];
     }
 
     // Use extended date range to account for timezone boundaries
     const { start, end } = this._formatDateRangeForAPI(dateRange.start, dateRange.end);
-    console.log('Filtering events between (extended for timezone):', { start, end });
-    
+
     // Filter events with timezone-aware date comparison
     const filteredEvents = this.demoData.events.filter(event => {
       try {
         const eventStartTime = event.startDateTime;
-        
+
         if (!eventStartTime) {
-          console.warn('Event missing startDateTime:', event.subject);
+          logger.warn('Event missing startDateTime:', event.subject);
           return false;
         }
-        
+
         // Parse the UTC event time
         const eventStartUTC = new Date(eventStartTime);
-        // const rangeStartUTC = new Date(start);
-        // const rangeEndUTC = new Date(end);
-        
+
         if (isNaN(eventStartUTC.getTime())) {
-          console.warn('Invalid event start time:', eventStartTime, event.subject);
+          logger.warn('Invalid event start time:', eventStartTime, event.subject);
           return false;
         }
-        
+
         // Convert event time to user timezone for comparison
         const eventStartInUserTZ = new Date(eventStartUTC.toLocaleString('en-US', {
           timeZone: this.userTimeZone
         }));
-        
-        // For demo events, we want to check if the event's date (in user timezone) 
+
+        // For demo events, we want to check if the event's date (in user timezone)
         // falls within the view range (also in user timezone)
         const eventDateInUserTZ = new Date(eventStartInUserTZ);
         eventDateInUserTZ.setHours(0, 0, 0, 0);
-        
+
         const viewStartInUserTZ = new Date(dateRange.start);
         viewStartInUserTZ.setHours(0, 0, 0, 0);
-        
+
         const viewEndInUserTZ = new Date(dateRange.end);
         viewEndInUserTZ.setHours(23, 59, 59, 999);
-        
-        const isInRange = eventDateInUserTZ >= viewStartInUserTZ && eventDateInUserTZ <= viewEndInUserTZ;
-        
-        if (isInRange) {
-          console.log(`Event "${event.subject}": UTC=${eventStartUTC.toISOString()}, UserTZ=${eventStartInUserTZ.toLocaleString()}, InRange=${isInRange}`);
-        }
-        
-        return isInRange;
+
+        return eventDateInUserTZ >= viewStartInUserTZ && eventDateInUserTZ <= viewEndInUserTZ;
       } catch (error) {
-        console.error('Error filtering event:', error, event.subject);
+        logger.error('Error filtering event:', error, event.subject);
         return false;
       }
     });
-
-    console.log(`Filtered ${filteredEvents.length} events from ${this.demoData.events.length} total for timezone ${this.userTimeZone}`);
 
     // Convert to the format your Calendar component expects
     const convertedEvents = filteredEvents.map(event => {
       try {
         return this._convertDemoEventToCalendarFormat(event);
       } catch (error) {
-        console.error('Error converting event:', error, event.subject);
+        logger.error('Error converting event:', error, event.subject);
         return null;
       }
     }).filter(event => event !== null);
-    
-    console.log('Final converted events:', convertedEvents);
+
     return convertedEvents;
   }
 
@@ -262,7 +245,7 @@ class CalendarDataService {
         if (!response.ok) {
           // Handle specific error cases for shared calendars
           if (response.status === 403) {
-            console.error('Access denied to calendar. This may be a shared calendar with limited permissions.');
+            logger.error('Access denied to calendar. This may be a shared calendar with limited permissions.');
             throw new Error('You do not have permission to access events in this calendar');
           } else if (response.status === 404) {
             throw new Error('Calendar not found');
@@ -297,7 +280,7 @@ class CalendarDataService {
           
           return eventDateInUserTZ >= viewStartInUserTZ && eventDateInUserTZ <= viewEndInUserTZ;
         } catch (error) {
-          console.error('Error filtering API event by timezone:', error);
+          logger.error('Error filtering API event by timezone:', error);
           return true; // Include event if there's an error to be safe
         }
       });
@@ -305,7 +288,7 @@ class CalendarDataService {
       return filteredEvents;
 
     } catch (error) {
-      console.error('Error fetching API events:', error);
+      logger.error('Error fetching API events:', error);
       throw error;
     }
   }
@@ -440,7 +423,7 @@ class CalendarDataService {
       
       return converted;
     } catch (error) {
-      console.error('Error in _convertDemoEventToCalendarFormat:', error, demoEvent);
+      logger.error('Error in _convertDemoEventToCalendarFormat:', error);
       throw error;
     }
   }
@@ -585,7 +568,7 @@ class CalendarDataService {
         hour12: true
       });
     } catch (error) {
-      console.error('Error converting time to user timezone:', error);
+      logger.error('Error converting time to user timezone:', error);
       return utcTimeString;
     }
   }

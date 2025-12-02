@@ -1,8 +1,9 @@
-import React, { memo, useState, useCallback, useEffect } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import DayEventPanel from './DayEventPanel';
 import MultiSelect from './MultiSelect';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
+import { logger } from '../utils/logger';
 import './MonthView.css';
 
 const MonthView = memo(({ 
@@ -45,69 +46,6 @@ const MonthView = memo(({
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
   
-  // DEBUG: Add console logs to see what data we're getting
-  useEffect(() => {
-    console.log('=== MONTHVIEW DEBUG ===');
-    console.log('MonthView: showRegistrationTimes prop:', showRegistrationTimes);
-    
-    // Check if any filtered events have registration properties
-    if (filteredEvents && filteredEvents.length > 0) {
-      const eventsWithRegistration = filteredEvents.filter(event => 
-        event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
-      );
-      console.log('MonthView: Events with registration properties:', eventsWithRegistration.length, 'out of', filteredEvents.length);
-      if (eventsWithRegistration.length > 0) {
-        console.log('MonthView: Sample event with registration data:', eventsWithRegistration[0]);
-      }
-    }
-    console.log('allEvents:', allEvents?.length || 0);
-    console.log('filteredEvents:', filteredEvents?.length || 0);
-    console.log('showRegistrationTimes:', showRegistrationTimes);
-    console.log('dynamicCategories:', dynamicCategories);
-    console.log('dynamicLocations:', dynamicLocations);
-    console.log('selectedCategories:', selectedCategories);
-    console.log('selectedLocations:', selectedLocations);
-    console.log('userTimezone from context:', userTimezone);
-    
-    // DEBUG: Check if any events have registration properties
-    if (allEvents && allEvents.length > 0) {
-      const eventsWithRegistration = allEvents.filter(event => 
-        event.hasRegistrationEvent || event.registrationStart || event.registrationEnd
-      );
-      console.log('Events with registration properties:', eventsWithRegistration.length);
-      
-      if (eventsWithRegistration.length > 0) {
-        console.log('Sample event with registration:', {
-          id: eventsWithRegistration[0].id,
-          subject: eventsWithRegistration[0].subject,
-          hasRegistrationEvent: eventsWithRegistration[0].hasRegistrationEvent,
-          registrationStart: eventsWithRegistration[0].registrationStart,
-          registrationEnd: eventsWithRegistration[0].registrationEnd,
-          setupMinutes: eventsWithRegistration[0].setupMinutes,
-          teardownMinutes: eventsWithRegistration[0].teardownMinutes
-        });
-      } else {
-        // Check setup/teardown properties
-        const eventsWithSetup = allEvents.filter(event => 
-          (event.setupMinutes && event.setupMinutes > 0) || 
-          (event.teardownMinutes && event.teardownMinutes > 0)
-        );
-        console.log('Events with setup/teardown:', eventsWithSetup.length);
-        if (eventsWithSetup.length > 0) {
-          console.log('Sample event with setup/teardown:', {
-            id: eventsWithSetup[0].id,
-            subject: eventsWithSetup[0].subject,
-            setupMinutes: eventsWithSetup[0].setupMinutes,
-            teardownMinutes: eventsWithSetup[0].teardownMinutes,
-            originalStart: eventsWithSetup[0].start?.dateTime,
-            originalEnd: eventsWithSetup[0].end?.dateTime
-          });
-        }
-      }
-    }
-    console.log('========================');
-  }, [allEvents, filteredEvents, dynamicCategories, dynamicLocations, selectedCategories, selectedLocations, userTimezone, showRegistrationTimes]);
-  
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
     // Also trigger the add event functionality
@@ -118,52 +56,42 @@ const MonthView = memo(({
 
   // Memoize category calculation to prevent unnecessary re-renders
   const getAvailableCategoriesInRange = useCallback(() => {
-    console.log('Getting available categories...');
-    
     if (dynamicCategories && dynamicCategories.length > 0) {
-      console.log('Using dynamicCategories prop:', dynamicCategories);
       return dynamicCategories;
     }
-    
+
     // Fallback: extract from all events
     if (!allEvents || !Array.isArray(allEvents) || allEvents.length === 0) {
-      console.log('No events available for categories');
       return [];
     }
-    
+
     const categoriesInRange = new Set();
     allEvents.forEach(event => {
       const category = event.category || 'Uncategorized';
       categoriesInRange.add(category);
     });
-    
-    const result = Array.from(categoriesInRange).sort();
-    console.log('Manual categories result:', result);
-    return result;
+
+    return Array.from(categoriesInRange).sort();
   }, [dynamicCategories, allEvents]);
 
   // Memoize location calculation to prevent unnecessary re-renders
   const getAvailableLocationsInRange = useCallback(() => {
-    console.log('Getting available locations...');
-    
     if (dynamicLocations && dynamicLocations.length > 0) {
-      console.log('Using dynamicLocations prop:', dynamicLocations);
       return dynamicLocations;
     }
-    
+
     // Fallback: extract from all events
     if (!allEvents || !Array.isArray(allEvents) || allEvents.length === 0) {
-      console.log('No events available for locations');
       return [];
     }
-    
+
     const locationsInRange = new Set();
     allEvents.forEach(event => {
       const locationText = event.location?.displayName?.trim() || '';
-      
+
       if (!locationText) {
         locationsInRange.add('Unspecified');
-      } else if (locationText.toLowerCase().includes('virtual') || 
+      } else if (locationText.toLowerCase().includes('virtual') ||
                  locationText.toLowerCase().includes('teams') ||
                  locationText.toLowerCase().includes('zoom') ||
                  locationText.includes('http')) {
@@ -172,10 +100,8 @@ const MonthView = memo(({
         locationsInRange.add(locationText);
       }
     });
-    
-    const result = Array.from(locationsInRange).sort();
-    console.log('Manual locations result:', result);
-    return result;
+
+    return Array.from(locationsInRange).sort();
   }, [dynamicLocations, allEvents]);
 
   // Force re-calculation of events when timezone changes
@@ -205,27 +131,25 @@ const MonthView = memo(({
 
   // Memoize category change handler
   const handleCategoryChange = useCallback((val) => {
-    console.log('Category selection changed to:', val);
     if (setSelectedCategories && typeof setSelectedCategories === 'function') {
       setSelectedCategories(val);
       if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
         updateUserProfilePreferences({ selectedCategories: val });
       }
     } else {
-      console.error('setSelectedCategories is not a function:', typeof setSelectedCategories);
+      logger.error('setSelectedCategories is not a function:', typeof setSelectedCategories);
     }
   }, [setSelectedCategories, updateUserProfilePreferences]);
 
   // Memoize location change handler
   const handleLocationChange = useCallback((val) => {
-    console.log('Location selection changed to:', val);
     if (setSelectedLocations && typeof setSelectedLocations === 'function') {
       setSelectedLocations(val);
       if (updateUserProfilePreferences && typeof updateUserProfilePreferences === 'function') {
         updateUserProfilePreferences({ selectedLocations: val });
       }
     } else {
-      console.error('setSelectedLocations is not a function:', typeof setSelectedLocations);
+      logger.error('setSelectedLocations is not a function:', typeof setSelectedLocations);
     }
   }, [setSelectedLocations, updateUserProfilePreferences]);
 
@@ -243,7 +167,7 @@ const MonthView = memo(({
       const endTime = formatDateTimeWithTimezone(event.end.dateTime, userTimezone);
       return `${startTime} - ${endTime}`;
     } catch (error) {
-      console.error('Error formatting event time:', error);
+      logger.error('Error formatting event time:', error);
       return 'Time unavailable';
     }
   }, [formatEventTime, userTimezone]);

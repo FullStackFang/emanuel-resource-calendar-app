@@ -40,38 +40,29 @@ function App() {
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
-    console.log('[App] handleCalendarChange called:', {
-      currentCalendarId: selectedCalendarId,
-      newCalendarId,
-      currentChangingCalendar: changingCalendar
-    });
-    
     // Don't allow changing if already changing
     if (changingCalendar) {
-      console.log('[App] Already changing calendar, ignoring request');
       return;
     }
-    
+
     // Validate that the calendar exists
     const calendarExists = availableCalendars.some(cal => cal.id === newCalendarId);
     if (!calendarExists) {
-      calendarDebug.logError('Invalid calendar selection', new Error('Calendar not found'), { 
-        newCalendarId, 
-        availableCalendarIds: availableCalendars.map(c => c.id) 
+      calendarDebug.logError('Invalid calendar selection', new Error('Calendar not found'), {
+        newCalendarId,
+        availableCalendarIds: availableCalendars.map(c => c.id)
       });
       return;
     }
-    
+
     // Don't change if it's the same calendar
     if (selectedCalendarId === newCalendarId) {
-      console.log('[App] Same calendar selected, ignoring');
       return;
     }
-    
-    console.log('[App] Setting changingCalendar to true and selectedCalendarId to:', newCalendarId);
+
     calendarDebug.logCalendarChange(selectedCalendarId, newCalendarId, availableCalendars);
     calendarDebug.logStateChange('changingCalendar', false, true);
-    
+
     // Update both states in the same batch
     setChangingCalendar(true);
     setSelectedCalendarId(newCalendarId);

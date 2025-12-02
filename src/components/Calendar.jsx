@@ -135,17 +135,7 @@
           locationCounts[location] = (locationCounts[location] || 0) + 1;
         });
 
-        logger.info(`\n📊 EVENT LOADING SUMMARY`);
-        logger.info(`   Total events loaded: ${newEvents.length}`);
-        logger.info(`   Categories: ${Object.keys(categoryCounts).length} (${Object.entries(categoryCounts).map(([k,v]) => `${k}: ${v}`).join(', ')})`);
-        logger.info(`   Locations: ${Object.keys(locationCounts).length} (${Object.entries(locationCounts).slice(0, 5).map(([k,v]) => `${k}: ${v}`).join(', ')}${Object.keys(locationCounts).length > 5 ? '...' : ''})`);
-
-        // Sample event titles
-        if (newEvents.length <= 5) {
-          logger.info(`   Events: ${newEvents.map(e => e.subject).join(', ')}`);
-        } else {
-          logger.info(`   Sample events: ${newEvents.slice(0, 3).map(e => e.subject).join(', ')} ...and ${newEvents.length - 3} more`);
-        }
+        logger.debug(`Events loaded: ${newEvents.length} (${Object.keys(categoryCounts).length} categories, ${Object.keys(locationCounts).length} locations)`);
       }
 
       // Warn if clearing events
@@ -1348,31 +1338,6 @@
             // Continue with non-enriched events
           }
         }
-        
-        // FORCE REFRESH DEBUG: Log final events before setting
-        console.log('Force Refresh DEBUG: Final enriched events before setAllEvents', {
-          totalEvents: enrichedEvents.length,
-          sampleEvents: enrichedEvents.slice(0, 3).map(event => ({
-            id: event.id,
-            subject: event.subject,
-            hasBody: !!event.body,
-            bodyContent: event.body?.content,
-            bodyPreview: event.bodyPreview,
-            description: event.description,
-            _hasInternalData: event._hasInternalData
-          })),
-          eventsWithTestDescription: enrichedEvents.filter(event =>
-            event.body?.content?.includes('Test description') ||
-            event.bodyPreview?.includes('Test description') ||
-            event.description?.includes('Test description')
-          ).map(event => ({
-            id: event.id,
-            subject: event.subject,
-            bodyContent: event.body?.content,
-            bodyPreview: event.bodyPreview,
-            description: event.description
-          }))
-        });
 
         // Events loaded from Graph API
         setAllEvents(enrichedEvents);
@@ -1591,7 +1556,7 @@
         // Consolidated calendar load message
         const selectedCalendar = calendarsToUse.find(c => c.id === selectedCalendarId);
         const dateRangeStr = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
-        console.log(`📅 Loading: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
+        logger.debug(`Loading calendars: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
 
         // Initialize unified event service
         unifiedEventService.setApiToken(apiToken);
@@ -1645,24 +1610,9 @@
 
           // Track event count before expansion for accurate metrics
           const eventsBeforeExpansion = eventsToDisplay.length;
-
-          // DEBUG: Log events before expansion
-          const seriesMasters = eventsToDisplay.filter(e => e.graphData?.type === 'seriesMaster');
           const seriesMastersWithRecurrence = eventsToDisplay.filter(e =>
             e.graphData?.type === 'seriesMaster' && e.graphData?.recurrence
           );
-          logger.debug('📋 Events before expansion:', {
-            totalEvents: eventsToDisplay.length,
-            seriesMasters: seriesMasters.length,
-            seriesMastersWithRecurrence: seriesMastersWithRecurrence.length,
-            seriesMasterDetails: seriesMasters.map(e => ({
-              subject: e.graphData?.subject,
-              type: e.graphData?.type,
-              hasRecurrence: !!e.graphData?.recurrence,
-              recurrenceType: e.graphData?.recurrence?.pattern?.type,
-              daysOfWeek: e.graphData?.recurrence?.pattern?.daysOfWeek
-            }))
-          });
 
           // EXPAND RECURRING SERIES: Convert series masters into individual occurrences
           const expandedEvents = [];
@@ -1672,13 +1622,7 @@
               // Validate recurrence data structure before attempting expansion
               const recurrence = event.graphData.recurrence;
               if (!recurrence.pattern || !recurrence.range) {
-                logger.warn('⚠️ Series master has malformed recurrence data:', {
-                  subject: event.graphData?.subject,
-                  eventId: event.eventId,
-                  hasPattern: !!recurrence.pattern,
-                  hasRange: !!recurrence.range,
-                  recurrenceData: recurrence
-                });
+                logger.warn('Series master has malformed recurrence data:', event.graphData?.subject);
                 expandedEvents.push(event); // Include as-is
                 continue;
               }
@@ -1690,15 +1634,6 @@
                   eventId: event.graphData.id  // Use Graph ID as eventId for the utility
                 };
 
-                // Debug: Log expansion parameters
-                logger.debug('🔍 Attempting to expand recurring series:', {
-                  subject: masterForExpansion.subject,
-                  recurrence: masterForExpansion.recurrence,
-                  viewStart: start,
-                  viewEnd: end,
-                  masterStart: masterForExpansion.start,
-                  masterEnd: masterForExpansion.end
-                });
 
                 // Make end date inclusive for expansion (add 1 day)
                 // This fixes off-by-one error where events on the end date would be excluded
@@ -1715,11 +1650,6 @@
                   expandStart,  // View range start in YYYY-MM-DD format
                   expandEnd  // View range end (extended by 1 day to be inclusive) in YYYY-MM-DD format
                 );
-
-                logger.debug('📋 Expansion result:', {
-                  occurrencesCount: occurrences.length,
-                  occurrences: occurrences
-                });
 
                 // Convert each occurrence to our event format
                 occurrences.forEach(occurrence => {
@@ -1749,56 +1679,22 @@
                     masterEventId: event.eventId
                   });
                 });
-
-                logger.debug(`✅ Expanded series master "${event.graphData.subject}" into ${occurrences.length} occurrences`);
-
-                // DEBUG: Check location data in expanded occurrences
-                if (expandedEvents.length > 0) {
-                  const sampleOccurrence = expandedEvents[expandedEvents.length - 1];
-                  logger.debug('🔍 Sample expanded occurrence location data:', {
-                    eventId: sampleOccurrence.eventId,
-                    startDate: sampleOccurrence.startDate,
-                    locations: sampleOccurrence.locations,
-                    locationDisplayNames: sampleOccurrence.locationDisplayNames,
-                    hasLocationsArray: Array.isArray(sampleOccurrence.locations),
-                    locationsLength: sampleOccurrence.locations?.length,
-                    internalLocations: sampleOccurrence.internalData?.locations,
-                    graphLocations: sampleOccurrence.graphData?.locations
-                  });
-                }
               } catch (error) {
-                logger.error('❌ Error expanding recurring series:', error, {
-                  eventId: event.eventId,
-                  subject: event.graphData?.subject,
-                  type: event.graphData?.type,
-                  hasRecurrence: !!event.graphData?.recurrence,
-                  recurrenceData: event.graphData?.recurrence,
-                  errorMessage: error.message,
-                  errorStack: error.stack
-                });
-                // TEMPORARY FIX: Include master as-is for debugging (instead of discarding)
-                logger.warn('⚠️ Including series master as-is due to expansion error');
+                logger.error('Error expanding recurring series:', event.graphData?.subject, error);
+                // Include master as-is if expansion fails
                 expandedEvents.push(event);
               }
             } else {
               // Not a series master - include as-is
-              // DEBUG: Log why event wasn't expanded
               if (event.graphData?.type === 'seriesMaster') {
-                logger.warn('⚠️ Series master not expanded - missing recurrence data:', {
-                  subject: event.graphData?.subject,
-                  eventId: event.eventId,
-                  type: event.graphData?.type,
-                  hasRecurrence: !!event.graphData?.recurrence,
-                  recurrenceData: event.graphData?.recurrence
-                });
+                logger.warn('Series master not expanded - missing recurrence data:', event.graphData?.subject);
               }
               expandedEvents.push(event);
             }
           }
 
           eventsToDisplay = expandedEvents;
-
-          console.log(`📊 ${eventsToDisplay.length} events (${eventsToDisplay.length - eventsBeforeExpansion} expanded from recurring) | Source: ${loadResult.source || 'unknown'}`);
+          logger.debug(`Loaded ${eventsToDisplay.length} events (${eventsToDisplay.length - eventsBeforeExpansion} expanded from recurring)`);
 
           // Log the events we're setting
           calendarDebug.logEventsLoaded(selectedCalendarId, selectedCalendarName, eventsToDisplay);
@@ -2234,26 +2130,10 @@
      */
     const refreshEvents = useCallback(async (forceRefresh = false) => {
       logger.debug('refreshEvents called', { forceRefresh });
-      console.log(`🔄 REFRESH EVENTS TRIGGERED - Force Refresh: ${forceRefresh ? 'YES (bypassing cache)' : 'NO (using cache)'}`);
-
       const startTime = Date.now();
       await loadEvents(forceRefresh);
-
       const duration = Date.now() - startTime;
-      console.log(`✅ REFRESH COMPLETE in ${duration}ms - Loaded ${allEvents.length} events`);
-
-      // Log sample events to check body content
-      if (allEvents.length > 0) {
-        const eventsWithBody = allEvents.filter(e => e.body?.content);
-        console.log(`📊 Events with body content: ${eventsWithBody.length}/${allEvents.length}`);
-
-        if (eventsWithBody.length > 0) {
-          console.log('📝 Sample event with body:', {
-            subject: eventsWithBody[0].subject,
-            bodyContent: eventsWithBody[0].body?.content?.substring(0, 100) + '...'
-          });
-        }
-      }
+      logger.debug(`Refresh complete in ${duration}ms - ${allEvents.length} events`);
     }, [loadEvents, allEvents]);
 
     /**
@@ -2315,15 +2195,12 @@
     const retryEventLoadAfterCreation = useCallback(async (eventId, eventSubject) => {
       // For updates (eventId already exists), just refresh once immediately
       if (eventId) {
-        logger.debug(`[retryEventLoadAfterCreation] Refreshing after update: ${eventSubject}`);
-        console.log(`🔄 FORCING REFRESH AFTER UPDATE for event: ${eventSubject} (ID: ${eventId})`);
+        logger.debug(`Refreshing after update: ${eventSubject}`);
         try {
           await loadEvents(true); // Force refresh to show the updated event - this bypasses cache
-          logger.debug(`[retryEventLoadAfterCreation] Refresh complete for updated event: ${eventSubject}`);
-          console.log(`✅ REFRESH COMPLETE - Event should now have updated body content from Graph API`);
+          logger.debug(`Refresh complete for updated event: ${eventSubject}`);
         } catch (error) {
-          logger.error(`[retryEventLoadAfterCreation] Error refreshing after update:`, error);
-          console.error(`❌ REFRESH FAILED after update:`, error);
+          logger.error(`Error refreshing after update:`, error);
           showNotification(`Event updated but refresh failed. Try manual refresh if needed.`, 'warning');
         }
         return;
@@ -3229,10 +3106,6 @@
     const getLocationGroups = useCallback(() => {
       if (groupBy !== 'locations') return {};
 
-      console.log('[Location Grouping] Starting location grouping');
-      console.log('[Location Grouping] selectedLocations:', selectedLocations);
-      console.log('[Location Grouping] filteredEvents count:', filteredEvents.length);
-
       const groups = {};
 
       // Build a map of location ObjectId -> location object for quick lookup
@@ -3268,7 +3141,6 @@
             };
           }
           groups['Virtual Meeting'].events.push(event);
-          console.log(`[Location Grouping] Event "${event.subject}" added to Virtual Meeting group`);
         } else if (isUnspecifiedLocation(event)) {
           if (!groups['Unspecified']) {
             groups['Unspecified'] = {
@@ -3286,7 +3158,6 @@
 
             event.locations.forEach(locationId => {
               const locationIdStr = locationId.toString();
-              console.log(`[Location Grouping] Event "${event.subject}" has locationId "${locationIdStr}"`);
 
               // Find the group with matching locationId
               const matchingGroupKey = Object.keys(groups).find(groupKey => {
@@ -3294,19 +3165,14 @@
                 return group.locationId === locationIdStr;
               });
 
-              console.log(`[Location Grouping] Matching group found: ${matchingGroupKey}`);
-
               if (matchingGroupKey) {
                 groups[matchingGroupKey].events.push(event);
                 addedToAnyGroup = true;
-              } else {
-                console.warn(`[Location Grouping] No matching group for event "${event.subject}" with locationId "${locationIdStr}"`);
               }
             });
 
             // If event has locations but wasn't added to any recognized group, add to Unspecified
             if (!addedToAnyGroup) {
-              console.log(`[Location Grouping] Event "${event.subject}" has unrecognized location, adding to Unspecified`);
               if (!groups['Unspecified']) {
                 groups['Unspecified'] = {
                   locationId: null,
@@ -3318,7 +3184,6 @@
             }
           } else {
             // Fallback for events without locations array - treat as Unspecified
-            console.log(`[Location Grouping] Event "${event.subject}" has no locations array, adding to Unspecified`);
             if (!groups['Unspecified']) {
               groups['Unspecified'] = {
                 locationId: null,
@@ -3914,9 +3779,6 @@
      */
     const handleEventClick = useCallback((event, e) => {
       e.stopPropagation();
-
-      // DEBUG: Log full event object
-      console.log('📦 FULL EVENT OBJECT:', event);
 
       // Check if this is a recurring event
       if (isRecurringEvent(event)) {
@@ -4629,17 +4491,6 @@
     const handleEventReviewModalSave = useCallback(async () => {
       const { mode, event: reservationData } = eventReviewModal;
 
-      // DEBUG: Log entry point
-      console.log('=== SAVE BUTTON CLICKED ===', {
-        mode,
-        hasReservationData: !!reservationData,
-        startDate: reservationData?.startDate,
-        endDate: reservationData?.endDate,
-        startTime: reservationData?.startTime,
-        endTime: reservationData?.endTime,
-        pendingConfirmation: pendingMultiDayConfirmation
-      });
-
       if (!reservationData) {
         logger.error('No event data available to save');
         return;
@@ -4648,29 +4499,15 @@
       try {
         if (mode === 'event') {
           // Direct event creation - transform reservation structure to event structure
-          logger.debug('Creating event directly via handleSaveEvent', reservationData);
-          console.log('DEBUG: Mode is EVENT - direct creation path');
 
           // Validate required fields - date range is always required (even if ad hoc dates are added)
           const hasDateRange = reservationData.startDate && reservationData.endDate;
           const hasTimes = reservationData.startTime && reservationData.endTime;
 
           if (!hasDateRange || !hasTimes) {
-            console.log('DEBUG: VALIDATION FAILED - missing required fields', {
-              hasStartDate: !!reservationData.startDate,
-              hasEndDate: !!reservationData.endDate,
-              hasAdHocDates: !!reservationData.adHocDates,
-              adHocDatesLength: reservationData.adHocDates?.length,
-              hasStartTime: !!reservationData.startTime,
-              hasEndTime: !!reservationData.endTime,
-              hasDateRange,
-              hasTimes
-            });
             showNotification('Date range and times are required');
             return;
           }
-
-          console.log('DEBUG: Validation passed');
 
           // Detect if editing existing event or creating new one
           const isEditingExistingEvent = !!(reservationData.eventId || reservationData.id);
@@ -4683,34 +4520,16 @@
           // Two-step save confirmation for SINGLE-DAY events only
           // (multi-day events already have their own confirmation via pendingMultiDayConfirmation)
           if (!isMultiDay && !pendingSaveConfirmation) {
-            console.log('DEBUG: Single-day event - requesting confirmation');
             setPendingSaveConfirmation(true);
             return; // Exit early on first click - button text will change to show confirmation
           }
 
           // Reset single-day confirmation after second click (user confirmed)
           if (!isMultiDay && pendingSaveConfirmation) {
-            console.log('DEBUG: Single-day confirmation received - proceeding with save');
             setPendingSaveConfirmation(false);
           }
 
-          console.log('DEBUG: Multi-day check', {
-            isEditingExistingEvent,
-            startDate: reservationData.startDate,
-            endDate: reservationData.endDate,
-            adHocDates: reservationData.adHocDates,
-            hasAdHocDates,
-            isMultiDayRange,
-            isMultiDay,
-            pendingConfirmation: pendingMultiDayConfirmation
-          });
-
           if (isMultiDay) {
-            console.log('DEBUG: ✅ MULTI-DAY DETECTED - Entering multi-day block', {
-              isEditingExistingEvent,
-              hasDateRange: isMultiDayRange,
-              hasAdHocDates: hasAdHocDates
-            });
 
             // Generate list of dates based on whether this is new or existing event
             const allDates = new Set();
@@ -4718,14 +4537,11 @@
             if (isEditingExistingEvent) {
               // EDITING EXISTING EVENT: Only create events for NEW ad hoc dates
               // Don't regenerate the date range - those events already exist
-              console.log('DEBUG: Editing existing event - using ONLY ad hoc dates');
               if (hasAdHocDates) {
                 reservationData.adHocDates.forEach(dateStr => allDates.add(dateStr));
               }
             } else {
               // CREATING NEW EVENT: Combine range + ad hoc dates
-              console.log('DEBUG: Creating new event - combining range + ad hoc dates');
-
               // Add dates from range
               const startDate = new Date(reservationData.startDate);
               const endDate = new Date(reservationData.endDate);
@@ -4745,55 +4561,29 @@
 
             const dayCount = allDates.size;
 
-            console.log('DEBUG: Day count calculation', {
-              rangeDates: rangeDayCount,
-              adHocDates: reservationData.adHocDates?.length || 0,
-              totalUniqueDates: dayCount,
-              allDates: Array.from(allDates).sort()
-            });
-
             // Two-step confirmation: First click shows confirmation, second click creates
             if (!pendingMultiDayConfirmation) {
               // First click: Set pending confirmation state and return
-              console.log('DEBUG: 🔔 FIRST CLICK - Setting pending confirmation and returning', {
-                dayCount,
-                willSetState: { eventCount: dayCount }
-              });
-              logger.debug('Multi-day event detected, showing inline confirmation', { dayCount });
               setPendingMultiDayConfirmation({ eventCount: dayCount });
-              console.log('DEBUG: State set, returning without creating events');
               return;
             }
 
             // Second click: User confirmed, proceed with creation
-            console.log('DEBUG: ✅ SECOND CLICK - User confirmed, creating events', {
-              pendingConfirmation: pendingMultiDayConfirmation,
-              willCreate: dayCount + ' events'
-            });
-            logger.debug('User confirmed multi-day event creation via button click');
             setPendingMultiDayConfirmation(null); // Reset confirmation state
             setSavingEvent(true); // Show "Saving..." message
 
             // Generate unique series ID for linking events
             const eventSeriesId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-            logger.debug(`Creating multi-day event series: ${dayCount} events, seriesId: ${eventSeriesId}`);
+            logger.debug(`Creating multi-day event series: ${dayCount} events`);
 
             // Convert Set to sorted array
             const dates = Array.from(allDates).sort();
-            console.log('DEBUG: Final dates list', { dates, count: dates.length });
 
             // Transform locations array to Graph API location format (once for all events)
-            // Check both 'locations' and 'requestedRooms' (form uses requestedRooms)
-            console.log('DEBUG MULTI-DAY reservationData:', {
-              requestedRooms: reservationData.requestedRooms,
-              locations: reservationData.locations,
-              allKeys: Object.keys(reservationData)
-            });
-            /// FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
+            // FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
             const multiDayRoomIds = reservationData.requestedRooms?.length > 0
               ? reservationData.requestedRooms
               : (reservationData.locations || []);
-            console.log('DEBUG MULTI-DAY roomIds extracted:', multiDayRoomIds);
             let locationField = undefined;
             if (multiDayRoomIds.length > 0) {
               const locationDocs = rooms.filter(room =>
@@ -4895,7 +4685,6 @@
             loadEvents(true);
           } else {
             // Single day event - existing logic
-            console.log('DEBUG: 📅 SINGLE-DAY PATH - Creating one event');
             let startDateTime, endDateTime;
 
             if (reservationData.startDate && reservationData.startTime) {
@@ -4911,17 +4700,10 @@
             }
 
             // Transform locations array to Graph API location format
-            // Check both 'locations' and 'requestedRooms' (form uses requestedRooms)
-            console.log('DEBUG reservationData:', {
-              requestedRooms: reservationData.requestedRooms,
-              locations: reservationData.locations,
-              allKeys: Object.keys(reservationData)
-            });
-            /// FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
+            // FIX: Prioritize requestedRooms (current form state) over locations (may be stale from initial load)
             const roomIds = reservationData.requestedRooms?.length > 0
               ? reservationData.requestedRooms
               : (reservationData.locations || []);
-            console.log('DEBUG roomIds extracted:', roomIds);
             let locationField = undefined;
             if (roomIds.length > 0) {
               const locationDocs = rooms.filter(room =>
@@ -5298,13 +5080,11 @@
       // Two-step confirmation: First click shows confirmation, second click deletes
       if (!pendingEventDeleteConfirmation) {
         // First click: Set pending confirmation state and return
-        console.log('DEBUG: Event delete button first click - showing confirmation');
         setPendingEventDeleteConfirmation(true);
         return;
       }
 
       // Second click: User confirmed, proceed with deletion
-      console.log('DEBUG: Event delete button second click - deleting');
       setPendingEventDeleteConfirmation(false);
 
       const event = eventReviewModal.event;
@@ -5330,8 +5110,6 @@
             ? `${API_BASE_URL}/admin/room-reservations/${mongoId}`
             : `${API_BASE_URL}/admin/events/${mongoId}`;
 
-          console.log('DEBUG: Calling DELETE endpoint:', endpoint);
-
           const response = await fetch(endpoint, {
             method: 'DELETE',
             headers: {
@@ -5347,8 +5125,7 @@
             throw new Error(`Failed to delete: ${response.status}`);
           }
 
-          const result = await response.json();
-          console.log('DEBUG: Delete successful:', result);
+          await response.json();
 
           // Update local state - remove event from allEvents
           setAllEvents(allEvents.filter(e => e._id !== mongoId));
@@ -5543,25 +5320,15 @@
 
     // Update selected locations when dynamic locations change - smart merging
     useEffect(() => {
-      console.log('[Location Selection] useEffect triggered');
-      console.log('[Location Selection] dynamicLocations:', dynamicLocations);
-      console.log('[Location Selection] selectedLocations before:', selectedLocations);
-
       if (dynamicLocations.length > 0) {
         if (selectedLocations.length === 0) {
           // Initial selection: select all locations
-          console.log('[Location Selection] Initial selection - setting all locations');
           setSelectedLocations(dynamicLocations);
         } else {
           // Smart merging: add new locations to existing selection
           const newLocations = dynamicLocations.filter(loc => !selectedLocations.includes(loc));
-          console.log('[Location Selection] Smart merge - new locations:', newLocations);
           if (newLocations.length > 0) {
-            setSelectedLocations(prev => {
-              const updated = [...prev, ...newLocations];
-              console.log('[Location Selection] Updated selection:', updated);
-              return updated;
-            });
+            setSelectedLocations(prev => [...prev, ...newLocations]);
           }
         }
       }
@@ -5663,24 +5430,7 @@
     
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
-        const groups = getLocationGroups();
-        console.log('[UI Rendering] Location groups to render:');
-        Object.keys(groups).forEach(groupName => {
-          console.log(`  - ${groupName}: ${groups[groupName].events.length} events`);
-        });
-
-        // Debug: Log actual group structure to verify events are present
-        Object.keys(groups).forEach(groupName => {
-          const group = groups[groupName];
-          console.log(`    Group "${groupName}":`, {
-            locationId: group.locationId,
-            displayName: group.displayName,
-            eventCount: group.events?.length || 0,
-            eventTitles: group.events?.map(e => e.eventTitle || e.subject || 'Untitled')
-          });
-        });
-
-        return groups;
+        return getLocationGroups();
       }
       return {};
     }, [groupBy, getLocationGroups, generalLocations.length]);
