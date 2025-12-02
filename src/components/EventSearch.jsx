@@ -873,7 +873,7 @@ function EventSearchInner({
                     className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
-                      onViewInCalendar(selectedEvent, 'week');
+                      onViewInCalendar(selectedEvent, 'week', searchCalendarId);
                     }}
                   >
                     📅 Week
@@ -882,7 +882,7 @@ function EventSearchInner({
                     className="view-in-calendar-button"
                     onClick={() => {
                       onClose();
-                      onViewInCalendar(selectedEvent, 'day');
+                      onViewInCalendar(selectedEvent, 'day', searchCalendarId);
                     }}
                   >
                     📅 Day

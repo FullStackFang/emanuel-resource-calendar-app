@@ -3625,17 +3625,21 @@
     /**
      * Handle viewing an event in the calendar
      * @param {Object} event - The event object
-     * @param {Date} eventDate - The date of the event
+     * @param {string} targetViewType - The view type to switch to ('day', 'week', 'month')
+     * @param {string} explicitCalendarId - Optional explicit calendar ID to switch to (overrides event.calendarId)
      */
-    const handleViewInCalendar = (event, targetViewType = 'day') => {
-      logger.debug("View in calendar clicked", { event, targetViewType });
+    const handleViewInCalendar = (event, targetViewType = 'day', explicitCalendarId = null) => {
+      logger.debug("View in calendar clicked", { event, targetViewType, explicitCalendarId });
 
       // Navigate to the event's date in the calendar
       const eventDate = new Date(event.start.dateTime);
 
-      // Switch to the calendar containing this event
-      if (event.calendarId && event.calendarId !== selectedCalendarId) {
-        setSelectedCalendarId(event.calendarId);
+      // Use explicit calendarId if provided, otherwise fall back to event.calendarId
+      const targetCalendarId = explicitCalendarId || event.calendarId;
+
+      // Switch to the target calendar if different from current
+      if (targetCalendarId && targetCalendarId !== selectedCalendarId) {
+        setSelectedCalendarId(targetCalendarId);
       }
 
       // Set calendar to specified view centered on the event date
