@@ -91,14 +91,20 @@
     flex-shrink: 0;
     position: relative;
     z-index: 100;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
 
-  /* Offset for role simulation banner - banner is 44px tall */
-  .role-simulation-banner ~ .main-navigation,
-  .role-simulation-banner ~ .calendar-container,
-  .role-simulation-banner ~ main {
-    margin-top: 44px;
+  /* Role simulation mode - amber header */
+  .app-header.simulating {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-bottom-color: #f59e0b;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
   }
+
+  .app-header.simulating .app-title {
+    color: #92400e;
+  }
+
 
   .app-title {
     color: var(--primary-color);

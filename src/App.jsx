@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest, apiRequest } from './config/authConfig';
-import Authentication from './components/Authentication';
+import AppHeader from './components/AppHeader';
 import Calendar from './components/Calendar';
 import Settings from './components/Settings';
 import MySettings from './components/MySettings';
@@ -22,7 +22,6 @@ import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
-import { RoleSimulationBanner } from './components/RoleSimulationBanner';
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
@@ -207,10 +206,7 @@ function App() {
     <Router>
       <RoleSimulationProvider>
       <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
-        <header className="app-header">
-          <h1 className="app-title">Temple Events Scheduler</h1>
-          <Authentication onSignIn={handleSignIn} onSignOut={handleSignOut} />
-        </header>
+        <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />
         <main>
           {apiToken && graphToken ? (
             // Wrap authenticated routes with providers
@@ -220,7 +216,6 @@ function App() {
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
-              <RoleSimulationBanner />
               <Navigation />
               <Routes>
                 <Route path="/" element={

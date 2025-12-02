@@ -38,6 +38,7 @@
   } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
+  import { usePermissions } from '../hooks/usePermissions';
   import {
     TimezoneSelector,
     formatEventTime,
@@ -175,6 +176,16 @@
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
+    // Role Simulation permissions - these override hardcoded permissions for UI testing
+    const {
+      canCreateEvents,
+      canEditEvents,
+      canDeleteEvents,
+      canSubmitReservation,
+      isAdmin: isSimulatedAdmin,
+      isSimulating
+    } = usePermissions();
+
     // Timezone context initialized
 
     const [, setUserProfile] = useState(null);
@@ -189,8 +200,24 @@
       deleteEvents: true, // TEMPORARY: Set to true for testing
       isAdmin: true,      // TEMPORARY: Set to true for testing
     });
-    
+
     // User permissions initialized
+
+    // Effective permissions: Role Simulation overrides action permissions when simulating
+    const effectivePermissions = useMemo(() => ({
+      // User preferences (always from userPermissions state)
+      startOfWeek: userPermissions.startOfWeek,
+      defaultView: userPermissions.defaultView,
+      defaultGroupBy: userPermissions.defaultGroupBy,
+      preferredZoomLevel: userPermissions.preferredZoomLevel,
+      preferredTimeZone: userPermissions.preferredTimeZone,
+      // Action permissions: use Role Simulation when simulating, otherwise use userPermissions
+      createEvents: isSimulating ? canCreateEvents : userPermissions.createEvents,
+      editEvents: isSimulating ? canEditEvents : userPermissions.editEvents,
+      deleteEvents: isSimulating ? canDeleteEvents : userPermissions.deleteEvents,
+      submitReservation: isSimulating ? canSubmitReservation : (userPermissions.submitReservation ?? true),
+      isAdmin: isSimulating ? isSimulatedAdmin : userPermissions.isAdmin,
+    }), [userPermissions, isSimulating, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
 
     // Calculate date range based on current view and user preferences
     const dateRange = useMemo(() => {
@@ -3401,6 +3428,12 @@
       logger.debug('handleAddEvent called');
       logger.debug('Permissions:', userPermissions);
 
+      // Block if user has no creation permissions at all (Viewer role)
+      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) {
+        logger.debug('User has no creation permissions - blocking modal open');
+        return;
+      }
+
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
 
       // Check if user can edit the selected calendar
@@ -3412,7 +3445,7 @@
       // Determine mode based on permissions
       // Users WITH createEvents permission: create events directly (mode='event')
       // Users WITHOUT createEvents permission: create reservation requests (mode='create')
-      const mode = userPermissions.createEvents ? 'event' : 'create';
+      const mode = effectivePermissions.createEvents ? 'event' : 'create';
 
       // Create blank event template with current date/time
       const now = new Date();
@@ -3476,7 +3509,7 @@
       });
 
       logger.debug('EventReviewModal opened for adding new event', { mode });
-    }, [availableCalendars, userPermissions.createEvents, selectedCalendarId, showNotification, standardizeDate, currentUser]);
+    }, [availableCalendars, effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, showNotification, standardizeDate, currentUser]);
 
     /**
      * Handle changing the calendar view type (day/week/month)
@@ -3563,10 +3596,16 @@
     }, [viewType, currentDate]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
+      // Block if user has no creation permissions at all (Viewer role)
+      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) {
+        logger.debug('User has no creation permissions - blocking modal open');
+        return;
+      }
+
       // Determine mode based on permissions
       // Users WITH createEvents permission: create events directly (mode='event')
       // Users WITHOUT createEvents permission: create reservation requests (mode='create')
-      const mode = userPermissions.createEvents ? 'event' : 'create';
+      const mode = effectivePermissions.createEvents ? 'event' : 'create';
 
       // Get the date string without times - let user fill in times
       const dateString = day.toISOString().split('T')[0];
@@ -3656,7 +3695,7 @@
       });
 
       logger.debug('EventReviewModal opened from day cell click', { mode, day });
-    }, [userPermissions.createEvents, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, currentUser]);
+    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, currentUser]);
 
     /**
      * Handle clicking on a location row to open timeline modal
@@ -3853,7 +3892,7 @@
     const handleDeleteEvent = () => {
       const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
     
-      if (!userPermissions.deleteEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
+      if (!effectivePermissions.deleteEvents || (selectedCalendar && !selectedCalendar.isDefault && !selectedCalendar.canEdit)) {
         showNotification("You don't have permission to delete events in this calendar");
         return;
       }
@@ -4441,11 +4480,11 @@
       const isNew = !data.id || data.id.includes('demo_event_') || data.id.includes('event_');
 
       // Permission checks
-      if (isNew && !userPermissions.createEvents) {
+      if (isNew && !effectivePermissions.createEvents) {
         alert("You don't have permission to create events");
         return false;
       }
-      if (!isNew && !userPermissions.editEvents) {
+      if (!isNew && !effectivePermissions.editEvents) {
         alert("You don't have permission to edit events");
         return false;
       }
@@ -5741,7 +5780,7 @@
             schemaExtensions={schemaExtensions}
             onSave={handleSaveEvent}
             onCancel={() => setIsModalOpen(false)}
-            onDelete={userPermissions.deleteEvents ? handleDeleteEvent : null}
+            onDelete={effectivePermissions.deleteEvents ? handleDeleteEvent : null}
             onReview={handleReviewClick}
             readOnly={modalType === 'view'}
             userTimeZone={userTimezone}
@@ -5903,7 +5942,7 @@
           isDeleting={reviewModal.isDeleting}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
-          isAdmin={userPermissions.isAdmin}
+          isAdmin={effectivePermissions.isAdmin}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
               ? '⚠️ Confirm Delete?'
@@ -5919,7 +5958,7 @@
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
-              isAdmin={userPermissions.isAdmin}
+              isAdmin={effectivePermissions.isAdmin}
               editScope={reviewModal.editScope}
             />
           )}
@@ -5939,7 +5978,7 @@
           isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
           showTabs={true}
-          isAdmin={userPermissions.isAdmin}
+          isAdmin={effectivePermissions.isAdmin}
           saveButtonText={
             pendingMultiDayConfirmation
               ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
@@ -5947,7 +5986,7 @@
                   : `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`)
               : pendingSaveConfirmation
                 ? getSaveConfirmationText()
-                : (!eventReviewModal.event?.id && userPermissions.isAdmin
+                : (!eventReviewModal.event?.id && effectivePermissions.isAdmin
                   ? '✨ Create'
                   : null)
           }
@@ -5987,7 +6026,7 @@
               onIsNavigatingChange={handleEventReviewIsNavigatingChange}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               readOnly={false}
-              isAdmin={userPermissions.isAdmin}
+              isAdmin={effectivePermissions.isAdmin}
             />
           )}
         </ReviewModal>
