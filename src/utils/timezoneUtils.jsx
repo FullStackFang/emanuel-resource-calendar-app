@@ -167,10 +167,8 @@ export const formatEventTime = (dateString, timezone = DEFAULT_TIMEZONE, eventSu
   if (!dateString) return '';
 
   try {
-    // Parse datetime string as UTC - backend now ensures all datetimes have 'Z' suffix
-    // Graph API returns: "2025-01-15T08:45:00.0000000" (without Z)
-    // Backend stores: "2025-01-15T08:45:00.0000000Z" (with Z for proper UTC parsing)
-    const date = new Date(dateString);
+    // Parse datetime string as UTC - ensure 'Z' suffix for consistent UTC interpretation
+    const date = new Date(ensureUTCFormat(dateString));
 
     if (isNaN(date.getTime())) {
       console.error(`Invalid date format for "${eventSubject}":`, dateString);

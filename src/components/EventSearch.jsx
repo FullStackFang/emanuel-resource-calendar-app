@@ -13,30 +13,32 @@ import CalendarSelector from './CalendarSelector';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
-import { 
+import {
   AVAILABLE_TIMEZONES,
   getOutlookTimezone,
-  formatDateTimeWithTimezone 
+  formatDateTimeWithTimezone,
+  formatEventTime
 } from '../utils/timezoneUtils';
 
 // Create a client
 const queryClient = new QueryClient();
 
 // Helper function to format time values as "9:30 AM" or show placeholder
-const formatTimeOrPlaceholder = (timeValue) => {
+const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
   // If empty string, null, undefined, or "0", show placeholder
   if (!timeValue || timeValue === '' || timeValue === '0') {
     return '--:--:--';
   }
 
-  // If it's an ISO timestamp, extract just the time
+  // If it's an ISO timestamp, use toLocaleString with timezone for proper conversion
   if (timeValue.includes('T')) {
     const date = new Date(timeValue);
-    const hours = date.getUTCHours();
-    const minutes = date.getUTCMinutes();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const hour12 = hours % 12 || 12;
-    return `${hour12}:${minutes.toString().padStart(2, '0')} ${ampm}`;
+    return date.toLocaleString('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
   }
 
   // Parse HH:MM format and convert to 12-hour AM/PM
@@ -941,14 +943,14 @@ function EventSearchInner({
                     <div className="time-cell">
                       <span className="time-label">Event Start</span>
                       <span className="time-value">
-                        {formatTimeOrPlaceholder(selectedEvent.startTime || selectedEvent.start?.dateTime)}
+                        {formatEventTime(selectedEvent.start?.dateTime, userTimezone)}
                       </span>
                     </div>
                     {/* Row 2: Event End | Door Close | Teardown */}
                     <div className="time-cell">
                       <span className="time-label">Event End</span>
                       <span className="time-value">
-                        {formatTimeOrPlaceholder(selectedEvent.endTime || selectedEvent.end?.dateTime)}
+                        {formatEventTime(selectedEvent.end?.dateTime, userTimezone)}
                       </span>
                     </div>
                     <div className="time-cell">
