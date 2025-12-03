@@ -11,7 +11,7 @@ import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
   // Permission check for Approver/Admin role
-  const { canApproveReservations } = usePermissions();
+  const { canApproveReservations, isAdmin } = usePermissions();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -760,7 +760,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       
       // Remove from local state
       setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
-      
+
+      // Close the review modal
+      setShowReviewModal(false);
       setSelectedReservation(null);
       setActionNotes('');
       setError(`✅ Reservation "${result.eventTitle}" deleted successfully`);
@@ -1067,9 +1069,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           onApprove={() => handleApprove(selectedReservation)}
           onReject={() => handleReject(selectedReservation)}
           onSave={handleSaveChanges}
+          onDelete={() => handleDelete(selectedReservation)}
           isPending={selectedReservation?.status === 'pending'}
           hasChanges={hasChanges}
           isSaving={isSaving}
+          isAdmin={isAdmin}
           showFormToggle={true}
           useUnifiedForm={useUnifiedForm}
           onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}

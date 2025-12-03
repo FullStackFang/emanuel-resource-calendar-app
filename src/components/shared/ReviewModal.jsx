@@ -47,8 +47,28 @@ export default function ReviewModal({
   saveButtonText = null,
   deleteButtonText = null,
   // Admin access
-  isAdmin = false
+  isAdmin = false,
+  // Requester-only mode (can view but not edit/approve)
+  isRequesterOnly = false,
+  // Current item status for status badge display
+  itemStatus = null
 }) {
+  // Helper to get status class for badge
+  const getStatusClass = (status) => {
+    switch (status) {
+      case 'pending': return 'status-pending';
+      case 'approved': return 'status-approved';
+      case 'rejected': return 'status-rejected';
+      case 'cancelled': return 'status-cancelled';
+      default: return '';
+    }
+  };
+
+  // Helper to format status text
+  const formatStatus = (status) => {
+    if (!status) return 'Unknown';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
   // Tab state
   const [activeTab, setActiveTab] = useState('details');
   // Close on ESC key
@@ -121,8 +141,15 @@ export default function ReviewModal({
           {/* Action Buttons */}
           {showActionButtons && (
             <div className="review-actions">
-              {/* Approve/Reject buttons - only in review mode for pending items */}
-              {mode === 'review' && isPending && onApprove && (
+              {/* Status badge for requesters (view-only mode) */}
+              {isRequesterOnly && itemStatus && (
+                <span className={`status-badge-action ${getStatusClass(itemStatus)}`}>
+                  Status: {formatStatus(itemStatus)}
+                </span>
+              )}
+
+              {/* Approve/Reject buttons - only in review mode for pending items (not for requesters) */}
+              {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
                 <button
                   type="button"
                   className="action-btn approve-btn"
@@ -132,13 +159,26 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {mode === 'review' && isPending && onReject && (
+              {!isRequesterOnly && mode === 'review' && isPending && onReject && (
                 <button
                   type="button"
                   className="action-btn reject-btn"
                   onClick={onReject}
                 >
                   ✗ Reject
+                </button>
+              )}
+
+              {/* Delete button in review mode - only for admins (not approvers or requesters) */}
+              {!isRequesterOnly && mode === 'review' && isAdmin && onDelete && (
+                <button
+                  type="button"
+                  className="action-btn delete-btn"
+                  onClick={onDelete}
+                  disabled={isDeleting}
+                  title="Permanently delete this reservation (Admin only)"
+                >
+                  {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
                 </button>
               )}
 
@@ -155,8 +195,8 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {/* Save button - available in edit mode OR review mode with pending items */}
-              {onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
+              {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
+              {!isRequesterOnly && onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
                 <button
                   type="button"
                   className="action-btn save-btn"
@@ -168,8 +208,8 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {/* Delete button - only in edit mode (NOT create mode) */}
-              {mode === 'edit' && onDelete && (
+              {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
+              {!isRequesterOnly && mode === 'edit' && onDelete && (
                 <button
                   type="button"
                   className="action-btn delete-btn"
@@ -186,7 +226,7 @@ export default function ReviewModal({
                 className="action-btn cancel-btn"
                 onClick={onClose}
               >
-                {mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close'}
+                {isRequesterOnly ? 'Close' : (mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close')}
               </button>
             </div>
           )}

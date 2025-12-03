@@ -182,6 +182,7 @@
       canEditEvents,
       canDeleteEvents,
       canSubmitReservation,
+      canApproveReservations,
       isAdmin: isSimulatedAdmin,
       isSimulating
     } = usePermissions();
@@ -6012,6 +6013,8 @@
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
           isAdmin={effectivePermissions.isAdmin}
+          isRequesterOnly={!canEditEvents && !canApproveReservations}
+          itemStatus={reviewModal.currentItem?.status}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
               ? '⚠️ Confirm Delete?'
@@ -6026,7 +6029,7 @@
               onDataChange={reviewModal.updateData}
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
-              readOnly={false}
+              readOnly={!canEditEvents && !canApproveReservations}
               isAdmin={effectivePermissions.isAdmin}
               editScope={reviewModal.editScope}
             />

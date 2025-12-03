@@ -176,6 +176,36 @@
   border-color: #9ca3af;
 }
 
+/* Status Badge in Action Bar (for requesters/view-only mode) */
+.status-badge-action {
+  padding: 8px 16px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-badge-action.status-pending {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.status-badge-action.status-approved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-badge-action.status-rejected {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.status-badge-action.status-cancelled {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+
 /* Modal Content Adjustments - Override child component styles when inside modal */
 @media (min-width: 1px) {
   .review-modal .room-reservation-form,

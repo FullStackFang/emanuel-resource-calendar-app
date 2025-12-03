@@ -50,46 +50,44 @@
   font-size: 0.9rem;
 }
 
-/* Tab Navigation */
+/* Tab Navigation - Pill Style */
 .tabs-container {
   margin-bottom: 20px;
-  border-bottom: 2px solid #e5e7eb;
 }
 
 .tabs {
   display: flex;
-  gap: 0;
+  gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .tab {
-  padding: 10px 16px;
+  padding: 6px 12px;
   border: none;
-  background: transparent;
-  border-bottom: 3px solid transparent;
+  background: #e8f0fe;
+  border-radius: 16px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   font-weight: 500;
-  color: #6b7280;
-  transition: all 0.3s ease;
-  position: relative;
-  min-width: fit-content;
+  color: #1a73e8;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
 .tab:hover {
-  color: #374151;
-  background: #f9fafb;
+  background: #1a73e8;
+  color: white;
 }
 
 .tab.active {
-  color: #0078d4;
-  border-bottom-color: #0078d4;
-  background: transparent;
+  background: #1a73e8;
+  color: white;
 }
 
 .tab .count {
   margin-left: 6px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: inherit;
   opacity: 0.7;
 }
@@ -594,22 +592,14 @@
 
 @media (max-width: 768px) {
   .tabs {
-    flex-direction: column;
-    gap: 0;
+    gap: 8px;
   }
-  
+
   .tab {
-    width: 100%;
-    text-align: left;
-    border-bottom: 1px solid #e5e7eb;
-    border-radius: 0;
+    padding: 6px 10px;
+    font-size: 0.85rem;
   }
-  
-  .tab.active {
-    border-bottom: 1px solid #0078d4;
-    background: #f0f8ff;
-  }
-  
+
   .reservations-table-container {
     height: 500px;
   }
