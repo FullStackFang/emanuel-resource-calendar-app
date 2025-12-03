@@ -6020,6 +6020,14 @@
               ? '⚠️ Confirm Delete?'
               : null
           }
+          isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
+          onCancelDelete={reviewModal.cancelDeleteConfirmation}
+          isApproveConfirming={reviewModal.pendingApproveConfirmation}
+          onCancelApprove={reviewModal.cancelApproveConfirmation}
+          isRejectConfirming={reviewModal.pendingRejectConfirmation}
+          onCancelReject={reviewModal.cancelRejectConfirmation}
+          isSaveConfirming={reviewModal.pendingSaveConfirmation}
+          onCancelSave={reviewModal.cancelSaveConfirmation}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -6044,7 +6052,7 @@
             : (eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`)}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
-          onDelete={eventReviewModal.mode === 'event' ? handleEventReviewModalDelete : null}
+          onDelete={eventReviewModal.mode === 'event' && (eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleEventReviewModalDelete : null}
           mode={eventReviewModal.mode === 'create' ? 'create' : 'edit'}
           isPending={false}
           hasChanges={eventReviewModal.hasChanges}
@@ -6069,6 +6077,10 @@
               ? '⚠️ Confirm Delete?'
               : null
           }
+          isDeleteConfirming={pendingEventDeleteConfirmation}
+          onCancelDelete={() => setPendingEventDeleteConfirmation(false)}
+          isSaveConfirming={pendingSaveConfirmation}
+          onCancelSave={() => setPendingSaveConfirmation(false)}
         >
           {eventReviewModal.isOpen && eventReviewModal.event && (
             <RoomReservationReview

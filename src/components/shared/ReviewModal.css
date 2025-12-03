@@ -176,6 +176,72 @@
   border-color: #9ca3af;
 }
 
+/* Inline Confirmation Button Group */
+.confirm-button-group {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+  position: relative;
+}
+
+.confirm-cancel-x {
+  padding: 0 12px !important;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Delete cancel X button - match the delete button orange color */
+.delete-cancel-x {
+  background: #ea580c !important;
+  color: white !important;
+}
+
+.delete-cancel-x:hover {
+  background: #c2410c !important;
+}
+
+/* Approve cancel X button - match the approve button green color */
+.approve-cancel-x {
+  background: #059669 !important;
+  color: white !important;
+}
+
+.approve-cancel-x:hover {
+  background: #047857 !important;
+}
+
+/* Reject cancel X button - match the reject button red color */
+.reject-cancel-x {
+  background: #dc2626 !important;
+  color: white !important;
+}
+
+.reject-cancel-x:hover {
+  background: #b91c1c !important;
+}
+
+/* Save cancel X button - match the save button blue color */
+.save-cancel-x {
+  background: #106ebe !important;
+  color: white !important;
+}
+
+.save-cancel-x:hover {
+  background: #0078d4 !important;
+}
+
+/* When confirming, keep normal border radius since there's a gap now */
+.action-btn.confirming {
+  border-radius: 6px;
+}
+
 /* Status Badge in Action Bar (for requesters/view-only mode) */
 .status-badge-action {
   padding: 8px 16px;

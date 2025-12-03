@@ -30,6 +30,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
 
+  // Inline confirmation state for approve/reject actions
+  const [pendingApproveConfirmation, setPendingApproveConfirmation] = useState(false);
+  const [pendingRejectConfirmation, setPendingRejectConfirmation] = useState(false);
+
+  // Inline confirmation state for save action
+  const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
+
   // Soft hold state
   const [reviewHold, setReviewHold] = useState(null);
   const [holdTimer, setHoldTimer] = useState(null);
@@ -184,39 +191,28 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
 
   /**
    * Save changes to the reservation/event
+   * Two-step confirmation: first click shows confirmation, second click executes
    */
   const handleSave = useCallback(async () => {
     if (!hasChanges || !currentItem) return;
 
+    // First click - show confirmation
+    if (!pendingSaveConfirmation) {
+      setPendingSaveConfirmation(true);
+      setPendingApproveConfirmation(false); // Clear other confirmations
+      setPendingRejectConfirmation(false);
+      setPendingDeleteConfirmation(false);
+      return;
+    }
+
+    // Second click - execute save
+    setPendingSaveConfirmation(false);
     setIsSaving(true);
     try {
-      // Determine event type and appropriate endpoint
-      // 1. Graph events have id field and calendarId (synced from Microsoft calendar)
-      // 2. Internal unified events have _isNewUnifiedEvent flag
-      // 3. Room reservations have status field and _id
-      const hasMongoId = !!currentItem._id;
+      // All events (including pending reservations) are now stored in templeEvents__Events
+      // Use the unified events endpoint for all saves
       const isGraphEvent = currentItem.calendarId && !currentItem.status;
-      const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
-      const isRoomReservation = currentItem.status && (
-        currentItem.status === 'pending' ||
-        currentItem.status === 'room-reservation-request' ||
-        currentItem.status === 'approved' ||
-        currentItem.status === 'rejected'
-      );
-
-      let endpoint;
-      if (isGraphEvent && hasMongoId) {
-        // Graph event stored in our DB - update via admin/events endpoint
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
-      } else if (isNewUnifiedEvent) {
-        // Internal unified event
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
-      } else if (isRoomReservation) {
-        // Room reservation
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
-      } else {
-        throw new Error('Unable to determine event type for saving');
-      }
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
 
       // Add graphToken for Graph events
       // Convert requestedRooms to locations for backward compatibility
@@ -275,19 +271,30 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, originalChangeKey, apiToken, graphToken, editScope, onSuccess, onError]);
+  }, [hasChanges, currentItem, editableData, originalChangeKey, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation]);
 
   /**
    * Approve the reservation/event
+   * Uses two-step inline confirmation
    */
   const handleApprove = useCallback(async (approvalData = {}) => {
     if (!currentItem) return;
 
+    // Two-step confirmation: First click shows confirmation, second click approves
+    if (!pendingApproveConfirmation) {
+      setPendingApproveConfirmation(true);
+      setPendingRejectConfirmation(false); // Clear reject confirmation if any
+      setPendingDeleteConfirmation(false); // Clear delete confirmation if any
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Second click: User confirmed, proceed with approval
+    setPendingApproveConfirmation(false);
+
     try {
-      const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
-      const endpoint = isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}/approve`;
+      // All events (including pending reservations) are now stored in templeEvents__Events
+      // Use the unified events endpoint for all approvals
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`;
 
       const response = await fetch(endpoint, {
         method: 'PUT',
@@ -324,12 +331,24 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       if (onError) onError(error.message);
       return { success: false, error: error.message };
     }
-  }, [currentItem, originalChangeKey, apiToken, graphToken, onSuccess, onError, closeModal]);
+  }, [currentItem, originalChangeKey, apiToken, graphToken, onSuccess, onError, closeModal, pendingApproveConfirmation]);
 
   /**
    * Reject the reservation/event
+   * Uses two-step inline confirmation
    */
   const handleReject = useCallback(async (reason) => {
+    // Two-step confirmation: First click shows confirmation, second click rejects
+    if (!pendingRejectConfirmation) {
+      setPendingRejectConfirmation(true);
+      setPendingApproveConfirmation(false); // Clear approve confirmation if any
+      setPendingDeleteConfirmation(false); // Clear delete confirmation if any
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Second click: User confirmed, proceed with rejection
+    setPendingRejectConfirmation(false);
+
     if (!currentItem || !reason?.trim()) {
       const message = 'Please provide a reason for rejection';
       if (onError) onError(message);
@@ -337,10 +356,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     }
 
     try {
-      const isNewUnifiedEvent = currentItem._isNewUnifiedEvent;
-      const endpoint = isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/reject`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}/reject`;
+      // All events (including pending reservations) are now stored in templeEvents__Events
+      // Use the unified events endpoint for all rejections
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/reject`;
 
       const response = await fetch(endpoint, {
         method: 'PUT',
@@ -364,7 +382,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       if (onError) onError(error.message);
       return { success: false, error: error.message };
     }
-  }, [currentItem, apiToken, onSuccess, onError, closeModal]);
+  }, [currentItem, apiToken, onSuccess, onError, closeModal, pendingRejectConfirmation]);
 
   /**
    * Delete the event (Graph event or internal event)
@@ -378,6 +396,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       // First click: Set pending confirmation state and return
       console.log('DEBUG: Delete button first click - showing confirmation');
       setPendingDeleteConfirmation(true);
+      setPendingApproveConfirmation(false); // Clear approve confirmation if any
+      setPendingRejectConfirmation(false); // Clear reject confirmation if any
       return { success: false, cancelled: true, needsConfirmation: true };
     }
 
@@ -386,23 +406,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     setPendingDeleteConfirmation(false); // Reset confirmation state
     setIsDeleting(true);
     try {
-      // Determine endpoint based on whether this is a room reservation (has status field)
-      const isRoomReservation = currentItem.status && (
-        currentItem.status === 'pending' ||
-        currentItem.status === 'room-reservation-request' ||
-        currentItem.status === 'approved' ||
-        currentItem.status === 'rejected'
-      );
-
-      let endpoint;
-      if (isRoomReservation) {
-        // Room reservations go to their own endpoint
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${currentItem._id}`;
-      } else {
-        // All events (Graph-synced or internal) go to /admin/events/:id
-        // The backend will handle Graph deletion if the event has an eventId
-        endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
-      }
+      // All events (including pending reservations) are now stored in templeEvents__Events
+      // Use the unified events endpoint for all deletions
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -438,6 +444,23 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     }
   }, [currentItem, apiToken, graphToken, editScope, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
 
+  // Cancel confirmation functions
+  const cancelDeleteConfirmation = useCallback(() => {
+    setPendingDeleteConfirmation(false);
+  }, []);
+
+  const cancelApproveConfirmation = useCallback(() => {
+    setPendingApproveConfirmation(false);
+  }, []);
+
+  const cancelRejectConfirmation = useCallback(() => {
+    setPendingRejectConfirmation(false);
+  }, []);
+
+  const cancelSaveConfirmation = useCallback(() => {
+    setPendingSaveConfirmation(false);
+  }, []);
+
   return {
     // State
     isOpen,
@@ -449,6 +472,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     holdError,
     reviewHold,
     pendingDeleteConfirmation,
+    pendingApproveConfirmation,
+    pendingRejectConfirmation,
+    pendingSaveConfirmation,
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
 
     // Actions
@@ -458,6 +484,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     handleSave,
     handleApprove,
     handleReject,
-    handleDelete
+    handleDelete,
+    cancelDeleteConfirmation,
+    cancelApproveConfirmation,
+    cancelRejectConfirmation,
+    cancelSaveConfirmation
   };
 }

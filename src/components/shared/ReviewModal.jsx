@@ -51,7 +51,16 @@ export default function ReviewModal({
   // Requester-only mode (can view but not edit/approve)
   isRequesterOnly = false,
   // Current item status for status badge display
-  itemStatus = null
+  itemStatus = null,
+  // Confirmation states for inline confirmation buttons
+  isDeleteConfirming = false,
+  onCancelDelete = null,
+  isSaveConfirming = false,
+  onCancelSave = null,
+  isApproveConfirming = false,
+  onCancelApprove = null,
+  isRejectConfirming = false,
+  onCancelReject = null
 }) {
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -148,38 +157,75 @@ export default function ReviewModal({
                 </span>
               )}
 
-              {/* Approve/Reject buttons - only in review mode for pending items (not for requesters) */}
+              {/* Approve button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
-                <button
-                  type="button"
-                  className="action-btn approve-btn"
-                  onClick={onApprove}
-                >
-                  ✓ Approve
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn approve-btn ${isApproveConfirming ? 'confirming' : ''}`}
+                    onClick={onApprove}
+                  >
+                    {isApproveConfirming ? '⚠️ Confirm Approve?' : '✓ Approve'}
+                  </button>
+                  {isApproveConfirming && onCancelApprove && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x approve-cancel-x"
+                      onClick={onCancelApprove}
+                      title="Cancel approve"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
+              {/* Reject button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onReject && (
-                <button
-                  type="button"
-                  className="action-btn reject-btn"
-                  onClick={onReject}
-                >
-                  ✗ Reject
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
+                    onClick={onReject}
+                  >
+                    {isRejectConfirming ? '⚠️ Confirm Reject?' : '✗ Reject'}
+                  </button>
+                  {isRejectConfirming && onCancelReject && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x reject-cancel-x"
+                      onClick={onCancelReject}
+                      title="Cancel reject"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Delete button in review mode - only for admins (not approvers or requesters) */}
               {!isRequesterOnly && mode === 'review' && isAdmin && onDelete && (
-                <button
-                  type="button"
-                  className="action-btn delete-btn"
-                  onClick={onDelete}
-                  disabled={isDeleting}
-                  title="Permanently delete this reservation (Admin only)"
-                >
-                  {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                    onClick={onDelete}
+                    disabled={isDeleting}
+                    title="Permanently delete this reservation (Admin only)"
+                  >
+                    {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
+                  </button>
+                  {isDeleteConfirming && onCancelDelete && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x delete-cancel-x"
+                      onClick={onCancelDelete}
+                      title="Cancel delete"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
@@ -197,28 +243,52 @@ export default function ReviewModal({
 
               {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
               {!isRequesterOnly && onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
-                <button
-                  type="button"
-                  className="action-btn save-btn"
-                  onClick={onSave}
-                  disabled={!hasChanges || isSaving}
-                  title={!hasChanges ? 'No changes to save' : ''}
-                >
-                  {isSaving ? 'Saving...' : (saveButtonText || '💾 Save')}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
+                    onClick={onSave}
+                    disabled={!hasChanges || isSaving}
+                    title={!hasChanges ? 'No changes to save' : ''}
+                  >
+                    {isSaving ? 'Saving...' : (isSaveConfirming ? '⚠️ Confirm Save?' : (saveButtonText || '💾 Save'))}
+                  </button>
+                  {isSaveConfirming && onCancelSave && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x save-cancel-x"
+                      onClick={onCancelSave}
+                      title="Cancel save"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
               {!isRequesterOnly && mode === 'edit' && onDelete && (
-                <button
-                  type="button"
-                  className="action-btn delete-btn"
-                  onClick={onDelete}
-                  disabled={isDeleting}
-                  title="Delete this event"
-                >
-                  {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
+                    onClick={onDelete}
+                    disabled={isDeleting}
+                    title="Delete this event"
+                  >
+                    {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
+                  </button>
+                  {isDeleteConfirming && onCancelDelete && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x delete-cancel-x"
+                      onClick={onCancelDelete}
+                      title="Cancel delete"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               <button
