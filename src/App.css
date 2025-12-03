@@ -786,7 +786,7 @@
   }
   
   .day-cell.current-day .day-number {
-    color: #0078d4;
+    color: white;
     font-weight: bold;
   }
   

@@ -166,21 +166,20 @@ const MonthView = memo(({
     }
   }, [setSelectedLocations, updateUserProfilePreferences]);
 
-  // Create a custom formatEventTime function that uses the timezone context
-  const formatEventTimeWithTimezone = useCallback((event) => {
+  // Create a custom formatEventTime function that matches DayEventPanel's expected signature
+  // DayEventPanel calls: formatEventTime(dateTimeString, eventSubject, sourceTimezone)
+  const formatEventTimeForPanel = useCallback((dateTimeString, eventSubject, sourceTimezone) => {
+    if (!dateTimeString) {
+      return 'Time unavailable';
+    }
+
     if (formatEventTime && typeof formatEventTime === 'function') {
-      // Use the original formatEventTime if it exists and handles timezone properly
-      // Pass the datetime string, not the event object
-      // Include source timezone for correct interpretation
-      const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
-      return formatEventTime(event.start.dateTime, userTimezone, event.subject, sourceTimezone);
+      return formatEventTime(dateTimeString, userTimezone, eventSubject, sourceTimezone);
     }
 
     // Fallback: format using timezone context
     try {
-      const startTime = formatDateTimeWithTimezone(event.start.dateTime, userTimezone);
-      const endTime = formatDateTimeWithTimezone(event.end.dateTime, userTimezone);
-      return `${startTime} - ${endTime}`;
+      return formatDateTimeWithTimezone(dateTimeString, userTimezone);
     } catch (error) {
       logger.error('Error formatting event time:', error);
       return 'Time unavailable';
@@ -362,7 +361,7 @@ const MonthView = memo(({
           onEventClick={handleEventClick}
           onEventEdit={handleEventClick} // Reuse existing click handler for edit
           onEventDelete={handleEventClick} // Reuse existing click handler for delete
-          formatEventTime={formatEventTimeWithTimezone} // Use timezone-aware formatter
+          formatEventTime={formatEventTimeForPanel} // Use timezone-aware formatter with correct signature
           getCategoryColor={getCategoryColor}
           getLocationColor={getLocationColor}
           groupBy={groupBy}

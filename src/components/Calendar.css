@@ -557,7 +557,7 @@
 }
 
 .day-cell.current-day .day-number {
-  color: var(--primary-color);
+  color: white;
   font-weight: bold;
 }
 

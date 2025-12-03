@@ -117,8 +117,8 @@
 
 /* Current day - prominent highlighting */
 .day-cell.current-day {
-  background-color: #e3f2fd;
-  box-shadow: inset 0 0 0 2px #2196f3;
+  background-color: #f0f9ff;
+  box-shadow: inset 0 0 0 2px #60a5fa;
 }
 
 /* Day Numbers */
@@ -138,11 +138,11 @@
   color: #ccc;
 }
 
-/* Today's date number - circle highlight */
+/* Today's date number - rounded square highlight */
 .day-cell .day-number.today-number {
-  background-color: #2196f3;
+  background-color: #3b82f6;
   color: white;
-  border-radius: 50%;
+  border-radius: 6px;
   width: 24px;
   height: 24px;
   display: flex;
@@ -152,7 +152,7 @@
 }
 
 .day-cell.current-day .day-number {
-  color: var(--primary-color);
+  color: white;
   font-weight: bold;
 }
 

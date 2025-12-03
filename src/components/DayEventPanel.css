@@ -121,11 +121,17 @@
   color: #ef4444;
 }
 
-.event-time {
+.day-event-panel .event-time,
+.panel-event-item .event-time {
   font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  font-weight: 500;
+  color: #1967d2 !important;
+  background-color: #e8f0fe !important;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  font-weight: 600;
+  display: inline-block;
+  text-shadow: none !important;
 }
 
 .event-subject {
