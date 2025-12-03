@@ -254,22 +254,25 @@ const WeekView = memo(({
                         
                         // Use different styling if showing registration times
                         const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
-                        const bgAlpha = isShowingRegistrationTime ? 0.1 : 0.15;
+                        // Check if event is pending approval
+                        const isPending = event.status === 'pending';
+                        const bgAlpha = isPending ? 0.12 : (isShowingRegistrationTime ? 0.1 : 0.15);
                         const transparentColor = hexToRgba(eventColor, bgAlpha);
-                        
+
                         return (
                           <div
-                            key={event.eventId} 
-                            className="event-item"
+                            key={event.eventId}
+                            className={`event-item ${isPending ? 'pending-event' : ''}`}
                             style={{
                               backgroundColor: transparentColor,
-                              borderLeft: `2px solid ${eventColor}`,
+                              borderLeft: `2px ${isPending ? 'dashed' : 'solid'} ${eventColor}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
                               margin: '1px 0',
                               cursor: 'pointer',
                               borderRadius: viewType === 'month' ? '6px' : '7px',
                               color: '#333',
-                              ...(isShowingRegistrationTime && {
+                              opacity: isPending ? 0.85 : 1,
+                              ...(isShowingRegistrationTime && !isPending && {
                                 border: `1px dashed ${eventColor}`,
                                 borderLeftWidth: '2px',
                                 borderLeftStyle: 'solid'
@@ -300,12 +303,26 @@ const WeekView = memo(({
                               </div>
                             </div>
                             {event.calendarId && event.calendarId !== 'primary' && (
-                              <div className="calendar-source" style={{ 
-                                fontSize: '7px', 
+                              <div className="calendar-source" style={{
+                                fontSize: '7px',
                                 opacity: 0.8,
                                 marginTop: '1px'
                               }}>
                                 {event.calendarName}
+                              </div>
+                            )}
+                            {isPending && (
+                              <div style={{
+                                fontSize: '7px',
+                                fontWeight: '600',
+                                color: '#b45309',
+                                backgroundColor: '#fef3c7',
+                                padding: '1px 4px',
+                                borderRadius: '3px',
+                                marginTop: '2px',
+                                display: 'inline-block'
+                              }}>
+                                PENDING
                               </div>
                             )}
                           </div>

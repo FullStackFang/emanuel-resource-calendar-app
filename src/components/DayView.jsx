@@ -265,23 +265,26 @@ const DayView = memo(({
                       
                       // Use different styling if showing registration times
                       const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
-                      const bgAlpha = isShowingRegistrationTime ? 0.15 : 0.2;
-                      
+                      // Check if event is pending approval
+                      const isPending = event.status === 'pending';
+                      const bgAlpha = isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
+
                       const transparentColor = hexToRgba(eventColor, bgAlpha);
-                      
+
                       return (
                         <div
-                          key={event.eventId} 
-                          className="event-item"
+                          key={event.eventId}
+                          className={`event-item ${isPending ? 'pending-event' : ''}`}
                           style={{
                             backgroundColor: transparentColor,
-                            borderLeft: `3px solid ${eventColor}`,
+                            borderLeft: `3px ${isPending ? 'dashed' : 'solid'} ${eventColor}`,
                             padding: '8px 10px',
                             margin: '2px 0',
                             cursor: 'pointer',
                             borderRadius: '8px',
                             color: '#333',
-                            ...(isShowingRegistrationTime && {
+                            opacity: isPending ? 0.85 : 1,
+                            ...(isShowingRegistrationTime && !isPending && {
                               border: `1px dashed ${eventColor}`,
                               borderLeftWidth: '3px',
                               borderLeftStyle: 'solid'
@@ -312,12 +315,26 @@ const DayView = memo(({
                             </div>
                           </div>
                           {event.calendarId && event.calendarId !== 'primary' && (
-                            <div className="calendar-source" style={{ 
-                              fontSize: '9px', 
+                            <div className="calendar-source" style={{
+                              fontSize: '9px',
                               opacity: 0.8,
                               marginTop: '2px'
                             }}>
                               {event.calendarName}
+                            </div>
+                          )}
+                          {isPending && (
+                            <div style={{
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#b45309',
+                              backgroundColor: '#fef3c7',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              marginTop: '3px',
+                              display: 'inline-block'
+                            }}>
+                              PENDING
                             </div>
                           )}
                         </div>

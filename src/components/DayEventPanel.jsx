@@ -103,47 +103,22 @@ const DayEventPanel = memo(({
           <div className="events-list">
             {dayEvents
               .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
-              .map(event => (
-                <div 
+              .map(event => {
+                const isPending = event.status === 'pending';
+                const borderColor = groupBy === 'categories'
+                  ? getCategoryColor(event.category)
+                  : getLocationColor(event.location?.displayName || 'Unspecified');
+
+                return (
+                <div
                   key={`${event.id}-${userTimezone}`} // Include timezone in key to force re-render
-                  className="panel-event-item"
+                  className={`panel-event-item ${isPending ? 'pending-event' : ''}`}
                   onClick={(e) => onEventClick && onEventClick(event, e)}
                   style={{
-                    borderLeft: `4px solid ${
-                      groupBy === 'categories' 
-                        ? getCategoryColor(event.category) 
-                        : getLocationColor(event.location?.displayName || 'Unspecified')
-                    }`
+                    borderLeft: `4px ${isPending ? 'dashed' : 'solid'} ${borderColor}`,
+                    opacity: isPending ? 0.85 : 1
                   }}
                 >
-                  <div className="event-actions">
-                    {/* Edit button - only show if user has edit permission */}
-                    {onEventEdit && canEditEvents && (
-                      <button
-                        className="event-action-btn edit"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEventEdit(event);
-                        }}
-                        title="Edit event"
-                      >
-                        ✏️
-                      </button>
-                    )}
-                    {/* Delete button - only show if user has delete permission */}
-                    {onEventDelete && canDeleteEvents && (
-                      <button
-                        className="event-action-btn delete"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEventDelete(event);
-                        }}
-                        title="Delete event"
-                      >
-                        🗑️
-                      </button>
-                    )}
-                  </div>
                   <div className="event-time">
                     {formatEventTimeWithContext(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
                     {' - '}
@@ -191,8 +166,23 @@ const DayEventPanel = memo(({
                       {event.calendarName}
                     </div>
                   )}
+                  {isPending && (
+                    <div style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#b45309',
+                      backgroundColor: '#fef3c7',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      marginTop: '6px',
+                      display: 'inline-block'
+                    }}>
+                      PENDING
+                    </div>
+                  )}
                 </div>
-              ))}
+              );
+              })}
           </div>
         )}
       </div>

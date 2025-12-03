@@ -3449,6 +3449,16 @@
       // Users WITHOUT createEvents permission: create reservation requests (mode='create')
       const mode = effectivePermissions.createEvents ? 'event' : 'create';
 
+      // Debug logging for reservation mode determination
+      logger.debug('handleAddEvent: Mode determination', {
+        mode,
+        isSimulating,
+        effectivePermissions: {
+          createEvents: effectivePermissions.createEvents,
+          submitReservation: effectivePermissions.submitReservation
+        }
+      });
+
       // Create blank event template with current date/time
       const now = new Date();
       const startTime = new Date(now);
@@ -3608,6 +3618,16 @@
       // Users WITH createEvents permission: create events directly (mode='event')
       // Users WITHOUT createEvents permission: create reservation requests (mode='create')
       const mode = effectivePermissions.createEvents ? 'event' : 'create';
+
+      // Debug logging for reservation mode determination
+      logger.debug('handleDayCellClick: Mode determination', {
+        mode,
+        isSimulating,
+        effectivePermissions: {
+          createEvents: effectivePermissions.createEvents,
+          submitReservation: effectivePermissions.submitReservation
+        }
+      });
 
       // Get the date string without times - let user fill in times
       const dateString = day.toISOString().split('T')[0];
@@ -4530,11 +4550,27 @@
      * which is updated via onDataChange callback in RoomReservationReview
      */
     const handleEventReviewModalSave = useCallback(async () => {
-      const { mode, event: reservationData } = eventReviewModal;
+      const { mode: originalMode, event: reservationData } = eventReviewModal;
 
       if (!reservationData) {
         logger.error('No event data available to save');
         return;
+      }
+
+      // Safety check: Override mode if user can only submit reservations (not create events)
+      // This handles edge cases where mode was set incorrectly or permissions changed after modal opened
+      const mode = !effectivePermissions.createEvents && effectivePermissions.submitReservation
+        ? 'create'
+        : originalMode;
+
+      // Debug logging for mode verification
+      if (mode !== originalMode) {
+        logger.debug('handleEventReviewModalSave: Mode overridden based on current permissions', {
+          originalMode,
+          newMode: mode,
+          createEvents: effectivePermissions.createEvents,
+          submitReservation: effectivePermissions.submitReservation
+        });
       }
 
       try {
@@ -4812,8 +4848,38 @@
             }
           }
         } else if (mode === 'create') {
-          // Reservation request submission - use reservation structure as-is
+          // Reservation request submission - transform data to match API expectations
           logger.debug('Creating reservation request', reservationData);
+
+          // Transform data to match /api/events/request endpoint expectations
+          const requestPayload = {
+            eventTitle: reservationData.eventTitle || reservationData.subject || '',
+            eventDescription: reservationData.eventDescription || reservationData.description || '',
+            // Combine date + time into ISO datetime format expected by API
+            startDateTime: `${reservationData.startDate}T${reservationData.startTime}:00`,
+            endDateTime: `${reservationData.endDate}T${reservationData.endTime}:00`,
+            // Ensure requestedRooms is passed (API requires this field)
+            requestedRooms: reservationData.requestedRooms || reservationData.locations || [],
+            attendeeCount: reservationData.attendeeCount || 0,
+            department: reservationData.department || '',
+            phone: reservationData.phone || '',
+            specialRequirements: reservationData.specialRequirements || '',
+            setupTimeMinutes: reservationData.setupTimeMinutes || 0,
+            teardownTimeMinutes: reservationData.teardownTimeMinutes || 0,
+            setupTime: reservationData.setupTime || '',
+            teardownTime: reservationData.teardownTime || '',
+            doorOpenTime: reservationData.doorOpenTime || '',
+            doorCloseTime: reservationData.doorCloseTime || '',
+            setupNotes: reservationData.setupNotes || '',
+            doorNotes: reservationData.doorNotes || '',
+            eventNotes: reservationData.eventNotes || '',
+            requesterName: reservationData.requesterName || userProfile?.displayName || '',
+            requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
+            // Include calendarId so the event shows up in the user's calendar view
+            calendarId: reservationData.calendarId || selectedCalendarId
+          };
+
+          logger.debug('Transformed request payload', requestPayload);
 
           const response = await fetch(`${API_BASE_URL}/events/request`, {
             method: 'POST',
@@ -4821,11 +4887,12 @@
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiToken}`
             },
-            body: JSON.stringify(reservationData)
+            body: JSON.stringify(requestPayload)
           });
 
           if (!response.ok) {
-            throw new Error(`Failed to create reservation request: ${response.statusText}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Failed to create reservation request: ${response.statusText}`);
           }
 
           showNotification('Reservation request submitted for approval');
@@ -4837,7 +4904,7 @@
         showNotification(`Error: ${error.message}`);
         throw error;
       }
-    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone]);
+    }, [eventReviewModal, apiToken, handleSaveEvent, handleSaveApiEvent, loadEvents, showNotification, pendingMultiDayConfirmation, pendingSaveConfirmation, userTimezone, getOutlookTimezone, effectivePermissions]);
 
     /**
      * Handle closing the EventReviewModal
@@ -5969,11 +6036,13 @@
         {/* Review Modal for Event Creation */}
         <ReviewModal
           isOpen={eventReviewModal.isOpen}
-          title={eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`}
+          title={eventReviewModal.mode === 'create'
+            ? `Request Event - ${getTargetCalendarName()}`
+            : (eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`)}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
-          onDelete={handleEventReviewModalDelete}
-          mode="edit"
+          onDelete={eventReviewModal.mode === 'event' ? handleEventReviewModalDelete : null}
+          mode={eventReviewModal.mode === 'create' ? 'create' : 'edit'}
           isPending={false}
           hasChanges={eventReviewModal.hasChanges}
           isSaving={savingEvent}

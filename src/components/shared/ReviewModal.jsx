@@ -142,6 +142,19 @@ export default function ReviewModal({
                 </button>
               )}
 
+              {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
+              {mode === 'create' && onSave && (
+                <button
+                  type="button"
+                  className="action-btn approve-btn"
+                  onClick={onSave}
+                  disabled={!hasChanges || isSaving}
+                  title={!hasChanges ? 'Fill out the form to submit' : ''}
+                >
+                  {isSaving ? 'Submitting...' : (saveButtonText || '📝 Submit Request')}
+                </button>
+              )}
+
               {/* Save button - available in edit mode OR review mode with pending items */}
               {onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
                 <button
@@ -155,7 +168,7 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {/* Delete button - only in edit mode */}
+              {/* Delete button - only in edit mode (NOT create mode) */}
               {mode === 'edit' && onDelete && (
                 <button
                   type="button"
@@ -173,7 +186,7 @@ export default function ReviewModal({
                 className="action-btn cancel-btn"
                 onClick={onClose}
               >
-                {mode === 'review' && isPending ? 'Cancel' : 'Close'}
+                {mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close'}
               </button>
             </div>
           )}

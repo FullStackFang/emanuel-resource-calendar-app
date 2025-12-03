@@ -12024,77 +12024,149 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
 /**
  * Get room reservations (filtered by permissions)
+ * Now queries unified events collection (templeEvents__Events) instead of legacy roomReservationsCollection
  */
 app.get('/api/room-reservations', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const { status, page = 1, limit = 20 } = req.query;
-    
-    // Build filter based on user permissions
-    let filter = {};
-    
+    const { status, page = 1, limit: queryLimit = 20 } = req.query;
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(queryLimit) || 20;
+
+    // Build query for unified events with roomReservationData
+    const query = {
+      isDeleted: { $ne: true },
+      roomReservationData: { $exists: true, $ne: null }
+    };
+
     // Check if user can view all reservations or just their own
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
-    
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
     if (!canViewAll) {
-      filter.requesterId = userId;
+      // Filter to only show user's own reservations using the unified field path
+      query['roomReservationData.requestedBy.userId'] = userId;
     }
-    
+
     if (status) {
-      filter.status = status;
+      // Handle both 'pending' and legacy 'room-reservation-request' statuses
+      if (status === 'pending') {
+        query.status = { $in: ['pending', 'room-reservation-request'] };
+      } else {
+        query.status = status;
+      }
     }
-    
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const reservations = await roomReservationsCollection
-      .find(filter)
-      .sort({ submittedAt: -1 })
+
+    const skip = (pageNum - 1) * limitNum;
+
+    // Query unified events collection instead of legacy roomReservationsCollection
+    // Note: Using _id for sorting as it's always indexed and provides chronological order for ObjectIds
+    const events = await unifiedEventsCollection
+      .find(query)
+      .sort({ _id: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .toArray();
-    
-    const total = await roomReservationsCollection.countDocuments(filter);
-    
+
+    // Transform events to match expected reservation format for frontend
+    const reservations = events.map(event => ({
+      _id: event._id,
+      eventId: event.eventId,
+      eventTitle: event.eventTitle || event.graphData?.subject || 'Untitled',
+      eventDescription: event.eventDescription || event.graphData?.bodyPreview || '',
+      startDateTime: event.startDateTime || event.graphData?.start?.dateTime,
+      endDateTime: event.endDateTime || event.graphData?.end?.dateTime,
+      status: event.status === 'room-reservation-request' ? 'pending' : event.status,
+      requestedRooms: event.locations || [],
+      attendeeCount: event.attendeeCount || 0,
+      requesterId: event.roomReservationData?.requestedBy?.userId,
+      requesterName: event.roomReservationData?.requestedBy?.name,
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
+      roomReservationData: event.roomReservationData,
+      rejectionReason: event.roomReservationData?.rejectionReason,
+      cancelReason: event.roomReservationData?.cancelReason,
+      actionDate: event.roomReservationData?.reviewedAt,
+      // Include additional fields that may be needed
+      specialRequirements: event.specialRequirements,
+      setupTime: event.setupTime,
+      teardownTime: event.teardownTime,
+      doorOpenTime: event.doorOpenTime,
+      doorCloseTime: event.doorCloseTime
+    }));
+
+    const total = await unifiedEventsCollection.countDocuments(query);
+
     res.json({
       reservations,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limitNum)
       }
     });
   } catch (error) {
-    logger.error('Error fetching room reservations:', error);
-    res.status(500).json({ error: 'Failed to fetch room reservations' });
+    logger.error('Error fetching room reservations:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to fetch room reservations', details: error.message });
   }
 });
 
 /**
  * Get a specific room reservation
+ * Now queries unified events collection (templeEvents__Events)
  */
 app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
   try {
     const reservationId = req.params.id;
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
-    
-    if (!reservation) {
+
+    // Query from unified events collection
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      roomReservationData: { $exists: true, $ne: null }
+    });
+
+    if (!event) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
+
     // Check permissions
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
-    
-    if (!canViewAll && reservation.requesterId !== userId) {
+    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    
+
+    // Transform to expected reservation format
+    const reservation = {
+      _id: event._id,
+      eventId: event.eventId,
+      eventTitle: event.eventTitle || event.graphData?.subject || 'Untitled',
+      eventDescription: event.eventDescription || event.graphData?.bodyPreview || '',
+      startDateTime: event.startDateTime || event.graphData?.start?.dateTime,
+      endDateTime: event.endDateTime || event.graphData?.end?.dateTime,
+      status: event.status === 'room-reservation-request' ? 'pending' : event.status,
+      requestedRooms: event.locations || [],
+      attendeeCount: event.attendeeCount || 0,
+      requesterId: event.roomReservationData?.requestedBy?.userId,
+      requesterName: event.roomReservationData?.requestedBy?.name,
+      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
+      roomReservationData: event.roomReservationData,
+      rejectionReason: event.roomReservationData?.rejectionReason,
+      cancelReason: event.roomReservationData?.cancelReason,
+      actionDate: event.roomReservationData?.reviewedAt,
+      specialRequirements: event.specialRequirements,
+      setupTime: event.setupTime,
+      teardownTime: event.teardownTime,
+      doorOpenTime: event.doorOpenTime,
+      doorCloseTime: event.doorCloseTime
+    };
+
     res.json(reservation);
   } catch (error) {
     logger.error('Error fetching room reservation:', error);
@@ -12104,6 +12176,7 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
 
 /**
  * Get audit history for a specific room reservation
+ * Now queries unified events collection (templeEvents__Events)
  */
 app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res) => {
   try {
@@ -12112,10 +12185,13 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
     const userEmail = req.user.email;
     const { limit = 50, offset = 0 } = req.query;
 
-    // Verify user has access to this reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
+    // Verify user has access to this event (from unified collection)
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      roomReservationData: { $exists: true, $ne: null }
+    });
 
-    if (!reservation) {
+    if (!event) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
@@ -12123,7 +12199,7 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
     const user = await usersCollection.findOne({ userId });
     const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
 
-    if (!canViewAll && reservation.requesterId !== userId) {
+    if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -12158,46 +12234,52 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
 
 /**
  * Cancel a room reservation (users can only cancel their own pending reservations)
+ * Now queries unified events collection (templeEvents__Events)
  */
 app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
   try {
     const reservationId = req.params.id;
     const userId = req.user.userId;
     const { reason } = req.body;
-    
+
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: 'Cancellation reason is required' });
     }
-    
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
-    
-    if (!reservation) {
+
+    // Query from unified events collection
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      roomReservationData: { $exists: true, $ne: null }
+    });
+
+    if (!event) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
-    // Only allow users to cancel their own reservations
-    if (reservation.requesterId !== userId) {
+
+    // Only allow users to cancel their own reservations (check unified field path)
+    if (event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'You can only cancel your own reservation requests' });
     }
-    
-    // Only allow cancellation of pending requests
-    if (reservation.status !== 'pending') {
+
+    // Only allow cancellation of pending requests (support both status values)
+    if (event.status !== 'pending' && event.status !== 'room-reservation-request') {
       return res.status(400).json({ error: 'Only pending reservations can be cancelled' });
     }
-    
-    // Update the reservation
-    const updateResult = await roomReservationsCollection.updateOne(
+
+    // Update the event in unified collection
+    const updateResult = await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(reservationId) },
       {
         $set: {
           status: 'cancelled',
-          cancelReason: reason,
-          actionDate: new Date(),
-          actionBy: userId
+          'roomReservationData.cancelReason': reason.trim(),
+          'roomReservationData.cancelledAt': new Date(),
+          'roomReservationData.cancelledBy': userId,
+          lastModified: new Date()
         }
       }
     );
-    
+
     if (updateResult.matchedCount === 0) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -12233,13 +12315,14 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
 
 /**
  * Resubmit a rejected room reservation with changes
+ * Now queries unified events collection (templeEvents__Events)
  */
 app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => {
   try {
     const reservationId = req.params.id;
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    
+
     const {
       eventTitle,
       eventDescription,
@@ -12257,43 +12340,46 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       setupTimeMinutes = 0,
       teardownTimeMinutes = 0
     } = req.body;
-    
+
     // Validation
     if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms' 
+      return res.status(400).json({
+        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms'
       });
     }
-    
+
     if (!userMessage || !userMessage.trim()) {
       return res.status(400).json({
         error: 'Response message is required for resubmissions'
       });
     }
-    
-    // Find the original reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(reservationId) });
-    
-    if (!reservation) {
+
+    // Find the original event from unified collection
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      roomReservationData: { $exists: true, $ne: null }
+    });
+
+    if (!event) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
-    
-    // Only allow users to resubmit their own reservations
-    if (reservation.requesterId !== userId) {
+
+    // Only allow users to resubmit their own reservations (check unified field path)
+    if (event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'You can only resubmit your own reservation requests' });
     }
-    
+
     // Validate resubmission eligibility
-    if (reservation.status !== 'rejected') {
+    if (event.status !== 'rejected') {
       return res.status(400).json({ error: 'Only rejected reservations can be resubmitted' });
     }
-    
-    if (!reservation.resubmissionAllowed) {
+
+    if (!event.roomReservationData?.resubmissionAllowed) {
       return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
     }
-    
+
     // Check revision limits (max 5 revisions)
-    const currentRevision = reservation.currentRevision || 1;
+    const currentRevision = event.roomReservationData?.currentRevision || 1;
     if (currentRevision >= 5) {
       return res.status(400).json({ error: 'Maximum number of revisions reached (5)' });
     }
@@ -12376,7 +12462,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       phone: phone || ''
     };
 
-    const changes = getChanges(reservation, newData, fieldsToTrack);
+    const changes = getChanges(event, newData, fieldsToTrack);
 
     // Create revision entry
     const revisionEntry = {
@@ -12388,16 +12474,16 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       type: 'resubmission'
     };
 
-    // Update reservation with new data and add communication history
+    // Update event with new data and add communication history (in unified collection)
     const updateDoc = {
       $set: {
-        // Update main reservation fields (top-level operational data)
+        // Update main event fields (top-level operational data)
         eventTitle,
         eventDescription: eventDescription || '',
         startDateTime: newStartDateTime,
         endDateTime: newEndDateTime,
         attendeeCount: attendeeCount || 0,
-        requestedRooms,
+        locations: requestedRooms, // Use 'locations' for unified events
         requiredFeatures: requiredFeatures || [],
         specialRequirements: specialRequirements || '',
 
@@ -12415,23 +12501,21 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
 
         // Update status and revision tracking
         status: 'pending',
-        currentRevision: newRevisionNumber,
+        'roomReservationData.currentRevision': newRevisionNumber,
         lastModified: new Date(),
         lastModifiedBy: userEmail,
 
-        // Clear previous action data
-        actionDate: null,
-        approvedBy: null,
-        actionBy: null,
-        actionByEmail: null
+        // Clear previous action data in roomReservationData
+        'roomReservationData.reviewedAt': null,
+        'roomReservationData.reviewedBy': null
       },
       $push: {
-        communicationHistory: resubmissionEntry,
-        revisions: revisionEntry
+        'roomReservationData.communicationHistory': resubmissionEntry,
+        'roomReservationData.revisions': revisionEntry
       }
     };
 
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(reservationId) },
       updateDoc,
       { returnDocument: 'after' }
@@ -12443,7 +12527,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
 
     // Generate new changeKey after resubmission
     const newChangeKey = generateChangeKey(result.value);
-    await roomReservationsCollection.updateOne(
+    await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(reservationId) },
       { $set: { changeKey: newChangeKey } }
     );
@@ -15333,7 +15417,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       contactName,
       contactEmail,
       requesterName,
-      requesterEmail
+      requesterEmail,
+      calendarId  // Calendar ID for event to appear in calendar view
     } = req.body;
 
     // Validate required fields
@@ -15401,7 +15486,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       eventId,
       userId,
       source: 'Room Reservation System',
-      status: 'room-reservation-request', // Key status field
+      status: 'pending', // Status 'pending' allows event to show on calendar with pending styling
       isDeleted: false,
 
       // Minimal graphData structure (not yet a real Graph event)
@@ -15514,8 +15599,9 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       createdSource: 'room-reservation',
       lastModifiedDateTime: new Date(),
       lastSyncedAt: new Date(),
-      calendarId: null, // No calendar yet (pending approval)
-      sourceCalendars: [],
+      // Use provided calendarId so event shows in user's calendar view
+      calendarId: calendarId || null,
+      sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
       syncStatus: 'pending'
     };
@@ -15531,7 +15617,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       performedByEmail: userEmail,
       timestamp: new Date(),
       changes: [
-        { field: 'status', oldValue: null, newValue: 'room-reservation-request' },
+        { field: 'status', oldValue: null, newValue: 'pending' },
         { field: 'eventTitle', oldValue: null, newValue: eventTitle }
       ],
       revisionNumber: 1
@@ -15593,8 +15679,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Verify status is room-reservation-request
-    if (event.status !== 'room-reservation-request') {
+    // Verify status is pending or room-reservation-request (for backward compatibility)
+    if (event.status !== 'pending' && event.status !== 'room-reservation-request') {
       return res.status(400).json({
         error: 'Event is not a pending room reservation request',
         currentStatus: event.status
@@ -15794,8 +15880,8 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Verify status is room-reservation-request
-    if (event.status !== 'room-reservation-request') {
+    // Verify status is pending or room-reservation-request (for backward compatibility)
+    if (event.status !== 'pending' && event.status !== 'room-reservation-request') {
       return res.status(400).json({
         error: 'Event is not a pending room reservation request',
         currentStatus: event.status
