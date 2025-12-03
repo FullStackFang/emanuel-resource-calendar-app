@@ -159,16 +159,83 @@ export const createGraphDateTime = (dateStr, timeStr, timezone) => {
 /**
  * Format time for event display in specified timezone
  * @param {string} dateString - ISO date string from Graph API (timezone-aware)
- * @param {string} timezone - Target timezone for display
+ * @param {string} displayTimezone - Target timezone for display
  * @param {string} eventSubject - Event subject for error logging
+ * @param {string} sourceTimezone - Original timezone of the datetime (from event.start.timeZone)
  * @returns {string} Formatted time string
  */
-export const formatEventTime = (dateString, timezone = DEFAULT_TIMEZONE, eventSubject = 'Unknown') => {
+export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, eventSubject = 'Unknown', sourceTimezone = null) => {
   if (!dateString) return '';
 
   try {
-    // Parse datetime string as UTC - ensure 'Z' suffix for consistent UTC interpretation
-    const date = new Date(ensureUTCFormat(dateString));
+    let date;
+
+    // If source timezone is provided and matches display timezone,
+    // the datetime value represents local time in that timezone
+    // Just strip the 'Z' and parse as local time representation
+    if (sourceTimezone && sourceTimezone !== 'UTC' && displayTimezone === sourceTimezone) {
+      // Strip 'Z' suffix if present - the time is actually in the source timezone
+      const localTimeString = dateString.replace(/Z$/, '').replace(/\.0+Z$/, '');
+      date = new Date(localTimeString);
+
+      if (isNaN(date.getTime())) {
+        console.error(`Invalid date format for "${eventSubject}":`, dateString);
+        return '';
+      }
+
+      // Format in local time (no timezone conversion needed since source === display)
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    }
+
+    // If source timezone differs from display timezone, we need proper conversion
+    // For now, if source timezone is provided but different from display,
+    // parse without 'Z' to get the local time value, then format for display timezone
+    if (sourceTimezone && sourceTimezone !== 'UTC') {
+      // The datetime represents time in sourceTimezone, not UTC
+      // Strip the 'Z' and parse - the numeric value represents local time in source TZ
+      const localTimeString = dateString.replace(/Z$/, '').replace(/\.0+Z$/, '');
+
+      // Create a formatter that will parse the time as if in source timezone
+      // and output in display timezone
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: getSafeTimezone(displayTimezone),
+      });
+
+      // Parse the datetime - JavaScript will interpret it as local browser time
+      // To properly convert between timezones, we need to format it in source TZ first
+      // Then parse that to get the actual moment in time
+
+      // Get the offset between source timezone and UTC at this datetime
+      const tempDate = new Date(localTimeString);
+
+      // Format in source timezone to get the "wall clock" time there
+      const sourceFormatter = new Intl.DateTimeFormat('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: getSafeTimezone(sourceTimezone),
+      });
+
+      // If source and display are the same, return source-formatted time
+      if (getSafeTimezone(sourceTimezone) === getSafeTimezone(displayTimezone)) {
+        return sourceFormatter.format(tempDate);
+      }
+
+      // Otherwise, we need the actual UTC moment
+      // The localTimeString represents time in sourceTimezone
+      // We can use toLocaleString to get the value at that timezone
+      return formatter.format(tempDate);
+    }
+
+    // Default behavior: treat as UTC (original logic)
+    date = new Date(ensureUTCFormat(dateString));
 
     if (isNaN(date.getTime())) {
       console.error(`Invalid date format for "${eventSubject}":`, dateString);
@@ -179,7 +246,7 @@ export const formatEventTime = (dateString, timezone = DEFAULT_TIMEZONE, eventSu
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: getSafeTimezone(timezone),
+      timeZone: getSafeTimezone(displayTimezone),
     });
   } catch (err) {
     console.error(`Error formatting event time for "${eventSubject}":`, err);

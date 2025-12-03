@@ -2799,12 +2799,14 @@
      */
     const renderEventContent = useCallback((event, viewType) => {
       const styles = getEventContentStyle(viewType);
-           
+      // Get source timezone from event data for correct time interpretation
+      const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+
       return (
         <>
           <div className="event-time" style={styles}>
-            {formatEventTime(event.start.dateTime, userTimezone, event.subject)}
-            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, userTimezone, event.subject)}`}
+            {formatEventTime(event.start.dateTime, userTimezone, event.subject, sourceTimezone)}
+            {viewType !== 'month' && ` - ${formatEventTime(event.end.dateTime, userTimezone, event.subject, sourceTimezone)}`}
           </div>
           
           <div className="event-title" style={styles}>

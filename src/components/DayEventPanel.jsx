@@ -24,11 +24,12 @@ const DayEventPanel = memo(({
   // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
 
   // Create timezone-aware event time formatter
-  const formatEventTimeWithContext = useCallback((dateTimeString, eventSubject) => {
+  const formatEventTimeWithContext = useCallback((dateTimeString, eventSubject, sourceTimezone) => {
     try {
       // Use formatEventTime for proper time-only display with timezone conversion
+      // Pass source timezone for correct interpretation of non-UTC times
       if (formatEventTime && typeof formatEventTime === 'function') {
-        return formatEventTime(dateTimeString, userTimezone, eventSubject);
+        return formatEventTime(dateTimeString, userTimezone, eventSubject, sourceTimezone);
       }
       // Fallback: use formatDateTimeWithTimezone if formatEventTime not available
       return formatDateTimeWithTimezone(dateTimeString, userTimezone);
@@ -144,9 +145,9 @@ const DayEventPanel = memo(({
                     )}
                   </div>
                   <div className="event-time">
-                    {formatEventTimeWithContext(event.start.dateTime, event.subject)}
+                    {formatEventTimeWithContext(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
                     {' - '}
-                    {formatEventTimeWithContext(event.end.dateTime, event.subject)}
+                    {formatEventTimeWithContext(event.end.dateTime, event.subject, event.end?.timeZone || event.graphData?.end?.timeZone)}
                   </div>
                   
                   <div className="event-subject">{event.subject}</div>

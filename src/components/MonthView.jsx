@@ -46,13 +46,26 @@ const MonthView = memo(({
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
   
+  // Clicking a day cell just selects it (shows events in panel)
   const handleDayClick = useCallback((day) => {
     setSelectedDay(day.date);
-    // Also trigger the add event functionality
+  }, []);
+
+  // Clicking the + button opens the add event modal
+  const handleAddEventClick = useCallback((e, day) => {
+    e.stopPropagation(); // Don't trigger day selection
     if (handleDayCellClick) {
       handleDayCellClick(day.date);
     }
   }, [handleDayCellClick]);
+
+  // Check if a date is today
+  const isToday = useCallback((date) => {
+    const today = new Date();
+    return date.getFullYear() === today.getFullYear() &&
+           date.getMonth() === today.getMonth() &&
+           date.getDate() === today.getDate();
+  }, []);
 
   // Memoize category calculation to prevent unnecessary re-renders
   const getAvailableCategoriesInRange = useCallback(() => {
@@ -158,7 +171,9 @@ const MonthView = memo(({
     if (formatEventTime && typeof formatEventTime === 'function') {
       // Use the original formatEventTime if it exists and handles timezone properly
       // Pass the datetime string, not the event object
-      return formatEventTime(event.start.dateTime, userTimezone, event.subject);
+      // Include source timezone for correct interpretation
+      const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+      return formatEventTime(event.start.dateTime, userTimezone, event.subject, sourceTimezone);
     }
 
     // Fallback: format using timezone context
@@ -186,18 +201,29 @@ const MonthView = memo(({
           {getMonthWeeks().map((week, weekIndex) => (
             <div key={weekIndex} className="week-row">
               {week.map((day, dayIndex) => {
-                const isSelected = selectedDay && 
+                const isSelected = selectedDay &&
                   day.date.getFullYear() === selectedDay.getFullYear() &&
                   day.date.getMonth() === selectedDay.getMonth() &&
                   day.date.getDate() === selectedDay.getDate();
-                
+                const isTodayDate = isToday(day.date);
+
                 return (
-                  <div 
+                  <div
                     key={dayIndex}
-                    className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''}`}
+                    className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''} ${isTodayDate ? 'current-day' : ''}`}
                     onClick={() => handleDayClick(day)}
                   >
-                    <div className="day-number">{day.date.getDate()}</div>
+                    {/* Add event button in top-left */}
+                    {day.isCurrentMonth && (
+                      <button
+                        className="add-event-btn"
+                        onClick={(e) => handleAddEventClick(e, day)}
+                        title="Add new event"
+                      >
+                        +
+                      </button>
+                    )}
+                    <div className={`day-number ${isTodayDate ? 'today-number' : ''}`}>{day.date.getDate()}</div>
                     
                     <div className="day-events">
                       {(() => {

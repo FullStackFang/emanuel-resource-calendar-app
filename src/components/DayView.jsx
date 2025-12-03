@@ -28,6 +28,7 @@ const DayView = memo(({
   isEventVirtual,
   isUnspecifiedLocation,
   hasPhysicalLocation,
+  isVirtualLocation,
   dynamicLocations,
   showRegistrationTimes,
   handleLocationRowClick // New prop for location timeline modal
@@ -225,8 +226,10 @@ const DayView = memo(({
                         timeDisplay = "All day";
                       } else {
                         // Use formatEventTime utility which properly handles timezone conversion
-                        const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject);
-                        const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject);
+                        // Pass the source timezone from event data for correct interpretation
+                        const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+                        const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
+                        const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
                         
                         // Format total duration - simplified to prevent overflow
                         const hours = Math.floor(duration / 60);

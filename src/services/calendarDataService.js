@@ -466,11 +466,17 @@ class CalendarDataService {
     return {
       id: apiEvent.id,
       subject: apiEvent.subject,
-      // Ensure all times are stored as UTC with Z suffix
-      start: { dateTime: apiEvent.start.dateTime.endsWith('Z') ? 
-              apiEvent.start.dateTime : `${apiEvent.start.dateTime}Z` },
-      end: { dateTime: apiEvent.end.dateTime.endsWith('Z') ? 
-            apiEvent.end.dateTime : `${apiEvent.end.dateTime}Z` },
+      // Preserve timezone info from API for proper display conversion
+      start: {
+        dateTime: apiEvent.start.dateTime.endsWith('Z') ?
+                  apiEvent.start.dateTime : `${apiEvent.start.dateTime}Z`,
+        timeZone: apiEvent.start.timeZone || 'UTC'
+      },
+      end: {
+        dateTime: apiEvent.end.dateTime.endsWith('Z') ?
+                  apiEvent.end.dateTime : `${apiEvent.end.dateTime}Z`,
+        timeZone: apiEvent.end.timeZone || 'UTC'
+      },
       location: { displayName: apiEvent.location?.displayName || "" },
       category: apiEvent.categories?.[0] || "Uncategorized",
       categories: apiEvent.categories || [],
