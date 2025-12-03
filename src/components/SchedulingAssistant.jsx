@@ -363,15 +363,16 @@ export default function SchedulingAssistant({
 
   // Calculate event block position based on start/end times
   const calculateEventPosition = (startTime, endTime) => {
-    const dayStart = new Date(effectiveDate + 'T00:00:00');
+    // Calculate hours from start of day using local hours directly
+    const startHours = startTime.getHours() + startTime.getMinutes() / 60;
+    const endHours = endTime.getHours() + endTime.getMinutes() / 60;
 
-    // Calculate hours from start of day
-    const startHours = (startTime - dayStart) / (1000 * 60 * 60);
-    const endHours = (endTime - dayStart) / (1000 * 60 * 60);
+    // Handle events that might span midnight (end time on next day)
+    const adjustedEndHours = endHours < startHours ? endHours + 24 : endHours;
 
     // Clamp to visible day range
     const clampedStartHours = Math.max(START_HOUR, Math.min(END_HOUR, startHours));
-    const clampedEndHours = Math.max(START_HOUR, Math.min(END_HOUR, endHours));
+    const clampedEndHours = Math.max(START_HOUR, Math.min(END_HOUR, adjustedEndHours));
 
     const top = clampedStartHours * PIXELS_PER_HOUR;
     const height = (clampedEndHours - clampedStartHours) * PIXELS_PER_HOUR;
@@ -420,24 +421,44 @@ export default function SchedulingAssistant({
     const eventDurationMs = draggedBlock.endTime - draggedBlock.startTime;
     const desiredStartTimeMs = (desiredEventTop / PIXELS_PER_HOUR) * 60 * 60 * 1000;
     const dayStart = new Date(effectiveDate + 'T00:00:00');
-    const dayEnd = new Date(effectiveDate + 'T23:59:59');
+    // Allow events to end at exactly midnight (24:00 = next day's 00:00)
+    const dayEnd = new Date(effectiveDate + 'T00:00:00');
+    dayEnd.setDate(dayEnd.getDate() + 1); // Next day's midnight
     const desiredStartTime = new Date(dayStart.getTime() + desiredStartTimeMs);
     const desiredEndTime = new Date(desiredStartTime.getTime() + eventDurationMs);
 
-    // Clamp to time boundaries (12am to 11:59pm)
+    // Calculate the maximum allowed position (event ending at midnight)
+    const eventDurationHours = draggedBlock.height / PIXELS_PER_HOUR;
+    const maxStartPixels = (24 - eventDurationHours) * PIXELS_PER_HOUR;
+
+    // Clamp to time boundaries (12am to 12am next day)
     let clampedEventTop = desiredEventTop;
     const hitTopBoundary = desiredStartTime < dayStart;
     const hitBottomBoundary = desiredEndTime > dayEnd;
 
-    if (hitTopBoundary) {
+    // Check if cursor is at the edges of the viewport (user wants to go further)
+    const cursorAtBottomEdge = mouseY >= timelineRect.bottom - 10; // 10px tolerance
+    const cursorAtTopEdge = mouseY <= timelineRect.top + 10; // 10px tolerance
+
+    // Check if scroll is at its limits
+    const maxScroll = timelineRef.current.scrollHeight - timelineRef.current.clientHeight;
+    const isScrollAtMax = currentScroll >= maxScroll - 1; // Small tolerance
+    const isScrollAtMin = currentScroll <= 1;
+
+    if (hitTopBoundary || (cursorAtTopEdge && isScrollAtMin)) {
+      // Snap to 12 AM (start of day) when:
+      // 1. Event would start before midnight, OR
+      // 2. Cursor is at top edge AND scroll is at minimum (user is pushing up)
       clampedEventTop = 0;
-    } else if (hitBottomBoundary) {
-      // Clamp to 11:59pm - event must END at or before 11:59:59pm
-      const maxStartTimeHours = 23 + (59/60); // 23:59 in hours
-      const eventDurationHours = draggedBlock.height / PIXELS_PER_HOUR;
-      const maxStartPixels = (maxStartTimeHours - eventDurationHours) * PIXELS_PER_HOUR;
+    } else if (hitBottomBoundary || (cursorAtBottomEdge && isScrollAtMax)) {
+      // Snap to maximum position (event ends at midnight) when:
+      // 1. Event would extend past midnight, OR
+      // 2. Cursor is at bottom edge AND scroll is maxed out (user is pushing down)
       clampedEventTop = maxStartPixels;
     }
+
+    // Final clamp to ensure we stay within valid bounds
+    clampedEventTop = Math.max(0, Math.min(clampedEventTop, maxStartPixels));
 
     // Calculate offset from original position
     const finalOffset = clampedEventTop - draggedBlock.top;
@@ -492,8 +513,10 @@ export default function SchedulingAssistant({
         updateEventPosition(lastMouseY.current);
       }
 
-      // Continue scrolling if not at limits
-      if (newScroll > 0 && newScroll < maxScroll) {
+      // Continue scrolling if not at limits (use !== to handle edge values)
+      const atScrollLimit = (direction === 'up' && newScroll === 0) ||
+                           (direction === 'down' && newScroll === maxScroll);
+      if (!atScrollLimit) {
         autoScrollInterval.current = requestAnimationFrame(scroll);
       }
     };
@@ -666,9 +689,9 @@ export default function SchedulingAssistant({
 
     const { hitTopBoundary, hitBottomBoundary, mouseYRelativeToViewport, rectHeight, isAtTopEdge, isAtBottomEdge } = scrollInfo;
 
-    // Handle auto-scroll based on scroll info
-    // When cursor is clamped at edge, use max speed for faster scrolling
-    if (!hitTopBoundary && (isAtTopEdge || mouseYRelativeToViewport < SCROLL_HOT_ZONE) && mouseYRelativeToViewport >= 0) {
+    // Handle auto-scroll based on cursor position near edges
+    // Don't block auto-scroll based on time boundary - user may need to scroll to see final position
+    if (isAtTopEdge || mouseYRelativeToViewport < SCROLL_HOT_ZONE) {
       // Near or at top edge - scroll up
       let speed;
       if (isAtTopEdge) {
@@ -683,7 +706,7 @@ export default function SchedulingAssistant({
       }
       startAutoScroll('up', speed);
     }
-    else if (!hitBottomBoundary && (isAtBottomEdge || mouseYRelativeToViewport > (rectHeight - SCROLL_HOT_ZONE)) && mouseYRelativeToViewport <= rectHeight) {
+    else if (isAtBottomEdge || mouseYRelativeToViewport > (rectHeight - SCROLL_HOT_ZONE)) {
       // Near or at bottom edge - scroll down
       let speed;
       if (isAtBottomEdge) {
@@ -731,16 +754,17 @@ export default function SchedulingAssistant({
         newStartTime = snapToQuarterHour(newStartTime);
         let newEndTime = new Date(newStartTime.getTime() + durationMs);
 
-        // Clamp times to stay within 0:00 - 23:59:59 on the effective date
+        // Clamp times to stay within 0:00 - 24:00 (midnight to midnight) on the effective date
         const dayStart = new Date(effectiveDate + 'T00:00:00');
-        const dayEnd = new Date(effectiveDate + 'T23:59:59');
+        const dayEnd = new Date(effectiveDate + 'T00:00:00');
+        dayEnd.setDate(dayEnd.getDate() + 1); // Next day's midnight (24:00)
 
         // If event would start before midnight, clamp to midnight
         if (newStartTime < dayStart) {
           newStartTime = new Date(dayStart);
           newEndTime = new Date(newStartTime.getTime() + durationMs);
         }
-        // If event would end after 23:59:59, clamp end to 23:59:59 and adjust start
+        // If event would end after midnight, clamp end to midnight and adjust start
         else if (newEndTime > dayEnd) {
           newEndTime = new Date(dayEnd);
           newStartTime = new Date(newEndTime.getTime() - durationMs);
@@ -1274,7 +1298,13 @@ export default function SchedulingAssistant({
                   <div
                     key={hour}
                     className="time-label"
-                    style={{ height: `${PIXELS_PER_HOUR}px` }}
+                    style={{
+                      position: 'absolute',
+                      top: `${index * PIXELS_PER_HOUR}px`,
+                      height: `${PIXELS_PER_HOUR}px`,
+                      left: 0,
+                      right: 0
+                    }}
                     onClick={() => handleTimeSlotClick(hour)}
                   >
                     <span className="time-text">{formatHour(hour)}</span>

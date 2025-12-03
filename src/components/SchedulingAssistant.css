@@ -333,10 +333,11 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  padding: 4px 10px;
+  padding: 2px 10px 0 0;
   border-bottom: 1px solid #e5e7eb;
   cursor: pointer;
   transition: background-color 0.2s;
+  box-sizing: border-box;
 }
 
 .time-label:hover {
@@ -363,7 +364,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-top: 1px solid #e5e7eb;
   pointer-events: none;
 }
 

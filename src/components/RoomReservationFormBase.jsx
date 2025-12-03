@@ -436,12 +436,26 @@ export default function RoomReservationFormBase({
       return hours * 60 + minutes;
     };
 
+    // Helper to adjust midnight (00:00) to end-of-day (1440) when comparing end times
+    const adjustForMidnight = (minutes, referenceMinutes) => {
+      // If this time is 00:00 (midnight) and the reference time is later in the day,
+      // treat midnight as end-of-day (24:00 = 1440 minutes)
+      if (minutes === 0 && referenceMinutes !== null && referenceMinutes > 0) {
+        return 1440; // 24 hours in minutes
+      }
+      return minutes;
+    };
+
     const setup = timeToMinutes(setupTime);
     const doorOpen = timeToMinutes(doorOpenTime);
     const eventStartMinutes = timeToMinutes(startTime);
     const eventEndMinutes = timeToMinutes(endTime);
-    const doorClose = timeToMinutes(doorCloseTime);
-    const teardown = timeToMinutes(teardownTime);
+    const doorCloseRaw = timeToMinutes(doorCloseTime);
+    const teardownRaw = timeToMinutes(teardownTime);
+
+    // Adjust doorClose and teardown for midnight edge case
+    const doorClose = adjustForMidnight(doorCloseRaw, eventEndMinutes);
+    const teardown = adjustForMidnight(teardownRaw, doorCloseRaw !== null ? Math.max(eventEndMinutes || 0, doorCloseRaw) : eventEndMinutes);
 
     const eventStartDateTime = createDateTime(startDate, startTime);
     const eventEndDateTime = createDateTime(endDate, endTime);
