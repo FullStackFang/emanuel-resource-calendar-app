@@ -115,10 +115,25 @@ const DayEventPanel = memo(({
                   className={`panel-event-item ${isPending ? 'pending-event' : ''}`}
                   onClick={(e) => onEventClick && onEventClick(event, e)}
                   style={{
+                    position: 'relative',
                     borderLeft: `4px ${isPending ? 'dashed' : 'solid'} ${borderColor}`,
                     opacity: isPending ? 0.85 : 1
                   }}
                 >
+                  {(event.seriesMasterId || event.graphData?.seriesMasterId ||
+                    event.graphData?.recurrence || event.graphData?.type === 'seriesMaster') && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '4px',
+                      right: '6px',
+                      fontSize: '14px',
+                      color: '#444',
+                      fontWeight: 'bold',
+                      lineHeight: 1
+                    }}>
+                      ↻
+                    </div>
+                  )}
                   <div className="event-time">
                     {formatEventTimeWithContext(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
                     {' - '}

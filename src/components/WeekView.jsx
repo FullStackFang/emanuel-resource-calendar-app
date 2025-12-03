@@ -264,6 +264,7 @@ const WeekView = memo(({
                             key={event.eventId}
                             className={`event-item ${isPending ? 'pending-event' : ''}`}
                             style={{
+                              position: 'relative',
                               backgroundColor: transparentColor,
                               borderLeft: `2px ${isPending ? 'dashed' : 'solid'} ${eventColor}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
@@ -280,6 +281,20 @@ const WeekView = memo(({
                             }}
                             onClick={(e) => handleEventClick(event, e)}
                           >
+                            {(event.seriesMasterId || event.graphData?.seriesMasterId ||
+                              event.graphData?.recurrence || event.graphData?.type === 'seriesMaster') && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                right: '3px',
+                                fontSize: '12px',
+                                color: '#444',
+                                fontWeight: 'bold',
+                                lineHeight: 1
+                              }}>
+                                ↻
+                              </div>
+                            )}
                             <div style={{ lineHeight: '1.2' }}>
                               <div style={{ 
                                 fontSize: viewType === 'month' ? '8px' : '9px',
