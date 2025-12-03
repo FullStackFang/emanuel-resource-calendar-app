@@ -177,6 +177,7 @@ export default function RoomReservationReview({
 
   // Handle data changes from base component
   const handleDataChange = (updatedData) => {
+    console.log('[RoomReservationReview.handleDataChange] Called, onDataChange exists:', !!onDataChange);
     if (onDataChange) {
       onDataChange(updatedData);
     }

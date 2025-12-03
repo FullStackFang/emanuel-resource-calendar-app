@@ -13678,8 +13678,9 @@ app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (re
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    // Get current reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    // Get current reservation/event from unified events collection
+    // (Room reservations are now stored in templeEvents__Events, not the legacy roomReservationsCollection)
+    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -13697,7 +13698,7 @@ app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (re
     const changeKey = reservation.changeKey || generateChangeKey(reservation);
 
     // Update reservation to mark as being reviewed
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(id) },
       {
         $set: {
@@ -13744,8 +13745,9 @@ app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    // Get current reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    // Get current reservation/event from unified events collection
+    // (Room reservations are now stored in templeEvents__Events, not the legacy roomReservationsCollection)
+    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -13759,7 +13761,7 @@ app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (
     }
 
     // Release the review hold
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(id) },
       {
         $set: {

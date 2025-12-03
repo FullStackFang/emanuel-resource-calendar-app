@@ -101,6 +101,7 @@ export default function RoomReservationFormBase({
 
   const [availability, setAvailability] = useState([]);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false); // Day availability loading for SchedulingAssistant
   const [assistantRooms, setAssistantRooms] = useState([]);
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
@@ -128,6 +129,15 @@ export default function RoomReservationFormBase({
   const isInitializedRef = useRef(false);
   const lastReservationIdRef = useRef(null);
 
+  // AbortController to cancel stale availability requests (prevents race condition)
+  const availabilityAbortController = useRef(null);
+  // Request ID counter to ignore stale responses that arrive after newer ones
+  const availabilityRequestId = useRef(0);
+  // Track last fetch params to prevent duplicate fetches (race condition fix)
+  const lastFetchParamsRef = useRef({ roomIds: '', date: null });
+  // Ref to track current assistantRooms for stale closure protection
+  const assistantRoomsRef = useRef([]);
+
   // Expose formData, timeErrors, and validation function to parent
   // Include recurrencePattern in the returned data so it's available for saving
   useEffect(() => {
@@ -150,6 +160,7 @@ export default function RoomReservationFormBase({
 
   // Notify parent when hasChanges state changes
   useEffect(() => {
+    console.log('[hasChanges useEffect] hasChanges =', hasChanges, ', callback exists:', !!onHasChangesChange);
     if (onHasChangesChange) {
       onHasChangesChange(hasChanges);
     }
@@ -326,6 +337,13 @@ export default function RoomReservationFormBase({
 
   // Check room availability
   const checkAvailability = async () => {
+    // Use ref to check CURRENT value, not potentially stale closure value
+    // This prevents overwriting checkDayAvailability results when rooms are selected
+    if (assistantRoomsRef.current.length > 0) {
+      console.log('[checkAvailability] Skipping - assistant mode active');
+      return;
+    }
+
     try {
       setCheckingAvailability(true);
 
@@ -353,20 +371,46 @@ export default function RoomReservationFormBase({
       if (!response.ok) throw new Error('Failed to check availability');
 
       const data = await response.json();
+
+      // Double-check BEFORE setting: rooms might have been selected while we were fetching
+      // This prevents overwriting checkDayAvailability results during initialization race
+      if (assistantRoomsRef.current.length > 0) {
+        console.log('[checkAvailability] Discarding response - assistant mode now active');
+        return;
+      }
+
       setAvailability(data);
     } catch (err) {
       logger.error('Error checking availability:', err);
     } finally {
-      setCheckingAvailability(false);
+      // Only clear loading if assistant mode didn't take over
+      if (assistantRoomsRef.current.length === 0) {
+        setCheckingAvailability(false);
+      }
     }
   };
 
   // Check availability for the entire day for scheduling assistant
   const checkDayAvailability = async (roomIds, date) => {
     if (!roomIds.length || !date) {
+      setAvailabilityLoading(false); // Clear loading if nothing to fetch
       return;
     }
 
+    // Cancel any in-flight request to prevent stale responses from overwriting fresh data
+    if (availabilityAbortController.current) {
+      availabilityAbortController.current.abort();
+    }
+
+    // Create new abort controller for this request
+    availabilityAbortController.current = new AbortController();
+
+    // Increment request ID to track this specific request
+    // This ensures stale responses are ignored even if they arrive after abort
+    const thisRequestId = ++availabilityRequestId.current;
+
+    // Note: setAvailabilityLoading(true) is called in the useEffect BEFORE this function
+    // to prevent race conditions with SchedulingAssistant rendering
     try {
       const startDateTime = `${date}T00:00:00`;
       const endDateTime = `${date}T23:59:59`;
@@ -379,13 +423,31 @@ export default function RoomReservationFormBase({
         teardownTimeMinutes: 0
       });
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`,
+        { signal: availabilityAbortController.current.signal }
+      );
       if (!response.ok) throw new Error('Failed to check day availability');
 
       const data = await response.json();
-      setAvailability(data);
+
+      // Only update state if this is still the latest request
+      if (thisRequestId === availabilityRequestId.current) {
+        setAvailability(data);
+      } else {
+        console.log('[checkDayAvailability] Ignoring stale response', { thisRequestId, currentId: availabilityRequestId.current });
+      }
     } catch (err) {
+      // Ignore abort errors - request was intentionally cancelled
+      if (err.name === 'AbortError') {
+        return;
+      }
       logger.error('Error checking day availability:', err);
+    } finally {
+      // Only clear loading if this is still the latest request
+      if (thisRequestId === availabilityRequestId.current) {
+        setAvailabilityLoading(false);
+      }
     }
   };
 
@@ -408,6 +470,20 @@ export default function RoomReservationFormBase({
         return `${year}-${month}-${day}`;
       };
       const dateToCheck = formData.startDate || getTodayDate();
+
+      // Skip if params haven't changed (prevents race condition from duplicate fetches)
+      const roomIdsStr = roomIds.sort().join(',');
+      if (lastFetchParamsRef.current.roomIds === roomIdsStr && lastFetchParamsRef.current.date === dateToCheck) {
+        console.log('[checkDayAvailability] Skipping duplicate fetch - params unchanged');
+        return;
+      }
+
+      // Update last fetch params
+      lastFetchParamsRef.current = { roomIds: roomIdsStr, date: dateToCheck };
+
+      // Set loading IMMEDIATELY to prevent SchedulingAssistant from clearing events
+      // before the fetch starts (fixes race condition between room selection and data fetch)
+      setAvailabilityLoading(true);
       checkDayAvailability(roomIds, dateToCheck);
     }
   }, [assistantRooms, formData.startDate]);
@@ -419,6 +495,27 @@ export default function RoomReservationFormBase({
     );
     setAssistantRooms(selectedRoomObjects);
   }, [formData.requestedRooms, rooms]);
+
+  // Cleanup: abort any in-flight availability requests on unmount
+  useEffect(() => {
+    return () => {
+      if (availabilityAbortController.current) {
+        availabilityAbortController.current.abort();
+      }
+    };
+  }, []);
+
+  // Reset fetch params when rooms are deselected (allows re-fetch when rooms are re-selected)
+  useEffect(() => {
+    if (assistantRooms.length === 0) {
+      lastFetchParamsRef.current = { roomIds: '', date: null };
+    }
+  }, [assistantRooms.length]);
+
+  // Keep assistantRoomsRef in sync for reliable access in async functions (prevents stale closures)
+  useEffect(() => {
+    assistantRoomsRef.current = assistantRooms;
+  }, [assistantRooms]);
 
   // Validate time fields are in chronological order
   const validateTimes = useCallback(() => {
@@ -565,16 +662,28 @@ export default function RoomReservationFormBase({
   };
 
   const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
-    setFormData(prev => ({
-      ...prev,
+    console.log('[handleEventTimeChange] Called with:', { startTime, endTime, setupTime, teardownTime });
+
+    const updatedData = {
+      ...formData,
       startTime,
       endTime,
       ...(setupTime && { setupTime }),
       ...(teardownTime && { teardownTime }),
       ...(doorOpenTime && { doorOpenTime }),
       ...(doorCloseTime && { doorCloseTime })
-    }));
+    };
+
+    setFormData(updatedData);
     setHasChanges(true);
+    console.log('[handleEventTimeChange] setHasChanges(true) called');
+
+    // Notify parent of data change (consistent with handleInputChange)
+    console.log('[handleEventTimeChange] onDataChange exists:', !!onDataChange);
+    if (onDataChange) {
+      console.log('[handleEventTimeChange] Calling onDataChange with:', updatedData);
+      onDataChange(updatedData);
+    }
   };
 
   const handleTimeSlotClick = (hour) => {
@@ -1099,6 +1208,7 @@ export default function RoomReservationFormBase({
                   doorCloseTime={formData.doorCloseTime}
                   eventTitle={formData.eventTitle}
                   availability={availability}
+                  availabilityLoading={availabilityLoading}
                   onTimeSlotClick={handleTimeSlotClick}
                   onRoomRemove={handleRemoveAssistantRoom}
                   onEventTimeChange={handleEventTimeChange}

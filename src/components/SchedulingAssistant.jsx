@@ -13,6 +13,7 @@ export default function SchedulingAssistant({
   doorCloseTime, // Door close time (optional)
   eventTitle, // Title of the event being created/edited
   availability,
+  availabilityLoading = false, // True when availability data is being fetched
   onTimeSlotClick,
   onRoomRemove, // Callback to remove a room from selection
   onEventTimeChange, // Callback to update event times when dragging
@@ -75,7 +76,14 @@ export default function SchedulingAssistant({
 
   // Process availability data and create event blocks with calculated positions
   useEffect(() => {
+    // Don't clear events while loading new availability data - keep showing existing events
+    if (availabilityLoading) {
+      console.log('[SchedulingAssistant] Skipping update - availabilityLoading=true');
+      return;
+    }
+
     if (!availability || !selectedRooms.length) {
+      console.log('[SchedulingAssistant] Clearing events - availability:', !!availability, 'rooms:', selectedRooms.length);
       setEventBlocks([]);
       setRoomStats({});
       return;
@@ -324,7 +332,7 @@ export default function SchedulingAssistant({
 
     setEventBlocks(blocks);
     setRoomStats(stats);
-  }, [availability, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
+  }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {

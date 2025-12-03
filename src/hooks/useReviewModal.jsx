@@ -178,10 +178,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
    * Update editable data
    */
   const updateData = useCallback((updates) => {
+    console.log('[useReviewModal.updateData] Called with updates:', Object.keys(updates || {}));
     setEditableData(prev => ({
       ...prev,
       ...updates
     }));
+    console.log('[useReviewModal.updateData] Setting hasChanges to true');
     setHasChanges(true);
     // Reset delete confirmation when form data changes
     if (pendingDeleteConfirmation) {
