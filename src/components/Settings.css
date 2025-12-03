@@ -1,19 +1,159 @@
 /* src/components/Settings.css */
 
 .settings-container {
-  padding: 16px;
+  padding: 20px 24px;
   background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  max-width: 400px;
-  margin: 20px auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  max-width: 700px;
+  margin: 16px auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .settings-container h2 {
-  margin-bottom: 12px;
+  margin: 0 0 16px 0;
   font-size: 1.25rem;
+  color: #111827;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
+.settings-container h3 {
+  margin: 16px 0 12px 0;
+  font-size: 1rem;
+  color: #374151;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* Form layout - two columns on larger screens */
+.settings-container form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+}
+
+.settings-container h3 {
+  grid-column: 1 / -1;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  background: white;
+  color: #111827;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #0078d4;
+  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+}
+
+.form-group input:disabled {
+  background-color: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.form-group input[type="number"] {
+  max-width: 120px;
+}
+
+.form-group small {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* Form actions */
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.save-button {
+  padding: 8px 20px;
+  background: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.save-button:hover:not(:disabled) {
+  background: #106ebe;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 120, 212, 0.2);
+}
+
+.save-button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Messages */
+.settings-container .error-message {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+}
+
+.settings-container .success-message {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+}
+
+.settings-loading {
+  padding: 30px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.95rem;
+}
+
+/* Legacy support for setting-item class */
 .setting-item {
   margin-bottom: 12px;
 }
@@ -21,20 +161,37 @@
 .setting-item label {
   display: block;
   margin-bottom: 4px;
-  font-weight: bold;
+  font-weight: 500;
+  color: #374151;
+  font-size: 0.9rem;
 }
 
 .setting-item select,
 .setting-item input {
   width: 100%;
-  padding: 8px;
-  border: 1px solid #ccc;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
   border-radius: 4px;
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
-.settings-loading {
-  padding: 16px;
-  text-align: center;
-  font-style: italic;
+/* Responsive - single column on smaller screens */
+@media (max-width: 600px) {
+  .settings-container {
+    padding: 16px;
+    margin: 10px;
+    max-width: none;
+  }
+
+  .settings-container form {
+    grid-template-columns: 1fr;
+  }
+
+  .form-group.full-width {
+    grid-column: 1;
+  }
+
+  .form-actions {
+    grid-column: 1;
+  }
 }
