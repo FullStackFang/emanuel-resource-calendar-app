@@ -100,8 +100,8 @@
   opacity: 0.7;
 }
 
-/* Reservations Table */
-.reservations-table-container {
+/* Reservations Table - scoped to reservation-requests */
+.reservation-requests .reservations-table-container {
   background: white;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -114,7 +114,7 @@
   flex-direction: column;
 }
 
-.reservations-table {
+.reservation-requests .reservations-table {
   width: 100%;
   border-collapse: collapse;
   height: 100%;
@@ -122,34 +122,34 @@
   flex-direction: column;
 }
 
-.reservations-table thead {
+.reservation-requests .reservations-table thead {
   display: block;
   background: #f9fafb;
   padding-right: 17px;
 }
 
-.reservations-table tbody {
+.reservation-requests .reservations-table tbody {
   display: block;
   flex: 1;
   overflow-y: scroll;
   min-height: 500px;
 }
 
-.reservations-table thead tr {
+.reservation-requests .reservations-table thead tr {
   display: table;
   width: 100%;
   table-layout: fixed;
   min-width: 1210px;
 }
 
-.reservations-table tbody tr {
+.reservation-requests .reservations-table tbody tr {
   display: table;
   width: 100%;
   table-layout: fixed;
   min-width: 1210px;
 }
 
-.reservations-table th {
+.reservation-requests .reservations-table th {
   background: #f9fafb;
   padding: 12px;
   text-align: left;
@@ -159,69 +159,69 @@
   white-space: nowrap;
 }
 
-/* Specific column widths */
-.reservations-table th:nth-child(1), /* Submitted */
-.reservations-table td:nth-child(1) {
+/* Specific column widths - scoped to reservation-requests */
+.reservation-requests .reservations-table th:nth-child(1), /* Submitted */
+.reservation-requests .reservations-table td:nth-child(1) {
   width: 110px;
   min-width: 110px;
 }
 
-.reservations-table th:nth-child(2), /* Event Details */
-.reservations-table td:nth-child(2) {
+.reservation-requests .reservations-table th:nth-child(2), /* Event Details */
+.reservation-requests .reservations-table td:nth-child(2) {
   width: 220px;
   min-width: 220px;
   max-width: 220px;
   white-space: normal;
 }
 
-.reservations-table th:nth-child(3), /* Requester */
-.reservations-table td:nth-child(3) {
+.reservation-requests .reservations-table th:nth-child(3), /* Requester */
+.reservation-requests .reservations-table td:nth-child(3) {
   width: 200px;
   min-width: 200px;
   max-width: 200px;
   white-space: normal;
 }
 
-.reservations-table th:nth-child(4), /* Date & Time */
-.reservations-table td:nth-child(4) {
+.reservation-requests .reservations-table th:nth-child(4), /* Date & Time */
+.reservation-requests .reservations-table td:nth-child(4) {
   width: 180px;
   min-width: 180px;
   white-space: normal;
 }
 
-.reservations-table th:nth-child(5), /* Rooms */
-.reservations-table td:nth-child(5) {
+.reservation-requests .reservations-table th:nth-child(5), /* Rooms */
+.reservation-requests .reservations-table td:nth-child(5) {
   width: 150px;
   min-width: 150px;
   max-width: 150px;
 }
 
-.reservations-table th:nth-child(6), /* Priority */
-.reservations-table td:nth-child(6) {
+.reservation-requests .reservations-table th:nth-child(6), /* Priority */
+.reservation-requests .reservations-table td:nth-child(6) {
   width: 90px;
   min-width: 90px;
   text-align: center;
 }
 
-.reservations-table th:nth-child(7), /* Status */
-.reservations-table td:nth-child(7) {
+.reservation-requests .reservations-table th:nth-child(7), /* Status */
+.reservation-requests .reservations-table td:nth-child(7) {
   width: 120px;
   min-width: 120px;
 }
 
-.reservations-table th:nth-child(8), /* Actions */
-.reservations-table td:nth-child(8) {
+.reservation-requests .reservations-table th:nth-child(8), /* Actions */
+.reservation-requests .reservations-table td:nth-child(8) {
   width: 140px;
   min-width: 140px;
 }
 
-.reservations-table td {
+.reservation-requests .reservations-table td {
   padding: 12px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
 }
 
-.reservations-table tr:hover {
+.reservation-requests .reservations-table tr:hover {
   background: #f9fafb;
 }
 

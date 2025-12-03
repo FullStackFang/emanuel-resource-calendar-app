@@ -92,8 +92,8 @@
   opacity: 0.7;
 }
 
-/* Reservations Table */
-.reservations-table-container {
+/* Reservations Table - scoped to my-reservations */
+.my-reservations .reservations-table-container {
   background: white;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -106,7 +106,7 @@
   flex-direction: column;
 }
 
-.reservations-table {
+.my-reservations .reservations-table {
   width: 100%;
   border-collapse: collapse;
   height: 100%;
@@ -114,29 +114,29 @@
   flex-direction: column;
 }
 
-.reservations-table thead {
+.my-reservations .reservations-table thead {
   display: block;
   background: #f9fafb;
 }
 
-.reservations-table tbody {
+.my-reservations .reservations-table tbody {
   display: block;
   flex: 1;
   overflow-y: auto;
   min-height: 500px;
 }
 
-.reservations-table thead tr,
-.reservations-table tbody tr {
+.my-reservations .reservations-table thead tr,
+.my-reservations .reservations-table tbody tr {
   display: table;
   width: 100%;
   table-layout: fixed;
-  min-width: 1300px;
+  min-width: 1000px;
 }
 
-.reservations-table th {
+.my-reservations .reservations-table th {
   background: #f9fafb;
-  padding: 10px;
+  padding: 12px;
   text-align: left;
   font-weight: 600;
   color: #374151;
@@ -144,58 +144,47 @@
   white-space: nowrap;
 }
 
-/* Specific column widths for user view - utilizing full width */
+/* Specific column widths for user view - 6 columns total */
 .my-reservations .reservations-table th:nth-child(1), /* Submitted */
 .my-reservations .reservations-table td:nth-child(1) {
-  width: 130px;
+  min-width: 110px;
 }
 
 .my-reservations .reservations-table th:nth-child(2), /* Event Details */
 .my-reservations .reservations-table td:nth-child(2) {
-  width: 450px;
-}
-
-.my-reservations .reservations-table td:nth-child(2) {
+  min-width: 280px;
   white-space: normal;
 }
 
 .my-reservations .reservations-table th:nth-child(3), /* Date & Time */
 .my-reservations .reservations-table td:nth-child(3) {
-  width: 250px;
+  min-width: 200px;
+  white-space: normal;
 }
 
 .my-reservations .reservations-table th:nth-child(4), /* Rooms */
 .my-reservations .reservations-table td:nth-child(4) {
-  width: 160px;
+  min-width: 150px;
 }
 
-.my-reservations .reservations-table th:nth-child(5), /* Priority */
+.my-reservations .reservations-table th:nth-child(5), /* Status */
 .my-reservations .reservations-table td:nth-child(5) {
-  width: 90px;
+  min-width: 130px;
 }
 
-.my-reservations .reservations-table th:nth-child(6), /* Status */
+.my-reservations .reservations-table th:nth-child(6), /* Actions */
 .my-reservations .reservations-table td:nth-child(6) {
-  width: 170px;
+  min-width: 130px;
 }
 
-.my-reservations .reservations-table th:nth-child(7), /* Actions */
-.my-reservations .reservations-table td:nth-child(7) {
-  width: 130px;
-}
-
-.reservations-table td {
-  padding: 10px;
+.my-reservations .reservations-table td {
+  padding: 12px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
 }
 
-.reservations-table tr:hover {
+.my-reservations .reservations-table tr:hover {
   background: #f9fafb;
-}
-
-.reservations-table tbody {
-  transition: opacity 0.2s ease;
 }
 
 /* Table Cell Styles */
@@ -252,7 +241,17 @@
 
 .datetime {
   font-size: 0.9rem;
-  white-space: nowrap;
+}
+
+.datetime .date {
+  font-weight: 500;
+  color: #111827;
+}
+
+.datetime .time-range {
+  color: #6b7280;
+  font-size: 0.85rem;
+  margin-top: 2px;
 }
 
 .datetime .to {
@@ -278,11 +277,12 @@
 /* Status and Priority Badges */
 .status-badge,
 .priority-badge {
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 500;
   text-transform: capitalize;
+  display: inline-block;
 }
 
 .status-pending {
@@ -346,20 +346,23 @@
 
 /* Actions */
 .actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
 }
 
 .view-btn,
 .cancel-btn,
 .resubmit-btn {
-  padding: 5px 10px;
+  padding: 6px 12px;
   border: none;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  margin: 2px;
+  white-space: nowrap;
 }
 
 .view-btn {
@@ -580,40 +583,40 @@
 }
 
 /* Responsive Design */
-@media (max-width: 1400px) {
-  .reservations-table-container {
+@media (max-width: 1100px) {
+  .my-reservations .reservations-table-container {
     overflow-x: auto;
   }
-  
-  .reservations-table {
-    min-width: 1300px;
+
+  .my-reservations .reservations-table {
+    min-width: 1000px;
   }
 }
 
 @media (max-width: 768px) {
-  .tabs {
+  .my-reservations .tabs {
     gap: 8px;
   }
 
-  .tab {
+  .my-reservations .tab {
     padding: 6px 10px;
     font-size: 0.85rem;
   }
 
-  .reservations-table-container {
+  .my-reservations .reservations-table-container {
     height: 500px;
   }
-  
-  .reservations-table tbody {
+
+  .my-reservations .reservations-table tbody {
     min-height: 400px;
   }
-  
-  .modal-actions {
+
+  .my-reservations .modal-actions {
     flex-direction: column;
   }
-  
-  .confirm-cancel-btn,
-  .close-btn {
+
+  .my-reservations .confirm-cancel-btn,
+  .my-reservations .close-btn {
     width: 100%;
   }
 }

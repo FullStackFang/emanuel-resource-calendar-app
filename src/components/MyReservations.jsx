@@ -130,6 +130,30 @@ export default function MyReservations({ apiToken }) {
       minute: '2-digit'
     });
   };
+
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatTime = (date) => {
+    return new Date(date).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  };
+
+  const isSameDay = (date1, date2) => {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  };
   
   const getStatusBadgeClass = (status) => {
     switch (status) {
@@ -240,9 +264,18 @@ export default function MyReservations({ apiToken }) {
                   )}
                 </td>
                 <td className="datetime">
-                  <div>{formatDateTime(reservation.startDateTime)}</div>
-                  <div className="to">to</div>
-                  <div>{formatDateTime(reservation.endDateTime)}</div>
+                  {isSameDay(reservation.startDateTime, reservation.endDateTime) ? (
+                    <>
+                      <div className="date">{formatDate(reservation.startDateTime)}</div>
+                      <div className="time-range">{formatTime(reservation.startDateTime)} – {formatTime(reservation.endDateTime)}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div>{formatDateTime(reservation.startDateTime)}</div>
+                      <div className="to">to</div>
+                      <div>{formatDateTime(reservation.endDateTime)}</div>
+                    </>
+                  )}
                 </td>
                 <td className="rooms">
                   {reservation.requestedRooms.map(roomId => {
