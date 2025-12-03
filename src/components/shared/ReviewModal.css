@@ -237,6 +237,16 @@
   background: #0078d4 !important;
 }
 
+/* Submit cancel X button - match the approve/submit button green color */
+.submit-cancel-x {
+  background: #059669 !important;
+  color: white !important;
+}
+
+.submit-cancel-x:hover {
+  background: #047857 !important;
+}
+
 /* When confirming, keep normal border radius since there's a gap now */
 .action-btn.confirming {
   border-radius: 6px;

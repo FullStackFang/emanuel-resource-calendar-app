@@ -230,15 +230,27 @@ export default function ReviewModal({
 
               {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
               {mode === 'create' && onSave && (
-                <button
-                  type="button"
-                  className="action-btn approve-btn"
-                  onClick={onSave}
-                  disabled={!hasChanges || isSaving}
-                  title={!hasChanges ? 'Fill out the form to submit' : ''}
-                >
-                  {isSaving ? 'Submitting...' : (saveButtonText || '📝 Submit Request')}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn approve-btn ${isSaveConfirming ? 'confirming' : ''}`}
+                    onClick={onSave}
+                    disabled={!hasChanges || isSaving}
+                    title={!hasChanges ? 'Fill out the form to submit' : ''}
+                  >
+                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (saveButtonText || '⚠️ Confirm Submit?') : '📝 Submit Request')}
+                  </button>
+                  {isSaveConfirming && onCancelSave && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x submit-cancel-x"
+                      onClick={onCancelSave}
+                      title="Cancel submit"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}

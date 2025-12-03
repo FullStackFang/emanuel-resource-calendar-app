@@ -4852,6 +4852,15 @@
           // Reservation request submission - transform data to match API expectations
           logger.debug('Creating reservation request', reservationData);
 
+          // Two-step submit confirmation for reservation requests
+          if (!pendingSaveConfirmation) {
+            setPendingSaveConfirmation(true);
+            return; // Exit early on first click - button text will change to show confirmation
+          }
+
+          // Reset confirmation after second click (user confirmed)
+          setPendingSaveConfirmation(false);
+
           // Transform data to match /api/events/request endpoint expectations
           const requestPayload = {
             eventTitle: reservationData.eventTitle || reservationData.subject || '',
