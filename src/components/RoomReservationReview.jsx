@@ -41,7 +41,8 @@ export default function RoomReservationReview({
   createCalendarEvent = true,
   onCreateCalendarEventChange = () => {},
   activeTab = 'details',
-  editScope = null // For recurring events: 'thisEvent' | 'allEvents' | null
+  editScope = null, // For recurring events: 'thisEvent' | 'allEvents' | null
+  onFormValidChange = null // Callback when form validity changes
 }) {
   // Review-specific state
   const [initialData, setInitialData] = useState({});
@@ -417,6 +418,7 @@ export default function RoomReservationReview({
           onFormDataRef={(getter) => { formDataRef.current = getter; }}
           onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
           onValidateRef={(getter) => { validateRef.current = getter; }}
+          onFormValidChange={onFormValidChange}
           renderAdditionalContent={() => (
             <>
               {/* Tab: Attachments */}

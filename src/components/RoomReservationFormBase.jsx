@@ -1,5 +1,5 @@
 // src/components/RoomReservationFormBase.jsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
@@ -65,7 +65,8 @@ export default function RoomReservationFormBase({
   // Data exposure
   onFormDataRef = null,         // Callback to expose formData getter
   onTimeErrorsRef = null,       // Callback to expose timeErrors getter
-  onValidateRef = null          // Callback to expose validation function
+  onValidateRef = null,         // Callback to expose validation function
+  onFormValidChange = null      // Callback when form validity changes
 }) {
   // Form state
   const [formData, setFormData] = useState({
@@ -605,6 +606,24 @@ export default function RoomReservationFormBase({
     }
   }, [formData.setupTime, formData.doorOpenTime, formData.startTime, formData.endTime, formData.doorCloseTime, formData.teardownTime, validateTimes]);
 
+  // Required field validation
+  const isFieldValid = useCallback((fieldName) => {
+    const value = formData[fieldName];
+    return value !== undefined && value !== null && value !== '';
+  }, [formData]);
+
+  const isFormValid = useMemo(() => {
+    const requiredFields = ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
+    return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0;
+  }, [isFieldValid, timeErrors]);
+
+  // Notify parent when form validity changes
+  useEffect(() => {
+    if (onFormValidChange) {
+      onFormValidChange(isFormValid);
+    }
+  }, [isFormValid, onFormValidChange]);
+
   // Event handlers
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -791,8 +810,8 @@ export default function RoomReservationFormBase({
             )}
 
             <div className="form-grid">
-              <div className="form-group full-width">
-                <label htmlFor="eventTitle">Event Title *</label>
+              <div className={`form-group full-width required-field ${isFieldValid('eventTitle') ? 'field-valid' : ''}`}>
+                <label htmlFor="eventTitle">Event Title</label>
                 <input
                   type="text"
                   id="eventTitle"
@@ -960,8 +979,8 @@ export default function RoomReservationFormBase({
 
             {/* Date Fields - Always visible */}
             <div className="time-field-row">
-              <div className="form-group">
-                <label htmlFor="startDate">Event Date *</label>
+              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''}`}>
+                <label htmlFor="startDate">Event Date</label>
                 <input
                   type="date"
                   id="startDate"
@@ -973,8 +992,8 @@ export default function RoomReservationFormBase({
                 />
               </div>
 
-              <div className="form-group">
-                <label htmlFor="endDate">End Date *</label>
+              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''}`}>
+                <label htmlFor="endDate">End Date</label>
                 <input
                   type="date"
                   id="endDate"
@@ -1031,8 +1050,8 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
-              <div className="form-group">
-                <label htmlFor="setupTime">Setup Start Time *</label>
+              <div className={`form-group required-field ${isFieldValid('setupTime') ? 'field-valid' : ''}`}>
+                <label htmlFor="setupTime">Setup Start Time</label>
                 <input
                   type="time"
                   id="setupTime"
@@ -1045,8 +1064,8 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When setup can begin</div>
               </div>
 
-              <div className="form-group">
-                <label htmlFor="doorOpenTime">Door Open Time *</label>
+              <div className={`form-group required-field ${isFieldValid('doorOpenTime') ? 'field-valid' : ''}`}>
+                <label htmlFor="doorOpenTime">Door Open Time</label>
                 <input
                   type="time"
                   id="doorOpenTime"
@@ -1059,8 +1078,8 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When attendees can start entering</div>
               </div>
 
-              <div className="form-group">
-                <label htmlFor="startTime">Event Start Time *</label>
+              <div className={`form-group required-field ${isFieldValid('startTime') ? 'field-valid' : ''}`}>
+                <label htmlFor="startTime">Event Start Time</label>
                 <input
                   type="time"
                   id="startTime"
@@ -1073,8 +1092,8 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When the event begins</div>
               </div>
 
-              <div className="form-group">
-                <label htmlFor="endTime">Event End Time *</label>
+              <div className={`form-group required-field ${isFieldValid('endTime') ? 'field-valid' : ''}`}>
+                <label htmlFor="endTime">Event End Time</label>
                 <input
                   type="time"
                   id="endTime"

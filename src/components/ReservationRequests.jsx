@@ -30,6 +30,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [editableData, setEditableData] = useState(null);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isFormValid, setIsFormValid] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   // Child component's save function (exposed via callback)
@@ -1072,6 +1073,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           onDelete={() => handleDelete(selectedReservation)}
           isPending={selectedReservation?.status === 'pending'}
           hasChanges={hasChanges}
+          isFormValid={isFormValid}
           isSaving={isSaving}
           isAdmin={isAdmin}
           showFormToggle={true}
@@ -1101,6 +1103,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               onCancel={closeReviewModal}
               onSave={handleSaveChanges}
               onHasChangesChange={setHasChanges}
+              onFormValidChange={setIsFormValid}
               onIsSavingChange={setIsSaving}
               onSaveFunctionReady={handleSaveFunctionReady}
               onLockedEventClick={handleLockedEventClick}

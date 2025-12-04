@@ -45,6 +45,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
 
+  // Form validity state (controlled by child form component)
+  const [isFormValid, setIsFormValid] = useState(true);
+
   /**
    * Open modal with a reservation or event
    * @param {Object} item - The reservation or event to open
@@ -469,6 +472,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     currentItem,
     editableData,
     hasChanges,
+    isFormValid,
     isSaving,
     isDeleting,
     holdError,
@@ -483,6 +487,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     openModal,
     closeModal,
     updateData,
+    setIsFormValid,
     handleSave,
     handleApprove,
     handleReject,

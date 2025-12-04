@@ -1586,3 +1586,37 @@
 .edit-scope-text {
   flex: 1;
 }
+
+/* Required Field Indicator - Colored Left Bar */
+.form-group.required-field {
+  position: relative;
+  padding-left: 12px;
+}
+
+.form-group.required-field::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #ef4444; /* Red when empty/invalid */
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+}
+
+.form-group.required-field.field-valid::before {
+  background: #10b981; /* Green when filled/valid */
+}
+
+/* Required field label asterisk styling */
+.form-group.required-field > label::after {
+  content: ' *';
+  color: #ef4444;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+
+.form-group.required-field.field-valid > label::after {
+  color: #10b981;
+}

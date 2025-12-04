@@ -251,6 +251,7 @@
       event: null,
       mode: 'event', // 'event' for direct creation, 'create' for reservation requests
       hasChanges: false, // Track if form has been modified
+      isFormValid: true, // Track if all required fields are filled
       isNavigating: false // Track if navigating between series events
     });
 
@@ -6017,6 +6018,7 @@
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
           hasChanges={reviewModal.hasChanges}
+          isFormValid={reviewModal.isFormValid}
           isSaving={reviewModal.isSaving}
           isDeleting={reviewModal.isDeleting}
           isNavigating={reviewModalIsNavigating}
@@ -6046,6 +6048,7 @@
               onDataChange={reviewModal.updateData}
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
+              onFormValidChange={reviewModal.setIsFormValid}
               readOnly={!canEditEvents && !canApproveReservations}
               isAdmin={effectivePermissions.isAdmin}
               editScope={reviewModal.editScope}
@@ -6065,6 +6068,7 @@
           mode={eventReviewModal.mode === 'create' ? 'create' : 'edit'}
           isPending={false}
           hasChanges={eventReviewModal.hasChanges}
+          isFormValid={eventReviewModal.isFormValid}
           isSaving={savingEvent}
           isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
@@ -6120,6 +6124,7 @@
               }}
               onIsNavigatingChange={handleEventReviewIsNavigatingChange}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
+              onFormValidChange={(isValid) => setEventReviewModal(prev => ({ ...prev, isFormValid: isValid }))}
               readOnly={false}
               isAdmin={effectivePermissions.isAdmin}
             />

@@ -25,6 +25,7 @@ export default function ReviewModal({
   // State flags
   isPending = true,
   hasChanges = false,
+  isFormValid = true,  // Default to true for backwards compatibility
   isSaving = false,
   isDeleting = false,
   isNavigating = false,
@@ -235,8 +236,8 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn approve-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || isSaving}
-                    title={!hasChanges ? 'Fill out the form to submit' : ''}
+                    disabled={!hasChanges || !isFormValid || isSaving}
+                    title={!hasChanges ? 'Fill out the form to submit' : (!isFormValid ? 'Please fill all required fields' : '')}
                   >
                     {isSaving ? 'Submitting...' : (isSaveConfirming ? (saveButtonText || '⚠️ Confirm Submit?') : '📝 Submit Request')}
                   </button>
@@ -260,8 +261,8 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || isSaving}
-                    title={!hasChanges ? 'No changes to save' : ''}
+                    disabled={!hasChanges || !isFormValid || isSaving}
+                    title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : '')}
                   >
                     {isSaving ? 'Saving...' : (isSaveConfirming ? '⚠️ Confirm Save?' : (saveButtonText || '💾 Save'))}
                   </button>
