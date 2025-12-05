@@ -269,6 +269,14 @@ export default function RoomReservationFormBase({
     }
   }, [initialData, currentReservationId]);
 
+  // Sync selectedCategories when initialData changes (useState only runs once on mount)
+  useEffect(() => {
+    const categories = initialData?.mecCategories || initialData?.internalData?.mecCategories;
+    if (categories && categories.length > 0) {
+      setSelectedCategories(categories);
+    }
+  }, [initialData?.mecCategories, initialData?.internalData?.mecCategories]);
+
   // Fetch series events when opening an event with eventSeriesId
   useEffect(() => {
     const fetchSeriesEvents = async () => {
@@ -619,10 +627,19 @@ export default function RoomReservationFormBase({
     return value !== undefined && value !== null && value !== '';
   }, [formData]);
 
+  // Determine if this is a new event or editing an existing one
+  const isNewEvent = !initialData?.eventId && !initialData?.id && !initialData?._id;
+
   const isFormValid = useMemo(() => {
     const requiredFields = ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
-    return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
-  }, [isFieldValid, timeErrors, selectedCategories]);
+    const baseValid = requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0;
+
+    // Only require categories for new events, not when editing existing ones
+    if (isNewEvent) {
+      return baseValid && selectedCategories.length > 0;
+    }
+    return baseValid;
+  }, [isFieldValid, timeErrors, selectedCategories, isNewEvent]);
 
   // Notify parent when form validity changes
   useEffect(() => {

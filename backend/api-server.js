@@ -16088,15 +16088,275 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
                 graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId}`;
                 logger.info('Found occurrence ID:', { targetOccurrenceId });
               } else {
-                logger.warn('No matching occurrence found for date, falling back to series master');
+                // FIXED: Don't fall back to series master - return error instead
+                logger.error('No matching occurrence found for date - cannot edit single occurrence');
+                return res.status(404).json({
+                  error: 'Could not find the specific occurrence to edit',
+                  details: 'No matching occurrence found for the selected date'
+                });
               }
             } else {
-              logger.warn('No instances returned for date range, falling back to series master');
+              // FIXED: Don't fall back to series master - return error instead
+              logger.error('No instances returned for date range - cannot edit single occurrence');
+              return res.status(404).json({
+                error: 'Could not find the specific occurrence to edit',
+                details: 'No instances found for the selected date range'
+              });
             }
           } else {
             const errorText = await instancesResponse.text();
             logger.error('Failed to fetch instances:', { status: instancesResponse.status, error: errorText });
-            // Fall back to updating series master
+            // FIXED: Don't fall back to series master - return error instead
+            return res.status(500).json({
+              error: 'Failed to fetch occurrence data from Microsoft Graph',
+              details: errorText
+            });
+          }
+        } else if (editScope === 'thisAndFollowing' && seriesMasterId && occurrenceDate) {
+          // For "this and all following" edits, we need to:
+          // 1. Truncate the original series (end date = day before split)
+          // 2. Create a new series starting from the split date with updated properties
+          logger.info('Processing "this and all following" edit - splitting series:', {
+            seriesMasterId,
+            occurrenceDate,
+            editScope
+          });
+
+          // First, get the original series master to understand its recurrence pattern
+          const seriesMasterUrl = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+          const seriesMasterResponse = await fetch(seriesMasterUrl, {
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!seriesMasterResponse.ok) {
+            const errorText = await seriesMasterResponse.text();
+            logger.error('Failed to fetch series master:', { status: seriesMasterResponse.status, error: errorText });
+            return res.status(500).json({ error: 'Failed to fetch series master for split operation' });
+          }
+
+          const seriesMasterData = await seriesMasterResponse.json();
+          const originalRecurrence = seriesMasterData.recurrence;
+
+          if (!originalRecurrence) {
+            logger.error('Series master has no recurrence pattern');
+            return res.status(400).json({ error: 'Cannot split a non-recurring event' });
+          }
+
+          const splitDate = new Date(occurrenceDate);
+          const dayBeforeSplit = new Date(splitDate);
+          dayBeforeSplit.setDate(dayBeforeSplit.getDate() - 1);
+
+          // Check if this is the first occurrence - if so, treat as "all events"
+          const originalStartDate = originalRecurrence.range?.startDate
+            ? new Date(originalRecurrence.range.startDate)
+            : new Date(seriesMasterData.start?.dateTime);
+
+          if (splitDate.toDateString() === originalStartDate.toDateString()) {
+            logger.info('Split date is the first occurrence - treating as "all events" edit');
+            graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+            // Continue with normal update flow below
+          } else {
+            // Step 1: Truncate the original series
+            const truncatePayload = {
+              recurrence: {
+                pattern: originalRecurrence.pattern,
+                range: {
+                  type: 'endDate',
+                  startDate: originalRecurrence.range.startDate,
+                  endDate: dayBeforeSplit.toISOString().split('T')[0] // YYYY-MM-DD format
+                }
+              }
+            };
+
+            logger.info('Truncating original series:', {
+              seriesMasterId,
+              newEndDate: truncatePayload.recurrence.range.endDate
+            });
+
+            const truncateResponse = await fetch(seriesMasterUrl, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(truncatePayload)
+            });
+
+            if (!truncateResponse.ok) {
+              const errorText = await truncateResponse.text();
+              logger.error('Failed to truncate original series:', { status: truncateResponse.status, error: errorText });
+              return res.status(500).json({ error: 'Failed to truncate original series' });
+            }
+
+            logger.info('Original series truncated successfully');
+
+            // Step 2: Create new series starting from split date
+            // Get the calendar ID from the original event
+            const calendarId = event.calendarId || seriesMasterData.calendar?.id || 'primary';
+
+            // Build new series event with updated properties
+            const newSeriesPayload = {
+              subject: updates.eventTitle || seriesMasterData.subject,
+              start: {
+                dateTime: updates.startDateTime || seriesMasterData.start.dateTime,
+                timeZone: updates.startTimeZone || seriesMasterData.start.timeZone || 'America/New_York'
+              },
+              end: {
+                dateTime: updates.endDateTime || seriesMasterData.end.dateTime,
+                timeZone: updates.endTimeZone || seriesMasterData.end.timeZone || 'America/New_York'
+              },
+              recurrence: {
+                pattern: updates.recurrence?.pattern || originalRecurrence.pattern,
+                range: {
+                  type: originalRecurrence.range.type === 'noEnd' ? 'noEnd' : (updates.recurrence?.range?.type || originalRecurrence.range.type),
+                  startDate: splitDate.toISOString().split('T')[0]
+                }
+              }
+            };
+
+            // Preserve end date if original had one (and wasn't truncated to before our split)
+            if (originalRecurrence.range.type === 'endDate' && originalRecurrence.range.endDate) {
+              const originalEndDate = new Date(originalRecurrence.range.endDate);
+              if (originalEndDate >= splitDate) {
+                newSeriesPayload.recurrence.range.endDate = originalRecurrence.range.endDate;
+                newSeriesPayload.recurrence.range.type = 'endDate';
+              }
+            } else if (originalRecurrence.range.type === 'numbered' && originalRecurrence.range.numberOfOccurrences) {
+              // For numbered recurrences, we need to calculate remaining occurrences
+              // This is complex - for now, convert to endDate type or noEnd
+              newSeriesPayload.recurrence.range.type = 'noEnd';
+              logger.warn('Numbered recurrence split - converted to noEnd type');
+            }
+
+            // Add location if provided
+            if (processedLocationDisplayName) {
+              newSeriesPayload.location = { displayName: processedLocationDisplayName };
+            } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
+              const locationString = updates.locations
+                .map(loc => typeof loc === 'string' ? loc : loc.displayName || loc.name || '')
+                .filter(Boolean)
+                .join('; ');
+              if (locationString) {
+                newSeriesPayload.location = { displayName: locationString };
+              }
+            } else if (seriesMasterData.location) {
+              newSeriesPayload.location = seriesMasterData.location;
+            }
+
+            // Add body/description
+            if (updates.eventDescription) {
+              newSeriesPayload.body = { contentType: 'HTML', content: updates.eventDescription };
+            } else if (seriesMasterData.body) {
+              newSeriesPayload.body = seriesMasterData.body;
+            }
+
+            // Add categories
+            if (updates.categories && Array.isArray(updates.categories)) {
+              newSeriesPayload.categories = updates.categories;
+            } else if (seriesMasterData.categories) {
+              newSeriesPayload.categories = seriesMasterData.categories;
+            }
+
+            // Create the new series
+            const createSeriesUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events`;
+            logger.info('Creating new series from split:', {
+              calendarId,
+              startDate: newSeriesPayload.recurrence.range.startDate,
+              subject: newSeriesPayload.subject
+            });
+
+            const createResponse = await fetch(createSeriesUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(newSeriesPayload)
+            });
+
+            if (!createResponse.ok) {
+              const errorText = await createResponse.text();
+              logger.error('Failed to create new series:', { status: createResponse.status, error: errorText });
+              return res.status(500).json({ error: 'Failed to create new series after split' });
+            }
+
+            const newSeriesData = await createResponse.json();
+            logger.info('New series created successfully:', {
+              newSeriesId: newSeriesData.id,
+              newSeriesMasterId: newSeriesData.seriesMasterId
+            });
+
+            // Update MongoDB with split tracking info
+            const splitTrackingUpdate = {
+              $set: {
+                'internalData.splitFromSeriesId': seriesMasterId,
+                'internalData.splitDate': splitDate.toISOString(),
+                'graphData': newSeriesData,
+                'eventId': newSeriesData.id,
+                lastModified: new Date().toISOString()
+              }
+            };
+
+            // Also update the original series document to track the child
+            await unifiedEventsCollection.updateOne(
+              { 'graphData.id': seriesMasterId },
+              {
+                $push: { 'internalData.childSeriesIds': newSeriesData.id },
+                $set: { lastModified: new Date().toISOString() }
+              }
+            );
+
+            // Now update the current event document with new series info
+            // Build the internal update by extracting safe fields from updates
+            const {
+              graphToken: _gt,
+              _id: _mid,
+              id: _gid,
+              eventId: _eid,
+              userId: _uid,
+              createdAt: _cat,
+              createdBy: _cb,
+              createdByEmail: _cbe,
+              createdByName: _cbn,
+              createdSource: _cs,
+              graphData: _gd,
+              editScope: _es,
+              occurrenceDate: _od,
+              seriesMasterId: _smid,
+              ...safeInternalUpdates
+            } = updates;
+
+            // Merge with new series data and split tracking
+            const internalUpdate = {
+              ...safeInternalUpdates,
+              graphData: newSeriesData,
+              eventId: newSeriesData.id,
+              'internalData.splitFromSeriesId': seriesMasterId,
+              'internalData.splitDate': splitDate.toISOString(),
+              lastModified: new Date().toISOString()
+            };
+
+            await unifiedEventsCollection.updateOne(
+              { _id: new ObjectId(id) },
+              { $set: internalUpdate }
+            );
+
+            // Fetch updated event
+            const updatedEvent = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+            logger.info('Series split complete - returning updated event');
+
+            return res.json({
+              success: true,
+              event: updatedEvent,
+              splitInfo: {
+                originalSeriesId: seriesMasterId,
+                newSeriesId: newSeriesData.id,
+                splitDate: splitDate.toISOString()
+              }
+            });
           }
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // For "all events" edits, update the series master directly
@@ -16607,6 +16867,112 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId || graphEventId}`
             : `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId || graphEventId}`;
 
+        } else if (editScope === 'thisAndFollowing' && seriesMasterId && occurrenceDate) {
+          // Delete this and all following occurrences - truncate the series
+          console.log('🔄 Deleting this and all following occurrences:', {
+            seriesMasterId,
+            occurrenceDate,
+            editScope
+          });
+
+          // For "delete this and following", we just truncate the original series
+          // Set end date to day before the selected occurrence
+          const splitDate = new Date(occurrenceDate);
+          const dayBeforeSplit = new Date(splitDate);
+          dayBeforeSplit.setDate(dayBeforeSplit.getDate() - 1);
+
+          // First, get the original series master to understand its recurrence pattern
+          const seriesMasterUrl = calendarId
+            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`
+            : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+
+          const seriesMasterResponse = await fetch(seriesMasterUrl, {
+            headers: {
+              'Authorization': `Bearer ${graphToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (!seriesMasterResponse.ok) {
+            const errorText = await seriesMasterResponse.text();
+            console.log('❌ Failed to fetch series master for truncation:', errorText);
+            return res.status(500).json({ error: 'Failed to fetch series master for delete operation' });
+          }
+
+          const seriesMasterData = await seriesMasterResponse.json();
+          const originalRecurrence = seriesMasterData.recurrence;
+
+          if (!originalRecurrence) {
+            console.log('❌ Series master has no recurrence pattern');
+            return res.status(400).json({ error: 'Cannot delete from a non-recurring event' });
+          }
+
+          // Check if this is the first occurrence - if so, delete the entire series
+          const originalStartDate = originalRecurrence.range?.startDate
+            ? new Date(originalRecurrence.range.startDate)
+            : new Date(seriesMasterData.start?.dateTime);
+
+          if (splitDate.toDateString() === originalStartDate.toDateString()) {
+            console.log('📝 Delete date is the first occurrence - deleting entire series');
+            graphApiUrl = seriesMasterUrl;
+            // Will proceed to normal delete below
+          } else {
+            // Truncate the series by setting end date to day before selected occurrence
+            const truncatePayload = {
+              recurrence: {
+                pattern: originalRecurrence.pattern,
+                range: {
+                  type: 'endDate',
+                  startDate: originalRecurrence.range.startDate,
+                  endDate: dayBeforeSplit.toISOString().split('T')[0] // YYYY-MM-DD format
+                }
+              }
+            };
+
+            console.log('📝 Truncating series to end before:', truncatePayload.recurrence.range.endDate);
+
+            const truncateResponse = await fetch(seriesMasterUrl, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(truncatePayload)
+            });
+
+            if (!truncateResponse.ok) {
+              const errorText = await truncateResponse.text();
+              console.log('❌ Failed to truncate series:', errorText);
+              return res.status(500).json({ error: 'Failed to truncate series for delete operation' });
+            }
+
+            console.log('✅ Series truncated successfully - this and following occurrences deleted');
+            graphDeleted = true;
+
+            // Update MongoDB to reflect the truncation
+            await unifiedEventsCollection.updateOne(
+              { 'graphData.id': seriesMasterId },
+              {
+                $set: {
+                  'graphData.recurrence.range.type': 'endDate',
+                  'graphData.recurrence.range.endDate': truncatePayload.recurrence.range.endDate,
+                  lastModified: new Date().toISOString()
+                }
+              }
+            );
+
+            // Delete from MongoDB (the specific occurrence document)
+            const mongoResult = await unifiedEventsCollection.deleteOne({ _id: new ObjectId(id) });
+            console.log('✅ MongoDB delete result:', { deletedCount: mongoResult.deletedCount });
+
+            return res.json({
+              success: true,
+              graphDeleted: true,
+              deletedFromMongoDB: mongoResult.deletedCount === 1,
+              truncatedSeriesId: seriesMasterId,
+              newEndDate: truncatePayload.recurrence.range.endDate
+            });
+          }
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // Delete entire series - delete the series master
           console.log('🔄 Deleting entire recurring series:', { seriesMasterId });

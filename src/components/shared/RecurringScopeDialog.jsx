@@ -6,12 +6,13 @@ import './RecurringScopeDialog.css';
  * RecurringScopeDialog - Modal dialog for selecting edit scope on recurring events
  *
  * Shows before opening the edit modal, allowing user to choose:
- * - "This event only" - Edit just this occurrence
+ * - "This event only" - Edit just this occurrence (creates an exception)
+ * - "This and all following events" - Edit from this occurrence onwards (splits the series)
  * - "All events in the series" - Edit the entire recurring series
  *
  * @param {boolean} isOpen - Whether the dialog is open
  * @param {Function} onClose - Called when dialog is closed/cancelled
- * @param {Function} onSelectScope - Called with scope ('thisEvent' | 'allEvents')
+ * @param {Function} onSelectScope - Called with scope ('thisEvent' | 'thisAndFollowing' | 'allEvents')
  * @param {string} eventSubject - The event title to display
  * @param {string} eventDate - The occurrence date to display
  */
@@ -103,6 +104,24 @@ export default function RecurringScopeDialog({
                 <span className="recurring-scope-option-title">This event only</span>
                 <span className="recurring-scope-option-desc">
                   Edit just this occurrence
+                </span>
+              </div>
+            </label>
+
+            <label
+              className={`recurring-scope-option ${selectedScope === 'thisAndFollowing' ? 'selected' : ''}`}
+            >
+              <input
+                type="radio"
+                name="editScope"
+                value="thisAndFollowing"
+                checked={selectedScope === 'thisAndFollowing'}
+                onChange={() => setSelectedScope('thisAndFollowing')}
+              />
+              <div className="recurring-scope-option-content">
+                <span className="recurring-scope-option-title">This and all following events</span>
+                <span className="recurring-scope-option-desc">
+                  Edit this occurrence and all future occurrences
                 </span>
               </div>
             </label>
