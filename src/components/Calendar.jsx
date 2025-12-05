@@ -4879,54 +4879,59 @@
 
           // Reset confirmation after second click (user confirmed)
           setPendingSaveConfirmation(false);
+          setSavingEvent(true); // Show "Submitting..." with disabled button
 
-          // Transform data to match /api/events/request endpoint expectations
-          const requestPayload = {
-            eventTitle: reservationData.eventTitle || reservationData.subject || '',
-            eventDescription: reservationData.eventDescription || reservationData.description || '',
-            // Combine date + time into ISO datetime format expected by API
-            startDateTime: `${reservationData.startDate}T${reservationData.startTime}:00`,
-            endDateTime: `${reservationData.endDate}T${reservationData.endTime}:00`,
-            // Ensure requestedRooms is passed (API requires this field)
-            requestedRooms: reservationData.requestedRooms || reservationData.locations || [],
-            attendeeCount: reservationData.attendeeCount || 0,
-            department: reservationData.department || '',
-            phone: reservationData.phone || '',
-            specialRequirements: reservationData.specialRequirements || '',
-            setupTimeMinutes: reservationData.setupTimeMinutes || 0,
-            teardownTimeMinutes: reservationData.teardownTimeMinutes || 0,
-            setupTime: reservationData.setupTime || '',
-            teardownTime: reservationData.teardownTime || '',
-            doorOpenTime: reservationData.doorOpenTime || '',
-            doorCloseTime: reservationData.doorCloseTime || '',
-            setupNotes: reservationData.setupNotes || '',
-            doorNotes: reservationData.doorNotes || '',
-            eventNotes: reservationData.eventNotes || '',
-            requesterName: reservationData.requesterName || userProfile?.displayName || '',
-            requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
-            // Include calendarId so the event shows up in the user's calendar view
-            calendarId: reservationData.calendarId || selectedCalendarId
-          };
+          try {
+            // Transform data to match /api/events/request endpoint expectations
+            const requestPayload = {
+              eventTitle: reservationData.eventTitle || reservationData.subject || '',
+              eventDescription: reservationData.eventDescription || reservationData.description || '',
+              // Combine date + time into ISO datetime format expected by API
+              startDateTime: `${reservationData.startDate}T${reservationData.startTime}:00`,
+              endDateTime: `${reservationData.endDate}T${reservationData.endTime}:00`,
+              // Ensure requestedRooms is passed (API requires this field)
+              requestedRooms: reservationData.requestedRooms || reservationData.locations || [],
+              attendeeCount: reservationData.attendeeCount || 0,
+              department: reservationData.department || '',
+              phone: reservationData.phone || '',
+              specialRequirements: reservationData.specialRequirements || '',
+              setupTimeMinutes: reservationData.setupTimeMinutes || 0,
+              teardownTimeMinutes: reservationData.teardownTimeMinutes || 0,
+              setupTime: reservationData.setupTime || '',
+              teardownTime: reservationData.teardownTime || '',
+              doorOpenTime: reservationData.doorOpenTime || '',
+              doorCloseTime: reservationData.doorCloseTime || '',
+              setupNotes: reservationData.setupNotes || '',
+              doorNotes: reservationData.doorNotes || '',
+              eventNotes: reservationData.eventNotes || '',
+              requesterName: reservationData.requesterName || userProfile?.displayName || '',
+              requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
+              // Include calendarId so the event shows up in the user's calendar view
+              calendarId: reservationData.calendarId || selectedCalendarId
+            };
 
-          logger.debug('Transformed request payload', requestPayload);
+            logger.debug('Transformed request payload', requestPayload);
 
-          const response = await fetch(`${API_BASE_URL}/events/request`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`
-            },
-            body: JSON.stringify(requestPayload)
-          });
+            const response = await fetch(`${API_BASE_URL}/events/request`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiToken}`
+              },
+              body: JSON.stringify(requestPayload)
+            });
 
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || `Failed to create reservation request: ${response.statusText}`);
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(errorData.error || `Failed to create reservation request: ${response.statusText}`);
+            }
+
+            showNotification('Reservation request submitted for approval');
+            setEventReviewModal({ isOpen: false, event: null, mode: 'create', hasChanges: false });
+            loadEvents(true);
+          } finally {
+            setSavingEvent(false);
           }
-
-          showNotification('Reservation request submitted for approval');
-          setEventReviewModal({ isOpen: false, event: null, mode: 'create', hasChanges: false });
-          loadEvents(true);
         }
       } catch (error) {
         logger.error('Error saving event from ReviewModal:', error);
