@@ -30,6 +30,7 @@ export default function RoomReservationReview({
   onIsSavingChange,
   onIsNavigatingChange,
   onSaveFunctionReady,
+  onFormDataReady, // Callback to expose form data getter to parent
   onDataChange,
   onLockedEventClick,
   onNavigateToSeriesEvent,
@@ -55,6 +56,7 @@ export default function RoomReservationReview({
   const formDataRef = useRef(null);
   const timeErrorsRef = useRef(null);
   const validateRef = useRef(null);
+  const getProcessedFormDataRef = useRef(null); // Ref to hold the getProcessedFormData function
 
   // Notify parent when isSaving changes
   useEffect(() => {
@@ -342,6 +344,69 @@ export default function RoomReservationReview({
       onSaveFunctionReady(handleSaveChanges);
     }
   }, [onSaveFunctionReady, handleSaveChanges]);
+
+  // Function to get processed form data (used by approve flow)
+  const getProcessedFormData = useCallback(() => {
+    const formData = formDataRef.current ? formDataRef.current() : {};
+    const validateTimes = validateRef.current ? validateRef.current() : (() => true);
+
+    // Validate times
+    if (!validateTimes()) {
+      logger.warn('Cannot get form data - time validation errors exist');
+      return null;
+    }
+
+    const startDateTime = `${formData.startDate}T${formData.startTime}`;
+    const endDateTime = `${formData.endDate}T${formData.endTime}`;
+
+    // Calculate setup/teardown minutes
+    let setupTimeMinutes = formData.setupTimeMinutes || 0;
+    let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+
+    if (formData.setupTime) {
+      setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    }
+    if (formData.teardownTime) {
+      teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    }
+
+    const processedData = {
+      ...formData,
+      startDateTime,
+      endDateTime,
+      attendeeCount: parseInt(formData.attendeeCount) || 0,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      locations: formData.requestedRooms, // Use locations field as single source of truth
+      changeKey: originalChangeKey
+    };
+
+    // Remove separate date/time fields
+    delete processedData.startDate;
+    delete processedData.startTime;
+    delete processedData.endDate;
+    delete processedData.endTime;
+    delete processedData.requestedRooms;
+
+    return processedData;
+  }, [originalChangeKey]);
+
+  // Keep the ref updated with the latest getProcessedFormData function
+  getProcessedFormDataRef.current = getProcessedFormData;
+
+  // Expose form data getter to parent - only run once when onFormDataReady is set
+  useEffect(() => {
+    if (onFormDataReady) {
+      console.log('🔄 Exposing form data getter to parent');
+      // Pass a stable wrapper that uses the ref to always get the latest function
+      onFormDataReady(() => {
+        if (getProcessedFormDataRef.current) {
+          return getProcessedFormDataRef.current();
+        }
+        return null;
+      });
+    }
+  }, [onFormDataReady]); // Only re-run if onFormDataReady changes
 
   // Approve handler
   const handleApprove = () => {

@@ -5002,6 +5002,13 @@
     }, []);
 
     /**
+     * Handle form validity changes for event review modal
+     */
+    const handleEventReviewFormValidChange = useCallback((isValid) => {
+      setEventReviewModal(prev => ({ ...prev, isFormValid: isValid }));
+    }, []);
+
+    /**
      * Handle deletion of registration events when a TempleEvents event is deleted
      * @param {string} eventId - The event ID that was deleted
      */
@@ -6066,6 +6073,7 @@
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
+              onFormDataReady={reviewModal.setFormDataGetter}
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={reviewModal.setIsFormValid}
@@ -6144,7 +6152,7 @@
               }}
               onIsNavigatingChange={handleEventReviewIsNavigatingChange}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
-              onFormValidChange={(isValid) => setEventReviewModal(prev => ({ ...prev, isFormValid: isValid }))}
+              onFormValidChange={handleEventReviewFormValidChange}
               readOnly={false}
               isAdmin={effectivePermissions.isAdmin}
             />

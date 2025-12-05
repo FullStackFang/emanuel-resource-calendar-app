@@ -15739,8 +15739,11 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
           showAs: event.graphData.showAs || 'busy'
         };
 
+        // Use /me/calendars/{calendarId}/events pattern - same as audit-update endpoint (line 4351)
+        // This works with calendar IDs like AAMkAD...
+        // NOT /users/{identifier}/events which expects an email address
         const graphResponse = await fetch(
-          `https://graph.microsoft.com/v1.0/users/${selectedCalendar}/events`,
+          `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendar}/events`,
           {
             method: 'POST',
             headers: {
@@ -16294,9 +16297,12 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Build update operations with field syncing (same as creation flow)
     const updateOperations = { ...safeUpdates };
 
-    // If this is a Graph event, sync graphData fields with top-level fields
-    // This ensures eventTitle ↔ graphData.subject stay synchronized (same as creation)
+    // Sync graphData fields with top-level fields
+    // This ensures eventTitle ↔ graphData.subject stay synchronized
+    // IMPORTANT: Also sync for pending reservations so approve endpoint has correct data
+    const isPendingReservation = event.status === 'pending' || event.status === 'room-reservation-request';
     if (graphEventId && graphToken) {
+      // Existing Graph event - sync fields
       // Sync subject
       if (updates.eventTitle !== undefined) {
         updateOperations['graphData.subject'] = updates.eventTitle;
@@ -16336,6 +16342,38 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           pattern: updates.recurrence.pattern?.type,
           range: updates.recurrence.range?.type
         });
+      }
+    } else if (isPendingReservation) {
+      // Pending reservation without Graph event - sync graphData so approve endpoint has correct data
+      logger.info('Syncing form data to graphData for pending reservation');
+
+      // Sync subject
+      if (updates.eventTitle !== undefined) {
+        updateOperations['graphData.subject'] = updates.eventTitle;
+      }
+
+      // Sync start datetime
+      if (updates.startDateTime !== undefined) {
+        updateOperations['graphData.start.dateTime'] = updates.startDateTime;
+        updateOperations['graphData.start.timeZone'] = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
+      }
+
+      // Sync end datetime
+      if (updates.endDateTime !== undefined) {
+        updateOperations['graphData.end.dateTime'] = updates.endDateTime;
+        updateOperations['graphData.end.timeZone'] = updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York';
+      }
+
+      // Sync body/description
+      if (updates.eventDescription !== undefined) {
+        updateOperations['graphData.bodyPreview'] = updates.eventDescription;
+        updateOperations['graphData.body.content'] = updates.eventDescription;
+        updateOperations['graphData.body.contentType'] = 'Text';
+      }
+
+      // Sync isAllDay
+      if (updates.isAllDayEvent !== undefined) {
+        updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
       }
     }
 

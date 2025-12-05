@@ -1,5 +1,5 @@
 // src/hooks/useReviewModal.jsx
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 
@@ -48,6 +48,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   // Form validity state (controlled by child form component)
   const [isFormValid, setIsFormValid] = useState(true);
+
+  // Ref to hold form data getter function (set by child form component)
+  const formDataGetterRef = useRef(null);
+
+  /**
+   * Set the form data getter function (called from child component via callback)
+   */
+  const setFormDataGetter = useCallback((getter) => {
+    formDataGetterRef.current = getter;
+  }, []);
 
   /**
    * Open modal with a reservation or event
@@ -305,73 +315,80 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         ? approvalData
         : {};
 
-      // Step 1: Create the Graph calendar event using the same audit-update endpoint as normal event creation
-      let graphEventId = null;
-      if (safeApprovalData.createCalendarEvent !== false && graphToken && selectedCalendarId) {
+      // Get LIVE form data from the form component (same as save flow)
+      // This ensures we get the exact data the user sees on the form
+      let formData = null;
+      if (formDataGetterRef.current) {
+        formData = formDataGetterRef.current();
+        if (!formData) {
+          // Validation failed in form
+          if (onError) onError('Please fix validation errors before approving');
+          setIsApproving(false);
+          return { success: false, error: 'Validation failed' };
+        }
+        console.log('[handleApprove] Got LIVE form data from formDataGetter:', {
+          eventTitle: formData.eventTitle,
+          eventDescription: formData.eventDescription?.substring(0, 50),
+          startDateTime: formData.startDateTime,
+          endDateTime: formData.endDateTime,
+          hasLocations: !!formData.locations,
+          locations: formData.locations
+        });
+      } else {
+        console.log('[handleApprove] WARNING: formDataGetter not available');
+      }
+
+      // Step 1: Save the form data to the existing record FIRST (if we have form data)
+      // This ensures all form edits are persisted before creating the Graph event
+      if (formData) {
         try {
-          // Build graphFields from the pending reservation data
-          const graphFields = {
-            subject: currentItem.graphData?.subject || currentItem.eventTitle || 'Untitled Event',
-            start: currentItem.graphData?.start,
-            end: currentItem.graphData?.end,
-            location: currentItem.graphData?.location || { displayName: '' },
-            categories: currentItem.graphData?.categories || [],
-            body: currentItem.graphData?.body || { contentType: 'Text', content: currentItem.graphData?.bodyPreview || '' }
-          };
+          const saveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
+          console.log('[handleApprove] Step 1: Saving form data to existing record:', currentItem._id);
 
-          logger.info('Creating Graph event for approval via audit-update:', { subject: graphFields.subject, calendarId: selectedCalendarId });
-
-          // Use the same audit-update endpoint that normal event creation uses
-          const auditResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
-            method: 'POST',
+          const saveResponse = await fetch(saveEndpoint, {
+            method: 'PUT',
             headers: {
+              'Content-Type': 'application/json',
               'Authorization': `Bearer ${apiToken}`,
-              'Content-Type': 'application/json'
+              'If-Match': originalChangeKey || currentItem.changeKey || ''
             },
             body: JSON.stringify({
-              graphFields,
-              internalFields: currentItem.internalData || null,
-              calendarId: selectedCalendarId,
-              graphToken
+              ...formData,
+              graphToken // Include for any Graph sync needed
             })
           });
 
-          if (!auditResponse.ok) {
-            const errorText = await auditResponse.text();
-            throw new Error(`Failed to create calendar event: ${auditResponse.status} - ${errorText}`);
+          if (!saveResponse.ok) {
+            const errorText = await saveResponse.text();
+            throw new Error(`Failed to save form data: ${saveResponse.status} - ${errorText}`);
           }
 
-          const auditResult = await auditResponse.json();
-          // The response structure is { event: { ...graphData, ...internalData }, ... }
-          // The Graph event ID is at event.id (spread from graphData)
-          graphEventId = auditResult.event?.id;
-          logger.info('Graph event created successfully via audit-update:', { graphEventId, auditResult });
-
-          if (!graphEventId) {
-            throw new Error('Failed to create Graph event - no ID returned');
-          }
-        } catch (graphError) {
-          logger.error('Failed to create Graph event:', graphError);
-          if (onError) onError(`Failed to create calendar event: ${graphError.message}`);
-          return { success: false, error: graphError.message };
+          const saveResult = await saveResponse.json();
+          console.log('[handleApprove] Form data saved successfully:', saveResult);
+        } catch (saveError) {
+          logger.error('Failed to save form data before approval:', saveError);
+          if (onError) onError(`Failed to save changes: ${saveError.message}`);
+          return { success: false, error: saveError.message };
         }
       }
 
-      // Step 2: Update the approval status in the backend
+      // Step 2: Call approve endpoint which will create the Graph event from the saved data
+      // The approve endpoint uses event.graphData which was just updated by the save
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`;
+      console.log('[handleApprove] Step 2: Calling approve endpoint');
 
       const response = await fetch(endpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`,
-          'If-Match': originalChangeKey || currentItem.changeKey || ''
+          'If-Match': '' // Don't use ETag since we just updated the record
         },
         body: JSON.stringify({
           graphToken,
           notes: safeApprovalData.notes || '',
           calendarMode: safeApprovalData.calendarMode || 'production',
-          createCalendarEvent: false, // We already created it via audit-update
+          createCalendarEvent: true, // Let the backend create the Graph event from the saved data
           forceApprove: safeApprovalData.forceApprove || false,
           targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || ''
         })
@@ -401,7 +418,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, originalChangeKey, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
+  }, [currentItem, editableData, originalChangeKey, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
 
   /**
    * Reject the reservation/event
@@ -554,6 +571,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     closeModal,
     updateData,
     setIsFormValid,
+    setFormDataGetter, // Set form data getter for live form data access
     handleSave,
     handleApprove,
     handleReject,
