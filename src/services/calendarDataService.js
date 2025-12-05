@@ -363,14 +363,14 @@ class CalendarDataService {
     if (result.responses && result.responses[0] && result.responses[0].status >= 400) {
       const errorStatus = result.responses[0].status;
       const errorMessage = result.responses[0].body?.error?.message || 'Unknown error';
-      
+
       // Handle specific error cases for shared calendars
       if (errorStatus === 403) {
         throw new Error('You do not have permission to modify events in this calendar. This may be a read-only shared calendar.');
       } else if (errorStatus === 404) {
         throw new Error('Calendar or event not found');
       }
-      
+
       throw new Error(`Event operation failed: ${errorMessage}`);
     }
 

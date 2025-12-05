@@ -286,6 +286,7 @@
     const reviewModal = useReviewModal({
       apiToken,
       graphToken,
+      selectedCalendarId, // Pass current calendar so approved events go to correct calendar
       onSuccess: () => {
         // Reload events after successful approval/rejection
         loadEvents(true);
@@ -330,6 +331,23 @@
 
       return `⚠️ ${actionWord} "${title}" at ${locationNames} (${timeStr})?`;
     }, [pendingSaveConfirmation, eventReviewModal.event, rooms]);
+
+    /**
+     * Generate approve confirmation button text with event summary and target calendar
+     * Format: ⚠️ Approve "Event Name" to [Calendar Name]?
+     */
+    const getApproveConfirmationText = useCallback(() => {
+      if (!reviewModal.pendingApproveConfirmation || !reviewModal.currentItem) return null;
+
+      const item = reviewModal.currentItem;
+      const title = item.graphData?.subject || item.eventTitle || 'Untitled Event';
+
+      // Get target calendar display name
+      const targetCalendar = availableCalendars?.find(c => c.id === selectedCalendarId);
+      const calendarName = targetCalendar?.name || selectedCalendarId || 'Default Calendar';
+
+      return `⚠️ Approve "${title}" to ${calendarName}?`;
+    }, [reviewModal.pendingApproveConfirmation, reviewModal.currentItem, availableCalendars, selectedCalendarId]);
 
     /**
      * Handle registration times toggle
@@ -6021,6 +6039,7 @@
           isFormValid={reviewModal.isFormValid}
           isSaving={reviewModal.isSaving}
           isDeleting={reviewModal.isDeleting}
+          isApproving={reviewModal.isApproving}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
           isAdmin={effectivePermissions.isAdmin}
@@ -6034,6 +6053,7 @@
           isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
           onCancelDelete={reviewModal.cancelDeleteConfirmation}
           isApproveConfirming={reviewModal.pendingApproveConfirmation}
+          approveButtonText={getApproveConfirmationText()}
           onCancelApprove={reviewModal.cancelApproveConfirmation}
           isRejectConfirming={reviewModal.pendingRejectConfirmation}
           onCancelReject={reviewModal.cancelRejectConfirmation}

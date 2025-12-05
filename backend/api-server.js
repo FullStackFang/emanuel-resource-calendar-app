@@ -15777,6 +15777,16 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       }
     }
 
+    // If calendar event creation was requested but failed, fail the approval
+    if (createCalendarEvent && graphToken && !graphEventId) {
+      logger.error('Graph event creation failed, blocking approval:', calendarEventResult?.error);
+      return res.status(500).json({
+        error: 'CalendarEventCreationFailed',
+        details: calendarEventResult?.error || 'Unknown error - Graph event was not created',
+        message: 'Approval failed: Could not create calendar event. Please check permissions and try again.'
+      });
+    }
+
     // Update event status
     const newChangeKey = generateChangeKey({
       ...event,
@@ -15804,7 +15814,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     // Add Graph event ID if created
     if (graphEventId) {
       updateDoc.$set['graphData.id'] = graphEventId;
-      updateDoc.$set.calendarId = graphEventId;
+      // Set calendarId to the target calendar (not the event ID)
+      updateDoc.$set.calendarId = selectedCalendar;
       updateDoc.$push = {
         'roomReservationData.createdGraphEventIds': graphEventId
       };

@@ -18,12 +18,13 @@ import APP_CONFIG from '../config/config';
  * @param {Function} onSuccess - Callback after successful action
  * @param {Function} onError - Callback after error
  */
-export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
+export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selectedCalendarId }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [editableData, setEditableData] = useState(null);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
 
@@ -295,10 +296,68 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
 
     // Second click: User confirmed, proceed with approval
     setPendingApproveConfirmation(false);
+    setIsApproving(true);
 
     try {
-      // All events (including pending reservations) are now stored in templeEvents__Events
-      // Use the unified events endpoint for all approvals
+      // Filter out React synthetic events (e.g., click events passed as first argument)
+      // These have nativeEvent property and cause "Converting circular structure to JSON" errors
+      const safeApprovalData = (approvalData && typeof approvalData === 'object' && !approvalData.nativeEvent)
+        ? approvalData
+        : {};
+
+      // Step 1: Create the Graph calendar event using the same audit-update endpoint as normal event creation
+      let graphEventId = null;
+      if (safeApprovalData.createCalendarEvent !== false && graphToken && selectedCalendarId) {
+        try {
+          // Build graphFields from the pending reservation data
+          const graphFields = {
+            subject: currentItem.graphData?.subject || currentItem.eventTitle || 'Untitled Event',
+            start: currentItem.graphData?.start,
+            end: currentItem.graphData?.end,
+            location: currentItem.graphData?.location || { displayName: '' },
+            categories: currentItem.graphData?.categories || [],
+            body: currentItem.graphData?.body || { contentType: 'Text', content: currentItem.graphData?.bodyPreview || '' }
+          };
+
+          logger.info('Creating Graph event for approval via audit-update:', { subject: graphFields.subject, calendarId: selectedCalendarId });
+
+          // Use the same audit-update endpoint that normal event creation uses
+          const auditResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/events/new/audit-update`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              graphFields,
+              internalFields: currentItem.internalData || null,
+              calendarId: selectedCalendarId,
+              graphToken
+            })
+          });
+
+          if (!auditResponse.ok) {
+            const errorText = await auditResponse.text();
+            throw new Error(`Failed to create calendar event: ${auditResponse.status} - ${errorText}`);
+          }
+
+          const auditResult = await auditResponse.json();
+          // The response structure is { event: { ...graphData, ...internalData }, ... }
+          // The Graph event ID is at event.id (spread from graphData)
+          graphEventId = auditResult.event?.id;
+          logger.info('Graph event created successfully via audit-update:', { graphEventId, auditResult });
+
+          if (!graphEventId) {
+            throw new Error('Failed to create Graph event - no ID returned');
+          }
+        } catch (graphError) {
+          logger.error('Failed to create Graph event:', graphError);
+          if (onError) onError(`Failed to create calendar event: ${graphError.message}`);
+          return { success: false, error: graphError.message };
+        }
+      }
+
+      // Step 2: Update the approval status in the backend
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`;
 
       const response = await fetch(endpoint, {
@@ -310,7 +369,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
         },
         body: JSON.stringify({
           graphToken,
-          ...approvalData
+          notes: safeApprovalData.notes || '',
+          calendarMode: safeApprovalData.calendarMode || 'production',
+          createCalendarEvent: false, // We already created it via audit-update
+          forceApprove: safeApprovalData.forceApprove || false,
+          targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || ''
         })
       });
 
@@ -335,8 +398,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
       logger.error('Error approving:', error);
       if (onError) onError(error.message);
       return { success: false, error: error.message };
+    } finally {
+      setIsApproving(false);
     }
-  }, [currentItem, originalChangeKey, apiToken, graphToken, onSuccess, onError, closeModal, pendingApproveConfirmation]);
+  }, [currentItem, originalChangeKey, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
 
   /**
    * Reject the reservation/event
@@ -475,6 +540,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError }) {
     isFormValid,
     isSaving,
     isDeleting,
+    isApproving,
     holdError,
     reviewHold,
     pendingDeleteConfirmation,

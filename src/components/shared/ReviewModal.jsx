@@ -28,6 +28,7 @@ export default function ReviewModal({
   isFormValid = true,  // Default to true for backwards compatibility
   isSaving = false,
   isDeleting = false,
+  isApproving = false,
   isNavigating = false,
   // Mode: 'review' (for pending reservations) or 'edit' (for editing any event)
   mode = 'review',
@@ -47,6 +48,7 @@ export default function ReviewModal({
   // Button text customization
   saveButtonText = null,
   deleteButtonText = null,
+  approveButtonText = null,
   // Admin access
   isAdmin = false,
   // Requester-only mode (can view but not edit/approve)
@@ -165,8 +167,9 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn approve-btn ${isApproveConfirming ? 'confirming' : ''}`}
                     onClick={onApprove}
+                    disabled={isApproving}
                   >
-                    {isApproveConfirming ? '⚠️ Confirm Approve?' : '✓ Approve'}
+                    {isApproving ? 'Approving...' : (isApproveConfirming ? (approveButtonText || '⚠️ Confirm Approve?') : '✓ Approve')}
                   </button>
                   {isApproveConfirming && onCancelApprove && (
                     <button
