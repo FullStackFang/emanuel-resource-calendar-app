@@ -8,6 +8,7 @@ import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
 import VirtualMeetingModal from './VirtualMeetingModal';
+import CategorySelectorModal from './CategorySelectorModal';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import './RoomReservationForm.css';
 
@@ -120,6 +121,12 @@ export default function RoomReservationFormBase({
   const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
   const [recurrencePattern, setRecurrencePattern] = useState(null); // { pattern, range }
 
+  // Category state
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState(
+    initialData?.mecCategories || initialData?.internalData?.mecCategories || []
+  );
+
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
@@ -140,12 +147,12 @@ export default function RoomReservationFormBase({
   const assistantRoomsRef = useRef([]);
 
   // Expose formData, timeErrors, and validation function to parent
-  // Include recurrencePattern in the returned data so it's available for saving
+  // Include recurrencePattern and selectedCategories in the returned data so they're available for saving
   useEffect(() => {
     if (onFormDataRef) {
-      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern }));
+      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern, mecCategories: selectedCategories }));
     }
-  }, [formData, recurrencePattern, onFormDataRef]);
+  }, [formData, recurrencePattern, selectedCategories, onFormDataRef]);
 
   useEffect(() => {
     if (onTimeErrorsRef) {
@@ -614,8 +621,8 @@ export default function RoomReservationFormBase({
 
   const isFormValid = useMemo(() => {
     const requiredFields = ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
-    return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0;
-  }, [isFieldValid, timeErrors]);
+    return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
+  }, [isFieldValid, timeErrors, selectedCategories]);
 
   // Notify parent when form validity changes
   useEffect(() => {
@@ -836,9 +843,9 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
-            {/* Expected Attendees and Toggle Ad Hoc Button Row */}
+            {/* Expected Attendees - Own Row */}
             <div className="time-field-row">
-              <div className="form-group">
+              <div className="form-group full-width">
                 <label htmlFor="attendeeCount">Expected Attendees</label>
                 <input
                   type="number"
@@ -851,9 +858,24 @@ export default function RoomReservationFormBase({
                   disabled={fieldsDisabled}
                 />
               </div>
+            </div>
+
+            {/* Manage Categories + Make Recurring Buttons Row */}
+            <div className="time-field-row">
+              <div className={`form-group required-field ${selectedCategories.length > 0 ? 'field-valid' : ''}`}>
+                {/* Manage Categories Button - Always show, mandatory field */}
+                <button
+                  type="button"
+                  className={`all-day-toggle ${selectedCategories.length > 0 ? 'active' : ''}`}
+                  onClick={() => setShowCategoryModal(true)}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  🏷️ Manage Categories *
+                </button>
+              </div>
 
               <div className="form-group">
-                <label style={{ visibility: 'hidden' }}>.</label>
                 {/* Make Recurring Button - Show for:
                     1. New events (no eventId) when not editing single occurrence
                     2. Existing events when editing entire series (editScope === 'allEvents') */}
@@ -972,6 +994,18 @@ export default function RoomReservationFormBase({
                         </>
                       );
                     })()}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Category Summary - Show when categories are selected */}
+            {selectedCategories.length > 0 && (
+              <div className="category-summary-display">
+                <div className="category-summary-content">
+                  <span className="category-summary-icon">🏷️</span>
+                  <span className="category-summary-text">
+                    {selectedCategories.join(', ')}
                   </span>
                 </div>
               </div>
@@ -1444,6 +1478,17 @@ export default function RoomReservationFormBase({
         onClose={() => setShowVirtualModal(false)}
         onSave={handleVirtualMeetingSave}
         initialUrl={virtualMeetingUrl}
+      />
+
+      {/* Category Selector Modal */}
+      <CategorySelectorModal
+        isOpen={showCategoryModal}
+        onClose={() => setShowCategoryModal(false)}
+        onSave={(categories) => {
+          setSelectedCategories(categories);
+          setHasChanges(true);
+        }}
+        initialCategories={selectedCategories}
       />
     </div>
   );

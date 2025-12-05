@@ -1,0 +1,360 @@
+/* src/components/CategorySelectorModal.css - Matching app's light theme with blue accent */
+
+/* Modal Overlay */
+.category-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+/* Modal Container - Wide Layout */
+.category-modal {
+  background: #ffffff;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 1000px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  color: #1f2937;
+}
+
+/* Modal Header */
+.category-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.category-modal-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.category-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.category-modal-close:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+/* Content area */
+.category-modal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  min-height: 0;
+}
+
+/* Loading state */
+.category-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+/* Error state */
+.category-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  color: #dc2626;
+  text-align: center;
+}
+
+.category-error button {
+  margin-top: 16px;
+  padding: 10px 20px;
+  background: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.category-error button:hover {
+  background: #1557b0;
+}
+
+/* Empty state */
+.category-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 40px;
+  color: #6b7280;
+  text-align: center;
+  font-size: 1rem;
+}
+
+/* Quick actions bar */
+.category-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.category-quick-btn {
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-quick-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.category-count {
+  margin-left: auto;
+  font-size: 0.9rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* Category grid - 4 columns */
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* Category item */
+.category-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #d1d5db;
+  border-left: 4px solid var(--category-color, #808080);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #ffffff;
+}
+
+.category-item:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  border-left-color: var(--category-color, #808080);
+}
+
+.category-item.selected {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+  border-left-color: var(--category-color, #808080);
+}
+
+/* Checkbox */
+.category-checkbox {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border: 2px solid #d1d5db;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  transition: all 0.2s;
+  margin-top: 1px;
+}
+
+.category-item.selected .category-checkbox {
+  background: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.category-check {
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+/* Category info */
+.category-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.category-name {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 1.3;
+}
+
+.category-description {
+  font-size: 0.8rem;
+  color: #6b7280;
+  line-height: 1.3;
+}
+
+/* Footer */
+.category-modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.category-btn {
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-btn-cancel {
+  background: white;
+  border: 1px solid #d1d5db;
+  color: #374151;
+}
+
+.category-btn-cancel:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.category-btn-save {
+  background: #1a73e8;
+  border: 1px solid #1a73e8;
+  color: white;
+}
+
+.category-btn-save:hover {
+  background: #1557b0;
+  border-color: #1557b0;
+}
+
+.category-btn-save:disabled {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* ===== Category Summary Display (for form) - matches recurrence-summary-display ===== */
+.category-summary-display {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: #e8f0fe;
+  border: 1px solid #1a73e8;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 0 0 16px 0;
+}
+
+.category-summary-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+}
+
+.category-summary-icon {
+  font-size: 1.2rem;
+  color: #1a73e8;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.category-summary-text {
+  color: #1a73e8;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-line;
+  flex: 1;
+}
+
+/* Responsive Design */
+@media (max-width: 1000px) {
+  .category-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .category-modal {
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    max-height: 100vh;
+  }
+
+  .category-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 500px) {
+  .category-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .category-modal-header {
+    padding: 16px 16px 12px;
+  }
+
+  .category-modal-content {
+    padding: 16px;
+  }
+
+  .category-modal-footer {
+    padding: 12px 16px;
+  }
+}
