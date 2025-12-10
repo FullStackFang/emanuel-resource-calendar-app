@@ -130,11 +130,19 @@ export default function RoomReservationFormBase({
   const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
   const [recurrencePattern, setRecurrencePattern] = useState(null); // { pattern, range }
 
-  // Category state
+  // Category state - check categories first (from graphData), then mecCategories (CSV imports)
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(
-    initialData?.mecCategories || initialData?.internalData?.mecCategories || []
+    initialData?.categories || initialData?.mecCategories || initialData?.internalData?.mecCategories || []
   );
+
+  // Sync selectedCategories when initialData changes (e.g., when loading an existing event)
+  useEffect(() => {
+    const newCategories = initialData?.categories || initialData?.mecCategories || initialData?.internalData?.mecCategories || [];
+    if (newCategories.length > 0) {
+      setSelectedCategories(newCategories);
+    }
+  }, [initialData?.categories, initialData?.mecCategories, initialData?.internalData?.mecCategories]);
 
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
@@ -1670,6 +1678,10 @@ export default function RoomReservationFormBase({
         onSave={(categories) => {
           setSelectedCategories(categories);
           setHasChanges(true);
+          // Notify parent component of category change (syncs with Outlook)
+          if (onDataChange) {
+            onDataChange({ ...formData, categories });
+          }
         }}
         initialCategories={selectedCategories}
       />
@@ -1681,6 +1693,10 @@ export default function RoomReservationFormBase({
         onSave={(services) => {
           setSelectedServices(services);
           setHasChanges(true);
+          // Notify parent component of services change (internal use only)
+          if (onDataChange) {
+            onDataChange({ ...formData, services });
+          }
         }}
         initialServices={selectedServices}
       />

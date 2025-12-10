@@ -4301,9 +4301,11 @@
           offsiteName: data.offsiteName || '',
           offsiteAddress: data.offsiteAddress || '',
           offsiteLat: data.offsiteLat || null,
-          offsiteLon: data.offsiteLon || null
+          offsiteLon: data.offsiteLon || null,
+          // Services (internal use only)
+          services: data.services || {}
         };
-        
+
         // Use the selected calendar from the calendar toggle
         let targetCalendarId = selectedCalendarId;
         if (!targetCalendarId) {
@@ -4759,7 +4761,7 @@
                   contentType: 'text',
                   content: reservationData.eventDescription || ''
                 },
-                categories: [], // Graph API requires array
+                categories: reservationData.categories || [], // Syncs with Outlook categories
                 isAllDay: reservationData.isAllDayEvent || false,
                 attendees: reservationData.attendeeCount ? [{
                   emailAddress: {
@@ -4790,7 +4792,9 @@
                 offsiteName: reservationData.offsiteName || '',
                 offsiteAddress: reservationData.offsiteAddress || '',
                 offsiteLat: reservationData.offsiteLat || null,
-                offsiteLon: reservationData.offsiteLon || null
+                offsiteLon: reservationData.offsiteLon || null,
+                // Services (internal use only)
+                services: reservationData.services || {}
               };
             });
 
@@ -4875,7 +4879,7 @@
                 contentType: 'text',
                 content: reservationData.eventDescription || ''
               },
-              categories: [], // Graph API requires array
+              categories: reservationData.categories || [], // Syncs with Outlook categories
               isAllDay: reservationData.isAllDayEvent || false,
               attendees: reservationData.attendeeCount ? [{
                 emailAddress: {
@@ -4906,7 +4910,9 @@
               offsiteName: reservationData.offsiteName || '',
               offsiteAddress: reservationData.offsiteAddress || '',
               offsiteLat: reservationData.offsiteLat || null,
-              offsiteLon: reservationData.offsiteLon || null
+              offsiteLon: reservationData.offsiteLon || null,
+              // Services (internal use only)
+              services: reservationData.services || {}
             };
 
             const success = await handleSaveEvent(eventData);
@@ -4963,7 +4969,10 @@
               offsiteName: reservationData.offsiteName || '',
               offsiteAddress: reservationData.offsiteAddress || '',
               offsiteLat: reservationData.offsiteLat || null,
-              offsiteLon: reservationData.offsiteLon || null
+              offsiteLon: reservationData.offsiteLon || null,
+              // Categories (syncs with Outlook) and Services (internal use only)
+              categories: reservationData.categories || [],
+              services: reservationData.services || {}
             };
 
             logger.debug('Transformed request payload', requestPayload);

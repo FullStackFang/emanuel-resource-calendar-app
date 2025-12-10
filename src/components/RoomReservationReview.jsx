@@ -190,7 +190,11 @@ export default function RoomReservationReview({
           offsiteName: isOffsiteEvent ? reservation.graphData.location.displayName : '',
           offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
           offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
-          offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null
+          offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
+          // Categories - check graphData.categories first (Outlook), then mecCategories (CSV imports)
+          categories: reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
+          // Services (internal use only)
+          services: reservation.services || {}
         });
 
         // Store original changeKey for optimistic concurrency control

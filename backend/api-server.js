@@ -4569,6 +4569,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
       }
 
+      // Services (internal use only)
+      newEventDoc.services = internalFields?.services || {};
+
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
         eventId: actualEventId,
@@ -4617,6 +4620,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
             // Clear internal room locations when switching to offsite
             updateOperations['locations'] = [];
           }
+        }
+
+        // Services (internal use only)
+        if (internalFields.services !== undefined) {
+          updateOperations['services'] = internalFields.services;
         }
       }
 
@@ -4959,6 +4967,9 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         if (internalFields.isOffsite && internalFields.offsiteName) {
           newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
         }
+
+        // Services (internal use only)
+        newEventDoc.services = internalFields.services || {};
 
         // Insert into MongoDB
         const dbResult = await unifiedEventsCollection.insertOne(newEventDoc);
@@ -15551,7 +15562,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       offsiteName,
       offsiteAddress,
       offsiteLat,
-      offsiteLon
+      offsiteLon,
+      // Categories (syncs with Outlook) and Services (internal)
+      categories,
+      services
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -15659,7 +15673,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           ? buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon)
           : { displayName: locationDisplayName },
         bodyPreview: eventDescription || '',
-        categories: [],
+        categories: categories || [], // Categories sync with Outlook
         isAllDay: false,
         importance: 'normal',
         showAs: 'busy',
@@ -15755,6 +15769,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       offsiteLon: isOffsite ? (offsiteLon || null) : null,
       mecCategories: [],
       assignedTo: '',
+      // Categories (syncs with Outlook) and Services (internal)
+      services: services || {},
 
       createdAt: new Date(),
       createdBy: userId,
