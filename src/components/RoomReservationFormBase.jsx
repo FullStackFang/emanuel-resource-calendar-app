@@ -1271,17 +1271,30 @@ export default function RoomReservationFormBase({
           <section className="form-section">
             <h2>Resource Details</h2>
 
-            {(formData.setupTime || formData.requestedRooms.length > 0) && (
+            {(formData.setupTime || formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
               <div className="event-summary-pill">
                 {formData.setupTime && formData.teardownTime && (
                   <span className="summary-time">
                     {formatTimeString(formData.setupTime)} to {formatTimeString(formData.teardownTime)}
                   </span>
                 )}
-                {formData.setupTime && formData.teardownTime && formData.requestedRooms.length > 0 && (
+                {formData.setupTime && formData.teardownTime && (formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
                   <span className="summary-separator">•</span>
                 )}
-                {formData.requestedRooms.length > 0 && (
+                {/* Virtual Meeting - show platform name */}
+                {virtualMeetingUrl && (
+                  <span className="summary-rooms" title={virtualMeetingUrl}>
+                    🎥 {getVirtualPlatform(virtualMeetingUrl)} Meeting
+                  </span>
+                )}
+                {/* Offsite Location */}
+                {!virtualMeetingUrl && formData.isOffsite && formData.offsiteName && (
+                  <span className="summary-rooms" title={formData.offsiteName}>
+                    📍 Offsite: {formData.offsiteName}
+                  </span>
+                )}
+                {/* Regular rooms - only if not virtual and not offsite */}
+                {!virtualMeetingUrl && !formData.isOffsite && formData.requestedRooms.length > 0 && (
                   <span className="summary-rooms" title={
                     formData.requestedRooms
                       .map(roomId => rooms.find(r => r._id === roomId)?.name || roomId)
