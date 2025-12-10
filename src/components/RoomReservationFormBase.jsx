@@ -1327,6 +1327,7 @@ export default function RoomReservationFormBase({
                       setFormData(prev => ({ ...prev, requestedRooms: [] }));
                       setShowOffsiteModal(true);
                     }}
+                    disabled={fieldsDisabled}
                   />
                 )}
               </div>
@@ -1393,6 +1394,7 @@ export default function RoomReservationFormBase({
                     isAllDayEvent={formData.isAllDayEvent}
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}
+                    disabled={fieldsDisabled}
                   />
                 </div>
               )}

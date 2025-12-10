@@ -15,7 +15,9 @@ export default function LocationListSelect({
   // Offsite location props
   isOffsite = false,
   offsiteName = '',
-  onOffsiteToggle
+  onOffsiteToggle,
+  // Read-only mode
+  disabled = false
 }) {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -140,7 +142,7 @@ export default function LocationListSelect({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="list-search-input"
-          disabled={isOffsite}
+          disabled={disabled || isOffsite}
         />
         <div className="list-action-buttons">
           {onOffsiteToggle && (
@@ -149,18 +151,19 @@ export default function LocationListSelect({
               onClick={onOffsiteToggle}
               className={`list-action-btn offsite-btn ${isOffsite ? 'active' : ''}`}
               title={isOffsite ? `Edit offsite location: ${offsiteName}` : 'Set off-site location'}
+              disabled={disabled}
             >
               {isOffsite ? '📍 Edit Offsite' : '📍 Offsite'}
             </button>
           )}
-          <button type="button" onClick={clearAll} className="list-action-btn" disabled={isOffsite}>
+          <button type="button" onClick={clearAll} className="list-action-btn" disabled={disabled || isOffsite}>
             Clear All
           </button>
         </div>
       </div>
 
       {/* Scrollable Room List */}
-      <div className={`list-rooms-container ${isOffsite ? 'disabled' : ''}`}>
+      <div className={`list-rooms-container ${disabled || isOffsite ? 'disabled' : ''}`}>
         {isOffsite ? (
           <div className="list-offsite-message">
             <span className="offsite-message-icon">📍</span>
@@ -178,15 +181,16 @@ export default function LocationListSelect({
             return (
               <div
                 key={room._id}
-                className={`list-room-card ${isSelected ? 'selected' : ''}`}
-                onClick={() => toggleRoom(room)}
+                className={`list-room-card ${isSelected ? 'selected' : ''} ${disabled ? 'disabled' : ''}`}
+                onClick={() => !disabled && toggleRoom(room)}
                 role="button"
-                tabIndex={0}
+                tabIndex={disabled ? -1 : 0}
                 onKeyPress={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
                     toggleRoom(room);
                   }
                 }}
+                aria-disabled={disabled}
               >
                 <div className="list-room-header">
                   <h4 className="list-room-name">{room.name}</h4>

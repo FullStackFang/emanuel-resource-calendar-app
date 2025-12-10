@@ -21,7 +21,8 @@ export default function SchedulingAssistant({
   onLockedEventClick, // Callback when a locked reservation event is clicked
   defaultCalendar = '', // Calendar name to display in header
   organizerName = '', // Organizer name for user events
-  organizerEmail = '' // Organizer email for user events
+  organizerEmail = '', // Organizer email for user events
+  disabled = false // Read-only mode - disables all interactions
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -988,9 +989,9 @@ export default function SchedulingAssistant({
     let opacity, cursor, boxShadow, backgroundColor, filter;
 
     if (isUserEvent) {
-      // User event styling - bright, vibrant, draggable
+      // User event styling - bright, vibrant, draggable (unless disabled)
       opacity = hasConflict ? 0.95 : 0.9;
-      cursor = isDragging ? 'grabbing' : 'grab';
+      cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
       boxShadow = isDragging
         ? '0 8px 20px rgba(0, 120, 212, 0.5)'
         : '0 0 0 3px rgba(0, 120, 212, 0.5)'; // Blue glow for user event
@@ -1004,9 +1005,9 @@ export default function SchedulingAssistant({
       backgroundColor = '#999999'; // Grey color
       filter = 'grayscale(100%)';
     } else {
-      // Current reservation styling - normal/vibrant
+      // Current reservation styling - normal/vibrant (unless disabled)
       opacity = hasConflict ? 0.95 : 0.8;
-      cursor = isDragging ? 'grabbing' : 'grab';
+      cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
       boxShadow = isDragging
         ? '0 8px 20px rgba(0, 0, 0, 0.3)'
         : '0 0 0 3px rgba(0, 120, 212, 0.5)'; // Blue glow for current event
@@ -1053,7 +1054,7 @@ export default function SchedulingAssistant({
           zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : 5)),
           transition: isDragging ? 'none' : 'all 0.2s'
         }}
-        onMouseDown={!isLocked ? (e) => handleMouseDown(e, block) : undefined}
+        onMouseDown={!isLocked && !disabled ? (e) => handleMouseDown(e, block) : undefined}
         title={title}
       >
         <div className="event-block-content">
@@ -1210,7 +1211,7 @@ export default function SchedulingAssistant({
       {/* Room Tabs */}
       {selectedRooms.length > 0 && (
         <div className="room-tabs-carousel">
-          {canScrollLeft && (
+          {canScrollLeft && !disabled && (
             <button
               type="button"
               className="tab-scroll-btn tab-scroll-left"
@@ -1267,19 +1268,21 @@ export default function SchedulingAssistant({
                 >
                   {stats.conflictCount}
                 </span>
-                <span
-                  className="room-tab-close"
-                  onClick={handleCloseTab}
-                  title={`Remove ${room.name}`}
-                >
-                  ×
-                </span>
+                {!disabled && (
+                  <span
+                    className="room-tab-close"
+                    onClick={handleCloseTab}
+                    title={`Remove ${room.name}`}
+                  >
+                    ×
+                  </span>
+                )}
               </button>
             );
           })}
           </div>
 
-          {canScrollRight && (
+          {canScrollRight && !disabled && (
             <button
               type="button"
               className="tab-scroll-btn tab-scroll-right"
@@ -1313,7 +1316,7 @@ export default function SchedulingAssistant({
                       left: 0,
                       right: 0
                     }}
-                    onClick={() => handleTimeSlotClick(hour)}
+                    onClick={() => !disabled && handleTimeSlotClick(hour)}
                   >
                     <span className="time-text">{formatHour(hour)}</span>
                   </div>
