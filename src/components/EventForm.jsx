@@ -395,7 +395,7 @@ function EventForm({
       setEventDescription(description);
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
-      
+
       logger.debug('Loaded registration data from event:', {
         hasRegistrationEvent: event.hasRegistrationEvent,
         setupMinutes: setupMins,

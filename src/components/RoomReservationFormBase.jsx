@@ -9,6 +9,7 @@ import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
 import VirtualMeetingModal from './VirtualMeetingModal';
 import CategorySelectorModal from './CategorySelectorModal';
+import ServicesSelectorModal from './ServicesSelectorModal';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import './RoomReservationForm.css';
 
@@ -131,6 +132,12 @@ export default function RoomReservationFormBase({
   const [showVirtualModal, setShowVirtualModal] = useState(false);
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
 
+  // Services state
+  const [showServicesModal, setShowServicesModal] = useState(false);
+  const [selectedServices, setSelectedServices] = useState(
+    initialData?.services || {}
+  );
+
   const { rooms, loading: roomsLoading } = useRooms();
 
   // Refs to prevent unnecessary re-initialization of form data
@@ -147,12 +154,12 @@ export default function RoomReservationFormBase({
   const assistantRoomsRef = useRef([]);
 
   // Expose formData, timeErrors, and validation function to parent
-  // Include recurrencePattern and selectedCategories in the returned data so they're available for saving
+  // Include recurrencePattern, selectedCategories, and services in the returned data so they're available for saving
   useEffect(() => {
     if (onFormDataRef) {
-      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern, mecCategories: selectedCategories }));
+      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern, mecCategories: selectedCategories, services: selectedServices }));
     }
-  }, [formData, recurrencePattern, selectedCategories, onFormDataRef]);
+  }, [formData, recurrencePattern, selectedCategories, selectedServices, onFormDataRef]);
 
   useEffect(() => {
     if (onTimeErrorsRef) {
@@ -843,9 +850,9 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
-            {/* Expected Attendees - Own Row */}
+            {/* Expected Attendees + Add Services Row */}
             <div className="time-field-row">
-              <div className="form-group full-width">
+              <div className="form-group">
                 <label htmlFor="attendeeCount">Expected Attendees</label>
                 <input
                   type="number"
@@ -856,9 +863,83 @@ export default function RoomReservationFormBase({
                   min="1"
                   placeholder="0"
                   disabled={fieldsDisabled}
+                  style={{ width: '100%', maxWidth: 'none' }}
                 />
               </div>
+              <div className="form-group">
+                <label>&nbsp;</label>
+                <button
+                  type="button"
+                  className={`all-day-toggle ${Object.keys(selectedServices).length > 0 ? 'active' : ''}`}
+                  onClick={() => setShowServicesModal(true)}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {Object.keys(selectedServices).length > 0 ? '🛎️ Edit Services' : '🛎️ Add Services'}
+                </button>
+                <div className="services-hint">E.g., Catering, Seating, Audio Visual, etc.</div>
+              </div>
             </div>
+
+            {/* Services Summary - Show when services are selected */}
+            {Object.keys(selectedServices).length > 0 &&
+             Object.values(selectedServices).some(v =>
+               (Array.isArray(v) && v.length > 0) ||
+               (typeof v === 'string' && v !== '') ||
+               (typeof v === 'boolean')
+             ) && (
+              <div className="services-summary-display">
+                <div className="services-summary-content">
+                  <span className="services-summary-icon">🛎️</span>
+                  <span className="services-summary-text">
+                    {(() => {
+                      const summaryParts = [];
+                      if (selectedServices.seatingArrangement) {
+                        summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
+                      }
+                      if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
+                        summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
+                      }
+                      if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
+                        const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
+                        summaryParts.push(`Beverages: ${beverageCount} selected`);
+                      }
+                      if (selectedServices.avEquipment?.length > 0) {
+                        summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
+                      }
+                      if (selectedServices.photographer === true || selectedServices.videographer === true) {
+                        const photoVideo = [];
+                        if (selectedServices.photographer === true) photoVideo.push('Photo');
+                        if (selectedServices.videographer === true) photoVideo.push('Video');
+                        summaryParts.push(photoVideo.join(' + '));
+                      }
+                      return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
+                    })()}
+                  </span>
+                </div>
+                <div className="services-summary-actions">
+                  <button
+                    type="button"
+                    className="services-edit-btn"
+                    onClick={() => setShowServicesModal(true)}
+                    disabled={fieldsDisabled}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="services-clear-btn"
+                    onClick={() => {
+                      setSelectedServices({});
+                      setHasChanges(true);
+                    }}
+                    disabled={fieldsDisabled}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Manage Categories + Make Recurring Buttons Row */}
             <div className="time-field-row">
@@ -1489,6 +1570,17 @@ export default function RoomReservationFormBase({
           setHasChanges(true);
         }}
         initialCategories={selectedCategories}
+      />
+
+      {/* Services Selector Modal */}
+      <ServicesSelectorModal
+        isOpen={showServicesModal}
+        onClose={() => setShowServicesModal(false)}
+        onSave={(services) => {
+          setSelectedServices(services);
+          setHasChanges(true);
+        }}
+        initialServices={selectedServices}
       />
     </div>
   );
