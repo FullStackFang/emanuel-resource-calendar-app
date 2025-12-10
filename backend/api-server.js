@@ -15503,7 +15503,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
 
     // Build location display name - use offsite info if offsite, otherwise room names
     const locationDisplayName = isOffsite
-      ? `${offsiteName}; ${offsiteAddress}`
+      ? `${offsiteName} (Offsite) - ${offsiteAddress}`
       : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
 
     // Generate unique event ID
@@ -16058,7 +16058,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // If offsite, use offsite name/address for location display
     if (updates.isOffsite) {
-      processedLocationDisplayName = `${updates.offsiteName}; ${updates.offsiteAddress}`;
+      processedLocationDisplayName = `${updates.offsiteName} (Offsite) - ${updates.offsiteAddress}`;
     } else if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
       try {
         const roomIds = updates.requestedRooms.map(id =>

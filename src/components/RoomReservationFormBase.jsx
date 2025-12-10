@@ -104,6 +104,8 @@ export default function RoomReservationFormBase({
     isOffsite: false,
     offsiteName: '',
     offsiteAddress: '',
+    offsiteLat: null,
+    offsiteLon: null,
     ...initialData
   });
 
@@ -1352,7 +1354,18 @@ export default function RoomReservationFormBase({
                     </div>
                   </div>
                   <div className="offsite-display-content">
-                    <div className="offsite-display-icon">📍</div>
+                    {/* Show static map if coordinates are available */}
+                    {formData.offsiteLat && formData.offsiteLon && import.meta.env.VITE_AZURE_MAPS_KEY ? (
+                      <div className="offsite-map-container">
+                        <img
+                          src={`https://atlas.microsoft.com/map/static/png?api-version=1.0&subscription-key=${import.meta.env.VITE_AZURE_MAPS_KEY}&center=${formData.offsiteLon},${formData.offsiteLat}&zoom=14&width=600&height=350&pins=default||${formData.offsiteLon} ${formData.offsiteLat}`}
+                          alt={`Map of ${formData.offsiteName}`}
+                          className="offsite-map-image"
+                        />
+                      </div>
+                    ) : (
+                      <div className="offsite-display-icon">📍</div>
+                    )}
                     <div className="offsite-display-name">{formData.offsiteName}</div>
                     <div className="offsite-display-address">{formData.offsiteAddress}</div>
                   </div>
@@ -1602,13 +1615,15 @@ export default function RoomReservationFormBase({
       <OffsiteLocationModal
         isOpen={showOffsiteModal}
         onClose={() => setShowOffsiteModal(false)}
-        onSave={(name, address) => {
+        onSave={(name, address, lat, lon) => {
           if (name && address) {
             setFormData(prev => ({
               ...prev,
               isOffsite: true,
               offsiteName: name,
-              offsiteAddress: address
+              offsiteAddress: address,
+              offsiteLat: lat,
+              offsiteLon: lon
             }));
           } else {
             // Remove was clicked - clear offsite data
@@ -1616,13 +1631,17 @@ export default function RoomReservationFormBase({
               ...prev,
               isOffsite: false,
               offsiteName: '',
-              offsiteAddress: ''
+              offsiteAddress: '',
+              offsiteLat: null,
+              offsiteLon: null
             }));
           }
           setHasChanges(true);
         }}
         initialName={formData.offsiteName}
         initialAddress={formData.offsiteAddress}
+        initialLat={formData.offsiteLat}
+        initialLon={formData.offsiteLon}
       />
 
       {/* Category Selector Modal */}

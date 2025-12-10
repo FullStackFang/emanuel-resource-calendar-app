@@ -1,0 +1,90 @@
+/* src/components/OffsiteLocationModal.css */
+/* Address autocomplete styles for offsite location modal */
+
+.address-autocomplete-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.address-input-container {
+  position: relative;
+  width: 100%;
+}
+
+.address-search-spinner {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.address-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1000;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.address-suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.address-suggestion-item:hover {
+  background: #f0f9ff;
+}
+
+.address-suggestion-item:active {
+  background: #e0f2fe;
+}
+
+.suggestion-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #FF7043;
+}
+
+.suggestion-text {
+  flex: 1;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+/* Custom scrollbar for suggestions */
+.address-suggestions::-webkit-scrollbar {
+  width: 6px;
+}
+
+.address-suggestions::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 3px;
+}
+
+.address-suggestions::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.address-suggestions::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
