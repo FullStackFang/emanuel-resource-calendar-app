@@ -133,6 +133,24 @@ export default function RoomReservationReview({
           endTime = '';
         }
 
+        // Detect if this is an offsite event (has Graph location but no internal rooms)
+        const hasGraphLocation = reservation.graphData?.location?.displayName;
+        const hasInternalRooms = reservation.locations && reservation.locations.length > 0;
+        const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
+
+        // Format address from Graph API location data
+        const formatGraphAddress = (address) => {
+          if (!address) return '';
+          const parts = [
+            address.street,
+            address.city,
+            address.state,
+            address.postalCode,
+            address.countryOrRegion
+          ].filter(Boolean);
+          return parts.join(', ');
+        };
+
         setInitialData({
           requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
           requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
@@ -166,7 +184,13 @@ export default function RoomReservationReview({
           eventId: reservation.eventId || null,
           eventSeriesId: reservation.eventSeriesId || null,
           seriesIndex: reservation.seriesIndex || null,
-          seriesLength: reservation.seriesLength || null
+          seriesLength: reservation.seriesLength || null,
+          // Offsite fields - auto-populate from Graph location if no internal rooms
+          isOffsite: isOffsiteEvent,
+          offsiteName: isOffsiteEvent ? reservation.graphData.location.displayName : '',
+          offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
+          offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
+          offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null
         });
 
         // Store original changeKey for optimistic concurrency control
@@ -269,7 +293,13 @@ export default function RoomReservationReview({
         recurrenceData: updatedData.recurrence,
         editScope: updatedData.editScope,
         seriesMasterId: updatedData.seriesMasterId,
-        hasGraphToken: !!updatedData.graphToken
+        hasGraphToken: !!updatedData.graphToken,
+        // Offsite location fields
+        isOffsite: updatedData.isOffsite,
+        offsiteName: updatedData.offsiteName,
+        offsiteAddress: updatedData.offsiteAddress,
+        offsiteLat: updatedData.offsiteLat,
+        offsiteLon: updatedData.offsiteLon
       });
 
       // Use correct endpoint based on event type

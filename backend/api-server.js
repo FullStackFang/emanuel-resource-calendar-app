@@ -1372,6 +1372,57 @@ function generateChangeKey(reservation) {
 }
 
 /**
+ * Parse address string into Graph API address object
+ * Input: "4 E 60th St, New York, NY, 10022, United States"
+ * Output: { street, city, state, postalCode, countryOrRegion }
+ * @param {string} addressString - Comma-separated address string
+ * @returns {Object|null} - Parsed address object or null
+ */
+function parseAddressString(addressString) {
+  if (!addressString) return null;
+  const parts = addressString.split(',').map(p => p.trim());
+  // Best-effort parsing: street, city, state, postalCode, country
+  return {
+    street: parts[0] || '',
+    city: parts[1] || '',
+    state: parts[2] || '',
+    postalCode: parts[3] || '',
+    countryOrRegion: parts[4] || ''
+  };
+}
+
+/**
+ * Build complete Graph API location object for offsite events
+ * @param {string} offsiteName - Name of the offsite location
+ * @param {string} offsiteAddress - Full address string
+ * @param {number|null} offsiteLat - Latitude coordinate
+ * @param {number|null} offsiteLon - Longitude coordinate
+ * @returns {Object} - Graph API location object with displayName, address, and coordinates
+ */
+function buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon) {
+  const location = {
+    displayName: `${offsiteName} (Offsite) - ${offsiteAddress}`,
+    locationType: 'default'
+  };
+
+  // Add parsed address if available
+  const parsedAddress = parseAddressString(offsiteAddress);
+  if (parsedAddress && (parsedAddress.street || parsedAddress.city)) {
+    location.address = parsedAddress;
+  }
+
+  // Add coordinates if available
+  if (offsiteLat != null && offsiteLon != null) {
+    location.coordinates = {
+      latitude: parseFloat(offsiteLat),
+      longitude: parseFloat(offsiteLon)
+    };
+  }
+
+  return location;
+}
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -4306,7 +4357,28 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
     // Pre-process locations to generate location display names for Graph API
     // This must happen BEFORE building the Graph API request (mirroring UPDATE endpoint logic)
-    if (internalFields?.locations && Array.isArray(internalFields.locations) && internalFields.locations.length > 0) {
+
+    // Handle offsite locations first
+    if (internalFields?.isOffsite && internalFields?.offsiteName && internalFields?.offsiteAddress) {
+      logger.info('Processing offsite location for unified form:', {
+        offsiteName: internalFields.offsiteName,
+        offsiteAddress: internalFields.offsiteAddress,
+        offsiteLat: internalFields.offsiteLat,
+        offsiteLon: internalFields.offsiteLon
+      });
+
+      // Build complete Graph location object for offsite events
+      if (graphFields) {
+        graphFields.location = buildOffsiteGraphLocation(
+          internalFields.offsiteName,
+          internalFields.offsiteAddress,
+          internalFields.offsiteLat,
+          internalFields.offsiteLon
+        );
+        logger.debug('Set Graph location for offsite event:', graphFields.location);
+      }
+    } else if (internalFields?.locations && Array.isArray(internalFields.locations) && internalFields.locations.length > 0) {
+      // Handle internal room locations
       try {
         const roomIds = internalFields.locations.map(id =>
           typeof id === 'string' ? new ObjectId(id) : id
@@ -4485,6 +4557,18 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.virtualMeetingUrl = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
       newEventDoc.virtualPlatform = null; // Not typically in Graph data
 
+      // Offsite location fields
+      newEventDoc.isOffsite = internalFields?.isOffsite || false;
+      newEventDoc.offsiteName = internalFields?.isOffsite ? (internalFields.offsiteName || '') : '';
+      newEventDoc.offsiteAddress = internalFields?.isOffsite ? (internalFields.offsiteAddress || '') : '';
+      newEventDoc.offsiteLat = internalFields?.isOffsite ? (internalFields.offsiteLat || null) : null;
+      newEventDoc.offsiteLon = internalFields?.isOffsite ? (internalFields.offsiteLon || null) : null;
+
+      // Update locationDisplayNames for offsite events
+      if (internalFields?.isOffsite && internalFields?.offsiteName) {
+        newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+      }
+
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
         eventId: actualEventId,
@@ -4518,17 +4602,35 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         if (internalFields.eventSeriesId !== undefined) updateOperations['eventSeriesId'] = internalFields.eventSeriesId;
         if (internalFields.seriesLength !== undefined) updateOperations['seriesLength'] = internalFields.seriesLength;
         if (internalFields.seriesIndex !== undefined) updateOperations['seriesIndex'] = internalFields.seriesIndex;
+
+        // Offsite location fields
+        if (internalFields.isOffsite !== undefined) {
+          updateOperations['isOffsite'] = internalFields.isOffsite;
+          updateOperations['offsiteName'] = internalFields.isOffsite ? (internalFields.offsiteName || '') : '';
+          updateOperations['offsiteAddress'] = internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '';
+          updateOperations['offsiteLat'] = internalFields.isOffsite ? (internalFields.offsiteLat || null) : null;
+          updateOperations['offsiteLon'] = internalFields.isOffsite ? (internalFields.offsiteLon || null) : null;
+
+          // Update locationDisplayNames for offsite events
+          if (internalFields.isOffsite && internalFields.offsiteName) {
+            updateOperations['locationDisplayNames'] = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+            // Clear internal room locations when switching to offsite
+            updateOperations['locations'] = [];
+          }
+        }
       }
 
       // Always update graphData if we got new data from Graph API
       if (graphUpdateResult) {
         updateOperations['graphData'] = updatedGraphData;
 
-        // Update locationDisplayNames if location changed in graphData
-        const newLocationDisplayName = updatedGraphData.location?.displayName || '';
-        if (newLocationDisplayName !== currentEvent.locationDisplayNames) {
-          updateOperations['locationDisplayNames'] = newLocationDisplayName;
-          // Note: locations array is NOT auto-updated - requires manual assignment in Phase 2
+        // Update locationDisplayNames if location changed in graphData (only if not offsite)
+        if (!internalFields?.isOffsite) {
+          const newLocationDisplayName = updatedGraphData.location?.displayName || '';
+          if (newLocationDisplayName !== currentEvent.locationDisplayNames) {
+            updateOperations['locationDisplayNames'] = newLocationDisplayName;
+            // Note: locations array is NOT auto-updated - requires manual assignment in Phase 2
+          }
         }
 
         // Update top-level fields from graphData
@@ -4704,7 +4806,18 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
 
     // Build batch requests for Graph API
     const batchRequests = events.map((event, index) => {
-      const { graphFields, calendarId } = event;
+      const { graphFields, calendarId, internalFields } = event;
+
+      // Handle offsite location - set Graph location if offsite
+      if (internalFields?.isOffsite && internalFields?.offsiteName && internalFields?.offsiteAddress) {
+        graphFields.location = buildOffsiteGraphLocation(
+          internalFields.offsiteName,
+          internalFields.offsiteAddress,
+          internalFields.offsiteLat,
+          internalFields.offsiteLon
+        );
+        logger.debug(`Batch create: Event ${index + 1} is offsite, setting location:`, graphFields.location);
+      }
 
       return {
         id: String(index + 1),
@@ -4834,6 +4947,18 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         // Virtual meeting fields
         newEventDoc.virtualMeetingUrl = graphData.onlineMeetingUrl || graphData.onlineMeeting?.joinUrl || null;
         newEventDoc.virtualPlatform = null;
+
+        // Offsite location fields
+        newEventDoc.isOffsite = internalFields.isOffsite || false;
+        newEventDoc.offsiteName = internalFields.isOffsite ? (internalFields.offsiteName || '') : '';
+        newEventDoc.offsiteAddress = internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '';
+        newEventDoc.offsiteLat = internalFields.isOffsite ? (internalFields.offsiteLat || null) : null;
+        newEventDoc.offsiteLon = internalFields.isOffsite ? (internalFields.offsiteLon || null) : null;
+
+        // Update locationDisplayNames for offsite events
+        if (internalFields.isOffsite && internalFields.offsiteName) {
+          newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+        }
 
         // Insert into MongoDB
         const dbResult = await unifiedEventsCollection.insertOne(newEventDoc);
@@ -15424,7 +15549,9 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       // Offsite location fields
       isOffsite,
       offsiteName,
-      offsiteAddress
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -15528,7 +15655,9 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           dateTime: endDateTime,
           timeZone: 'America/New_York'
         },
-        location: { displayName: locationDisplayName },
+        location: isOffsite
+          ? buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon)
+          : { displayName: locationDisplayName },
         bodyPreview: eventDescription || '',
         categories: [],
         isAllDay: false,
@@ -15622,6 +15751,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       isOffsite: isOffsite || false,
       offsiteName: isOffsite ? offsiteName : '',
       offsiteAddress: isOffsite ? offsiteAddress : '',
+      offsiteLat: isOffsite ? (offsiteLat || null) : null,
+      offsiteLon: isOffsite ? (offsiteLon || null) : null,
       mecCategories: [],
       assignedTo: '',
 
@@ -15755,12 +15886,32 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
           selectedCalendar = settings?.defaultCalendar || 'templesandbox@emanuelnyc.org';
         }
 
+        // Build location for Graph event - check for offsite location data
+        let graphLocation = event.graphData?.location || { displayName: '' };
+
+        if (event.isOffsite && event.offsiteName && event.offsiteAddress) {
+          // Use complete Graph location object for offsite events
+          graphLocation = buildOffsiteGraphLocation(
+            event.offsiteName,
+            event.offsiteAddress,
+            event.offsiteLat,
+            event.offsiteLon
+          );
+          logger.info('Approve endpoint: Using offsite location for Graph event', {
+            offsiteName: event.offsiteName,
+            offsiteAddress: event.offsiteAddress,
+            offsiteLat: event.offsiteLat,
+            offsiteLon: event.offsiteLon,
+            builtLocation: graphLocation
+          });
+        }
+
         // Create Graph event
         const graphEventData = {
           subject: event.graphData.subject,
           start: event.graphData.start,
           end: event.graphData.end,
-          location: event.graphData.location,
+          location: graphLocation,
           body: {
             contentType: 'Text',
             content: event.graphData.bodyPreview || ''
@@ -16036,7 +16187,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       seriesMasterId: seriesMasterId,
       hasRecurrence: !!updates.recurrence,
       recurrencePattern: updates.recurrence?.pattern?.type,
-      recurrenceRange: updates.recurrence?.range?.type
+      recurrenceRange: updates.recurrence?.range?.type,
+      // Offsite location fields
+      isOffsite: updates.isOffsite,
+      offsiteName: updates.offsiteName,
+      offsiteAddress: updates.offsiteAddress,
+      offsiteLat: updates.offsiteLat,
+      offsiteLon: updates.offsiteLon
     });
 
     // Get event by _id
@@ -16056,9 +16213,21 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // This must happen BEFORE building the Graph update
     let processedLocationDisplayName = null;
 
+    // DEBUG: Log offsite processing decision
+    logger.info('Processing location for event:', {
+      isOffsite: updates.isOffsite,
+      offsiteName: updates.offsiteName,
+      offsiteAddress: updates.offsiteAddress,
+      hasRequestedRooms: !!updates.requestedRooms,
+      requestedRoomsLength: updates.requestedRooms?.length,
+      hasLocations: !!updates.locations,
+      locationsLength: updates.locations?.length
+    });
+
     // If offsite, use offsite name/address for location display
     if (updates.isOffsite) {
       processedLocationDisplayName = `${updates.offsiteName} (Offsite) - ${updates.offsiteAddress}`;
+      logger.info('Set processedLocationDisplayName for offsite:', processedLocationDisplayName);
     } else if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
       try {
         const roomIds = updates.requestedRooms.map(id =>
@@ -16162,8 +16331,18 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
         // Handle location field - convert from our internal array format to Graph's single object format
         if (processedLocationDisplayName) {
-          // Use pre-processed location from requestedRooms
-          graphUpdate.location = { displayName: processedLocationDisplayName };
+          if (updates.isOffsite) {
+            // Use complete Graph location object for offsite events with address/coordinates
+            graphUpdate.location = buildOffsiteGraphLocation(
+              updates.offsiteName,
+              updates.offsiteAddress,
+              updates.offsiteLat,
+              updates.offsiteLon
+            );
+          } else {
+            // Use pre-processed location from requestedRooms
+            graphUpdate.location = { displayName: processedLocationDisplayName };
+          }
         } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
           // Join multiple locations into a single string
           const locationString = updates.locations
@@ -16290,7 +16469,10 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           graphEndpoint,
           editScope,
           targetOccurrenceId,
-          updates: Object.keys(updates)
+          updates: Object.keys(updates),
+          // Log location being sent to Graph
+          graphUpdateLocation: graphUpdate.location,
+          processedLocationDisplayName
         });
 
         // Update in Graph API using the appropriate endpoint
@@ -16481,6 +16663,32 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         logger.error('Error processing locations:', error);
         // Continue with update even if location processing fails
       }
+    }
+
+    // Handle offsite location updates - sync full graphData.location with address/coordinates
+    if (updates.isOffsite && updates.offsiteName && updates.offsiteAddress) {
+      logger.info('Processing offsite location update:', {
+        offsiteName: updates.offsiteName,
+        offsiteAddress: updates.offsiteAddress,
+        hasCoordinates: !!(updates.offsiteLat && updates.offsiteLon)
+      });
+
+      // Build complete Graph location object
+      const graphLocation = buildOffsiteGraphLocation(
+        updates.offsiteName,
+        updates.offsiteAddress,
+        updates.offsiteLat,
+        updates.offsiteLon
+      );
+
+      // Update the full graphData.location object
+      updateOperations['graphData.location'] = graphLocation;
+
+      // Also update top-level locationDisplayNames
+      updateOperations.locationDisplayNames = graphLocation.displayName;
+
+      // Clear internal room locations when switching to offsite
+      updateOperations.locations = [];
     }
 
     // Update internal enrichments

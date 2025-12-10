@@ -12,6 +12,7 @@ import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
+import { extractTextFromHtml } from '../utils/textUtils';
 import './RoomReservationForm.css';
 
 /**
@@ -240,6 +241,11 @@ export default function RoomReservationFormBase({
       const newData = {
         ...initialData
       };
+
+      // Strip HTML from eventDescription if it contains HTML tags
+      if (newData.eventDescription) {
+        newData.eventDescription = extractTextFromHtml(newData.eventDescription);
+      }
 
       // Auto-populate doorCloseTime with endTime if endTime exists
       if (newData.endTime && !newData.doorCloseTime) {
@@ -1623,27 +1629,33 @@ export default function RoomReservationFormBase({
         isOpen={showOffsiteModal}
         onClose={() => setShowOffsiteModal(false)}
         onSave={(name, address, lat, lon) => {
+          let updatedData;
           if (name && address) {
-            setFormData(prev => ({
-              ...prev,
+            updatedData = {
+              ...formData,
               isOffsite: true,
               offsiteName: name,
               offsiteAddress: address,
               offsiteLat: lat,
               offsiteLon: lon
-            }));
+            };
           } else {
             // Remove was clicked - clear offsite data
-            setFormData(prev => ({
-              ...prev,
+            updatedData = {
+              ...formData,
               isOffsite: false,
               offsiteName: '',
               offsiteAddress: '',
               offsiteLat: null,
               offsiteLon: null
-            }));
+            };
           }
+          setFormData(updatedData);
           setHasChanges(true);
+          // Notify parent component of offsite data change
+          if (onDataChange) {
+            onDataChange(updatedData);
+          }
         }}
         initialName={formData.offsiteName}
         initialAddress={formData.offsiteAddress}

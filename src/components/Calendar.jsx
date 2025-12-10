@@ -4295,7 +4295,13 @@
           seriesLength: data.seriesLength || null,
           seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null,
           // Recurrence pattern (for internal tracking)
-          recurrence: data.recurrence || null
+          recurrence: data.recurrence || null,
+          // Offsite location fields
+          isOffsite: data.isOffsite || false,
+          offsiteName: data.offsiteName || '',
+          offsiteAddress: data.offsiteAddress || '',
+          offsiteLat: data.offsiteLat || null,
+          offsiteLon: data.offsiteLon || null
         };
         
         // Use the selected calendar from the calendar toggle
@@ -4477,7 +4483,13 @@
               assignedTo: data.assignedTo || '',
               eventSeriesId: data.eventSeriesId !== undefined ? data.eventSeriesId : null,
               seriesLength: data.seriesLength || null,
-              seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null
+              seriesIndex: data.seriesIndex !== undefined ? data.seriesIndex : null,
+              // Offsite location fields
+              isOffsite: data.isOffsite || false,
+              offsiteName: data.offsiteName || '',
+              offsiteAddress: data.offsiteAddress || '',
+              offsiteLat: data.offsiteLat || null,
+              offsiteLon: data.offsiteLon || null
             };
 
             return {
@@ -4772,7 +4784,13 @@
                 // Add event series metadata
                 eventSeriesId: eventSeriesId,
                 seriesLength: dayCount,
-                seriesIndex: i
+                seriesIndex: i,
+                // Offsite location fields
+                isOffsite: reservationData.isOffsite || false,
+                offsiteName: reservationData.offsiteName || '',
+                offsiteAddress: reservationData.offsiteAddress || '',
+                offsiteLat: reservationData.offsiteLat || null,
+                offsiteLon: reservationData.offsiteLon || null
               };
             });
 
@@ -4882,7 +4900,13 @@
               requesterName: reservationData.requesterName || '',
               requesterEmail: reservationData.requesterEmail || '',
               // Single event has null eventSeriesId (recurring events will have this set by backend)
-              eventSeriesId: reservationData.recurrence ? undefined : null
+              eventSeriesId: reservationData.recurrence ? undefined : null,
+              // Offsite location fields
+              isOffsite: reservationData.isOffsite || false,
+              offsiteName: reservationData.offsiteName || '',
+              offsiteAddress: reservationData.offsiteAddress || '',
+              offsiteLat: reservationData.offsiteLat || null,
+              offsiteLon: reservationData.offsiteLon || null
             };
 
             const success = await handleSaveEvent(eventData);
@@ -4933,7 +4957,13 @@
               requesterName: reservationData.requesterName || userProfile?.displayName || '',
               requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
               // Include calendarId so the event shows up in the user's calendar view
-              calendarId: reservationData.calendarId || selectedCalendarId
+              calendarId: reservationData.calendarId || selectedCalendarId,
+              // Offsite location fields
+              isOffsite: reservationData.isOffsite || false,
+              offsiteName: reservationData.offsiteName || '',
+              offsiteAddress: reservationData.offsiteAddress || '',
+              offsiteLat: reservationData.offsiteLat || null,
+              offsiteLon: reservationData.offsiteLon || null
             };
 
             logger.debug('Transformed request payload', requestPayload);
