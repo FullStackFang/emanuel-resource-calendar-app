@@ -43,7 +43,8 @@ export default function RoomReservationReview({
   onCreateCalendarEventChange = () => {},
   activeTab = 'details',
   editScope = null, // For recurring events: 'thisEvent' | 'allEvents' | null
-  onFormValidChange = null // Callback when form validity changes
+  onFormValidChange = null, // Callback when form validity changes
+  readOnly = false // Read-only mode for viewers
 }) {
   // Review-specific state
   const [initialData, setInitialData] = useState({});
@@ -469,7 +470,7 @@ export default function RoomReservationReview({
           onDataChange={handleDataChange}
           onHasChangesChange={onHasChangesChange}
           onIsNavigatingChange={setIsNavigating}
-          readOnly={false}
+          readOnly={readOnly}
           isAdmin={isAdmin}
           reservationStatus={reservation?.status}
           currentReservationId={reservation?._id}

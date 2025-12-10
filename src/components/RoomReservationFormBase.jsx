@@ -930,14 +930,6 @@ export default function RoomReservationFormBase({
                 <div className="services-summary-actions">
                   <button
                     type="button"
-                    className="services-edit-btn"
-                    onClick={() => setShowServicesModal(true)}
-                    disabled={fieldsDisabled}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
                     className="services-clear-btn"
                     onClick={() => {
                       setSelectedServices({});

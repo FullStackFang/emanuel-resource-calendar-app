@@ -333,18 +333,22 @@ export default function ReviewModal({
             >
               Additional Info
             </div>
-            <div
-              className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
-              onClick={() => setActiveTab('attachments')}
-            >
-              {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
-            </div>
-            <div
-              className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
-              onClick={() => setActiveTab('history')}
-            >
-              {historyCount > 0 ? `History (${historyCount})` : 'History'}
-            </div>
+            {!isRequesterOnly && (
+              <div
+                className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
+                onClick={() => setActiveTab('attachments')}
+              >
+                {attachmentCount > 0 ? `Attachments (${attachmentCount})` : 'Attachments'}
+              </div>
+            )}
+            {!isRequesterOnly && (
+              <div
+                className={`event-type-tab ${activeTab === 'history' ? 'active' : ''}`}
+                onClick={() => setActiveTab('history')}
+              >
+                {historyCount > 0 ? `History (${historyCount})` : 'History'}
+              </div>
+            )}
             {isAdmin && (
               <div
                 className={`event-type-tab ${activeTab === 'admin' ? 'active' : ''}`}
