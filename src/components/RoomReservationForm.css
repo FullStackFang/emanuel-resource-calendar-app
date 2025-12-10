@@ -744,6 +744,81 @@
   width: 100%;
 }
 
+/* Disabled room selection (when offsite is enabled) */
+.room-selection-container.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  filter: grayscale(50%);
+}
+
+/* Offsite Fields */
+.offsite-fields {
+  background: #fff8f5;
+  border: 1px solid #FF7043;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.offsite-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.offsite-indicator {
+  font-size: 13px;
+  color: #FF7043;
+  font-style: italic;
+}
+
+.offsite-cancel-btn {
+  padding: 6px 14px;
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.offsite-cancel-btn:hover {
+  background: #fff;
+  border-color: #999;
+  color: #333;
+}
+
+.offsite-fields .form-row {
+  margin-bottom: 15px;
+}
+
+.offsite-fields .form-row:last-child {
+  margin-bottom: 0;
+}
+
+.offsite-fields label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.offsite-fields .google-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.offsite-fields .google-input:focus {
+  outline: none;
+  border-color: #FF7043;
+  box-shadow: 0 0 0 2px rgba(255, 112, 67, 0.2);
+}
+
 .scheduling-assistant-container {
   /* Takes up 2/3 of the width (second column) - styling handled in SchedulingAssistant.css */
 }
@@ -1721,5 +1796,88 @@
 
   .services-summary-actions {
     align-self: flex-end;
+  }
+}
+
+/* Offsite Location Display - Full Size (replaces Scheduling Assistant) */
+.offsite-location-display {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px;
+  min-height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.offsite-display-header {
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #FF7043;
+}
+
+.offsite-display-header h3 {
+  color: #333;
+  font-size: 1.2rem;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.offsite-display-date {
+  color: #6b7280;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.offsite-display-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+  background: #fff8f5;
+  border-radius: 8px;
+  border: 1px dashed #FF7043;
+}
+
+.offsite-display-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+}
+
+.offsite-display-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.offsite-display-address {
+  font-size: 1rem;
+  color: #6b7280;
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* Responsive adjustments for offsite display */
+@media (max-width: 768px) {
+  .offsite-location-display {
+    min-height: 400px;
+  }
+
+  .offsite-display-icon {
+    font-size: 3rem;
+  }
+
+  .offsite-display-name {
+    font-size: 1.25rem;
+  }
+
+  .offsite-display-address {
+    font-size: 0.9rem;
   }
 }

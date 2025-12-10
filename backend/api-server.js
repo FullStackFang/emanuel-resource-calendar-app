@@ -15420,13 +15420,31 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       contactEmail,
       requesterName,
       requesterEmail,
-      calendarId  // Calendar ID for event to appear in calendar view
+      calendarId,  // Calendar ID for event to appear in calendar view
+      // Offsite location fields
+      isOffsite,
+      offsiteName,
+      offsiteAddress
     } = req.body;
 
-    // Validate required fields
-    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
+    // Validate required fields - requestedRooms not required if isOffsite is true
+    if (!eventTitle || !startDateTime || !endDateTime) {
       return res.status(400).json({
-        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms'
+        error: 'Missing required fields: eventTitle, startDateTime, endDateTime'
+      });
+    }
+
+    // Validate: either requestedRooms OR offsite location must be provided
+    if (!isOffsite && (!requestedRooms || requestedRooms.length === 0)) {
+      return res.status(400).json({
+        error: 'Missing required fields: requestedRooms (or mark event as offsite)'
+      });
+    }
+
+    // Validate offsite fields - both name and address required when isOffsite is true
+    if (isOffsite && (!offsiteName?.trim() || !offsiteAddress?.trim())) {
+      return res.status(400).json({
+        error: 'Offsite Name and Offsite Address are required for offsite events'
       });
     }
 
@@ -15437,48 +15455,56 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       });
     }
 
-    // Get room names and location IDs for event data
+    // Get room names and location IDs for event data (skip if offsite)
     let roomNames = [];
     let locationObjectIds = [];
-    try {
-      logger.debug('Looking up locations (rooms):', { requestedRooms, count: requestedRooms.length });
 
-      // Handle both ObjectId and string formats for room IDs
-      const roomQuery = requestedRooms.map(id => {
-        try {
-          // Try to convert to ObjectId if it's a valid 24-char hex string
-          if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
-            return new ObjectId(id);
+    if (!isOffsite && requestedRooms && requestedRooms.length > 0) {
+      try {
+        logger.debug('Looking up locations (rooms):', { requestedRooms, count: requestedRooms.length });
+
+        // Handle both ObjectId and string formats for room IDs
+        const roomQuery = requestedRooms.map(id => {
+          try {
+            // Try to convert to ObjectId if it's a valid 24-char hex string
+            if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+              return new ObjectId(id);
+            }
+            // Otherwise use as-is (for non-ObjectId string IDs)
+            return id;
+          } catch (err) {
+            logger.warn('Could not convert room ID to ObjectId, using as string:', id);
+            return id;
           }
-          // Otherwise use as-is (for non-ObjectId string IDs)
-          return id;
-        } catch (err) {
-          logger.warn('Could not convert room ID to ObjectId, using as string:', id);
-          return id;
+        });
+
+        // Query locations collection (rooms are locations with isReservable: true)
+        const rooms = await locationsCollection.find({
+          _id: { $in: roomQuery },
+          isReservable: true
+        }).toArray();
+
+        roomNames = rooms.map(r => r.displayName || r.name || 'Unknown Room');
+        locationObjectIds = rooms.map(r => r._id);
+        logger.debug('Found locations (rooms):', { count: rooms.length, names: roomNames });
+
+        // If no rooms found, use the IDs as fallback names
+        if (roomNames.length === 0) {
+          logger.warn('No locations found in database, using IDs as names');
+          roomNames = requestedRooms.map(id => `Room ${id}`);
         }
-      });
 
-      // Query locations collection (rooms are locations with isReservable: true)
-      const rooms = await locationsCollection.find({
-        _id: { $in: roomQuery },
-        isReservable: true
-      }).toArray();
-
-      roomNames = rooms.map(r => r.displayName || r.name || 'Unknown Room');
-      locationObjectIds = rooms.map(r => r._id);
-      logger.debug('Found locations (rooms):', { count: rooms.length, names: roomNames });
-
-      // If no rooms found, use the IDs as fallback names
-      if (roomNames.length === 0) {
-        logger.warn('No locations found in database, using IDs as names');
+      } catch (err) {
+        logger.error('Error looking up locations:', err);
+        // Fallback: use room IDs as names
         roomNames = requestedRooms.map(id => `Room ${id}`);
       }
-
-    } catch (err) {
-      logger.error('Error looking up locations:', err);
-      // Fallback: use room IDs as names
-      roomNames = requestedRooms.map(id => `Room ${id}`);
     }
+
+    // Build location display name - use offsite info if offsite, otherwise room names
+    const locationDisplayName = isOffsite
+      ? `${offsiteName}; ${offsiteAddress}`
+      : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
 
     // Generate unique event ID
     const eventId = `evt-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -15502,7 +15528,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           dateTime: endDateTime,
           timeZone: 'America/New_York'
         },
-        location: { displayName: roomNames.join('; ') },
+        location: { displayName: locationDisplayName },
         bodyPreview: eventDescription || '',
         categories: [],
         isAllDay: false,
@@ -15584,13 +15610,18 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       setupNotes: setupNotes || '',
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
-      location: roomNames.join('; '),
+      location: locationDisplayName,
+      locationDisplayNames: locationDisplayName, // Computed display string
       locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
       attendeeCount: parseInt(attendeeCount) || 0,
       specialRequirements: specialRequirements || '',
       isAllDayEvent: false,
       virtualMeetingUrl: null,
       virtualPlatform: null,
+      // Offsite location fields
+      isOffsite: isOffsite || false,
+      offsiteName: isOffsite ? offsiteName : '',
+      offsiteAddress: isOffsite ? offsiteAddress : '',
       mecCategories: [],
       assignedTo: '',
 
@@ -16014,10 +16045,21 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    // Validate offsite fields - both name and address required when isOffsite is true
+    if (updates.isOffsite && (!updates.offsiteName?.trim() || !updates.offsiteAddress?.trim())) {
+      return res.status(400).json({
+        error: 'Offsite Name and Offsite Address are required for offsite events'
+      });
+    }
+
     // Pre-process requestedRooms to generate location display names for Graph API
     // This must happen BEFORE building the Graph update
     let processedLocationDisplayName = null;
-    if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
+
+    // If offsite, use offsite name/address for location display
+    if (updates.isOffsite) {
+      processedLocationDisplayName = `${updates.offsiteName}; ${updates.offsiteAddress}`;
+    } else if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
       try {
         const roomIds = updates.requestedRooms.map(id =>
           typeof id === 'string' ? new ObjectId(id) : id

@@ -47,6 +47,11 @@ const WeekView = memo(({
   
   // Helper function to get the display location for an event
   const getEventDisplayLocation = (event) => {
+    // Check for offsite events first
+    if (event.isOffsite) {
+      return 'Offsite';
+    }
+
     // Check if event has no location
     if (isUnspecifiedLocation(event)) {
       return 'Unspecified';

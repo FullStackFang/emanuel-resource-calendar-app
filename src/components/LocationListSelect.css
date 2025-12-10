@@ -40,6 +40,12 @@
   box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
 }
 
+.list-search-input:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
 .list-action-buttons {
   display: flex;
   gap: 8px;
@@ -58,8 +64,37 @@
   transition: background-color 0.2s;
 }
 
-.list-action-btn:hover {
+.list-action-btn:hover:not(:disabled) {
   background: #106ebe;
+}
+
+.list-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Offsite button styles */
+.list-action-btn.offsite-btn {
+  background: #f5f5f5;
+  color: #333;
+  border: 1px solid #dadce0;
+}
+
+.list-action-btn.offsite-btn:hover {
+  background: #fff8f5;
+  border-color: #FF7043;
+  color: #FF7043;
+}
+
+.list-action-btn.offsite-btn.active {
+  background: #FF7043;
+  color: white;
+  border-color: #FF7043;
+}
+
+.list-action-btn.offsite-btn.active:hover {
+  background: #f4511e;
+  border-color: #f4511e;
 }
 
 /* Scrollable Container */
@@ -94,6 +129,32 @@
   text-align: center;
   color: #6b7280;
   font-style: italic;
+}
+
+/* Offsite message when location selector is disabled */
+.list-rooms-container.disabled {
+  background: #f9fafb;
+}
+
+.list-offsite-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #6b7280;
+  gap: 8px;
+}
+
+.offsite-message-icon {
+  font-size: 2rem;
+}
+
+.offsite-message-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #374151;
 }
 
 /* Room Card - Minimalist Clickable Rectangle */

@@ -58,6 +58,11 @@ const DayView = memo(({
   
   // Helper function to get the display location for an event
   const getEventDisplayLocation = (event) => {
+    // Check for offsite events first
+    if (event.isOffsite) {
+      return 'Offsite';
+    }
+
     if (isUnspecifiedLocation(event)) {
       return 'Unspecified';
     } else if (isEventVirtual(event)) {
@@ -69,7 +74,7 @@ const DayView = memo(({
         .split(/[;,]/)
         .map(loc => loc.trim())
         .filter(loc => loc.length > 0);
-      
+
       // Find first non-virtual location
       for (const location of eventLocations) {
         if (!isVirtualLocation(location)) {

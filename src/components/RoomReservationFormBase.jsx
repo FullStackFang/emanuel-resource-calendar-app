@@ -8,6 +8,7 @@ import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
 import VirtualMeetingModal from './VirtualMeetingModal';
+import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
@@ -99,6 +100,10 @@ export default function RoomReservationFormBase({
     isOnBehalfOf: false,
     reviewNotes: '',
     isAllDayEvent: false,
+    // Offsite location fields
+    isOffsite: false,
+    offsiteName: '',
+    offsiteAddress: '',
     ...initialData
   });
 
@@ -131,6 +136,9 @@ export default function RoomReservationFormBase({
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
+
+  // Offsite location modal state
+  const [showOffsiteModal, setShowOffsiteModal] = useState(false);
 
   // Services state
   const [showServicesModal, setShowServicesModal] = useState(false);
@@ -1318,42 +1326,71 @@ export default function RoomReservationFormBase({
                     eventStartTime={formData.startTime}
                     eventEndTime={formData.endTime}
                     eventDate={formData.startDate}
+                    isOffsite={formData.isOffsite}
+                    offsiteName={formData.offsiteName}
+                    onOffsiteToggle={() => {
+                      // Clear selected rooms when opening offsite modal
+                      setFormData(prev => ({ ...prev, requestedRooms: [] }));
+                      setShowOffsiteModal(true);
+                    }}
                   />
                 )}
               </div>
 
-              <div className={`scheduling-assistant-container ${
-                formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''
-              }`}>
-                {formData.isAllDayEvent && (
-                  <div className="scheduling-assistant-disabled-message">
-                    <h4>All Day Event</h4>
-                    <p>Time-specific scheduling not needed for all-day events</p>
+              {/* Show either Offsite Location Display OR Scheduling Assistant */}
+              {formData.isOffsite && formData.offsiteName ? (
+                <div className="offsite-location-display">
+                  <div className="offsite-display-header">
+                    <h3>📍 Offsite Location</h3>
+                    <div className="offsite-display-date">
+                      {formData.startDate && new Date(formData.startDate + 'T00:00:00').toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </div>
                   </div>
-                )}
-                <SchedulingAssistant
-                  selectedRooms={assistantRooms}
-                  selectedDate={formData.startDate}
-                  eventStartTime={formData.startTime}
-                  eventEndTime={formData.endTime}
-                  setupTime={formData.setupTime}
-                  teardownTime={formData.teardownTime}
-                  doorOpenTime={formData.doorOpenTime}
-                  doorCloseTime={formData.doorCloseTime}
-                  eventTitle={formData.eventTitle}
-                  availability={availability}
-                  availabilityLoading={availabilityLoading}
-                  onTimeSlotClick={handleTimeSlotClick}
-                  onRoomRemove={handleRemoveAssistantRoom}
-                  onEventTimeChange={handleEventTimeChange}
-                  currentReservationId={currentReservationId}
-                  onLockedEventClick={onLockedEventClick}
-                  defaultCalendar={defaultCalendar}
-                  isAllDayEvent={formData.isAllDayEvent}
-                  organizerName={formData.requesterName}
-                  organizerEmail={formData.requesterEmail}
-                />
-              </div>
+                  <div className="offsite-display-content">
+                    <div className="offsite-display-icon">📍</div>
+                    <div className="offsite-display-name">{formData.offsiteName}</div>
+                    <div className="offsite-display-address">{formData.offsiteAddress}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className={`scheduling-assistant-container ${
+                  formData.isAllDayEvent ? 'scheduling-assistant-disabled' : ''
+                }`}>
+                  {formData.isAllDayEvent && (
+                    <div className="scheduling-assistant-disabled-message">
+                      <h4>All Day Event</h4>
+                      <p>Time-specific scheduling not needed for all-day events</p>
+                    </div>
+                  )}
+                  <SchedulingAssistant
+                    selectedRooms={assistantRooms}
+                    selectedDate={formData.startDate}
+                    eventStartTime={formData.startTime}
+                    eventEndTime={formData.endTime}
+                    setupTime={formData.setupTime}
+                    teardownTime={formData.teardownTime}
+                    doorOpenTime={formData.doorOpenTime}
+                    doorCloseTime={formData.doorCloseTime}
+                    eventTitle={formData.eventTitle}
+                    availability={availability}
+                    availabilityLoading={availabilityLoading}
+                    onTimeSlotClick={handleTimeSlotClick}
+                    onRoomRemove={handleRemoveAssistantRoom}
+                    onEventTimeChange={handleEventTimeChange}
+                    currentReservationId={currentReservationId}
+                    onLockedEventClick={onLockedEventClick}
+                    defaultCalendar={defaultCalendar}
+                    isAllDayEvent={formData.isAllDayEvent}
+                    organizerName={formData.requesterName}
+                    organizerEmail={formData.requesterEmail}
+                  />
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -1559,6 +1596,33 @@ export default function RoomReservationFormBase({
         onClose={() => setShowVirtualModal(false)}
         onSave={handleVirtualMeetingSave}
         initialUrl={virtualMeetingUrl}
+      />
+
+      {/* Offsite Location Modal */}
+      <OffsiteLocationModal
+        isOpen={showOffsiteModal}
+        onClose={() => setShowOffsiteModal(false)}
+        onSave={(name, address) => {
+          if (name && address) {
+            setFormData(prev => ({
+              ...prev,
+              isOffsite: true,
+              offsiteName: name,
+              offsiteAddress: address
+            }));
+          } else {
+            // Remove was clicked - clear offsite data
+            setFormData(prev => ({
+              ...prev,
+              isOffsite: false,
+              offsiteName: '',
+              offsiteAddress: ''
+            }));
+          }
+          setHasChanges(true);
+        }}
+        initialName={formData.offsiteName}
+        initialAddress={formData.offsiteAddress}
       />
 
       {/* Category Selector Modal */}

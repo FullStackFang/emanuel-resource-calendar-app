@@ -144,7 +144,11 @@ export default function UnifiedEventForm({
         contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
         isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false,
         reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
-        isAllDayEvent: reservation.isAllDayEvent || false
+        isAllDayEvent: reservation.isAllDayEvent || false,
+        // Offsite location fields
+        isOffsite: reservation.isOffsite || false,
+        offsiteName: reservation.offsiteName || '',
+        offsiteAddress: reservation.offsiteAddress || ''
       });
 
       setOriginalChangeKey(reservation.changeKey);
@@ -177,7 +181,11 @@ export default function UnifiedEventForm({
         doorCloseTime: event.internalEnrichment?.doorCloseTime || '',
         setupNotes: event.internalEnrichment?.setupNotes || '',
         eventNotes: event.internalEnrichment?.notes || '',
-        isAllDayEvent: event.isAllDay || false
+        isAllDayEvent: event.isAllDay || false,
+        // Offsite location fields
+        isOffsite: event.isOffsite || false,
+        offsiteName: event.offsiteName || '',
+        offsiteAddress: event.offsiteAddress || ''
       });
 
       setOriginalChangeKey(event.changeKey);

@@ -194,7 +194,12 @@ function EventForm({
   const [useTimeInputs, setUseTimeInputs] = useState(true); // Toggle between minutes and time inputs - default to time
   const [setupTime, setSetupTime] = useState(''); // Setup time in HH:MM format
   const [teardownTime, setTeardownTime] = useState(''); // Teardown time in HH:MM format
-  
+
+  // Offsite location state
+  const [isOffsite, setIsOffsite] = useState(false);
+  const [offsiteName, setOffsiteName] = useState('');
+  const [offsiteAddress, setOffsiteAddress] = useState('');
+
   // Preview modal state
   const [showPreview, setShowPreview] = useState(false);
   const [pendingEventData, setPendingEventData] = useState(null);
@@ -396,6 +401,11 @@ function EventForm({
       setRegistrationNotes(event.registrationNotes || '');
       setAssignedTo(event.assignedTo || '');
 
+      // Initialize offsite location fields
+      setIsOffsite(event.isOffsite || false);
+      setOffsiteName(event.offsiteName || '');
+      setOffsiteAddress(event.offsiteAddress || '');
+
       logger.debug('Loaded registration data from event:', {
         hasRegistrationEvent: event.hasRegistrationEvent,
         setupMinutes: setupMins,
@@ -433,6 +443,10 @@ function EventForm({
       setEventDescription('');
       setRegistrationNotes('');
       setAssignedTo('');
+      // Reset offsite fields for new events
+      setIsOffsite(false);
+      setOffsiteName('');
+      setOffsiteAddress('');
     }
   }, [event, categories, availableLocations, userTimeZone]); 
 
@@ -649,7 +663,13 @@ function EventForm({
       alert(validationError);
       return;
     }
-    
+
+    // Validate offsite fields - both name and address required when isOffsite is true
+    if (isOffsite && (!offsiteName.trim() || !offsiteAddress.trim())) {
+      alert('Offsite Name and Offsite Address are required for offsite events');
+      return;
+    }
+
     logger.debug("PREPARING EVENT DATA FOR PREVIEW:");
     logger.debug(`  Form values: startDate=${formData.startDate}, startTime=${formData.startTime}`);
     
@@ -672,22 +692,25 @@ function EventForm({
       logger.debug(`  All-day event: ${formData.startDate} 00:00:00 to ${formData.endDate} 23:59:59`);
     }
     
+    // Build location display name - use offsite info if offsite, otherwise room names
+    const locationDisplayName = isOffsite
+      ? `${offsiteName}; ${offsiteAddress}`
+      : (formData.locations.length > 0 ? formData.locations.join('; ') : 'Unspecified');
+
     // Build the payload for Graph API
     const eventData = {
       id: formData.id,
       subject: formData.subject,
-      start: { 
-        dateTime: startUtc, 
-        timeZone: 'UTC' 
+      start: {
+        dateTime: startUtc,
+        timeZone: 'UTC'
       },
-      end: { 
-        dateTime: adjustedEndUtc, 
-        timeZone: 'UTC' 
+      end: {
+        dateTime: adjustedEndUtc,
+        timeZone: 'UTC'
       },
-      location: { 
-        displayName: formData.locations.length > 0 
-          ? formData.locations.join('; ') 
-          : 'Unspecified'
+      location: {
+        displayName: locationDisplayName
       },
       categories: formData.category ? [formData.category] : ['Uncategorized'],
       isAllDay,
@@ -701,7 +724,11 @@ function EventForm({
       teardownMinutes: createRegistrationEvent ? teardownMinutes : 0,
       registrationNotes: createRegistrationEvent ? registrationNotes : '',
       assignedTo: createRegistrationEvent ? assignedTo : '',
-      createRegistrationEvent
+      createRegistrationEvent,
+      // Offsite location fields
+      isOffsite,
+      offsiteName: isOffsite ? offsiteName : '',
+      offsiteAddress: isOffsite ? offsiteAddress : ''
     };
 
     logger.debug("Final event data prepared for save:", eventData);
@@ -1181,22 +1208,67 @@ function EventForm({
         <div className="form-content">
           {readOnly ? (
             <span className="readonly-text">
-              {formData.locations && formData.locations.length > 0 
-                ? formData.locations.join(', ') 
-                : 'Add location'}
+              {isOffsite
+                ? `${offsiteName} - ${offsiteAddress}`
+                : (formData.locations && formData.locations.length > 0
+                    ? formData.locations.join(', ')
+                    : 'Add location')}
             </span>
           ) : (
-            <div className="location-wrapper">
+            <div className={`location-wrapper ${isOffsite ? 'disabled' : ''}`}>
               <MultiSelect
                 options={availableLocations}
                 selected={formData.locations || []}
                 onChange={handleLocationChange}
                 label="Add location"
+                disabled={isOffsite}
               />
             </div>
           )}
         </div>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setIsOffsite(!isOffsite)}
+            className={`setup-toggle-btn ${isOffsite ? 'active' : ''}`}
+            title={isOffsite ? 'Switch to on-site location' : 'Switch to off-site location'}
+          >
+            {isOffsite ? 'Onsite' : 'Offsite'}
+          </button>
+        )}
       </div>
+
+      {/* Offsite Location Fields - Show when isOffsite is true */}
+      {isOffsite && !readOnly && (
+        <>
+          <div className="form-row">
+            <div className="form-icon">🏢</div>
+            <div className="form-content">
+              <input
+                type="text"
+                value={offsiteName}
+                onChange={(e) => setOffsiteName(e.target.value)}
+                placeholder="Offsite Location Name *"
+                className="google-input"
+                required
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-icon">📮</div>
+            <div className="form-content">
+              <input
+                type="text"
+                value={offsiteAddress}
+                onChange={(e) => setOffsiteAddress(e.target.value)}
+                placeholder="Offsite Address *"
+                className="google-input"
+                required
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Category and Assignment Row */}
       <div className="form-row">

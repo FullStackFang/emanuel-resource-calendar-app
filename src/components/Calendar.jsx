@@ -642,7 +642,9 @@
        * Checks if the locations array (ObjectIds) is empty
        */
       const isUnspecifiedLocation = useCallback((event) => {
-        // Unspecified = locations array is empty
+        // Offsite events are NOT unspecified - they have their own group
+        if (event.isOffsite) return false;
+        // Unspecified = locations array is empty (and not offsite)
         return !event.locations || !Array.isArray(event.locations) || event.locations.length === 0;
       }, []);
 
@@ -2534,12 +2536,19 @@
         }
       });
 
-      // Track if we need to add Unspecified or Virtual for events
+      // Track if we need to add Unspecified, Virtual, or Offsite for events
       let hasEventsWithoutLocation = false;
+      let hasOffsiteEvents = false;
 
       // Process events to find locations and check for special cases
       allEvents.forEach(event => {
-        // First check if this event has a virtual meeting URL
+        // First check if this is an offsite event
+        if (event.isOffsite) {
+          hasOffsiteEvents = true;
+          return; // Offsite events go to "Offsite" group, not processed further
+        }
+
+        // Check if this event has a virtual meeting URL
         if (event.virtualMeetingUrl) {
           // This is a virtual meeting - use "Virtual Meeting" as the location
           const virtualLocation = generalLocations.find(loc =>
@@ -2603,11 +2612,23 @@
         }
       }
 
-      // Convert to sorted array - alphabetical with Unspecified last
+      // Add "Offsite" if there are offsite events
+      if (hasOffsiteEvents) {
+        locationsSet.add('Offsite');
+      }
+
+      // Convert to sorted array - alphabetical with Offsite and Unspecified last
       const locationsArray = Array.from(locationsSet).sort((a, b) => {
+        const aLower = a.toLowerCase();
+        const bLower = b.toLowerCase();
+
         // Sort with Unspecified last
-        if (a.toLowerCase() === 'unspecified' && b.toLowerCase() !== 'unspecified') return 1;
-        if (b.toLowerCase() === 'unspecified' && a.toLowerCase() !== 'unspecified') return -1;
+        if (aLower === 'unspecified' && bLower !== 'unspecified') return 1;
+        if (bLower === 'unspecified' && aLower !== 'unspecified') return -1;
+
+        // Sort Offsite second to last (before Unspecified)
+        if (aLower === 'offsite' && bLower !== 'offsite' && bLower !== 'unspecified') return 1;
+        if (bLower === 'offsite' && aLower !== 'offsite' && aLower !== 'unspecified') return -1;
 
         return a.localeCompare(b);
       });
@@ -2786,6 +2807,7 @@
         '602': '#FB8C00', // Orange
         'Virtual': '#00ACC1', // Cyan
         'Microsoft Teams Meeting': '#039BE5', // Light Blue
+        'Offsite': '#FF7043', // Deep Orange - for offsite events
         'Unspecified': '#9E9E9E' // Gray
       };
       
@@ -3061,8 +3083,12 @@
           locationMatch = true;
         } else {
           // Partial locations selected, check if event matches
-          // Check for virtual meeting first
-          if (event.virtualMeetingUrl) {
+          // Check for offsite events first
+          if (event.isOffsite) {
+            locationMatch = selectedLocations.includes('Offsite');
+          }
+          // Check for virtual meeting
+          else if (event.virtualMeetingUrl) {
             // This is a virtual meeting - check if "Virtual Meeting" is selected
             locationMatch = selectedLocations.includes('Virtual Meeting');
           }

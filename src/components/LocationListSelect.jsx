@@ -11,7 +11,11 @@ export default function LocationListSelect({
   label = "Select Locations",
   eventStartTime,
   eventEndTime,
-  eventDate
+  eventDate,
+  // Offsite location props
+  isOffsite = false,
+  offsiteName = '',
+  onOffsiteToggle
 }) {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -89,16 +93,6 @@ export default function LocationListSelect({
     onRoomSelectionChange(newSelected);
   };
 
-  const selectAllAvailable = () => {
-    const availableRooms = rooms.filter(room => {
-      const { hasConflicts } = checkRoomConflicts(room);
-      const { meetsCapacity } = checkRoomCapacity(room);
-      return !hasConflicts && meetsCapacity;
-    });
-
-    onRoomSelectionChange(availableRooms.map(room => room._id));
-  };
-
   const clearAll = () => {
     onRoomSelectionChange([]);
   };
@@ -146,20 +140,33 @@ export default function LocationListSelect({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="list-search-input"
+          disabled={isOffsite}
         />
         <div className="list-action-buttons">
-          <button type="button" onClick={selectAllAvailable} className="list-action-btn">
-            All Available
-          </button>
-          <button type="button" onClick={clearAll} className="list-action-btn">
+          {onOffsiteToggle && (
+            <button
+              type="button"
+              onClick={onOffsiteToggle}
+              className={`list-action-btn offsite-btn ${isOffsite ? 'active' : ''}`}
+              title={isOffsite ? `Edit offsite location: ${offsiteName}` : 'Set off-site location'}
+            >
+              {isOffsite ? '📍 Edit Offsite' : '📍 Offsite'}
+            </button>
+          )}
+          <button type="button" onClick={clearAll} className="list-action-btn" disabled={isOffsite}>
             Clear All
           </button>
         </div>
       </div>
 
       {/* Scrollable Room List */}
-      <div className="list-rooms-container">
-        {filteredRooms.length === 0 ? (
+      <div className={`list-rooms-container ${isOffsite ? 'disabled' : ''}`}>
+        {isOffsite ? (
+          <div className="list-offsite-message">
+            <span className="offsite-message-icon">📍</span>
+            <span className="offsite-message-text">Using offsite location</span>
+          </div>
+        ) : filteredRooms.length === 0 ? (
           <div className="list-no-results">
             {searchTerm ? `No locations match "${searchTerm}"` : 'No locations available'}
           </div>
