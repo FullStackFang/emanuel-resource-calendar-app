@@ -11475,22 +11475,17 @@ app.get('/api/rooms/availability', async (req, res) => {
 
     // Fetch rooms from database
     const rooms = await locationsCollection.find(locationQuery).toArray();
-    
-    // Get ALL reservations for the requested time period
-    // Return all events so frontend can display full day schedule and dynamically calculate conflicts
-    const allReservations = await roomReservationsCollection.find({
-      status: { $in: ['pending', 'approved'] },
-      // Get all reservations that fall within the requested date range (using ISO string comparison)
-      startDateTime: { $lt: new Date(new Date(end).getTime() + (8 * 60 * 60 * 1000)).toISOString() }, // Add 8 hours buffer for query
-      endDateTime: { $gt: new Date(new Date(start).getTime() - (8 * 60 * 60 * 1000)).toISOString() }   // Subtract 8 hours buffer for query
-    }).toArray();
 
-    // Get ALL calendar events for the requested time period
-    // Use locations array with ObjectId matching instead of legacy location string field
+    // Get ALL events from unifiedEventsCollection (includes both room reservations and calendar events)
+    // Note: roomReservationsCollection is deprecated - all events are now in unifiedEventsCollection
     const roomObjectIds = rooms.map(room => room._id);
+    // Also create string versions for events that store locations as strings (unified form events)
+    const roomIdStrings = roomObjectIds.map(id => id.toString());
 
     console.log('[AVAILABILITY DEBUG] Searching for rooms:', roomObjectIds.map(id => id.toString()));
+    console.log('[AVAILABILITY DEBUG] Room ID strings for query:', roomIdStrings);
     console.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
+    console.log('[AVAILABILITY DEBUG] Date range for query:', { start, end });
 
     let allEvents = [];
     if (roomObjectIds.length > 0) {
@@ -11498,20 +11493,36 @@ app.get('/api/rooms/availability', async (req, res) => {
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
         startDateTime: { $lt: end },
         endDateTime: { $gt: start },
-        locations: { $in: roomObjectIds }  // Match ObjectIds in locations array
+        // Match both ObjectId format (room reservations) and string format (unified form events)
+        $or: [
+          { locations: { $in: roomObjectIds } },
+          { locations: { $in: roomIdStrings } }
+        ]
       }).toArray();
 
-      console.log('[AVAILABILITY DEBUG] Found events:', allEvents.length);
-      if (allEvents.length > 0) {
-        console.log('[AVAILABILITY DEBUG] Sample event:', {
-          subject: allEvents[0].subject,
-          startDateTime: allEvents[0].startDateTime,
-          endDateTime: allEvents[0].endDateTime,
-          locations: allEvents[0].locations,
-          locationsAsStrings: allEvents[0].locations?.map(l => l.toString())
-        });
-      }
+      console.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
+      console.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
+        _id: e._id?.toString(),
+        eventTitle: e.eventTitle || e.subject || e.graphData?.subject,
+        locations: e.locations,
+        locationType: e.locations?.map(l => typeof l),
+        startDateTime: e.startDateTime,
+        status: e.status,
+        source: e.source,
+        createdSource: e.createdSource
+      })));
     }
+
+    // Separate events into reservations (have status field with pending/approved) and calendar events
+    // Room reservations created via the reservation system have a 'status' field
+    const allReservations = allEvents.filter(e =>
+      e.status && ['pending', 'approved'].includes(e.status)
+    );
+    const allCalendarEvents = allEvents.filter(e =>
+      !e.status || !['pending', 'approved'].includes(e.status)
+    );
+
+    console.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
     
     // Helper function to format time for display
     const formatTime = (date) => date.toLocaleTimeString('en-US', { 
@@ -11529,20 +11540,16 @@ app.get('/api/rooms/availability', async (req, res) => {
         res.locations && res.locations.some(locId => locId.toString() === roomIdString)
       );
 
-      // Get ALL events for this room using ObjectId matching on locations array
-      const roomEvents = allEvents.filter(event =>
+      // Get ALL calendar events for this room (excludes reservations which are handled above)
+      const roomEvents = allCalendarEvents.filter(event =>
         event.locations && event.locations.some(locId => locId.toString() === roomIdString)
       );
 
       console.log(`[AVAILABILITY DEBUG] Room ${room.name || room.displayName} (${roomIdString}):`, {
-        totalEvents: allEvents.length,
-        filteredEvents: roomEvents.length,
-        roomEvents: roomEvents.map(e => ({
-          subject: e.subject,
-          start: e.startDateTime || e.startTime,
-          end: e.endDateTime || e.endTime,
-          locations: e.locations?.map(l => l.toString())
-        }))
+        totalReservations: allReservations.length,
+        filteredReservations: roomReservations.length,
+        totalCalendarEvents: allCalendarEvents.length,
+        filteredCalendarEvents: roomEvents.length
       });
 
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
