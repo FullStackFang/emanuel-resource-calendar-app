@@ -192,12 +192,26 @@ export default function WeekTimelineModal({
   }, [events, weekDates]);
 
   // Calculate event block position and height
+  // The datetime string represents wall clock time in the event's timezone
+  // We extract the time directly from the string to avoid JS Date timezone conversion issues
   const calculateEventPosition = (event) => {
-    const start = new Date(event.start.dateTime);
-    const end = new Date(event.end.dateTime);
+    const startDateTime = event.start.dateTime;
+    const endDateTime = event.end.dateTime;
 
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
+    // Extract hours and minutes directly from the ISO string (e.g., "2024-12-10T13:30:00")
+    // This avoids timezone conversion issues since the time in the string IS the wall clock time
+    const extractHoursFromString = (dateTimeStr) => {
+      // Remove Z suffix and any milliseconds, then extract time part
+      const cleanStr = dateTimeStr.replace(/Z$/, '').replace(/\.\d+$/, '');
+      const timePart = cleanStr.split('T')[1]; // "13:30:00"
+      if (!timePart) return 0;
+
+      const [hours, minutes] = timePart.split(':').map(Number);
+      return hours + (minutes || 0) / 60;
+    };
+
+    const startHour = extractHoursFromString(startDateTime);
+    const endHour = extractHoursFromString(endDateTime);
 
     const top = (startHour / 24) * 100; // percentage from top
     const height = ((endHour - startHour) / 24) * 100; // percentage height
@@ -206,19 +220,26 @@ export default function WeekTimelineModal({
   };
 
   // Format time for event display
+  // Extract time directly from the datetime string to match position calculation
   const formatEventTime = (event) => {
-    const start = new Date(event.start.dateTime);
-    const end = new Date(event.end.dateTime);
+    const formatTimeFromString = (dateTimeStr) => {
+      // Remove Z suffix and any milliseconds, then extract time part
+      const cleanStr = dateTimeStr.replace(/Z$/, '').replace(/\.\d+$/, '');
+      const timePart = cleanStr.split('T')[1]; // "13:30:00"
+      if (!timePart) return '';
 
-    const formatTime = (date) => {
-      return date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
+      const [hours, minutes] = timePart.split(':').map(Number);
+      const hour12 = hours % 12 || 12;
+      const period = hours < 12 ? 'AM' : 'PM';
+      const minuteStr = String(minutes || 0).padStart(2, '0');
+
+      return `${hour12}:${minuteStr} ${period}`;
     };
 
-    return `${formatTime(start)} - ${formatTime(end)}`;
+    const startTimeStr = formatTimeFromString(event.start.dateTime);
+    const endTimeStr = formatTimeFromString(event.end.dateTime);
+
+    return `${startTimeStr} - ${endTimeStr}`;
   };
 
   // Handle overlay click
