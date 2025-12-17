@@ -3833,6 +3833,9 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         createdByName: event.createdByName,
         createdSource: event.createdSource,
 
+        // Services (internal use only - stored at top-level in MongoDB)
+        services: event.services || {},
+
         // Flags for backward compatibility
         _hasInternalData: Object.keys(event.internalData || {}).some(key =>
           event.internalData[key] &&
@@ -4027,7 +4030,9 @@ app.get('/api/events', verifyToken, async (req, res) => {
           (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
         ),
         _lastSyncedAt: event.lastSyncedAt,
-        _cached: true
+        _cached: true,
+        // Include top-level services field (stored outside graphData/internalData)
+        services: event.services || {}
       };
     });
     
@@ -4296,9 +4301,6 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       calendarId,
       hasGraphToken: !!graphToken
     });
-
-    // Debug logging for services
-    logger.debug('[audit-update] Received internalFields.services:', internalFields?.services);
 
     if (!graphFields && !internalFields) {
       return res.status(400).json({ error: 'Either graphFields or internalFields must be provided' });
@@ -4574,7 +4576,6 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
       // Services (internal use only)
       newEventDoc.services = internalFields?.services || {};
-      logger.debug('[audit-update] Saving services to new event:', newEventDoc.services);
 
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {

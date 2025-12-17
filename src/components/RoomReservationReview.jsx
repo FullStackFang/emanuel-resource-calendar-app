@@ -92,7 +92,8 @@ export default function RoomReservationReview({
           startDate: reservation.startDate,
           startTime: reservation.startTime,
           endDate: reservation.endDate,
-          endTime: reservation.endTime
+          endTime: reservation.endTime,
+          services: reservation.services
         });
 
         // Handle both formats: combined datetime OR separate date/time fields

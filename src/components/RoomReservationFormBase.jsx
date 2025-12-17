@@ -157,6 +157,16 @@ export default function RoomReservationFormBase({
     initialData?.services || {}
   );
 
+  // Sync selectedServices when initialData changes (e.g., when loading an existing event)
+  useEffect(() => {
+    const newServices = initialData?.services;
+    console.log('🔧 [RoomReservationFormBase] services useEffect - initialData?.services:', newServices);
+    if (newServices && Object.keys(newServices).length > 0) {
+      console.log('🔧 [RoomReservationFormBase] Setting selectedServices to:', newServices);
+      setSelectedServices(newServices);
+    }
+  }, [initialData?.services]);
+
   const { rooms, loading: roomsLoading } = useRooms();
 
   // Refs to prevent unnecessary re-initialization of form data

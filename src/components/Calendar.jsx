@@ -4306,8 +4306,6 @@
           services: data.services || {}
         };
 
-        console.log('[handleSaveApiEvent] internal.services:', internal.services, 'data.services:', data.services);
-
         // Use the selected calendar from the calendar toggle
         let targetCalendarId = selectedCalendarId;
         if (!targetCalendarId) {
