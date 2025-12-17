@@ -639,13 +639,19 @@
             
       /**
        * Check if an event has no location assigned
-       * Checks if the locations array (ObjectIds) is empty
+       * Checks if the locations array (ObjectIds) is empty AND locationDisplayNames is empty
        */
       const isUnspecifiedLocation = useCallback((event) => {
         // Offsite events are NOT unspecified - they have their own group
         if (event.isOffsite) return false;
-        // Unspecified = locations array is empty (and not offsite)
-        return !event.locations || !Array.isArray(event.locations) || event.locations.length === 0;
+        // Has locations array with items = not unspecified
+        if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) return false;
+        // Has locationDisplayNames (raw location name from Graph API) = not unspecified
+        if (event.locationDisplayNames && event.locationDisplayNames.trim()) return false;
+        // Also check graphData.location.displayName as fallback
+        if (event.graphData?.location?.displayName && event.graphData.location.displayName.trim()) return false;
+        // No location data found = unspecified
+        return true;
       }, []);
 
       /** 
@@ -3258,15 +3264,31 @@
               groups['Unspecified'].events.push(event);
             }
           } else {
-            // Fallback for events without locations array - treat as Unspecified
-            if (!groups['Unspecified']) {
-              groups['Unspecified'] = {
-                locationId: null,
-                displayName: 'Unspecified',
-                events: []
-              };
+            // No locations array - check for locationDisplayNames or graphData.location
+            const rawLocationName = event.locationDisplayNames?.trim() ||
+                                    event.graphData?.location?.displayName?.trim() || '';
+
+            if (rawLocationName) {
+              // Create or use a dynamic group for this raw location name
+              if (!groups[rawLocationName]) {
+                groups[rawLocationName] = {
+                  locationId: null,
+                  displayName: rawLocationName,
+                  events: []
+                };
+              }
+              groups[rawLocationName].events.push(event);
+            } else {
+              // Truly no location info - add to Unspecified
+              if (!groups['Unspecified']) {
+                groups['Unspecified'] = {
+                  locationId: null,
+                  displayName: 'Unspecified',
+                  events: []
+                };
+              }
+              groups['Unspecified'].events.push(event);
             }
-            groups['Unspecified'].events.push(event);
           }
         }
       });

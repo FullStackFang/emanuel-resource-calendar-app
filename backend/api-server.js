@@ -2528,7 +2528,9 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
           unifiedEvent.locationDisplayNames = '';
         }
       } else {
-        unifiedEvent.locationDisplayNames = '';
+        // No alias matches found - preserve the raw location name from Graph API
+        // This ensures events still show their location even without database mapping
+        unifiedEvent.locationDisplayNames = locationDisplayName || '';
       }
     }
 
@@ -3709,17 +3711,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         )
       );
 
-      // Update events in unifiedEvents array with their MongoDB _ids
+      // Update events in unifiedEvents array with data from persisted events
+      // This includes _id, locations, and locationDisplayNames from upsertUnifiedEvent
       const persistedMap = new Map(
         persistedEvents
           .filter(e => e && e._id)
-          .map(e => [e.graphData?.id || e.eventId, e._id])
+          .map(e => [e.graphData?.id || e.eventId, e])
       );
 
       unifiedEvents.forEach(event => {
         const key = event.graphData?.id || event.eventId;
         if (persistedMap.has(key)) {
-          event._id = persistedMap.get(key);
+          const persisted = persistedMap.get(key);
+          // Copy essential fields from persisted event
+          event._id = persisted._id;
+          event.locations = persisted.locations;
+          event.locationDisplayNames = persisted.locationDisplayNames;
+          // Also copy locationId for legacy compatibility
+          if (persisted.locationId) {
+            event.locationId = persisted.locationId;
+          }
         }
       });
 
