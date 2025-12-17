@@ -109,6 +109,10 @@
     // Track last summary time to prevent duplicate summaries
     const lastSummaryTimeRef = useRef(0);
 
+    // Memoization cache for recurring event expansion (prevents redundant calculations)
+    const expansionCacheRef = useRef(new Map());
+    const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
+
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
     const setAllEvents = useCallback((newEvents) => {
       // Validate the new events
@@ -1670,15 +1674,33 @@
           );
 
           // EXPAND RECURRING SERIES: Convert series masters into individual occurrences
-          const expandedEvents = [];
-          for (const event of eventsToDisplay) {
-            // Check if this is a series master that needs expansion
-            if (event.graphData?.type === 'seriesMaster' && event.graphData?.recurrence) {
-              // Validate recurrence data structure before attempting expansion
+          // With memoization to avoid redundant calculations
+          calendarDebug.startPhase('recurring_expansion');
+
+          // Create cache key from date range and series master IDs
+          const seriesMasters = eventsToDisplay.filter(e =>
+            e.graphData?.type === 'seriesMaster' && e.graphData?.recurrence
+          );
+          const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
+          const expandStart = start.split('T')[0];
+          const expandEndDate = new Date(end);
+          expandEndDate.setDate(expandEndDate.getDate() + 1);
+          const expandEnd = expandEndDate.toISOString().split('T')[0];
+          const cacheKey = `${expandStart}-${expandEnd}-${masterIds}`;
+
+          // Check cache first
+          let expandedOccurrences = [];
+          const cachedExpansion = expansionCacheRef.current.get(cacheKey);
+
+          if (cachedExpansion) {
+            logger.debug(`Using cached recurring expansion (${cachedExpansion.length} occurrences)`);
+            expandedOccurrences = cachedExpansion;
+          } else {
+            // Expand each series master
+            for (const event of seriesMasters) {
               const recurrence = event.graphData.recurrence;
               if (!recurrence.pattern || !recurrence.range) {
                 logger.warn('Series master has malformed recurrence data:', event.graphData?.subject);
-                expandedEvents.push(event); // Include as-is
                 continue;
               }
 
@@ -1686,44 +1708,31 @@
                 // Prepare master event in format expected by expandRecurringSeries
                 const masterForExpansion = {
                   ...event.graphData,
-                  eventId: event.graphData.id  // Use Graph ID as eventId for the utility
+                  eventId: event.graphData.id
                 };
-
-
-                // Make end date inclusive for expansion (add 1 day)
-                // This fixes off-by-one error where events on the end date would be excluded
-                const expandEndDate = new Date(end);  // end is a full ISO string from formatDateRangeForAPI
-                expandEndDate.setDate(expandEndDate.getDate() + 1);
-                const expandEnd = expandEndDate.toISOString().split('T')[0];
-
-                // Extract date-only portions for expandRecurringSeries (expects YYYY-MM-DD format)
-                const expandStart = start.split('T')[0];
 
                 // Expand the master into occurrences for the current view range
                 const occurrences = expandRecurringSeries(
-                  masterForExpansion,  // Master event in Graph API format
-                  expandStart,  // View range start in YYYY-MM-DD format
-                  expandEnd  // View range end (extended by 1 day to be inclusive) in YYYY-MM-DD format
+                  masterForExpansion,
+                  expandStart,
+                  expandEnd
                 );
 
                 // Convert each occurrence to our event format
                 occurrences.forEach(occurrence => {
-                  // Extract date from occurrence (expandRecurringSeries returns start.dateTime)
                   const occurrenceDate = occurrence.start.dateTime.split('T')[0];
 
-                  expandedEvents.push({
-                    ...event,  // Copy all properties from master
-                    eventId: `${event.eventId}-occurrence-${occurrenceDate}`,  // Unique ID for occurrence
+                  expandedOccurrences.push({
+                    ...event,
+                    eventId: `${event.eventId}-occurrence-${occurrenceDate}`,
                     graphData: {
-                      ...occurrence,  // Use occurrence data (has correct start/end)
-                      id: `${event.graphData.id}-occurrence-${occurrenceDate}`,  // Unique Graph ID
-                      type: 'occurrence',  // Mark as occurrence
-                      seriesMasterId: event.graphData.id  // Link to master
+                      ...occurrence,
+                      id: `${event.graphData.id}-occurrence-${occurrenceDate}`,
+                      type: 'occurrence',
+                      seriesMasterId: event.graphData.id
                     },
-                    // Override the start/end objects from master with occurrence's start/end
                     start: occurrence.start,
                     end: occurrence.end,
-                    // Update top-level date fields for calendar display
                     startDate: occurrenceDate,
                     startDateTime: occurrence.start.dateTime,
                     endDateTime: occurrence.end.dateTime,
@@ -1736,19 +1745,30 @@
                 });
               } catch (error) {
                 logger.error('Error expanding recurring series:', event.graphData?.subject, error);
-                // Include master as-is if expansion fails
-                expandedEvents.push(event);
               }
-            } else {
-              // Not a series master - include as-is
-              if (event.graphData?.type === 'seriesMaster') {
-                logger.warn('Series master not expanded - missing recurrence data:', event.graphData?.subject);
+            }
+
+            // Store in cache (with size limit)
+            if (masterIds.length > 0) {
+              expansionCacheRef.current.set(cacheKey, expandedOccurrences);
+
+              // Limit cache size
+              if (expansionCacheRef.current.size > MAX_EXPANSION_CACHE_SIZE) {
+                const firstKey = expansionCacheRef.current.keys().next().value;
+                expansionCacheRef.current.delete(firstKey);
               }
-              expandedEvents.push(event);
+
+              logger.debug(`Cached recurring expansion: ${expandedOccurrences.length} occurrences`);
             }
           }
 
+          // Combine: non-recurring events + expanded occurrences (skip series masters)
+          const expandedEvents = eventsToDisplay
+            .filter(e => e.graphData?.type !== 'seriesMaster')
+            .concat(expandedOccurrences);
+
           eventsToDisplay = expandedEvents;
+          calendarDebug.endPhase('recurring_expansion', { count: expandedOccurrences.length, cached: !!cachedExpansion });
           logger.debug(`Loaded ${eventsToDisplay.length} events (${eventsToDisplay.length - eventsBeforeExpansion} expanded from recurring)`);
 
           // Log the events we're setting

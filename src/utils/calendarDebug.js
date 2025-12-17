@@ -4,6 +4,8 @@
 class CalendarDebugLogger {
   constructor() {
     this.isEnabled = this.loadDebugState();
+    this.loadTimings = {}; // Track phase timings for current load operation
+    this.loadStartTime = null;
   }
 
   // Load debug state from localStorage
@@ -89,12 +91,86 @@ class CalendarDebugLogger {
   // Log event loading completion
   logEventLoadingComplete(calendarId, eventCount, duration) {
     if (!this.isEnabled) return;
-    
+
     console.group('✅ Events Loaded');
     console.log('Calendar ID:', calendarId);
     console.log('Event count:', eventCount);
     console.log('Duration:', duration, 'ms');
     console.log('Timestamp:', new Date().toISOString());
+
+    // Log detailed timing breakdown if available
+    if (Object.keys(this.loadTimings).length > 0) {
+      console.group('⏱️ Timing Breakdown');
+      for (const [phase, timing] of Object.entries(this.loadTimings)) {
+        console.log(`${phase}: ${timing.duration}ms`);
+      }
+      console.groupEnd();
+    }
+
+    console.groupEnd();
+
+    // Reset timings for next load
+    this.loadTimings = {};
+    this.loadStartTime = null;
+  }
+
+  // Start timing a load operation
+  startLoadTiming() {
+    this.loadStartTime = performance.now();
+    this.loadTimings = {};
+  }
+
+  // Start timing a specific phase
+  startPhase(phaseName) {
+    this.loadTimings[phaseName] = {
+      startTime: performance.now(),
+      duration: 0
+    };
+  }
+
+  // End timing a specific phase
+  endPhase(phaseName, metadata = {}) {
+    if (this.loadTimings[phaseName]) {
+      const endTime = performance.now();
+      this.loadTimings[phaseName].duration = Math.round(endTime - this.loadTimings[phaseName].startTime);
+      this.loadTimings[phaseName].metadata = metadata;
+    }
+  }
+
+  // Get timing summary
+  getTimingSummary() {
+    const totalDuration = this.loadStartTime ? Math.round(performance.now() - this.loadStartTime) : 0;
+
+    const phases = {};
+    for (const [name, data] of Object.entries(this.loadTimings)) {
+      phases[name] = {
+        duration: data.duration,
+        metadata: data.metadata || {}
+      };
+    }
+
+    return {
+      totalDuration,
+      phases
+    };
+  }
+
+  // Log timing summary (can be called anytime)
+  logTimingSummary() {
+    if (!this.isEnabled) return;
+
+    const summary = this.getTimingSummary();
+
+    console.group('⏱️ Load Performance Summary');
+    console.log(`Total: ${summary.totalDuration}ms`);
+
+    for (const [phase, data] of Object.entries(summary.phases)) {
+      const metaStr = Object.keys(data.metadata).length > 0
+        ? ` (${JSON.stringify(data.metadata)})`
+        : '';
+      console.log(`  ${phase}: ${data.duration}ms${metaStr}`);
+    }
+
     console.groupEnd();
   }
 

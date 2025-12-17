@@ -12,6 +12,8 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+// Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
+// const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
 
 dotenv.config();
@@ -284,6 +286,21 @@ async function createUnifiedEventIndexes() {
       {
         name: "userId_location_displayName",
         background: true
+      }
+    );
+
+    // Index for recurring event queries (series masters)
+    // Optimizes queries that filter by event type and recurrence data
+    await unifiedEventsCollection.createIndex(
+      {
+        userId: 1,
+        "graphData.type": 1,
+        "graphData.recurrence.range.startDate": 1
+      },
+      {
+        name: "userId_recurringType_startDate",
+        background: true,
+        partialFilterExpression: { "graphData.type": "seriesMaster" }
       }
     );
 
@@ -2665,6 +2682,217 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
 }
 
 /**
+ * Bulk upsert events for performance optimization
+ * Uses bulkWrite instead of individual upserts - reduces N database round-trips to 1
+ * @param {string} userId - User ID
+ * @param {Array} events - Array of event objects with graphData, internalData, sourceCalendars
+ * @returns {Object} Result with persisted events and their _ids
+ */
+async function bulkUpsertEvents(userId, events) {
+  if (!events || events.length === 0) {
+    return { persistedEvents: [], bulkResult: null };
+  }
+
+  const now = new Date();
+
+  try {
+    // STEP 1: Pre-query existing events to get their UUIDs (single query)
+    const graphIds = events.map(e => e.graphData?.id).filter(Boolean);
+    const existingEvents = await unifiedEventsCollection.find({
+      userId: userId,
+      'graphData.id': { $in: graphIds }
+    }).project({ eventId: 1, 'graphData.id': 1, _id: 1 }).toArray();
+
+    const graphIdToEventInfo = new Map();
+    existingEvents.forEach(e => {
+      graphIdToEventInfo.set(e.graphData.id, { eventId: e.eventId, _id: e._id });
+    });
+
+    // STEP 2: Pre-resolve all locations in batch (single query)
+    const allLocationStrings = new Set();
+    events.forEach(event => {
+      const locationDisplayName = event.graphData?.location?.displayName || '';
+      if (locationDisplayName && !isVirtualLocation(locationDisplayName)) {
+        const locationStrings = parseLocationString(locationDisplayName);
+        locationStrings.forEach(ls => {
+          allLocationStrings.add(normalizeLocationString(ls));
+        });
+      }
+    });
+
+    // Query all locations that might match
+    const locationAliasMap = new Map();
+    if (allLocationStrings.size > 0) {
+      const locations = await locationsCollection.find({
+        aliases: { $in: Array.from(allLocationStrings) }
+      }).toArray();
+
+      locations.forEach(loc => {
+        loc.aliases.forEach(alias => {
+          locationAliasMap.set(alias, loc);
+        });
+      });
+    }
+
+    // Get virtual meeting location if needed
+    const hasVirtualMeetings = events.some(e => isVirtualLocation(e.graphData?.location?.displayName || ''));
+    let virtualLocation = null;
+    if (hasVirtualMeetings) {
+      virtualLocation = await locationsCollection.findOne({ name: 'Virtual Meeting' });
+    }
+
+    // STEP 3: Build bulk operations
+    const bulkOps = [];
+    const eventDocuments = [];
+
+    for (const event of events) {
+      const graphId = event.graphData?.id;
+      if (!graphId) continue;
+
+      // Get or generate eventId
+      const existingInfo = graphIdToEventInfo.get(graphId);
+      const eventId = existingInfo?.eventId || event.eventId || crypto.randomUUID();
+
+      // Build the document
+      const locationDisplayName = event.graphData?.location?.displayName || '';
+      let locations = [];
+      let locationDisplayNames = '';
+      let virtualMeetingUrl = null;
+      let virtualPlatform = null;
+
+      // Resolve locations
+      if (locationDisplayName && isVirtualLocation(locationDisplayName)) {
+        virtualMeetingUrl = locationDisplayName;
+        virtualPlatform = getVirtualPlatform(locationDisplayName);
+        if (virtualLocation) {
+          locations = [virtualLocation._id];
+          locationDisplayNames = 'Virtual Meeting';
+        }
+      } else if (locationDisplayName) {
+        const locationStrings = parseLocationString(locationDisplayName);
+        for (const ls of locationStrings) {
+          const normalized = normalizeLocationString(ls);
+          const loc = locationAliasMap.get(normalized);
+          if (loc && !locations.some(id => id.toString() === loc._id.toString())) {
+            locations.push(loc._id);
+          }
+        }
+        // Calculate display names
+        if (locations.length > 0) {
+          try {
+            locationDisplayNames = await calculateLocationDisplayNames(locations, db);
+          } catch {
+            locationDisplayNames = locationDisplayName;
+          }
+        } else {
+          locationDisplayNames = locationDisplayName;
+        }
+      }
+
+      // Build event document
+      const startDateTime = event.graphData?.start?.dateTime;
+      const endDateTime = event.graphData?.end?.dateTime;
+      const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
+      const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
+
+      const doc = {
+        userId: userId,
+        calendarId: event.calendarId,
+        eventId: eventId,
+        graphData: event.graphData,
+        internalData: event.internalData || {},
+        sourceCalendars: event.sourceCalendars || [],
+        locations: locations,
+        locationDisplayNames: locationDisplayNames,
+        virtualMeetingUrl: virtualMeetingUrl,
+        virtualPlatform: virtualPlatform,
+        // Top-level fields
+        eventTitle: event.graphData?.subject || 'Untitled Event',
+        eventDescription: extractTextFromHtml(event.graphData?.body?.content) || event.graphData?.bodyPreview || '',
+        startDateTime: utcStartString,
+        endDateTime: utcEndString,
+        startDate: utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '',
+        startTime: utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '',
+        endDate: utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '',
+        endTime: utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '',
+        isAllDayEvent: event.graphData?.isAllDay || false,
+        // Status fields
+        isDeleted: false,
+        lastSyncedAt: now,
+        cachedAt: now,
+        lastAccessedAt: now,
+        // Change tracking
+        etag: event.graphData?.['@odata.etag'] || null,
+        changeKey: event.graphData?.changeKey || null,
+        lastModifiedDateTime: event.graphData?.lastModifiedDateTime ? new Date(event.graphData.lastModifiedDateTime) : now
+      };
+
+      // Add creation fields for new events
+      if (!existingInfo) {
+        doc.createdAt = now;
+        doc.createdBy = userId;
+        doc.createdByEmail = event.graphData?.organizer?.emailAddress?.address || 'system@graph-sync';
+        doc.createdByName = event.graphData?.organizer?.emailAddress?.name || 'Graph Sync';
+        doc.createdSource = 'graph-sync';
+      }
+
+      eventDocuments.push({ doc, graphId, eventId });
+
+      bulkOps.push({
+        updateOne: {
+          filter: {
+            $or: [
+              { userId: userId, calendarId: event.calendarId, eventId: eventId },
+              { userId: userId, 'graphData.id': graphId }
+            ]
+          },
+          update: { $set: doc },
+          upsert: true
+        }
+      });
+    }
+
+    // STEP 4: Execute bulk write
+    let bulkResult = null;
+    if (bulkOps.length > 0) {
+      bulkResult = await unifiedEventsCollection.bulkWrite(bulkOps, { ordered: false });
+      logger.log(`[PERF] Bulk upsert: ${bulkOps.length} events in single operation`, {
+        insertedCount: bulkResult.upsertedCount,
+        modifiedCount: bulkResult.modifiedCount,
+        matchedCount: bulkResult.matchedCount
+      });
+    }
+
+    // STEP 5: Query back to get _ids for upserted documents
+    const persistedEvents = [];
+    if (eventDocuments.length > 0) {
+      const savedEvents = await unifiedEventsCollection.find({
+        userId: userId,
+        'graphData.id': { $in: eventDocuments.map(e => e.graphId) }
+      }).project({ _id: 1, 'graphData.id': 1, eventId: 1, locations: 1, locationDisplayNames: 1 }).toArray();
+
+      const savedMap = new Map();
+      savedEvents.forEach(e => savedMap.set(e.graphData.id, e));
+
+      for (const { doc, graphId } of eventDocuments) {
+        const saved = savedMap.get(graphId);
+        persistedEvents.push({
+          ...doc,
+          _id: saved?._id,
+          locations: saved?.locations || doc.locations,
+          locationDisplayNames: saved?.locationDisplayNames || doc.locationDisplayNames
+        });
+      }
+    }
+
+    return { persistedEvents, bulkResult };
+  } catch (error) {
+    logger.error('Error in bulkUpsertEvents:', error);
+    throw error;
+  }
+}
+
+/**
  * Location extraction and matching helper functions
  */
 
@@ -3406,47 +3634,63 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       strategy: 'hybrid' // Cache + Graph API
     };
 
-    // STEP 1: Load from unified events collection (cache)
+    // STEP 1: Load from unified events collection (cache) - PARALLEL FETCHING
     let unifiedEvents = [];
     const cachedEventIds = new Set(); // Track which events are in cache
-    logger.debug('Loading events from cache...');
+    logger.debug('Loading events from cache (parallel)...');
 
     if (startTime && endTime) {
-      for (const calendarId of calendarIds) {
-        try {
-          const cachedEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
-
-          if (cachedEvents.length > 0) {
-            logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
-            unifiedEvents = unifiedEvents.concat(cachedEvents);
-
-            // Track cached event IDs for deduplication (use Graph ID, not internal eventId)
-            cachedEvents.forEach(event => {
-              if (event.graphData?.id) {
-                cachedEventIds.add(event.graphData.id);  // Use Graph ID for comparison
-              }
-            });
-
-            loadResults.calendars[calendarId] = {
-              cachedEvents: cachedEvents.length,
-              source: 'hybrid'
-            };
-          } else {
-            logger.debug(`No cached events found for calendar ${calendarId} in date range`);
-            loadResults.calendars[calendarId] = {
-              cachedEvents: 0,
-              source: 'hybrid'
-            };
+      // Fetch all calendars in parallel instead of sequentially
+      const cacheResults = await Promise.all(
+        calendarIds.map(async (calendarId) => {
+          try {
+            const cachedEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
+            return { calendarId, cachedEvents, error: null };
+          } catch (cacheError) {
+            logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
+            return { calendarId, cachedEvents: [], error: cacheError };
           }
-        } catch (cacheError) {
-          logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
+        })
+      );
+
+      // Process results
+      for (const result of cacheResults) {
+        const { calendarId, cachedEvents, error } = result;
+
+        if (error) {
           loadResults.errors.push({
             calendarId: calendarId,
-            error: cacheError.message,
+            error: error.message,
             step: 'cache'
           });
+          continue;
+        }
+
+        if (cachedEvents.length > 0) {
+          logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
+          unifiedEvents = unifiedEvents.concat(cachedEvents);
+
+          // Track cached event IDs for deduplication (use Graph ID, not internal eventId)
+          cachedEvents.forEach(event => {
+            if (event.graphData?.id) {
+              cachedEventIds.add(event.graphData.id);
+            }
+          });
+
+          loadResults.calendars[calendarId] = {
+            cachedEvents: cachedEvents.length,
+            source: 'hybrid'
+          };
+        } else {
+          logger.debug(`No cached events found for calendar ${calendarId} in date range`);
+          loadResults.calendars[calendarId] = {
+            cachedEvents: 0,
+            source: 'hybrid'
+          };
         }
       }
+
+      logger.log(`[PERF] Parallel cache load: ${calendarIds.length} calendars, ${unifiedEvents.length} total cached events`);
     }
 
     // STEP 2: Fetch from Graph API and merge with cache
@@ -3693,48 +3937,70 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       logger.warn(`   - graphToken: ${!!graphToken}`);
     }
 
-    // STEP 3: Synchronously persist new Graph events to ensure _id is available
-    // Following "read your own writes" pattern for immediate interactivity
+    // STEP 3: Batch persist new Graph events using bulkWrite for performance
+    // Uses single database operation instead of N individual upserts
     if (newGraphEvents.length > 0) {
-      const persistedEvents = await Promise.all(
-        newGraphEvents.map(event =>
-          upsertUnifiedEvent(
-            userId,
-            event.calendarId,
-            event.graphData,
-            event.internalData,
-            event.sourceCalendars
-          ).catch(err => {
-            logger.warn(`Failed to cache event ${event.eventId}:`, err.message);
-            return event; // Return original on failure
-          })
-        )
-      );
+      try {
+        const { persistedEvents, bulkResult } = await bulkUpsertEvents(userId, newGraphEvents);
 
-      // Update events in unifiedEvents array with data from persisted events
-      // This includes _id, locations, and locationDisplayNames from upsertUnifiedEvent
-      const persistedMap = new Map(
-        persistedEvents
-          .filter(e => e && e._id)
-          .map(e => [e.graphData?.id || e.eventId, e])
-      );
+        // Update events in unifiedEvents array with data from persisted events
+        // This includes _id, locations, and locationDisplayNames
+        const persistedMap = new Map(
+          persistedEvents
+            .filter(e => e && e._id)
+            .map(e => [e.graphData?.id || e.eventId, e])
+        );
 
-      unifiedEvents.forEach(event => {
-        const key = event.graphData?.id || event.eventId;
-        if (persistedMap.has(key)) {
-          const persisted = persistedMap.get(key);
-          // Copy essential fields from persisted event
-          event._id = persisted._id;
-          event.locations = persisted.locations;
-          event.locationDisplayNames = persisted.locationDisplayNames;
-          // Also copy locationId for legacy compatibility
-          if (persisted.locationId) {
-            event.locationId = persisted.locationId;
+        unifiedEvents.forEach(event => {
+          const key = event.graphData?.id || event.eventId;
+          if (persistedMap.has(key)) {
+            const persisted = persistedMap.get(key);
+            // Copy essential fields from persisted event
+            event._id = persisted._id;
+            event.locations = persisted.locations;
+            event.locationDisplayNames = persisted.locationDisplayNames;
+            event.virtualMeetingUrl = persisted.virtualMeetingUrl;
+            event.virtualPlatform = persisted.virtualPlatform;
           }
-        }
-      });
+        });
 
-      logger.log(`📦 Persisted ${persistedMap.size} new events to MongoDB`);
+        logger.log(`📦 Batch persisted ${persistedMap.size} new events to MongoDB`);
+      } catch (err) {
+        logger.error('Bulk persist failed, falling back to individual upserts:', err.message);
+        // Fallback to individual upserts if bulk fails
+        const persistedEvents = await Promise.all(
+          newGraphEvents.map(event =>
+            upsertUnifiedEvent(
+              userId,
+              event.calendarId,
+              event.graphData,
+              event.internalData,
+              event.sourceCalendars
+            ).catch(innerErr => {
+              logger.warn(`Failed to cache event ${event.eventId}:`, innerErr.message);
+              return event;
+            })
+          )
+        );
+
+        const persistedMap = new Map(
+          persistedEvents
+            .filter(e => e && e._id)
+            .map(e => [e.graphData?.id || e.eventId, e])
+        );
+
+        unifiedEvents.forEach(event => {
+          const key = event.graphData?.id || event.eventId;
+          if (persistedMap.has(key)) {
+            const persisted = persistedMap.get(key);
+            event._id = persisted._id;
+            event.locations = persisted.locations;
+            event.locationDisplayNames = persisted.locationDisplayNames;
+          }
+        });
+
+        logger.log(`📦 Fallback: Persisted ${persistedMap.size} new events individually`);
+      }
     }
 
     // STEP 2: Return events with full database structure (preserving graphData and internalData)
