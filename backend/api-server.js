@@ -4297,6 +4297,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       hasGraphToken: !!graphToken
     });
 
+    // Debug logging for services
+    logger.debug('[audit-update] Received internalFields.services:', internalFields?.services);
+
     if (!graphFields && !internalFields) {
       return res.status(400).json({ error: 'Either graphFields or internalFields must be provided' });
     }
@@ -4571,12 +4574,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
       // Services (internal use only)
       newEventDoc.services = internalFields?.services || {};
+      logger.debug('[audit-update] Saving services to new event:', newEventDoc.services);
 
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
         eventId: actualEventId,
         insertedId: dbUpdateResult.insertedId,
-        locationDisplayNames: newEventDoc.locationDisplayNames
+        locationDisplayNames: newEventDoc.locationDisplayNames,
+        services: newEventDoc.services
       });
     } else {
       // Update existing event
