@@ -662,6 +662,18 @@ export default function RoomReservationFormBase({
     }
   }, [isFormValid, onFormValidChange]);
 
+  // Helper function to notify parent of data changes
+  // Always includes current categories and services to prevent them from being overwritten
+  const notifyDataChange = useCallback((updatedData) => {
+    if (onDataChange) {
+      onDataChange({
+        ...updatedData,
+        categories: selectedCategories,
+        services: selectedServices
+      });
+    }
+  }, [onDataChange, selectedCategories, selectedServices]);
+
   // Event handlers
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -690,9 +702,7 @@ export default function RoomReservationFormBase({
     setFormData(updatedData);
     setHasChanges(true);
 
-    if (onDataChange) {
-      onDataChange(updatedData);
-    }
+    notifyDataChange(updatedData);
   };
 
   const handleRoomSelectionChange = (newSelectedRooms) => {
@@ -704,9 +714,7 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
 
     // Notify parent component of change so save button gets enabled
-    if (onDataChange) {
-      onDataChange(updatedData);
-    }
+    notifyDataChange(updatedData);
   };
 
   const handleRemoveAssistantRoom = (room) => {
@@ -719,8 +727,6 @@ export default function RoomReservationFormBase({
   };
 
   const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
-    console.log('[handleEventTimeChange] Called with:', { startTime, endTime, setupTime, teardownTime });
-
     const updatedData = {
       ...formData,
       startTime,
@@ -733,14 +739,9 @@ export default function RoomReservationFormBase({
 
     setFormData(updatedData);
     setHasChanges(true);
-    console.log('[handleEventTimeChange] setHasChanges(true) called');
 
     // Notify parent of data change (consistent with handleInputChange)
-    console.log('[handleEventTimeChange] onDataChange exists:', !!onDataChange);
-    if (onDataChange) {
-      console.log('[handleEventTimeChange] Calling onDataChange with:', updatedData);
-      onDataChange(updatedData);
-    }
+    notifyDataChange(updatedData);
   };
 
   const handleTimeSlotClick = (hour) => {
@@ -758,9 +759,7 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
 
     // Also notify parent component of change
-    if (onDataChange) {
-      onDataChange({ ...formData, adHocDates: newDates });
-    }
+    notifyDataChange({ ...formData, adHocDates: newDates });
   };
 
   // Handle recurrence pattern save (memoized to prevent infinite loops)
@@ -769,10 +768,8 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
 
     // Notify parent component
-    if (onDataChange) {
-      onDataChange({ ...formData, recurrence: pattern });
-    }
-  }, [formData, onDataChange]);
+    notifyDataChange({ ...formData, recurrence: pattern });
+  }, [formData, notifyDataChange]);
 
   // Handle remove recurrence
   const handleRemoveRecurrence = () => {
@@ -781,9 +778,7 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
 
     // Notify parent component
-    if (onDataChange) {
-      onDataChange({ ...formData, recurrence: null });
-    }
+    notifyDataChange({ ...formData, recurrence: null });
   };
 
   // Handle virtual meeting URL save
@@ -793,9 +788,7 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
 
     // Notify parent component
-    if (onDataChange) {
-      onDataChange({ ...formData, virtualMeetingUrl: url });
-    }
+    notifyDataChange({ ...formData, virtualMeetingUrl: url });
   };
 
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
@@ -1661,9 +1654,7 @@ export default function RoomReservationFormBase({
           setFormData(updatedData);
           setHasChanges(true);
           // Notify parent component of offsite data change
-          if (onDataChange) {
-            onDataChange(updatedData);
-          }
+          notifyDataChange(updatedData);
         }}
         initialName={formData.offsiteName}
         initialAddress={formData.offsiteAddress}
@@ -1679,8 +1670,13 @@ export default function RoomReservationFormBase({
           setSelectedCategories(categories);
           setHasChanges(true);
           // Notify parent component of category change (syncs with Outlook)
+          // Must pass categories explicitly since state hasn't updated yet
           if (onDataChange) {
-            onDataChange({ ...formData, categories });
+            onDataChange({
+              ...formData,
+              categories,
+              services: selectedServices
+            });
           }
         }}
         initialCategories={selectedCategories}
@@ -1694,8 +1690,13 @@ export default function RoomReservationFormBase({
           setSelectedServices(services);
           setHasChanges(true);
           // Notify parent component of services change (internal use only)
+          // Must pass services explicitly since state hasn't updated yet
           if (onDataChange) {
-            onDataChange({ ...formData, services });
+            onDataChange({
+              ...formData,
+              categories: selectedCategories,
+              services
+            });
           }
         }}
         initialServices={selectedServices}
