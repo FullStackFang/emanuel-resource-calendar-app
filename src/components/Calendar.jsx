@@ -4612,6 +4612,8 @@
     const handleEventReviewModalSave = useCallback(async () => {
       const { mode: originalMode, event: reservationData } = eventReviewModal;
 
+      console.log('Form data being saved:', reservationData);
+
       if (!reservationData) {
         logger.error('No event data available to save');
         return;
