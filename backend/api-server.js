@@ -13682,7 +13682,8 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
       accessibility,
       address,
       description,
-      notes
+      notes,
+      isReservable
     } = req.body;
 
     // Validate required fields
@@ -13716,6 +13717,7 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
       address: address?.trim() || '',
       description: description?.trim() || '',
       notes: notes?.trim() || '',
+      isReservable: isReservable === true,
       status: 'approved',
       active: true,
       usageCount: 0,
@@ -13773,7 +13775,8 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
       accessibility,
       address,
       description,
-      notes
+      notes,
+      isReservable
     } = req.body;
 
     // Validate name if provided
@@ -13813,6 +13816,7 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
     if (address !== undefined) updateFields.address = address.trim();
     if (description !== undefined) updateFields.description = description.trim();
     if (notes !== undefined) updateFields.notes = notes.trim();
+    if (isReservable !== undefined) updateFields.isReservable = isReservable === true;
 
     await locationsCollection.updateOne(
       { _id: locationId },

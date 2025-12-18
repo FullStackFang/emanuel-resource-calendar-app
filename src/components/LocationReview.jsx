@@ -2,9 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import { useLocations } from '../context/LocationContext';
 import './LocationReview.css';
 
 export default function LocationReview({ apiToken }) {
+  // Get refreshLocations from global context to sync after changes
+  const { refreshLocations: refreshGlobalLocations } = useLocations();
+
   const [allLocations, setAllLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -150,6 +154,9 @@ export default function LocationReview({ apiToken }) {
 
       // Reload locations
       await loadLocations();
+
+      // Refresh global LocationContext
+      refreshGlobalLocations();
 
       // Show success message
       showToast(
@@ -340,6 +347,9 @@ export default function LocationReview({ apiToken }) {
         showToast(`✅ Created location: ${savedLocation.name}`, 'success');
       }
 
+      // Refresh global LocationContext so other components get the update
+      refreshGlobalLocations();
+
       setShowLocationModal(false);
       setEditingLocation(null);
     } catch (err) {
@@ -350,13 +360,13 @@ export default function LocationReview({ apiToken }) {
 
   const handleToggleReservable = async (location) => {
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/rooms/${location._id}`, {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ ...location, isReservable: !location.isReservable })
+        body: JSON.stringify({ isReservable: !location.isReservable })
       });
 
       if (!response.ok) throw new Error('Failed to update location reservable status');
@@ -364,6 +374,9 @@ export default function LocationReview({ apiToken }) {
       const updatedLocation = await response.json();
       setAllLocations(prev => prev.map(l => l._id === updatedLocation._id ? updatedLocation : l));
       showToast(`✅ ${updatedLocation.name} is now ${updatedLocation.isReservable ? 'reservable' : 'not reservable'}`, 'success');
+
+      // Refresh global LocationContext
+      refreshGlobalLocations();
     } catch (err) {
       logger.error('Error updating location reservable status:', err);
       showToast(`❌ Error: ${err.message}`, 'error');
@@ -475,6 +488,9 @@ export default function LocationReview({ apiToken }) {
 
         // Remove from list
         setAllLocations(prev => prev.filter(loc => loc._id !== location._id));
+
+        // Refresh global LocationContext
+        refreshGlobalLocations();
 
         // Show success message
         const successMessage = result.eventsUpdated > 0
