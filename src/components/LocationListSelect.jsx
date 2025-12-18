@@ -1,6 +1,8 @@
 // src/components/LocationListSelect.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './LocationListSelect.css';
+
+const ITEMS_PER_PAGE = 10;
 
 export default function LocationListSelect({
   rooms,
@@ -20,6 +22,7 @@ export default function LocationListSelect({
   disabled = false
 }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
 
   // Helper function to normalize IDs for comparison (handles ObjectId vs string mismatch)
   const normalizeId = (id) => id?.toString() || id;
@@ -84,6 +87,26 @@ export default function LocationListSelect({
     room.building?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     room.features?.some(feature => feature.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredRooms.length / ITEMS_PER_PAGE);
+  const startIndex = currentPage * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedRooms = filteredRooms.slice(startIndex, endIndex);
+
+  // Reset to first page when search changes or when current page is out of bounds
+  useEffect(() => {
+    if (currentPage >= totalPages && totalPages > 0) {
+      setCurrentPage(totalPages - 1);
+    } else if (totalPages === 0) {
+      setCurrentPage(0);
+    }
+  }, [searchTerm, totalPages, currentPage]);
+
+  // Reset to first page when search term changes
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [searchTerm]);
 
   const toggleRoom = (room) => {
     const roomId = normalizeId(room._id);
@@ -162,7 +185,27 @@ export default function LocationListSelect({
         </div>
       </div>
 
-      {/* Scrollable Room List */}
+      {/* Pagination Tabs - only show if more than one page */}
+      {totalPages > 1 && !isOffsite && (
+        <div className="list-pagination-tabs">
+          {Array.from({ length: totalPages }, (_, index) => (
+            <button
+              key={index}
+              type="button"
+              className={`list-page-tab ${currentPage === index ? 'active' : ''}`}
+              onClick={() => setCurrentPage(index)}
+              disabled={disabled}
+            >
+              {index + 1}
+            </button>
+          ))}
+          <span className="list-page-info">
+            {filteredRooms.length} locations
+          </span>
+        </div>
+      )}
+
+      {/* Room List */}
       <div className={`list-rooms-container ${disabled || isOffsite ? 'disabled' : ''}`}>
         {isOffsite ? (
           <div className="list-offsite-message">
@@ -174,7 +217,7 @@ export default function LocationListSelect({
             {searchTerm ? `No locations match "${searchTerm}"` : 'No locations available'}
           </div>
         ) : (
-          filteredRooms.map(room => {
+          paginatedRooms.map(room => {
             const roomStatus = getRoomStatus(room);
             const isSelected = isRoomSelected(room._id);
 
