@@ -2405,6 +2405,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       // Graph API data (source of truth)
       graphData: {
         id: graphEvent.id,
+        iCalUId: graphEvent.iCalUId,
         subject: graphEvent.subject,
         start: graphEvent.start,
         end: graphEvent.end,
@@ -2747,7 +2748,8 @@ async function bulkUpsertEvents(userId, events) {
 
     for (const event of events) {
       const graphId = event.graphData?.id;
-      if (!graphId) continue;
+      const iCalUId = event.graphData?.iCalUId;
+      if (!graphId && !iCalUId) continue; // Need at least one identifier
 
       // Get or generate eventId
       const existingInfo = graphIdToEventInfo.get(graphId);
@@ -2838,15 +2840,24 @@ async function bulkUpsertEvents(userId, events) {
 
       eventDocuments.push({ doc, graphId, eventId });
 
+      // Remove eventId from doc before $set so existing eventIds (e.g., rssched-*) aren't overwritten
+      const { eventId: _eventId, ...docWithoutEventId } = doc;
+
+      // Build filter using iCalUId (preferred) or graphData.id
+      const filterConditions = [];
+      if (iCalUId) filterConditions.push({ 'graphData.iCalUId': iCalUId });
+      if (graphId) filterConditions.push({ 'graphData.id': graphId });
+
       bulkOps.push({
         updateOne: {
           filter: {
-            $or: [
-              { userId: userId, calendarId: event.calendarId, eventId: eventId },
-              { userId: userId, 'graphData.id': graphId }
-            ]
+            userId: userId,
+            $or: filterConditions
           },
-          update: { $set: doc },
+          update: {
+            $set: docWithoutEventId,
+            $setOnInsert: { eventId: eventId }
+          },
           upsert: true
         }
       });
@@ -3670,9 +3681,14 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
           unifiedEvents = unifiedEvents.concat(cachedEvents);
 
-          // Track cached event IDs for deduplication (use Graph ID, not internal eventId)
+          // Track cached event IDs for deduplication (use iCalUId - globally unique across mailboxes)
           cachedEvents.forEach(event => {
-            if (event.graphData?.id) {
+            // Prefer iCalUId for deduplication (consistent across all mailboxes)
+            if (event.graphData?.iCalUId) {
+              cachedEventIds.add(event.graphData.iCalUId);
+            }
+            // Fallback to id for older records without iCalUId
+            else if (event.graphData?.id) {
               cachedEventIds.add(event.graphData.id);
             }
           });
@@ -3714,7 +3730,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             `startDateTime=${encodeURIComponent(startISO)}` +
             `&endDateTime=${encodeURIComponent(endISO)}` +
             `&$top=250` +
-            `&$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
+            `&$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
 
           logger.log(`🌐 Calling Graph API (/calendarView) for calendar ${calendarId.substring(0, 20)}...`);
 
@@ -3767,24 +3783,41 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
           // Note: /calendarView automatically expands recurring series - no manual expansion needed!
 
-          // Find new events not in cache
-          const newEvents = graphEvents.filter(graphEvent => !cachedEventIds.has(graphEvent.id));
+          // Find new events not in cache (check by iCalUId first, then fallback to id)
+          const newEvents = graphEvents.filter(graphEvent => {
+            // Check by iCalUId first (globally unique across mailboxes)
+            if (graphEvent.iCalUId && cachedEventIds.has(graphEvent.iCalUId)) return false;
+            // Fallback: check by id (for compatibility with older records)
+            if (cachedEventIds.has(graphEvent.id)) return false;
+            return true;
+          });
 
           if (newEvents.length > 0) {
             logger.log(`📝 Adding ${newEvents.length} new events (${graphEvents.length - newEvents.length} already cached)`);
 
-            // Query database for existing events by graphData.id to get their eventIds
+            // Query database for existing events by iCalUId or graphData.id to get their eventIds
             // Also check for deleted events to prevent re-adding them
             const graphEventIds = newEvents.map(e => e.id);
+            const iCalUIds = newEvents.map(e => e.iCalUId).filter(Boolean);
             const existingEventsInDb = await unifiedEventsCollection.find({
               userId: userId,
-              'graphData.id': { $in: graphEventIds }
+              $or: [
+                { 'graphData.iCalUId': { $in: iCalUIds } },
+                { 'graphData.id': { $in: graphEventIds } }
+              ]
             }).toArray();
 
-            // Create map for quick lookup: graphData.id → eventId
-            const graphIdToEventIdMap = new Map();
+            // Create map for quick lookup: iCalUId or graphData.id → eventId
+            const eventIdLookupMap = new Map();
             existingEventsInDb.forEach(event => {
-              graphIdToEventIdMap.set(event.graphData.id, event.eventId);
+              // Map by iCalUId (preferred)
+              if (event.graphData?.iCalUId) {
+                eventIdLookupMap.set(event.graphData.iCalUId, event.eventId);
+              }
+              // Also map by id for fallback
+              if (event.graphData?.id) {
+                eventIdLookupMap.set(event.graphData.id, event.eventId);
+              }
             });
 
             // Add to unified events array
@@ -3800,8 +3833,9 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 return; // Skip this event
               }
 
-              // Check if this event already exists in database by graphData.id
-              const existingEventId = graphIdToEventIdMap.get(graphEvent.id);
+              // Check if this event already exists in database by iCalUId (preferred) or graphData.id
+              const existingEventId = eventIdLookupMap.get(graphEvent.iCalUId)
+                || eventIdLookupMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
 
               // Extract top-level date/time fields from Graph data
@@ -3817,6 +3851,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 calendarId: calendarId,
                 graphData: {
                   id: graphEvent.id,
+                  iCalUId: graphEvent.iCalUId,
                   subject: graphEvent.subject,
                   start: graphEvent.start,
                   end: graphEvent.end,
@@ -4694,7 +4729,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       try {
         // Construct batch request - use POST for new events, PATCH for existing events
         // Include $select to ensure response contains type, seriesMasterId, and recurrence fields
-        const selectParams = '$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
+        const selectParams = '$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
 
         const batchBody = {
           requests: [
@@ -6028,7 +6063,7 @@ app.get('/api/events/cached', verifyToken, async (req, res) => {
       const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
         `startDateTime=${encodeURIComponent(startDate.toISOString())}&` +
         `endDateTime=${encodeURIComponent(endDate.toISOString())}&` +
-        `$select=id,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
+        `$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
         `$expand=extensions&` +
         `$top=1000`;
       
@@ -6675,7 +6710,7 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
         const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
           `startDateTime=${encodeURIComponent(searchStart.toISOString())}` +
           `&endDateTime=${encodeURIComponent(searchEnd.toISOString())}` +
-          `&$select=id,subject,start,end,location,categories`;
+          `&$select=id,iCalUId,subject,start,end,location,categories`;
 
         const graphResponse = await fetch(graphUrl, {
           headers: { 'Authorization': `Bearer ${graphToken}` }
@@ -7143,7 +7178,7 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
         const countUrl = `https://graph.microsoft.com/v1.0${calendarViewPath}?` + 
           `startDateTime=${encodeURIComponent(startDateStr)}&` +
           `endDateTime=${encodeURIComponent(endDateStr)}&` +
-          `$select=id&$top=1000`;
+          `$select=id,iCalUId&$top=1000`;
         
         logger.debug(`Counting events for calendar ${calendarId} using calendarView:`, countUrl);
         
@@ -7353,7 +7388,7 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
             const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` +
               `startDateTime=${encodeURIComponent(startDateTime.toISOString())}&` +
               `endDateTime=${encodeURIComponent(endDateTime.toISOString())}` +
-              `&$select=id,subject,start,end,location` +
+              `&$select=id,iCalUId,subject,start,end,location` +
               `&$top=100`; // Limit to first 100 events per calendar for preview
 
             const eventsResponse = await fetch(eventsUrl, {
@@ -11469,6 +11504,7 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
           // Graph API data (source of truth)
           graphData: {
             id: event.id,
+            iCalUId: event.iCalUId,
             subject: event.subject,
             start: event.start,
             end: event.end,
