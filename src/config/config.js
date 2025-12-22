@@ -5,10 +5,15 @@ const isAzureProduction = hostname.includes('azurewebsites.net');
 const isProduction = isAzureProduction || (!isLocalDevelopment && hostname !== '');
 
 const APP_CONFIG = {
-  API_BASE_URL: isProduction 
+  API_BASE_URL: isProduction
     ? 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api'
     : 'http://localhost:3001/api',
-  
+
+  // Default calendar to show when app loads
+  DEFAULT_DISPLAY_CALENDAR: isProduction
+    ? 'TempleEvents@emanuelnyc.org'
+    : 'TempleEventsSandbox@emanuelnyc.org',
+
   // Calendar configuration for room reservations
   CALENDAR_CONFIG: {
     SANDBOX_CALENDAR: 'templesandbox@emanuelnyc.org',

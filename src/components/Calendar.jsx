@@ -2132,14 +2132,24 @@
         
         // Set default calendar if none selected
         if (!selectedCalendarId) {
-          const defaultCalendar = calendars.find(cal => cal.isDefaultCalendar);
-          if (defaultCalendar) {
-            calendarDebug.logStateChange('selectedCalendarId', null, defaultCalendar.id);
-            setSelectedCalendarId(defaultCalendar.id);
-          } else if (calendars.length > 0) {
-            // If no default calendar found, select the first one
-            calendarDebug.logStateChange('selectedCalendarId', null, calendars[0].id);
-            setSelectedCalendarId(calendars[0].id);
+          // First, try to find the configured default calendar by owner email
+          const configuredDefault = calendars.find(cal =>
+            cal.owner?.address?.toLowerCase() === APP_CONFIG.DEFAULT_DISPLAY_CALENDAR.toLowerCase()
+          );
+
+          if (configuredDefault) {
+            calendarDebug.logStateChange('selectedCalendarId', null, configuredDefault.id);
+            setSelectedCalendarId(configuredDefault.id);
+          } else {
+            // Fallback to Graph API default or first calendar
+            const defaultCalendar = calendars.find(cal => cal.isDefaultCalendar);
+            if (defaultCalendar) {
+              calendarDebug.logStateChange('selectedCalendarId', null, defaultCalendar.id);
+              setSelectedCalendarId(defaultCalendar.id);
+            } else if (calendars.length > 0) {
+              calendarDebug.logStateChange('selectedCalendarId', null, calendars[0].id);
+              setSelectedCalendarId(calendars[0].id);
+            }
           }
         }
         
