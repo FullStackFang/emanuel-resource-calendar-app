@@ -134,9 +134,11 @@
         const categoryCounts = {};
         const locationCounts = {};
         newEvents.forEach(event => {
-          const category = event.category || 'Uncategorized';
+          // Extract categories from either top-level or graphData
+          const categories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          const primaryCategory = categories[0] || 'Uncategorized';
           const location = event.location?.displayName || 'Unspecified';
-          categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+          categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
           locationCounts[location] = (locationCounts[location] || 0) + 1;
         });
 
@@ -773,13 +775,31 @@
       }, []);
 
       /**
+       * Helper to extract categories from event (checks both top-level and graphData)
+       */
+      const getEventCategories = useCallback((event) => {
+        // Check top-level categories array first
+        if (event.categories && Array.isArray(event.categories) && event.categories.length > 0) {
+          return event.categories;
+        }
+        // Check graphData.categories (events from backend API)
+        if (event.graphData?.categories && Array.isArray(event.graphData.categories) && event.graphData.categories.length > 0) {
+          return event.graphData.categories;
+        }
+        // Check legacy singular category field
+        if (event.category && event.category.trim() !== '' && event.category !== 'Uncategorized') {
+          return [event.category];
+        }
+        return [];
+      }, []);
+
+      /**
        * TBD
        */
       const isUncategorizedEvent = useCallback((event) => {
-        return !event.category || 
-              event.category.trim() === '' || 
-              event.category === 'Uncategorized';
-      }, []);
+        const categories = getEventCategories(event);
+        return categories.length === 0;
+      }, [getEventCategories]);
   
       /**
        * Standardize date for API operations, ensuring consistent time zone handling
@@ -2690,26 +2710,17 @@
 
       // Then add dynamic categories from events
       allEvents.forEach(event => {
-        let hasCategory = false;
+        // Get categories from event using same logic as getEventCategories helper
+        const eventCategories = getEventCategories(event);
 
-        // Handle Graph API categories (plural array)
-        if (event.categories && Array.isArray(event.categories)) {
-          event.categories.forEach(cat => {
+        if (eventCategories.length > 0) {
+          eventCategories.forEach(cat => {
             if (cat && cat.trim() !== '') {
               categoriesSet.add(cat.trim());
-              hasCategory = true;
             }
           });
-        }
-
-        // Handle legacy category (singular string) - fallback
-        if (!hasCategory && event.category && event.category.trim() !== '') {
-          categoriesSet.add(event.category.trim());
-          hasCategory = true;
-        }
-
-        // If no category found, add 'Uncategorized'
-        if (!hasCategory) {
+        } else {
+          // No category found, add 'Uncategorized'
           categoriesSet.add('Uncategorized');
         }
       });
@@ -2739,7 +2750,7 @@
       ];
 
       return finalCategories;
-    }, [baseCategories, allEvents, outlookCategories]);
+    }, [baseCategories, allEvents, outlookCategories, getEventCategories]);
     
     /**
      * TBD
@@ -3102,11 +3113,11 @@
           // Partial categories selected, check if event matches
           if (isUncategorizedEvent(event)) {
             categoryMatch = selectedCategories.includes('Uncategorized');
-          } else if (dynamicCategories.includes(event.category)) {
-            categoryMatch = selectedCategories.includes(event.category);
           } else {
-            // For unknown categories, only show if explicitly selected
-            categoryMatch = selectedCategories.includes(event.category);
+            // Get event categories using helper (checks top-level and graphData)
+            const eventCategories = getEventCategories(event);
+            // Match if any of the event's categories are selected
+            categoryMatch = eventCategories.some(cat => selectedCategories.includes(cat));
           }
         }
 
@@ -3351,7 +3362,9 @@
           if (isUncategorizedEvent(event)) {
             return selectedFilter === 'Uncategorized';
           }
-          return event.category === selectedFilter;
+          // Get event categories and check if selectedFilter matches any of them
+          const eventCategories = getEventCategories(event);
+          return eventCategories.includes(selectedFilter);
         } else {
           // For locations
           const eventLocations = event.location?.displayName 

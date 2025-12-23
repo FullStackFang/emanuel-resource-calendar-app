@@ -2,17 +2,50 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
+import APP_CONFIG from '../config/config';
 import './Navigation.css';
 
-export default function Navigation() {
+export default function Navigation({ apiToken }) {
   const {
     canSubmitReservation,
     canApproveReservations,
     isAdmin
   } = usePermissions();
   const [adminExpanded, setAdminExpanded] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const location = useLocation();
   const dropdownRef = useRef(null);
+
+  // Fetch pending reservations count
+  useEffect(() => {
+    if (apiToken && canSubmitReservation) {
+      fetchPendingCount();
+    }
+  }, [apiToken, canSubmitReservation]);
+
+  // Refresh count when navigating away from my-reservations (user may have taken action)
+  useEffect(() => {
+    if (apiToken && canSubmitReservation && !location.pathname.includes('my-reservations')) {
+      fetchPendingCount();
+    }
+  }, [location.pathname]);
+
+  const fetchPendingCount = async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const pending = (data.reservations || []).filter(r => r.status === 'pending').length;
+        setPendingCount(pending);
+      }
+    } catch (err) {
+      // Silently fail - badge just won't show
+    }
+  };
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {
@@ -57,6 +90,9 @@ export default function Navigation() {
           <li>
             <NavLink to="/my-reservations" className={({ isActive }) => isActive ? 'active' : ''}>
               My Reservations
+              {pendingCount > 0 && (
+                <span className="nav-badge pending">{pendingCount}</span>
+              )}
             </NavLink>
           </li>
         )}

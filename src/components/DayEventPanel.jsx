@@ -105,8 +105,11 @@ const DayEventPanel = memo(({
               .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
               .map(event => {
                 const isPending = event.status === 'pending';
+                // Get primary category for color
+                const eventCategories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                const primaryCategory = eventCategories[0] || 'Uncategorized';
                 const borderColor = groupBy === 'categories'
-                  ? getCategoryColor(event.category)
+                  ? getCategoryColor(primaryCategory)
                   : getLocationColor(event.location?.displayName || 'Unspecified');
 
                 return (
@@ -162,7 +165,7 @@ const DayEventPanel = memo(({
                   
                   <div className="event-detail">
                     <span className="detail-icon">🏷️</span>
-                    {event.category || 'Uncategorized'}
+                    {primaryCategory}
                   </div>
                   
                   {((event.setupMinutes && event.setupMinutes > 0) || (event.teardownMinutes && event.teardownMinutes > 0)) && (

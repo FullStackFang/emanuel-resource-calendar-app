@@ -96,7 +96,9 @@ const DayView = memo(({
       const categoriesWithEvents = new Set();
       
       dayEvents.forEach(event => {
-        const category = event.category || 'Uncategorized';
+        // Check top-level categories, graphData.categories, or legacy category field
+        const categories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+        const category = categories[0] || 'Uncategorized';
         if (selectedCategories.includes(category)) {
           categoriesWithEvents.add(category);
         }
@@ -193,7 +195,9 @@ const DayView = memo(({
                   if (!getEventPosition(event, currentDay)) return false;
                   
                   if (groupBy === 'categories') {
-                    const category = event.category || 'Uncategorized';
+                    // Check top-level categories, graphData.categories, or legacy category field
+                    const categories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                    const category = categories[0] || 'Uncategorized';
                     return category === group;
                   } else {
                     // FIXED: Use proper location detection
@@ -256,8 +260,11 @@ const DayView = memo(({
                         }
                       }
                       
-                      const eventColor = groupBy === 'categories' 
-                        ? getCategoryColor(event.category || 'Uncategorized') 
+                      // Get primary category for color
+                      const eventCategories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                      const primaryCategory = eventCategories[0] || 'Uncategorized';
+                      const eventColor = groupBy === 'categories'
+                        ? getCategoryColor(primaryCategory)
                         : getLocationColor(getEventDisplayLocation(event));
                       
                       // Convert hex color to rgba with transparency

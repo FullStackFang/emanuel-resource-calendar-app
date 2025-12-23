@@ -216,7 +216,7 @@ function App() {
               initialTimezone="UTC"
             >
               <RoomProvider apiToken={apiToken}>
-              <Navigation />
+              <Navigation apiToken={apiToken} />
               <Routes>
                 <Route path="/" element={
                   <Calendar 
