@@ -11,7 +11,7 @@ const csv = require('csv-parser');
 const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
-const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
@@ -2537,18 +2537,21 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       // Set locations array (may be empty if no matches found)
       unifiedEvent.locations = assignedLocationIds;
 
-      // Calculate locationDisplayNames from assigned locations
+      // Calculate locationDisplayNames and locationCodes from assigned locations
       if (assignedLocationIds.length > 0) {
         try {
           unifiedEvent.locationDisplayNames = await calculateLocationDisplayNames(assignedLocationIds, db);
+          unifiedEvent.locationCodes = await calculateLocationCodes(assignedLocationIds, db);
         } catch (error) {
-          logger.error('Error calculating location display names:', error);
+          logger.error('Error calculating location display names/codes:', error);
           unifiedEvent.locationDisplayNames = '';
+          unifiedEvent.locationCodes = [];
         }
       } else {
         // No alias matches found - preserve the raw location name from Graph API
         // This ensures events still show their location even without database mapping
         unifiedEvent.locationDisplayNames = locationDisplayName || '';
+        unifiedEvent.locationCodes = [];
       }
     }
 
@@ -2779,7 +2782,7 @@ async function bulkUpsertEvents(userId, events) {
             locations.push(loc._id);
           }
         }
-        // Calculate display names
+        // Calculate display names and location codes
         if (locations.length > 0) {
           try {
             locationDisplayNames = await calculateLocationDisplayNames(locations, db);
@@ -2788,6 +2791,16 @@ async function bulkUpsertEvents(userId, events) {
           }
         } else {
           locationDisplayNames = locationDisplayName;
+        }
+      }
+
+      // Calculate locationCodes from locations array
+      let locationCodes = [];
+      if (locations.length > 0) {
+        try {
+          locationCodes = await calculateLocationCodes(locations, db);
+        } catch {
+          locationCodes = [];
         }
       }
 
@@ -2806,6 +2819,7 @@ async function bulkUpsertEvents(userId, events) {
         sourceCalendars: event.sourceCalendars || [],
         locations: locations,
         locationDisplayNames: locationDisplayNames,
+        locationCodes: locationCodes,
         virtualMeetingUrl: virtualMeetingUrl,
         virtualPlatform: virtualPlatform,
         // Top-level fields
@@ -13556,8 +13570,9 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
         if (!locations.some(id => id.toString() === locationIdObj.toString())) {
           locations.push(locationIdObj);
 
-          // Recalculate locationDisplayNames
+          // Recalculate locationDisplayNames and locationCodes
           const displayNames = await calculateLocationDisplayNames(locations, db);
+          const locationCodes = await calculateLocationCodes(locations, db);
 
           await unifiedEventsCollection.updateOne(
             { _id: event._id },
@@ -13565,6 +13580,7 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
               $set: {
                 locations: locations,
                 locationDisplayNames: displayNames,
+                locationCodes: locationCodes,
                 updatedAt: new Date()
               }
             }
@@ -13659,8 +13675,9 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
           id => id.toString() !== locationIdObj.toString()
         );
 
-        // Recalculate locationDisplayNames
+        // Recalculate locationDisplayNames and locationCodes
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
+        const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
         await unifiedEventsCollection.updateOne(
           { _id: event._id },
@@ -13668,6 +13685,7 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
             $set: {
               locations: updatedLocations,
               locationDisplayNames: displayNames,
+              locationCodes: locationCodes,
               updatedAt: new Date()
             }
           }
@@ -14011,8 +14029,9 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
           id => id.toString() !== locationId.toString()
         );
 
-        // Recalculate locationDisplayNames
+        // Recalculate locationDisplayNames and locationCodes
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
+        const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
         bulkOps.push({
           updateOne: {
@@ -14021,6 +14040,7 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
               $set: {
                 locations: updatedLocations,
                 locationDisplayNames: displayNames,
+                locationCodes: locationCodes,
                 updatedAt: new Date()
               }
             }

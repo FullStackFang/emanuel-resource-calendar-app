@@ -734,6 +734,7 @@ async function importRsSched() {
       // Match location by rsKey from CSV -> rsKey in locations collection
       let locationIds = [];
       let locationDisplayNames = '';
+      let locationCodes = [];
       const rsKey = row.rsKey || row.RsKey || row.locationCode || row.LocationCode;
 
       if (rsKey) {
@@ -753,6 +754,7 @@ async function importRsSched() {
         if (matchedLocs.length > 0) {
           locationIds = matchedLocs.map(l => l._id);
           locationDisplayNames = matchedLocs.map(l => l.displayName).join('; ');
+          locationCodes = matchedLocs.map(l => l.rsKey);
           locationMatched++;
         } else {
           locationUnmatched++;
@@ -777,6 +779,7 @@ async function importRsSched() {
         // Top-level fields for quick access
         locations: locationIds,
         locationDisplayNames: locationDisplayNames,
+        locationCodes: locationCodes,
 
         // Store all rsSched data in dedicated object
         rschedData: {

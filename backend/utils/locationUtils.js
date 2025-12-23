@@ -112,6 +112,41 @@ async function calculateLocationDisplayNames(locationIds, db) {
 }
 
 /**
+ * Calculate location codes (rsKey values) from an array of location IDs
+ * Returns an array of rsKey strings for grouping/filtering
+ * @param {ObjectId[]|string[]} locationIds - Array of location ObjectIds
+ * @param {object} db - MongoDB database instance
+ * @returns {Promise<string[]>} Array of rsKey values
+ */
+async function calculateLocationCodes(locationIds, db) {
+  if (!locationIds || locationIds.length === 0) {
+    return [];
+  }
+
+  try {
+    // Convert string IDs to ObjectIds if necessary
+    const objectIds = locationIds.map(id =>
+      typeof id === 'string' ? new ObjectId(id) : id
+    );
+
+    // Fetch location documents
+    const locations = await db.collection('templeEvents__Locations')
+      .find({ _id: { $in: objectIds } })
+      .toArray();
+
+    // Extract rsKey values, filtering out null/undefined
+    const codes = locations
+      .map(loc => loc.rsKey)
+      .filter(code => code != null && code !== '');
+
+    return codes;
+  } catch (error) {
+    console.error('Error calculating location codes:', error);
+    return [];
+  }
+}
+
+/**
  * Update an event's graphData.location.displayName with the calculated locationDisplayNames
  * Prepares event for syncing to Microsoft Graph API
  * @param {object} event - Event document with locations array
@@ -267,6 +302,7 @@ module.exports = {
   normalizeLocationString,
   parseLocationString,
   calculateLocationDisplayNames,
+  calculateLocationCodes,
   syncLocationDisplayToGraph,
   extractLocationStrings,
   initializeLocationFields,

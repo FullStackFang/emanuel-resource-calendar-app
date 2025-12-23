@@ -3212,119 +3212,123 @@
     ]);
 
     /**
-     * TBD
+     * Group events by location for location-based calendar views
+     * Groups are keyed by location NAME (to match selectedLocations)
+     * Events are matched to groups using their locationCodes (rsKey values)
      */
     const getLocationGroups = useCallback(() => {
       if (groupBy !== 'locations') return {};
 
       const groups = {};
 
-      // Build a map of location ObjectId -> location object for quick lookup
-      const locationIdMap = new Map();
-      generalLocations.forEach(loc => {
-        if (loc._id) {
-          locationIdMap.set(loc._id.toString(), loc);
-        }
-      });
-
-      // Initialize groups for all selected locations
-      // selectedLocations contains location name strings
+      // Initialize groups for all selected locations using location NAME as key
       selectedLocations.forEach(locationName => {
-        // Find the location object from generalLocations
         const locationObj = generalLocations.find(loc => loc.name === locationName);
 
+        // Use location NAME as the key (matches selectedLocations format)
         groups[locationName] = {
+          rsKey: locationObj?.locationCode || locationObj?.rsKey || '',
           locationId: locationObj?._id?.toString() || null,
           displayName: locationName,
           events: []
         };
       });
 
-      // Group filtered events by their actual location
+      // Group filtered events by matching their locationCodes to group rsKeys
       filteredEvents.forEach((event) => {
         // Check for virtual meeting first
         if (event.virtualMeetingUrl) {
           if (!groups['Virtual Meeting']) {
+            const virtualLoc = generalLocations.find(l => l.name === 'Virtual Meeting');
             groups['Virtual Meeting'] = {
-              locationId: null,
+              rsKey: virtualLoc?.locationCode || virtualLoc?.rsKey || 'VIRTUAL',
+              locationId: virtualLoc?._id?.toString() || null,
               displayName: 'Virtual Meeting',
               events: []
             };
           }
           groups['Virtual Meeting'].events.push(event);
-        } else if (isUnspecifiedLocation(event)) {
+        }
+        // Events with locationCodes (rsKey array)
+        else if (event.locationCodes && Array.isArray(event.locationCodes) && event.locationCodes.length > 0) {
+          let addedToAnyGroup = false;
+
+          event.locationCodes.forEach(code => {
+            // Find group that has this rsKey
+            const matchingGroupKey = Object.keys(groups).find(groupKey =>
+              groups[groupKey].rsKey === code
+            );
+
+            if (matchingGroupKey) {
+              groups[matchingGroupKey].events.push(event);
+              addedToAnyGroup = true;
+            }
+          });
+
+          // If event has codes but none matched selected groups, add to Unspecified
+          if (!addedToAnyGroup) {
+            if (!groups['Unspecified']) {
+              groups['Unspecified'] = {
+                rsKey: '',
+                locationId: null,
+                displayName: 'Unspecified',
+                events: []
+              };
+            }
+            groups['Unspecified'].events.push(event);
+          }
+        }
+        // Events without locationCodes - try to match by locations ObjectIds
+        else if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) {
+          let addedToAnyGroup = false;
+
+          event.locations.forEach(locationId => {
+            const locationIdStr = locationId.toString();
+            // Find the location object to get its rsKey
+            const matchingLoc = generalLocations.find(loc =>
+              loc._id?.toString() === locationIdStr
+            );
+            if (matchingLoc?.locationCode || matchingLoc?.rsKey) {
+              // Find the group that has this rsKey/locationCode
+              const locCode = matchingLoc.locationCode || matchingLoc.rsKey;
+              const matchingGroupKey = Object.keys(groups).find(groupKey =>
+                groups[groupKey].rsKey === locCode
+              );
+              if (matchingGroupKey) {
+                groups[matchingGroupKey].events.push(event);
+                addedToAnyGroup = true;
+              }
+            }
+          });
+
+          if (!addedToAnyGroup) {
+            if (!groups['Unspecified']) {
+              groups['Unspecified'] = {
+                rsKey: '',
+                locationId: null,
+                displayName: 'Unspecified',
+                events: []
+              };
+            }
+            groups['Unspecified'].events.push(event);
+          }
+        }
+        // Events without any location info go to Unspecified group
+        else {
           if (!groups['Unspecified']) {
             groups['Unspecified'] = {
+              rsKey: '',
               locationId: null,
               displayName: 'Unspecified',
               events: []
             };
           }
           groups['Unspecified'].events.push(event);
-        } else {
-          // Handle all events with locations array (ObjectIds)
-          if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) {
-            // Event has location ObjectIds - use them for direct matching
-            let addedToAnyGroup = false;
-
-            event.locations.forEach(locationId => {
-              const locationIdStr = locationId.toString();
-
-              // Find the group with matching locationId
-              const matchingGroupKey = Object.keys(groups).find(groupKey => {
-                const group = groups[groupKey];
-                return group.locationId === locationIdStr;
-              });
-
-              if (matchingGroupKey) {
-                groups[matchingGroupKey].events.push(event);
-                addedToAnyGroup = true;
-              }
-            });
-
-            // If event has locations but wasn't added to any recognized group, add to Unspecified
-            if (!addedToAnyGroup) {
-              if (!groups['Unspecified']) {
-                groups['Unspecified'] = {
-                  locationId: null,
-                  displayName: 'Unspecified',
-                  events: []
-                };
-              }
-              groups['Unspecified'].events.push(event);
-            }
-          } else {
-            // No locations array - check for locationDisplayNames or graphData.location
-            const rawLocationName = event.locationDisplayNames?.trim() ||
-                                    event.graphData?.location?.displayName?.trim() || '';
-
-            if (rawLocationName) {
-              // Create or use a dynamic group for this raw location name
-              if (!groups[rawLocationName]) {
-                groups[rawLocationName] = {
-                  locationId: null,
-                  displayName: rawLocationName,
-                  events: []
-                };
-              }
-              groups[rawLocationName].events.push(event);
-            } else {
-              // Truly no location info - add to Unspecified
-              if (!groups['Unspecified']) {
-                groups['Unspecified'] = {
-                  locationId: null,
-                  displayName: 'Unspecified',
-                  events: []
-                };
-              }
-              groups['Unspecified'].events.push(event);
-            }
-          }
         }
       });
 
       return groups;
-    }, [groupBy, selectedLocations, filteredEvents, isUnspecifiedLocation, generalLocations]);
+    }, [groupBy, selectedLocations, filteredEvents, generalLocations]);
     
 
     /**
