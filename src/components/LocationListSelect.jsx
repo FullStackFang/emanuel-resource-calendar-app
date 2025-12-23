@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import './LocationListSelect.css';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 8;
 
 export default function LocationListSelect({
   rooms,
@@ -81,6 +81,11 @@ export default function LocationListSelect({
     return { hasConflicts: conflictCount > 0, conflictCount };
   };
 
+  // Get full room objects for selected IDs
+  const selectedRoomsData = rooms.filter(room =>
+    selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
+  );
+
   // Filter rooms based on search term
   const filteredRooms = rooms.filter(room =>
     room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -88,11 +93,20 @@ export default function LocationListSelect({
     room.features?.some(feature => feature.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // Calculate pagination
-  const totalPages = Math.ceil(filteredRooms.length / ITEMS_PER_PAGE);
+  // Get unselected rooms from filtered results
+  const unselectedRooms = filteredRooms.filter(room =>
+    !selectedRooms.some(id => normalizeId(id) === normalizeId(room._id))
+  );
+
+  // Combine: selected first (always shown), then unselected
+  // Selected rooms are NOT filtered by search - they always appear at top
+  const combinedRooms = [...selectedRoomsData, ...unselectedRooms];
+
+  // Calculate pagination for combined list
+  const totalPages = Math.ceil(combinedRooms.length / ITEMS_PER_PAGE);
   const startIndex = currentPage * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
-  const paginatedRooms = filteredRooms.slice(startIndex, endIndex);
+  const paginatedRooms = combinedRooms.slice(startIndex, endIndex);
 
   // Reset to first page when search changes or when current page is out of bounds
   useEffect(() => {
@@ -200,7 +214,7 @@ export default function LocationListSelect({
             </button>
           ))}
           <span className="list-page-info">
-            {filteredRooms.length} locations
+            {combinedRooms.length} locations
           </span>
         </div>
       )}
@@ -212,15 +226,13 @@ export default function LocationListSelect({
             <span className="offsite-message-icon">📍</span>
             <span className="offsite-message-text">Using offsite location</span>
           </div>
-        ) : filteredRooms.length === 0 ? (
+        ) : paginatedRooms.length === 0 ? (
           <div className="list-no-results">
             {searchTerm ? `No locations match "${searchTerm}"` : 'No locations available'}
           </div>
         ) : (
           paginatedRooms.map(room => {
-            const roomStatus = getRoomStatus(room);
             const isSelected = isRoomSelected(room._id);
-
             return (
               <div
                 key={room._id}
@@ -238,7 +250,6 @@ export default function LocationListSelect({
                 <div className="list-room-header">
                   <h4 className="list-room-name">{room.name}</h4>
                 </div>
-
                 <div className="list-room-details">
                   <span className="list-room-location">
                     🏢 {room.building} {room.floor && `- ${room.floor}`}
