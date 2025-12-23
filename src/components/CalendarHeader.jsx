@@ -1,5 +1,7 @@
 // src/components/CalendarHeader.jsx
 import React from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { TimezoneSelector } from '../utils/timezoneUtils';
 import CalendarSelector from './CalendarSelector';
 import './CalendarHeader.css';
@@ -9,6 +11,25 @@ import './CalendarHeader.css';
  */
 const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
   const [showPicker, setShowPicker] = React.useState(false);
+  const wrapperRef = React.useRef(null);
+
+  // Close picker when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setShowPicker(false);
+      }
+    };
+    if (showPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPicker]);
+
+  const handleDateSelect = (date) => {
+    onDateChange(date);
+    setShowPicker(false);
+  };
 
   const formattedDate = currentDate.toLocaleDateString('en-US', {
     month: 'short',
@@ -17,7 +38,7 @@ const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
   });
 
   return (
-    <div className="date-picker-wrapper">
+    <div className="date-picker-wrapper" ref={wrapperRef}>
       <button
         className="date-picker-input"
         onClick={() => setShowPicker(!showPicker)}
@@ -25,6 +46,18 @@ const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
       >
         📅 {formattedDate}
       </button>
+      {showPicker && (
+        <div className="date-picker-dropdown">
+          <DatePicker
+            selected={currentDate}
+            onChange={handleDateSelect}
+            inline
+            showMonthDropdown
+            showYearDropdown
+            dropdownMode="select"
+          />
+        </div>
+      )}
     </div>
   );
 };
