@@ -2754,6 +2754,22 @@ async function bulkUpsertEvents(userId, events) {
       const iCalUId = event.graphData?.iCalUId;
       if (!graphId && !iCalUId) continue; // Need at least one identifier
 
+      // Validate required date fields - skip events without valid start/end datetimes
+      const startDateTimeValue = event.graphData?.start?.dateTime;
+      const endDateTimeValue = event.graphData?.end?.dateTime;
+      if (!startDateTimeValue || !endDateTimeValue) {
+        logger.warn('Skipping event with missing start/end dateTime:', {
+          graphId,
+          iCalUId,
+          subject: event.graphData?.subject,
+          hasStart: !!event.graphData?.start,
+          hasStartDateTime: !!startDateTimeValue,
+          hasEnd: !!event.graphData?.end,
+          hasEndDateTime: !!endDateTimeValue
+        });
+        continue;
+      }
+
       // Get or generate eventId
       const existingInfo = graphIdToEventInfo.get(graphId);
       const eventId = existingInfo?.eventId || event.eventId || crypto.randomUUID();
@@ -2869,20 +2885,18 @@ async function bulkUpsertEvents(userId, events) {
             $or: filterConditions
           },
           update: {
-            $set: docWithoutEventId,
-            $setOnInsert: { eventId: eventId }
+            $set: docWithoutEventId
           },
-          upsert: true
+          upsert: false // Only update existing events, do not create new ones
         }
       });
     }
 
-    // STEP 4: Execute bulk write
+    // STEP 4: Execute bulk write (updates only, no inserts)
     let bulkResult = null;
     if (bulkOps.length > 0) {
       bulkResult = await unifiedEventsCollection.bulkWrite(bulkOps, { ordered: false });
-      logger.log(`[PERF] Bulk upsert: ${bulkOps.length} events in single operation`, {
-        insertedCount: bulkResult.upsertedCount,
+      logger.log(`[PERF] Bulk update: ${bulkOps.length} events in single operation`, {
         modifiedCount: bulkResult.modifiedCount,
         matchedCount: bulkResult.matchedCount
       });
@@ -3807,6 +3821,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           });
 
           if (newEvents.length > 0) {
+            // Event creation disabled - only return cached events
+            logger.log(`⏭️ Skipping ${newEvents.length} new events (not in database) - only showing ${graphEvents.length - newEvents.length} cached events`);
+          }
+
+          // DISABLED: New event creation from Graph sync
+          // Only the main calendar form can create events
+          if (false && newEvents.length > 0) {
             logger.log(`📝 Adding ${newEvents.length} new events (${graphEvents.length - newEvents.length} already cached)`);
 
             // Query database for existing events by iCalUId or graphData.id to get their eventIds
@@ -3847,16 +3868,31 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 return; // Skip this event
               }
 
+              // Extract top-level date/time fields from Graph data
+              const startDateTime = graphEvent.start?.dateTime;
+              const endDateTime = graphEvent.end?.dateTime;
+
+              // Skip events missing required date fields
+              if (!startDateTime || !endDateTime) {
+                logger.warn('Skipping Graph event with missing start/end dateTime:', {
+                  id: graphEvent.id,
+                  iCalUId: graphEvent.iCalUId,
+                  subject: graphEvent.subject,
+                  hasStart: !!graphEvent.start,
+                  hasStartDateTime: !!startDateTime,
+                  hasEnd: !!graphEvent.end,
+                  hasEndDateTime: !!endDateTime
+                });
+                return; // Skip this event
+              }
+
               // Check if this event already exists in database by iCalUId (preferred) or graphData.id
               const existingEventId = eventIdLookupMap.get(graphEvent.iCalUId)
                 || eventIdLookupMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
 
-              // Extract top-level date/time fields from Graph data
-              const startDateTime = graphEvent.start?.dateTime;
-              const endDateTime = graphEvent.end?.dateTime;
-              const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-              const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
+              const utcStartString = startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`;
+              const utcEndString = endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`;
 
               const unifiedEvent = {
                 eventId: eventId, // Use existing UUID or generate new one
@@ -4086,13 +4122,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
         // Top-level compatibility fields for frontend (extracted from nested data)
         subject: event.graphData?.subject,
-        // Use corrected UTC timestamps from top-level fields instead of stale graphData
+        // Use corrected UTC timestamps from top-level fields, falling back to graphData
         start: {
-          dateTime: event.startDateTime,  // Corrected UTC with Z suffix
+          dateTime: event.startDateTime || event.graphData?.start?.dateTime,
           timeZone: event.graphData?.start?.timeZone || 'UTC'
         },
         end: {
-          dateTime: event.endDateTime,  // Corrected UTC with Z suffix
+          dateTime: event.endDateTime || event.graphData?.end?.dateTime,
           timeZone: event.graphData?.end?.timeZone || 'UTC'
         },
         location: event.graphData?.location,
@@ -7814,13 +7850,17 @@ function createRegistrationEventFromMain(mainEvent, userId) {
  * Admin endpoint - Upload and import CSV file
  */
 app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (req, res) => {
+  // DISABLED: Event creation via CSV import is disabled
+  // Only the main calendar form can create events
+  return res.status(403).json({ error: 'CSV import is disabled. Events can only be created through the calendar form.' });
+
   try {
     const userId = req.user.userId;
-    
+
     if (!unifiedEventsCollection) {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
-    
+
     if (!req.file) {
       return res.status(400).json({ error: 'No CSV file uploaded' });
     }
@@ -8358,18 +8398,22 @@ app.post('/api/admin/csv-import/clear-stream', verifyToken, async (req, res) => 
  * Admin endpoint - Stream CSV import with Server-Sent Events for large files
  */
 app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), async (req, res) => {
+  // DISABLED: Event creation via CSV import is disabled
+  // Only the main calendar form can create events
+  return res.status(403).json({ error: 'CSV import is disabled. Events can only be created through the calendar form.' });
+
   try {
     const userId = req.user.userId;
     const targetCalendarId = req.body.targetCalendarId;
-    
+
     if (!unifiedEventsCollection) {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
-    
+
     if (!req.file) {
       return res.status(400).json({ error: 'No CSV file uploaded' });
     }
-    
+
     if (!targetCalendarId) {
       return res.status(400).json({ error: 'Target calendar ID is required' });
     }
@@ -9073,14 +9117,18 @@ app.post('/api/admin/csv-import/preview', verifyToken, upload.single('csvFile'),
 
 // Excel/CSV Import Execution Endpoint for templeEvents__Events
 app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'), async (req, res) => {
+  // DISABLED: Event creation via CSV import is disabled
+  // Only the main calendar form can create events
+  return res.status(403).json({ error: 'CSV import is disabled. Events can only be created through the calendar form.' });
+
   try {
     const userId = req.user.userId;
     let { fieldMappings, importOptions = {} } = req.body;
-    
+
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    
+
     if (!fieldMappings || Object.keys(fieldMappings).length === 0) {
       return res.status(400).json({ error: 'Field mappings are required for import' });
     }
@@ -9813,6 +9861,10 @@ app.post('/api/admin/json-import/with-calendar', verifyToken, upload.single('jso
  * Creates events in both database and optionally syncs to a selected Microsoft 365 calendar
  */
 app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvFile'), async (req, res) => {
+  // DISABLED: Event creation via CSV import is disabled
+  // Only the main calendar form can create events
+  return res.status(403).json({ error: 'CSV import is disabled. Events can only be created through the calendar form.' });
+
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
@@ -11598,22 +11650,12 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
             });
           }
         } else {
-          // Create new unified event
-          const insertResult = await unifiedEventsCollection.insertOne({
-            ...unifiedEventData,
-            createdAt: now,
-            updatedAt: now
+          // DISABLED: Event creation via manual sync is disabled
+          // Only the main calendar form can create events
+          logger.debug(`[MANUAL SYNC] Skipping new event (creation disabled): ${event.subject}`, {
+            eventId: event.id,
+            reason: 'Event creation only allowed via calendar form'
           });
-          
-          if (insertResult.insertedId) {
-            createdCount++;
-            enrichedCount++;
-            logger.debug(`[MANUAL SYNC] Created unified event in templeEvents__Events: ${event.subject}`, {
-              eventId: event.id,
-              insertedId: insertResult.insertedId,
-              collection: 'templeEvents__Events'
-            });
-          }
         }
         
       } catch (eventError) {
@@ -15638,12 +15680,16 @@ process.on('SIGTERM', async () => {
 
 // Test endpoint to create sample events for Conference Room A and B
 app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
+  // DISABLED: Event creation via test endpoint is disabled
+  // Only the main calendar form can create events
+  return res.status(403).json({ error: 'Sample event creation is disabled. Events can only be created through the calendar form.' });
+
   try {
     logger.log('Creating sample events for Conference Room A and B');
 
     const today = new Date('2025-08-20'); // August 20, 2025
     const userId = req.user.userId;
-    
+
     // Find Conference Room A and B by name
     const conferenceRoomA = hardcodedRooms.find(room => room.name === 'Conference Room A');
     const conferenceRoomB = hardcodedRooms.find(room => room.name === 'Conference Room B');
