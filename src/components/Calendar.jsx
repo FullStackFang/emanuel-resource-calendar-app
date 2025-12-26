@@ -20,7 +20,7 @@
   import './DayEventPanel.css';
   import DayEventPanel from './DayEventPanel';
   import eventDataService from '../services/eventDataService';
-  import eventCacheService from '../services/eventCacheService';
+  // eventCacheService removed - templeEvents__Events is now source of truth
   import unifiedEventService from '../services/unifiedEventService';
   import DatePicker from 'react-datepicker';
   import "react-datepicker/dist/react-datepicker.css";
@@ -1350,36 +1350,11 @@
           return convertedEvent;
         });
 
-        // Sync events to unified collection first, then enrich with internal data
+        // Enrich events with internal data (sync deprecated - templeEvents__Events is source of truth)
         let enrichedEvents = converted;
         if (apiToken) {
           try {
-            // Sync events to unified collection before enrichment
-            // Syncing events to unified collection before enrichment
-            // Use the manual sync endpoint instead since it doesn't require calendarId
-            const response = await fetch(`${API_BASE_URL}/internal-events/sync`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${apiToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                events: converted,
-                dateRange: {
-                  start: dateRange.start.toISOString(),
-                  end: dateRange.end.toISOString()
-                }
-              })
-            });
-            
-            if (response.ok) {
-              const syncResult = await response.json();
-              // Sync result processed
-            } else {
-              logger.warn('Sync failed:', response.status, response.statusText);
-            }
-            
-            // Now enrich with internal data
+            // Enrich with internal data from templeEvents__Events collection
             enrichedEvents = await eventDataService.enrichEventsWithInternalData(converted);
             // Events enriched with internal data
             
@@ -1421,81 +1396,7 @@
         // Events loaded from Graph API
         setAllEvents(enrichedEvents);
 
-        // Selectively cache uncached events (fire-and-forget to avoid performance issues)
-        if (apiToken && enrichedEvents.length > 0) {
-          // Use setTimeout to ensure this doesn't block the main loading flow
-          setTimeout(async () => {
-            try {
-              eventCacheService.setApiToken(apiToken);
-              eventCacheService.setGraphToken(graphToken);
-              
-              // Group events by calendar ID and cache each group separately
-              const eventsByCalendar = enrichedEvents.reduce((acc, event) => {
-                // Use event's calendarId or fall back to selectedCalendarId or default calendar
-                let calId = event.calendarId || selectedCalendarId;
-                
-                // If still no calendar ID, try to use the default calendar
-                if (!calId && availableCalendars.length > 0) {
-                  const defaultCalendar = availableCalendars.find(c => c.isDefaultCalendar);
-                  if (defaultCalendar) {
-                    calId = defaultCalendar.id;
-                  }
-                }
-                
-                if (calId) {
-                  if (!acc[calId]) acc[calId] = [];
-                  acc[calId].push(event);
-                } else {
-                  // Group uncategorized events separately
-                  if (!acc['_unknown']) acc['_unknown'] = [];
-                  acc['_unknown'].push(event);
-                }
-                return acc;
-              }, {});
-              
-              // Selective caching for calendars
-              const eventsWithoutCalendar = eventsByCalendar['_unknown'] || [];
-              // Events without calendarId will be skipped from caching
-              
-              // Cache events for each calendar separately
-              for (const [calendarId, events] of Object.entries(eventsByCalendar)) {
-                // Skip unknown calendar group
-                if (calendarId === '_unknown') {
-                  // Skipping cache for events without valid calendar ID
-                  continue;
-                }
-                
-                try {
-                  // Ensure events include enrichment data before caching
-                  const eventsWithInternalData = events.map(event => ({
-                    ...event,
-                    // Include internal data if it exists
-                    ...(event._hasInternalData ? {
-                      setupMinutes: event.setupMinutes || 0,
-                      teardownMinutes: event.teardownMinutes || 0,
-                      registrationNotes: event.registrationNotes || '',
-                      assignedTo: event.assignedTo || '',
-                      mecCategories: event.mecCategories || [],
-                      internalNotes: event.internalNotes || '',
-                      setupStatus: event.setupStatus || 'pending',
-                      estimatedCost: event.estimatedCost,
-                      actualCost: event.actualCost
-                    } : {})
-                  }));
-                  
-                  const result = await eventCacheService.cacheUncachedEvents(eventsWithInternalData, calendarId);
-                  logger.debug(`Selective caching completed for calendar ${calendarId}:`, result);
-                } catch (cacheError) {
-                  logger.warn(`Selective caching failed for calendar ${calendarId}:`, cacheError);
-                }
-              }
-            } catch (cacheError) {
-              logger.warn('Selective caching failed (non-critical):', cacheError);
-            }
-          }, 500); // Small delay to let UI update first
-        }
-        
-        // Events loaded from Graph API, selective caching initiated
+        // Caching removed - templeEvents__Events is now the source of truth
 
         return true;
       } catch (err) {
@@ -1522,50 +1423,9 @@
       setLoading(true);
 
       try {
-        // Prepare parameters for cache query
-        const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
-
-        if (apiToken && !forceRefresh) {
-          // Try cache-first approach
-          eventCacheService.setApiToken(apiToken);
-          eventCacheService.setGraphToken(graphToken);
-          
-          try {
-            const cacheResult = await eventCacheService.loadEvents({
-              calendarId: selectedCalendarId,
-              startTime: start,
-              endTime: end,
-              forceRefresh: false
-            });
-
-            if (cacheResult.source === 'cache' && cacheResult.events.length > 0) {
-              setAllEvents(cacheResult.events);
-
-              // Also check if there are any missing events in this date range that need caching
-              // by running a parallel Graph API call to fill gaps
-              setTimeout(async () => {
-                try {
-                  await loadGraphEvents();
-                } catch (error) {
-                  logger.warn('loadEventsWithCache: Background Graph API call failed:', error);
-                }
-              }, 1000); // Delay to avoid interfering with UI
-
-              return true;
-            } else if (cacheResult.source === 'graph_fallback' && cacheResult.events.length >= 0) {
-              // Cache miss - backend already fetched from Graph API and cached events
-              setAllEvents(cacheResult.events);
-              return true;
-            }
-          } catch (cacheError) {
-            logger.warn('loadEventsWithCache: Cache loading failed, falling back to Graph API', cacheError);
-          }
-        }
-
-        // Cache miss, stale data, or force refresh - use Graph API
+        // Cache-first approach removed - templeEvents__Events is now source of truth
+        // Just load events directly
         const success = await loadGraphEvents();
-        
-        // Events are automatically cached in loadGraphEvents if successful
 
         return success;
       } catch (error) {
@@ -1924,74 +1784,13 @@
 
 
     /**
-     * Manual sync of loaded events to database
-     * Creates enriched templeEvents__Events records for currently loaded events
+     * Manual sync - DEPRECATED
+     * templeEvents__Events is now the source of truth; events are created only through the calendar form
      */
     const handleManualSync = useCallback(async () => {
-      if (!allEvents || allEvents.length === 0) {
-        alert('No events to sync. Please load events first.');
-        return;
-      }
-
-      if (!apiToken) {
-        alert('Authentication required for sync.');
-        return;
-      }
-
-      setLoading(true);
-      logger.debug('Starting manual sync of events to database', { eventCount: allEvents.length });
-
-      try {
-        logger.debug('Making manual sync request', {
-          url: `${API_BASE_URL}/internal-events/sync`,
-          eventCount: allEvents.length,
-          hasApiToken: !!apiToken
-        });
-
-        // Call the manual sync endpoint
-        const response = await fetch(`${API_BASE_URL}/internal-events/sync`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            events: allEvents,
-            dateRange: {
-              start: dateRange.start.toISOString(),
-              end: dateRange.end.toISOString()
-            }
-          })
-        });
-
-        logger.debug('Manual sync response received', {
-          status: response.status,
-          statusText: response.statusText,
-          ok: response.ok
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          logger.error('Manual sync HTTP error', {
-            status: response.status,
-            statusText: response.statusText,
-            errorText
-          });
-          throw new Error(`Sync failed: ${response.status} ${response.statusText} - ${errorText}`);
-        }
-
-        const result = await response.json();
-        logger.debug('Manual sync completed successfully', result);
-        
-        alert(`Successfully synced ${result.enrichedCount || result.totalProcessed || allEvents.length} events to database. Created: ${result.createdCount}, Updated: ${result.updatedCount}`);
-        
-      } catch (error) {
-        logger.error('Manual sync failed:', error);
-        alert(`Sync failed: ${error.message}`);
-      } finally {
-        setLoading(false);
-      }
-    }, [allEvents, apiToken, dateRange, API_BASE_URL]);
+      logger.debug('handleManualSync called - this function is deprecated');
+      alert('Manual sync has been deprecated. Events are now managed directly in the database through the calendar form.');
+    }, []);
 
     /**
      * Load user profile and permissions
@@ -2242,45 +2041,21 @@
     }, [loadEvents, allEvents]);
 
     /**
-     * Invalidate cache for current calendar
+     * Invalidate cache for current calendar (deprecated - no-op)
+     * Cache no longer used - templeEvents__Events is source of truth
      */
     const invalidateCurrentCalendarCache = useCallback(async () => {
-      if (!apiToken || !selectedCalendarId) {
-        logger.debug('Cannot invalidate cache: missing API token or calendar ID');
-        return;
-      }
-
-      try {
-        eventCacheService.setApiToken(apiToken);
-        await eventCacheService.invalidateCache({ calendarId: selectedCalendarId });
-        logger.debug('Cache invalidated for calendar:', selectedCalendarId);
-        
-        // Reload events after cache invalidation
-        await loadEvents(true);
-      } catch (error) {
-        logger.error('Failed to invalidate cache:', error);
-      }
-    }, [apiToken, selectedCalendarId, loadEvents]);
+      // Cache removed - just reload events directly
+      await loadEvents(true);
+    }, [loadEvents]);
 
     /**
-     * Get cache statistics for debugging
+     * Get cache statistics for debugging (deprecated - returns null)
+     * Cache no longer used - templeEvents__Events is source of truth
      */
     const getCacheStats = useCallback(async () => {
-      if (!apiToken) {
-        logger.debug('Cannot get cache stats: missing API token');
-        return null;
-      }
-
-      try {
-        eventCacheService.setApiToken(apiToken);
-        const stats = await eventCacheService.getCacheStats();
-        logger.debug('Cache statistics:', stats);
-        return stats;
-      } catch (error) {
-        logger.error('Failed to get cache stats:', error);
-        return null;
-      }
-    }, [apiToken]);
+      return null;
+    }, []);
 
     //---------------------------------------------------------------------------
     // UTILITY/HELPER FUNCTIONS
@@ -5319,19 +5094,9 @@
         
         // Step 4: Update local state immediately
         setAllEvents(allEvents.filter(event => event.id !== eventId));
-        
-        // Step 5: Remove deleted event from cache
-        if (apiToken) {
-          try {
-            eventCacheService.setApiToken(apiToken);
-            await eventCacheService.invalidateCache({ eventIds: [eventId] });
-            logger.debug('Deleted event removed from cache:', eventId);
-          } catch (cacheError) {
-            logger.warn('Failed to remove deleted event from cache:', cacheError);
-          }
-        }
-        
-        // Step 6: Reload events to ensure consistency
+
+        // Step 5: Reload events to ensure consistency
+        // (Cache invalidation removed - templeEvents__Events is source of truth)
         await loadEvents();
         
         logger.debug(`[handleDeleteApiEvent] Successfully deleted event:`, {

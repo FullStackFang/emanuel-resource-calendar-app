@@ -6034,12 +6034,19 @@ app.get('/api/events/sync-stats', verifyToken, async (req, res) => {
  * Cache-first event loading endpoint
  */
 app.get('/api/events/cached', verifyToken, async (req, res) => {
+  // DEPRECATED: Cache endpoint no longer available
+  // templeEvents__Events is now the source of truth - use /api/events/load instead
+  return res.status(410).json({
+    error: 'Cache endpoint deprecated',
+    message: 'Use /api/events/load to fetch events from the database'
+  });
+
   try {
     const { calendarId, startTime, endTime, forceRefresh } = req.query;
-    
+
     if (!calendarId || !startTime || !endTime) {
-      return res.status(400).json({ 
-        error: 'calendarId, startTime, and endTime parameters are required' 
+      return res.status(400).json({
+        error: 'calendarId, startTime, and endTime parameters are required'
       });
     }
     
@@ -6254,21 +6261,27 @@ app.post('/api/events/cache', verifyToken, async (req, res) => {
 });
 
 /**
- * Check which events are missing from cache
+ * Check which events are missing from cache - DEPRECATED
+ * Cache system removed - templeEvents__Events is now the source of truth
  */
 app.post('/api/events/cache-missing', verifyToken, async (req, res) => {
+  return res.status(410).json({
+    error: 'Cache-missing endpoint deprecated',
+    message: 'Cache system removed. All events are stored in templeEvents__Events.'
+  });
+
   try {
     const userId = req.user.userId;
     const { eventIds, calendarId } = req.body;
-    
+
     if (!eventIds || !Array.isArray(eventIds) || !calendarId) {
-      return res.status(400).json({ 
-        error: 'eventIds array and calendarId are required' 
+      return res.status(400).json({
+        error: 'eventIds array and calendarId are required'
       });
     }
-    
+
     logger.debug(`Checking which of ${eventIds.length} events are missing from cache for user ${userId}, calendar ${calendarId}`);
-    
+
     // Find which events are already cached and not expired
     const now = new Date();
     // eventCacheCollection removed - return empty array to indicate no cache
@@ -11489,21 +11502,31 @@ async function processVirtualLocation(event, db) {
 }
 
 /**
- * Manual sync endpoint - Creates enriched templeEvents__Events records for loaded events
+ * Manual sync endpoint - DEPRECATED
+ * templeEvents__Events is now the source of truth; events are created only through the calendar form
  */
 app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
+  logger.debug('[DEPRECATED] /api/internal-events/sync called - this endpoint is deprecated');
+  return res.status(410).json({
+    error: 'This endpoint is deprecated',
+    message: 'Event sync has been deprecated. Events are managed directly through the calendar form.',
+    deprecatedAt: '2025-12-26'
+  });
+
+  // Original implementation below - kept for reference but never executed
+  /* eslint-disable no-unreachable */
   try {
     const userId = req.user.userId;
     const { events, dateRange, calendarId } = req.body;
-    
+
     if (!events || !Array.isArray(events)) {
       return res.status(400).json({ error: 'events array is required' });
     }
-    
+
     if (!calendarId) {
       return res.status(400).json({ error: 'calendarId is required' });
     }
-    
+
     logger.debug(`[MANUAL SYNC] Starting manual sync for user ${userId}`, {
       eventCount: events.length,
       dateRange,

@@ -200,7 +200,7 @@ const WeekView = memo(({
 
                   return (
                     <div className="event-container">
-                      {sortedEvents.map((event) => {
+                      {sortedEvents.map((event, eventIndex) => {
                         // Determine which times to use (registration vs actual event times)
                         let startDateTime, endDateTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
@@ -273,7 +273,7 @@ const WeekView = memo(({
 
                         return (
                           <div
-                            key={event.eventId}
+                            key={event.eventId || event.id || event._id || `event-${eventIndex}`}
                             className={`event-item ${isPending ? 'pending-event' : ''}`}
                             style={{
                               position: 'relative',
