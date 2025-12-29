@@ -39,28 +39,30 @@ class UnifiedEventService {
   }
 
   /**
-   * Load events using regular Graph API queries - replaces problematic delta sync
+   * Load events using calendarOwners (email addresses)
    * @param {Object} params - Load parameters
-   * @param {Array} params.calendarIds - Array of calendar IDs to load from
+   * @param {Array} params.calendarOwners - Array of calendar owner emails to load from
+   * @param {Array} params.calendarIds - Legacy: Array of calendar IDs (kept for Graph API calls)
    * @param {string} params.startTime - Start time for date range (ISO string)
    * @param {string} params.endTime - End time for date range (ISO string)
    * @param {boolean} params.forceRefresh - Force refresh from Graph API
    * @returns {Object} Load results and events
    */
-  async loadEvents({ calendarIds, startTime, endTime, forceRefresh = false }) {
+  async loadEvents({ calendarOwners, calendarIds, startTime, endTime, forceRefresh = false }) {
     try {
-      // Validate input parameters
-      if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
-        logger.error('UnifiedEventService: Invalid calendarIds', {
-          calendarIds,
-          type: typeof calendarIds,
-          isArray: Array.isArray(calendarIds)
+      // Validate input parameters - prefer calendarOwners, fall back to calendarIds
+      if ((!calendarOwners || !Array.isArray(calendarOwners) || calendarOwners.length === 0) &&
+          (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0)) {
+        logger.error('UnifiedEventService: No valid calendars provided', {
+          calendarOwners,
+          calendarIds
         });
-        throw new Error('Invalid calendarIds: must be non-empty array');
+        throw new Error('Either calendarOwners or calendarIds array required');
       }
 
       const requestBody = {
-        calendarIds: calendarIds,
+        calendarOwners: calendarOwners,
+        calendarIds: calendarIds, // Keep for Graph API if needed
         startTime: startTime,
         endTime: endTime,
         forceRefresh: forceRefresh

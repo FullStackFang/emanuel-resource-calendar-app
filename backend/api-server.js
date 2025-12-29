@@ -2118,168 +2118,6 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
   }
 });
 
-// ============================================
-// EVENT CACHE SERVICE
-// ============================================
-
-/**
- * Cache configuration constants
- */
-const CACHE_CONFIG = {
-  DEFAULT_TTL_HOURS: 24,          // Default cache expiry
-  MAX_CACHE_SIZE: 10000,          // Max events to cache per user
-  STALE_THRESHOLD_MINUTES: 60,    // When to refresh even if not expired
-  BACKGROUND_SYNC_ENABLED: true   // Enable background sync
-};
-
-/**
- * Generate cache key for an event
- */
-function generateCacheKey(userId, calendarId, eventId) {
-  return `${userId}:${calendarId}:${eventId}`;
-}
-
-/**
- * Cache an event with metadata
- */
-async function cacheEvent(userId, calendarId, eventData, internalData = null) {
-  try {
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + (CACHE_CONFIG.DEFAULT_TTL_HOURS * 60 * 60 * 1000));
-    
-    // Validate required fields
-    if (!userId || !calendarId || !eventData.id) {
-      logger.error('cacheEvent: Missing required fields', { userId, calendarId, eventId: eventData.id });
-      throw new Error('Missing required fields for caching');
-    }
-    
-    const cacheEntry = {
-      userId: userId,
-      calendarId: calendarId,
-      eventId: eventData.id,
-      etag: eventData['@odata.etag'] || null,
-      lastModified: eventData.lastModifiedDateTime ? new Date(eventData.lastModifiedDateTime) : now,
-      cachedAt: now,
-      expiresAt: expiresAt,
-      eventData: eventData,
-      internalData: internalData || {},
-      version: 1,
-      changeKey: eventData.changeKey || null,
-      isDirty: false,
-      lastAccessedAt: now
-    };
-    
-    logger.debug(`cacheEvent: Caching event`, {
-      userId,
-      calendarId,
-      eventId: eventData.id,
-      subject: eventData.subject,
-      expiresAt: expiresAt.toISOString()
-    });
-    
-    // eventCacheCollection removed - return mock result
-    const result = { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
-    
-    logger.debug(`cacheEvent: Successfully cached`, {
-      eventId: eventData.id,
-      matched: result.matchedCount,
-      modified: result.modifiedCount,
-      upserted: result.upsertedCount
-    });
-    
-    return cacheEntry;
-  } catch (error) {
-    logger.error('cacheEvent: Error caching event', {
-      error: error.message,
-      userId,
-      calendarId,
-      eventId: eventData?.id,
-      subject: eventData?.subject
-    });
-    throw error;
-  }
-}
-
-/**
- * Get cached events for a date range
- */
-async function getCachedEvents(userId, calendarId, startDate, endDate) {
-  try {
-    const now = new Date();
-    
-    const query = {
-      userId: userId,
-      calendarId: calendarId,
-      // Find events that overlap with the date range
-      // An event overlaps if: event.start < range.end AND event.end > range.start
-      $and: [
-        {
-          "eventData.start.dateTime": { $lt: endDate.toISOString() }
-        },
-        {
-          "eventData.end.dateTime": { $gt: startDate.toISOString() }
-        }
-      ],
-      expiresAt: { $gt: now } // Only non-expired events
-    };
-    
-    logger.debug('getCachedEvents: Query parameters', {
-      userId,
-      calendarId,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      now: now.toISOString()
-    });
-    
-    // eventCacheCollection removed - return empty array
-    const cachedEvents = [];
-    
-    logger.debug(`getCachedEvents: Found ${cachedEvents.length} cached events`, {
-      eventIds: cachedEvents.slice(0, 5).map(e => ({ id: e.eventId, subject: e.eventData?.subject }))
-    });
-    
-    // Update last accessed time for LRU
-    if (cachedEvents.length > 0) {
-      const eventIds = cachedEvents.map(e => e.eventId);
-      // eventCacheCollection removed - no need to update last accessed time
-    }
-    
-    return cachedEvents;
-  } catch (error) {
-    logger.error('Error getting cached events:', error);
-    return [];
-  }
-}
-
-/**
- * Check which events need to be updated from Graph API
- */
-async function getStaleEvents(userId, calendarId, eventIds) {
-  try {
-    const now = new Date();
-    const staleThreshold = new Date(now.getTime() - (CACHE_CONFIG.STALE_THRESHOLD_MINUTES * 60 * 1000));
-    
-    const staleQuery = {
-      userId: userId,
-      calendarId: calendarId,
-      eventId: { $in: eventIds },
-      $or: [
-        { expiresAt: { $lt: now } },           // Expired
-        { cachedAt: { $lt: staleThreshold } }, // Stale
-        { isDirty: true }                      // Locally modified
-      ]
-    };
-    
-    // eventCacheCollection removed - return all event IDs to refresh from unified collection
-    const staleEvents = [];
-    logger.debug(`Found ${staleEvents.length} stale events out of ${eventIds.length} total`);
-    
-    return staleEvents.map(e => e.eventId);
-  } catch (error) {
-    logger.error('Error checking stale events:', error);
-    return eventIds; // Fallback to refreshing all events
-  }
-}
 
 // ============================================
 // UNIFIED EVENT STORAGE WITH DELTA SYNC
@@ -3494,111 +3332,53 @@ function combineNotes(existingNotes, newNotes) {
 }
 
 /**
- * Get events from unified collection
+ * Get calendarOwner (email) from calendarId using the calendar config
+ * The config maps email -> calendarId, so we reverse it
  */
-async function getUnifiedEvents(userId, calendarId = null, startDate = null, endDate = null) {
+function getCalendarOwnerFromConfig(calendarId) {
   try {
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+
+    // Find the email that maps to this calendarId
+    for (const [email, id] of Object.entries(calendarConfig)) {
+      if (email.startsWith('_')) continue; // Skip metadata keys
+      if (id === calendarId) {
+        return email.toLowerCase(); // Normalize to lowercase
+      }
+    }
+    return null;
+  } catch (error) {
+    logger.warn('Could not load calendar config:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Get events from unified collection
+ * @param {string} userId - User ID for personal calendar filtering
+ * @param {string} calendarOwner - Calendar owner email (case-insensitive) to filter by
+ * @param {Date} startDate - Start of date range
+ * @param {Date} endDate - End of date range
+ */
+async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null) {
+  try {
+    // Simple query using top-level fields only (no complex $or conditions)
     const query = {
-      userId: userId,
       isDeleted: { $ne: true },
-      status: { $ne: 'room-reservation-request' }  // Exclude pending reservation requests from main calendar
+      calendarOwner: calendarOwner.toLowerCase()
     };
 
-    // Add calendar filter if specified
-    if (calendarId) {
-      query.calendarId = calendarId;
-    }
-
-    // Add date range filter if specified
+    // Simple date range filter using top-level startDateTime/endDateTime
     if (startDate && endDate) {
-      const startDateOnly = startDate.toISOString().split('T')[0];  // YYYY-MM-DD
-      const endDateOnly = endDate.toISOString().split('T')[0];      // YYYY-MM-DD
-
-      query.$or = [
-        // Regular events (NOT series masters): include if they overlap with view range
-        {
-          $and: [
-            { "graphData.type": { $ne: "seriesMaster" } },  // Exclude series masters from this branch
-            { "graphData.start.dateTime": { $lt: endDate.toISOString() } },
-            { "graphData.end.dateTime": { $gt: startDate.toISOString() } }
-          ]
-        },
-        // Series masters: include if their recurrence pattern overlaps with view range
-        {
-          $and: [
-            { "graphData.type": "seriesMaster" },
-            { "graphData.recurrence": { $exists: true, $ne: null } },
-            // Recurrence has started before or during view
-            { "graphData.recurrence.range.startDate": { $lte: endDateOnly } },
-            // Recurrence hasn't ended before view starts
-            {
-              $or: [
-                { "graphData.recurrence.range.type": "noEnd" },
-                { "graphData.recurrence.range.endDate": { $gte: startDateOnly } }
-              ]
-            }
-          ]
-        }
-      ];
-
-      // DEBUG: Log query details for recurring event troubleshooting
-      logger.debug('🔍 Query details for date range:', {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        startDateOnly,
-        endDateOnly
-      });
+      query.startDateTime = { $lt: endDate.toISOString() };
+      query.endDateTime = { $gt: startDate.toISOString() };
     }
 
-    // DEBUG: Check all series masters in the database for this user/calendar
-    if (startDate && endDate) {
-      const seriesMastersQuery = {
-        userId: userId,
-        isDeleted: { $ne: true },
-        "graphData.type": "seriesMaster",
-        ...(calendarId && { calendarId })
-      };
-      const allSeriesMasters = await unifiedEventsCollection.find(seriesMastersQuery).toArray();
-
-      logger.debug('📊 All series masters in database:', {
-        count: allSeriesMasters.length,
-        masters: allSeriesMasters.map(e => ({
-          subject: e.graphData?.subject,
-          firstOccurrenceStart: e.graphData?.start?.dateTime,
-          firstOccurrenceEnd: e.graphData?.end?.dateTime,
-          recurrenceRangeStart: e.graphData?.recurrence?.range?.startDate,
-          recurrenceRangeEnd: e.graphData?.recurrence?.range?.endDate,
-          recurrenceType: e.graphData?.recurrence?.range?.type,
-          patternType: e.graphData?.recurrence?.pattern?.type,
-          daysOfWeek: e.graphData?.recurrence?.pattern?.daysOfWeek
-        }))
-      });
-    }
+    logger.debug('Simple query:', JSON.stringify(query));
 
     const events = await unifiedEventsCollection.find(query).toArray();
-
-    // DEBUG: Categorize returned events
-    if (startDate && endDate) {
-      const regularEvents = events.filter(e => e.graphData?.type !== 'seriesMaster');
-      const seriesMasters = events.filter(e => e.graphData?.type === 'seriesMaster');
-
-      logger.debug('✅ Query returned events:', {
-        totalEvents: events.length,
-        regularEvents: regularEvents.length,
-        seriesMasters: seriesMasters.length,
-        seriesMasterDetails: seriesMasters.map(e => ({
-          subject: e.graphData?.subject,
-          recurrenceRangeStart: e.graphData?.recurrence?.range?.startDate,
-          recurrenceRangeEnd: e.graphData?.recurrence?.range?.endDate
-        }))
-      });
-    }
-
-    logger.debug(`Found ${events.length} unified events`, {
-      userId,
-      calendarId,
-      dateRange: startDate && endDate ? `${startDate.toISOString()} to ${endDate.toISOString()}` : 'all'
-    });
+    logger.debug(`Found ${events.length} events for ${calendarOwner || userId}`);
     
     return events;
   } catch (error) {
@@ -3613,8 +3393,8 @@ async function getUnifiedEvents(userId, calendarId = null, startDate = null, end
 app.post('/api/events/load', verifyToken, async (req, res) => {
   try {
     logger.debug('Cache-first events load handler started');
-    
-    const { calendarIds, startTime, endTime, forceRefresh = false } = req.body;
+
+    const { calendarIds, calendarOwners, startTime, endTime, forceRefresh = false } = req.body;
     const userId = req.user.userId;
     const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
 
@@ -3625,47 +3405,37 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       graphTokenLength: graphToken ? graphToken.length : 0,
       graphTokenPreview: graphToken ? `${graphToken.substring(0, 20)}...` : 'MISSING',
       calendarIds,
-      calendarIdsType: typeof calendarIds,
-      calendarIdsIsArray: Array.isArray(calendarIds),
-      calendarIdsLength: Array.isArray(calendarIds) ? calendarIds.length : 'N/A',
+      calendarOwners,
       startTime,
       endTime,
-      forceRefresh,
-      requestBody: req.body
+      forceRefresh
     });
 
     logger.log(`🔍 Graph Token Check: ${graphToken ? '✅ PRESENT (' + graphToken.length + ' chars)' : '❌ MISSING'}`);
-    
-    if (!calendarIds || !Array.isArray(calendarIds) || calendarIds.length === 0) {
-      logger.error('Cache-first events load handler: Invalid calendarIds', {
-        calendarIds,
-        type: typeof calendarIds,
-        isArray: Array.isArray(calendarIds),
-        length: Array.isArray(calendarIds) ? calendarIds.length : 'N/A'
-      });
-      return res.status(400).json({ error: 'calendarIds array required' });
+
+    // Accept either calendarOwners (preferred) or calendarIds (legacy)
+    // calendarOwners are email addresses, calendarIds are Graph API calendar IDs
+    let calendarsToLoad = [];
+
+    if (calendarOwners && Array.isArray(calendarOwners) && calendarOwners.length > 0) {
+      // New approach: use calendarOwners directly (email addresses)
+      calendarsToLoad = calendarOwners.map(owner => ({
+        calendarOwner: owner.toLowerCase(),
+        calendarId: null // Will be looked up if needed for Graph API
+      }));
+      logger.log(`Loading events by calendarOwners: ${calendarOwners.join(', ')}`);
+    } else if (calendarIds && Array.isArray(calendarIds) && calendarIds.length > 0) {
+      // Legacy approach: map calendarIds to calendarOwners using config
+      calendarsToLoad = calendarIds.map(calendarId => ({
+        calendarOwner: getCalendarOwnerFromConfig(calendarId),
+        calendarId: calendarId
+      }));
+      logger.log(`Loading events by calendarIds (mapped to owners): ${calendarIds.map(id => id.substring(0, 20) + '...').join(', ')}`);
+    } else {
+      logger.error('Cache-first events load handler: No valid calendars provided');
+      return res.status(400).json({ error: 'Either calendarIds or calendarOwners array required' });
     }
 
-    // Validate individual calendar IDs
-    for (let i = 0; i < calendarIds.length; i++) {
-      const calendarId = calendarIds[i];
-      if (!calendarId || typeof calendarId !== 'string' || calendarId.trim() === '') {
-        logger.error('Cache-first events load handler: Invalid calendar ID at index', {
-          index: i,
-          calendarId,
-          type: typeof calendarId,
-          isEmpty: !calendarId || calendarId.trim() === ''
-        });
-        return res.status(400).json({ 
-          error: `Invalid calendar ID at index ${i}: must be non-empty string`,
-          calendarId,
-          index: i
-        });
-      }
-    }
-    
-    logger.log(`Cache-first events load requested for user ${userId}, calendars: ${calendarIds.join(', ')}`);
-    
     const loadResults = {
       calendars: {},
       totalEvents: 0,
@@ -3681,23 +3451,30 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     if (startTime && endTime) {
       // Fetch all calendars in parallel instead of sequentially
       const cacheResults = await Promise.all(
-        calendarIds.map(async (calendarId) => {
+        calendarsToLoad.map(async ({ calendarOwner, calendarId }) => {
           try {
-            const cachedEvents = await getUnifiedEvents(userId, calendarId, new Date(startTime), new Date(endTime));
-            return { calendarId, cachedEvents, error: null };
+            if (!calendarOwner) {
+              logger.warn(`No calendarOwner for calendarId: ${calendarId ? calendarId.substring(0, 30) + '...' : 'N/A'}`);
+              return { calendarOwner, calendarId, cachedEvents: [], error: null };
+            }
+            const cachedEvents = await getUnifiedEvents(userId, calendarOwner, new Date(startTime), new Date(endTime));
+            logger.debug(`Found ${cachedEvents.length} cached events for calendarOwner: ${calendarOwner}`);
+            return { calendarOwner, calendarId, cachedEvents, error: null };
           } catch (cacheError) {
-            logger.warn(`Error checking cache for calendar ${calendarId}:`, cacheError);
-            return { calendarId, cachedEvents: [], error: cacheError };
+            logger.warn(`Error checking cache for calendar ${calendarOwner}:`, cacheError);
+            return { calendarOwner, calendarId, cachedEvents: [], error: cacheError };
           }
         })
       );
 
       // Process results
       for (const result of cacheResults) {
-        const { calendarId, cachedEvents, error } = result;
+        const { calendarOwner, calendarId, cachedEvents, error } = result;
+        const calendarKey = calendarOwner || calendarId || 'unknown';
 
         if (error) {
           loadResults.errors.push({
+            calendarOwner: calendarOwner,
             calendarId: calendarId,
             error: error.message,
             step: 'cache'
@@ -3706,7 +3483,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         }
 
         if (cachedEvents.length > 0) {
-          logger.debug(`Found ${cachedEvents.length} cached events for calendar ${calendarId}`);
+          logger.debug(`Found ${cachedEvents.length} cached events for ${calendarKey}`);
           unifiedEvents = unifiedEvents.concat(cachedEvents);
 
           // Track cached event IDs for deduplication (use iCalUId - globally unique across mailboxes)
@@ -3719,22 +3496,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             else if (event.graphData?.id) {
               cachedEventIds.add(event.graphData.id);
             }
+            // Also add eventId for rsSched events
+            else if (event.eventId) {
+              cachedEventIds.add(event.eventId);
+            }
           });
 
-          loadResults.calendars[calendarId] = {
+          loadResults.calendars[calendarKey] = {
             cachedEvents: cachedEvents.length,
             source: 'hybrid'
           };
         } else {
-          logger.debug(`No cached events found for calendar ${calendarId} in date range`);
-          loadResults.calendars[calendarId] = {
+          logger.debug(`No cached events found for ${calendarKey} in date range`);
+          loadResults.calendars[calendarKey] = {
             cachedEvents: 0,
             source: 'hybrid'
           };
         }
       }
 
-      logger.log(`[PERF] Parallel cache load: ${calendarIds.length} calendars, ${unifiedEvents.length} total cached events`);
+      logger.log(`[PERF] Parallel cache load: ${calendarsToLoad.length} calendars, ${unifiedEvents.length} total cached events`);
     }
 
     // STEP 2: Fetch from Graph API and merge with cache
@@ -3744,7 +3525,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     if (startTime && endTime && graphToken) {
       logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime}, graphToken: ${!!graphToken})`);
 
-      for (const calendarId of calendarIds) {
+      for (const { calendarOwner, calendarId } of calendarsToLoad) {
+        // Skip if no calendarId (can't call Graph API without it)
+        if (!calendarId) {
+          logger.debug(`Skipping Graph API fetch for ${calendarOwner} - no calendarId available`);
+          continue;
+        }
         try {
           // Build Graph API URL using /calendarView endpoint (auto-expands recurring series)
           const calendarPath = calendarId === 'primary'
@@ -4088,124 +3874,26 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       }
     }
 
-    // STEP 2: Return events with full database structure (preserving graphData and internalData)
-    const transformedLoadEvents = unifiedEvents.map(event => {
-      // Check if graphData exists and has required properties
-      if (!event.graphData || !event.graphData.start || !event.graphData.end) {
-        logger.warn('Cached event missing required graphData properties:', {
-          eventId: event.eventId,
-          hasGraphData: !!event.graphData,
-          hasStart: event.graphData?.start ? true : false,
-          hasEnd: event.graphData?.end ? true : false
-        });
-        return null;
-      }
-
-      // Ensure event has a subject
-      if (!event.graphData.subject) {
-        event.graphData.subject = event.internalData?.subject || '(No Subject)';
-      }
-
-      // Return the full database object with nested structure intact
-      return {
-        // Core identifiers
-        eventId: event.eventId,                          // Internal unique ID (UUID)
-        id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
-        _id: event._id,                                 // MongoDB document ID
-        userId: event.userId,
-        calendarId: event.calendarId,
-
-        // Nested data structures (PRESERVED)
-        graphData: event.graphData,                     // Full Graph API data
-        internalData: event.internalData || {},         // Full internal enrichments
-        roomReservationData: event.roomReservationData, // Room reservation data
-
-        // Top-level compatibility fields for frontend (extracted from nested data)
-        subject: event.graphData?.subject,
-        // Use corrected UTC timestamps from top-level fields, falling back to graphData
-        start: {
-          dateTime: event.startDateTime || event.graphData?.start?.dateTime,
-          timeZone: event.graphData?.start?.timeZone || 'UTC'
-        },
-        end: {
-          dateTime: event.endDateTime || event.graphData?.end?.dateTime,
-          timeZone: event.graphData?.end?.timeZone || 'UTC'
-        },
-        location: event.graphData?.location,
-        bodyPreview: event.graphData?.bodyPreview,
-        isAllDay: event.graphData?.isAllDay,
-
-        // TOP-LEVEL APPLICATION FIELDS (added by migration)
-        eventTitle: event.eventTitle,
-        eventDescription: event.eventDescription,
-        startDateTime: event.startDateTime,
-        endDateTime: event.endDateTime,
-        startDate: event.startDate,
-        startTime: event.startTime,
-        endDate: event.endDate,
-        endTime: event.endTime,
-        setupTime: event.setupTime,
-        teardownTime: event.teardownTime,
-        doorOpenTime: event.doorOpenTime,
-        doorCloseTime: event.doorCloseTime,
-        setupTimeMinutes: event.setupTimeMinutes,
-        teardownTimeMinutes: event.teardownTimeMinutes,
-        setupNotes: event.setupNotes,
-        doorNotes: event.doorNotes,
-        eventNotes: event.eventNotes,
-        isAllDayEvent: event.isAllDayEvent,
-
-        // Room reservation fields
-        requestedRooms: event.requestedRooms,
-        requesterName: event.requesterName,
-        requesterEmail: event.requesterEmail,
-        department: event.department,
-        phone: event.phone,
-        attendeeCount: event.attendeeCount,
-        specialRequirements: event.specialRequirements,
-        contactName: event.contactName,
-        contactEmail: event.contactEmail,
-        isOnBehalfOf: event.isOnBehalfOf,
-        reviewNotes: event.reviewNotes,
-
-        // Category and assignment fields
-        mecCategories: event.mecCategories,
-        assignedTo: event.assignedTo,
-
-        // Event series fields (for multi-day events)
-        eventSeriesId: event.eventSeriesId || null,
-        seriesIndex: event.seriesIndex !== undefined ? event.seriesIndex : null,
-        seriesLength: event.seriesLength || null,
-
-        // Additional metadata
-        virtualMeetingUrl: event.virtualMeetingUrl,
-        virtualPlatform: event.virtualPlatform,
-        locations: event.locations,
-        locationDisplayNames: event.locationDisplayNames,
-        sourceCalendars: event.sourceCalendars,
-        lastSyncedAt: event.lastSyncedAt,
-        lastModifiedDateTime: event.lastModifiedDateTime,
-        status: event.status,
-        isDeleted: event.isDeleted,
-
-        // Timestamps
-        createdAt: event.createdAt,
-        createdBy: event.createdBy,
-        createdByEmail: event.createdByEmail,
-        createdByName: event.createdByName,
-        createdSource: event.createdSource,
-
-        // Services (internal use only - stored at top-level in MongoDB)
-        services: event.services || {},
-
-        // Flags for backward compatibility
-        _hasInternalData: Object.keys(event.internalData || {}).some(key =>
-          event.internalData[key] &&
-          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
-        ),
-        _cached: true
-      };
-    }).filter(event => event !== null);
+    // STEP 2: Return events directly from MongoDB (source of truth)
+    // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
+    const transformedLoadEvents = unifiedEvents.map(event => ({
+      ...event,  // Spread all MongoDB fields directly
+      // Add frontend compatibility wrappers
+      id: event.eventId || event._id?.toString(),
+      subject: event.eventTitle || '(No Subject)',
+      start: {
+        dateTime: event.startDateTime,
+        timeZone: 'UTC'
+      },
+      end: {
+        dateTime: event.endDateTime,
+        timeZone: 'UTC'
+      },
+      location: { displayName: event.locationDisplayName || '' },
+      bodyPreview: event.eventDescription || '',
+      isAllDay: event.isAllDayEvent ?? false,
+      categories: event.categories || []
+    }));
 
     // Calculate totals
     const cachedCount = unifiedEvents.filter(e => !e._fromGraph).length;
@@ -4242,6 +3930,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       });
     }
     logger.log(`${'='.repeat(60)}\n`);
+
+    // DEBUG: Log exactly what we're sending
+    logger.log(`🔍 RESPONSE DEBUG: Sending ${transformedLoadEvents.length} events to frontend`);
+    if (transformedLoadEvents.length > 0) {
+      logger.log(`🔍 First event: ${transformedLoadEvents[0]?.subject}, start: ${transformedLoadEvents[0]?.start?.dateTime}`);
+    }
 
     return res.status(200).json({
       loadResults: loadResults,
@@ -6030,266 +5724,6 @@ app.get('/api/events/sync-stats', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Cache-first event loading endpoint
- */
-app.get('/api/events/cached', verifyToken, async (req, res) => {
-  try {
-    const { calendarId, startTime, endTime, forceRefresh } = req.query;
-    
-    if (!calendarId || !startTime || !endTime) {
-      return res.status(400).json({ 
-        error: 'calendarId, startTime, and endTime parameters are required' 
-      });
-    }
-    
-    const userId = req.user.userId;
-    const startDate = new Date(startTime);
-    const endDate = new Date(endTime);
-    
-    logger.log(`Cache-first loading events for ${userId}, calendar ${calendarId}, ${startTime} to ${endTime}`);
-    
-    let cachedEvents = [];
-    let needsGraphApi = false;
-    
-    if (forceRefresh !== 'true') {
-      // Try to get events from cache first
-      cachedEvents = await getCachedEvents(userId, calendarId, startDate, endDate);
-      
-      if (cachedEvents.length === 0) {
-        needsGraphApi = true;
-        logger.debug('No cached events found, will fetch from Graph API');
-      } else {
-        // Check if any cached events are stale
-        const eventIds = cachedEvents.map(e => e.eventId);
-        const staleEventIds = await getStaleEvents(userId, calendarId, eventIds);
-        
-        if (staleEventIds.length > 0) {
-          needsGraphApi = true;
-          logger.debug(`${staleEventIds.length} events are stale, will refresh from Graph API`);
-        }
-      }
-    } else {
-      needsGraphApi = true;
-      logger.debug('Force refresh requested');
-    }
-    
-    // Return cached events if they're fresh enough
-    if (!needsGraphApi && cachedEvents.length > 0) {
-      const events = cachedEvents.map(cached => ({
-        ...cached.eventData,
-        ...cached.internalData,
-        _cached: true,
-        _cachedAt: cached.cachedAt
-      }));
-      
-      return res.status(200).json({
-        events: events,
-        source: 'cache',
-        cachedAt: cachedEvents[0]?.cachedAt,
-        count: events.length
-      });
-    }
-    
-    // If we reach here, we need to fetch from Graph API
-    // Get the user's Graph token from custom headers
-    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
-    
-    if (!graphToken) {
-      return res.status(200).json({
-        events: [],
-        source: 'cache_miss',
-        message: 'Cache miss - Graph token required for fallback',
-        needsGraphApi: true
-      });
-    }
-    
-    try {
-      // Fetch events from Graph API using calendarView (auto-expands recurring series)
-      const calendarPath = calendarId ?
-        `/me/calendars/${calendarId}/calendarView` :
-        '/me/calendar/calendarView';
-
-      const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-        `startDateTime=${encodeURIComponent(startDate.toISOString())}&` +
-        `endDateTime=${encodeURIComponent(endDate.toISOString())}&` +
-        `$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties&` +
-        `$expand=extensions&` +
-        `$top=1000`;
-      
-      const graphResponse = await fetch(graphUrl, {
-        headers: {
-          Authorization: `Bearer ${graphToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!graphResponse.ok) {
-        throw new Error(`Graph API failed: ${graphResponse.status} ${graphResponse.statusText}`);
-      }
-      
-      // Safely parse response to handle empty or invalid JSON
-      let graphData;
-      try {
-        const responseText = await graphResponse.text();
-        if (!responseText) {
-          logger.warn('Graph API returned empty response');
-          graphData = { value: [] };
-        } else {
-          graphData = JSON.parse(responseText);
-        }
-      } catch (parseError) {
-        logger.error('Failed to parse Graph API response:', parseError);
-        graphData = { value: [] };
-      }
-      
-      const events = graphData.value || [];
-      
-      logger.log(`Fetched ${events.length} events from Graph API for cache miss`);
-      
-      // Cache the fetched events asynchronously (fire-and-forget)
-      setTimeout(async () => {
-        try {
-          for (const event of events) {
-            await cacheEvent(userId, calendarId, {
-              ...event,
-              calendarId: calendarId // Ensure calendarId is set
-            });
-          }
-          logger.debug(`Cached ${events.length} events after Graph API fetch`);
-        } catch (cacheError) {
-          logger.warn('Failed to cache events after Graph API fetch:', cacheError);
-        }
-      }, 100); // Small delay to avoid blocking the response
-      
-      // Return the events with metadata indicating they came from Graph API
-      const responseEvents = events.map(event => ({
-        ...event,
-        calendarId: calendarId,
-        _cached: false,
-        _source: 'graph'
-      }));
-      
-      return res.status(200).json({
-        events: responseEvents,
-        source: 'graph_fallback',
-        message: 'Cache miss - fetched from Graph API',
-        count: responseEvents.length
-      });
-      
-    } catch (graphError) {
-      logger.error('Graph API fallback failed:', graphError);
-      return res.status(500).json({
-        error: 'Failed to fetch events from Graph API',
-        details: graphError.message
-      });
-    }
-    
-  } catch (error) {
-    logger.error('Error in cache-first loading:', error);
-    res.status(500).json({ error: 'Failed to load events' });
-  }
-});
-
-/**
- * Legacy cache statistics endpoint - REMOVED
- * Now reports unified events collection statistics instead
- */
-app.get('/api/events/cache-stats', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-
-    // Use unified events collection for stats
-    const totalEvents = await unifiedEventsCollection.countDocuments({ userId: userId });
-    const deletedEvents = await unifiedEventsCollection.countDocuments({
-      userId: userId,
-      isDeleted: true
-    });
-
-    res.status(200).json({
-      userId: userId,
-      totalEvents: totalEvents,
-      activeEvents: totalEvents - deletedEvents,
-      deletedEvents: deletedEvents,
-      message: 'Cache system migrated to unified events collection',
-      collection: 'unifiedEventsCollection'
-    });
-  } catch (error) {
-    logger.error('Error getting unified events stats:', error);
-    res.status(500).json({ error: 'Failed to get event statistics' });
-  }
-});
-
-/**
- * Legacy cache invalidate endpoint - REMOVED
- * Cache invalidation is no longer needed with unified events collection
- */
-app.post('/api/events/cache-invalidate', verifyToken, async (req, res) => {
-  res.status(410).json({
-    error: 'Cache invalidation endpoint no longer available',
-    message: 'Events are now managed through the unified events collection which does not require cache invalidation'
-  });
-});
-
-/**
- * Legacy cache clean-duplicates admin endpoint - REMOVED
- * Duplicate handling is now managed in the unified events collection
- */
-app.post('/api/admin/cache/clean-duplicates', verifyToken, async (req, res) => {
-  res.status(410).json({
-    error: 'Cache cleanup endpoint no longer available',
-    message: 'Duplicate handling is now managed through the unified events collection'
-  });
-});
-
-/**
- * Legacy cache events endpoint - REMOVED
- * This endpoint has been disabled as part of cache system migration to unified events collection
- */
-app.post('/api/events/cache', verifyToken, async (req, res) => {
-  res.status(410).json({
-    error: 'Cache endpoint no longer available',
-    message: 'Event caching is now handled automatically through the unified events system'
-  });
-});
-
-/**
- * Check which events are missing from cache
- */
-app.post('/api/events/cache-missing', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { eventIds, calendarId } = req.body;
-    
-    if (!eventIds || !Array.isArray(eventIds) || !calendarId) {
-      return res.status(400).json({ 
-        error: 'eventIds array and calendarId are required' 
-      });
-    }
-    
-    logger.debug(`Checking which of ${eventIds.length} events are missing from cache for user ${userId}, calendar ${calendarId}`);
-    
-    // Find which events are already cached and not expired
-    const now = new Date();
-    // eventCacheCollection removed - return empty array to indicate no cache
-    const cachedEventIds = [];
-    
-    const cachedIds = new Set(cachedEventIds.map(e => e.eventId));
-    const missingEventIds = eventIds.filter(id => !cachedIds.has(id));
-    
-    logger.debug(`Found ${cachedEventIds.length} cached events, ${missingEventIds.length} missing from cache`);
-    
-    res.status(200).json({
-      totalChecked: eventIds.length,
-      cachedCount: cachedEventIds.length,
-      missingCount: missingEventIds.length,
-      missingEventIds: missingEventIds
-    });
-  } catch (error) {
-    logger.error('Error checking missing cache entries:', error);
-    res.status(500).json({ error: 'Failed to check cache entries' });
-  }
-});
 
 // ============================================
 // UNIFIED EVENTS ADMIN ENDPOINTS
@@ -10414,679 +9848,6 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
   }
 });
 
-// ============================================
-// ADMIN CACHE MANAGEMENT ENDPOINTS
-// ============================================
-
-/**
- * Admin endpoint - Get cache overview and statistics
- */
-app.get('/api/admin/cache/overview', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    // Check if collections are initialized
-    if (!unifiedEventsCollection || !calendarDeltasCollection) {
-      logger.error('Collections not initialized in cache overview');
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-    
-    // Basic unified events statistics
-    const totalEvents = await unifiedEventsCollection.countDocuments({ userId: userId });
-    const deletedCount = await unifiedEventsCollection.countDocuments({ 
-      userId: userId,
-      isDeleted: true 
-    });
-    const activeEvents = totalEvents - deletedCount;
-    
-    // Events with internal data (enriched)
-    const enrichedCount = await unifiedEventsCollection.countDocuments({
-      userId: userId,
-      isDeleted: { $ne: true },
-      $or: [
-        { "internalData.mecCategories.0": { $exists: true } },
-        { "internalData.setupMinutes": { $gt: 0 } },
-        { "internalData.teardownMinutes": { $gt: 0 } },
-        { "internalData.internalNotes": { $ne: "" } }
-      ]
-    });
-    
-    // Events by calendar breakdown
-    const eventsByCalendar = await unifiedEventsCollection.aggregate([
-      { $match: { userId: userId, isDeleted: { $ne: true } } },
-      { $unwind: "$sourceCalendars" },
-      { $group: { 
-        _id: "$sourceCalendars.calendarId", 
-        calendarName: { $first: "$sourceCalendars.calendarName" },
-        role: { $first: "$sourceCalendars.role" },
-        count: { $sum: 1 },
-        oldestSynced: { $min: "$lastSyncedAt" },
-        newestSynced: { $max: "$lastSyncedAt" }
-      }},
-      { $sort: { count: -1 } }
-    ]).toArray();
-    
-    // Recent sync operations (last 24 hours)
-    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentOperations = await unifiedEventsCollection.find({
-      userId: userId,
-      lastSyncedAt: { $gte: last24Hours }
-    })
-    .sort({ lastSyncedAt: -1 })
-    .limit(10)
-    .project({
-      eventId: 1,
-      "graphData.subject": 1,
-      calendarId: 1,
-      lastSyncedAt: 1,
-      sourceCalendars: 1
-    })
-    .toArray();
-    
-    // Delta token information
-    const deltaTokens = await calendarDeltasCollection.find({ userId: userId }).toArray();
-    
-    // Storage utilization for new collections
-    const unifiedCollectionStats = await db.collection('templeEvents__Events').stats();
-    const deltaCollectionStats = await db.collection('templeEvents__CalendarDeltas').stats();
-    
-    // Legacy cache stats removed - eventCacheCollection no longer exists
-    let legacyCacheStats = null;
-    
-    res.status(200).json({
-      userId: userId,
-      systemType: 'unified_events',
-      statistics: {
-        totalEvents: totalEvents,
-        activeEvents: activeEvents,
-        deletedEvents: deletedCount,
-        enrichedEvents: enrichedCount,
-        enrichmentRatio: totalEvents > 0 ? ((enrichedCount / totalEvents) * 100).toFixed(2) : 0
-      },
-      eventsByCalendar: eventsByCalendar,
-      deltaTokens: deltaTokens.map(dt => ({
-        calendarId: dt.calendarId,
-        lastDeltaSync: dt.lastDeltaSync,
-        fullSyncRequired: dt.fullSyncRequired,
-        hasValidToken: !!dt.deltaToken
-      })),
-      recentOperations: recentOperations.map(op => ({
-        eventId: op.eventId,
-        calendarId: op.calendarId,
-        subject: op.graphData?.subject || 'Unknown',
-        lastSyncedAt: op.lastSyncedAt,
-        sourceCalendars: op.sourceCalendars?.map(sc => sc.calendarName).join(', ') || op.calendarId
-      })),
-      storage: {
-        unifiedEvents: {
-          totalSize: unifiedCollectionStats.size,
-          indexSize: unifiedCollectionStats.totalIndexSize,
-          documentCount: unifiedCollectionStats.count
-        },
-        deltaTokens: {
-          totalSize: deltaCollectionStats.size,
-          indexSize: deltaCollectionStats.totalIndexSize,
-          documentCount: deltaCollectionStats.count
-        },
-        legacy: legacyCacheStats
-      },
-      configuration: {
-        deltaQueryEnabled: true,
-        multiCalendarSupport: true,
-        autoSync: true
-      }
-    });
-  } catch (error) {
-    logger.error('Error getting cache overview:', error);
-    res.status(500).json({ error: 'Failed to get cache overview' });
-  }
-});
-
-/**
- * Admin endpoint - Browse cached events with pagination and filtering
- */
-app.get('/api/admin/cache/events', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    logger.debug('Admin unified events request:', { userId, query: req.query });
-    
-    // Check if we have a valid userId
-    if (!userId) {
-      logger.error('No userId found in request');
-      return res.status(400).json({ error: 'User ID not found' });
-    }
-    
-    // Check if unifiedEventsCollection is initialized
-    if (!unifiedEventsCollection) {
-      logger.error('unifiedEventsCollection is not initialized');
-      return res.status(500).json({ error: 'Unified events collection not initialized' });
-    }
-    
-    const { 
-      page = 1, 
-      limit, 
-      calendarId, 
-      status, 
-      search,
-      sortBy = 'lastSyncedAt',
-      sortOrder = 'desc',
-      categories,
-      locations,
-      startDate,
-      endDate
-    } = req.query;
-    
-    // Parse numeric parameters
-    const pageNum = parseInt(page);
-    // Handle null limit (return all results)
-    const limitNum = (limit === null || limit === 'null' || limit === undefined || limit === '') ? null : parseInt(limit);
-    
-    logger.debug('=== PAGINATION DEBUG ===');
-    logger.debug('Raw limit parameter:', limit, '(type:', typeof limit, ')');
-    logger.debug('Parsed limitNum:', limitNum, '(type:', typeof limitNum, ')');
-    logger.debug('Will apply pagination:', limitNum !== null);
-    logger.debug('=== END PAGINATION DEBUG ===');
-    
-    // Build query for unified events
-    const query = { userId: userId };
-    
-    // Apply calendar filter
-    if (calendarId) {
-      query["sourceCalendars.calendarId"] = calendarId;
-    }
-    
-    // Apply status filter
-    if (status === 'deleted') {
-      query.isDeleted = true;
-    } else if (status === 'active') {
-      query.isDeleted = { $ne: true };
-    } else if (status === 'enriched') {
-      query.isDeleted = { $ne: true };
-      query.$or = [
-        { "internalData.mecCategories.0": { $exists: true } },
-        { "internalData.setupMinutes": { $gt: 0 } },
-        { "internalData.teardownMinutes": { $gt: 0 } },
-        { "internalData.internalNotes": { $ne: "" } }
-      ];
-    } else {
-      // Default to active events
-      query.isDeleted = { $ne: true };
-    }
-    
-    // Apply category filter
-    if (categories) {
-      const categoryList = categories.split(',').map(cat => cat.trim());
-      
-      // Handle "Uncategorized" special case
-      if (categoryList.includes('Uncategorized')) {
-        const otherCategories = categoryList.filter(cat => cat !== 'Uncategorized');
-        
-        if (otherCategories.length > 0) {
-          // Include both uncategorized events AND events with specified categories
-          query.$or = [
-            // Uncategorized events (no categories in either location)
-            {
-              $and: [
-                { $or: [
-                  { "graphData.categories": { $exists: false } },
-                  { "graphData.categories": { $size: 0 } }
-                ]},
-                { $or: [
-                  { "internalData.mecCategories": { $exists: false } },
-                  { "internalData.mecCategories": { $size: 0 } }
-                ]}
-              ]
-            },
-            // Events with specified categories
-            {
-              $or: [
-                { "graphData.categories": { $in: otherCategories } },
-                { "internalData.mecCategories": { $in: otherCategories } }
-              ]
-            }
-          ];
-        } else {
-          // Only uncategorized events
-          query.$and = [
-            { $or: [
-              { "graphData.categories": { $exists: false } },
-              { "graphData.categories": { $size: 0 } }
-            ]},
-            { $or: [
-              { "internalData.mecCategories": { $exists: false } },
-              { "internalData.mecCategories": { $size: 0 } }
-            ]}
-          ];
-        }
-      } else {
-        // Regular category filtering - check both graphData and internalData
-        query.$or = [
-          { "graphData.categories": { $in: categoryList } },
-          { "internalData.mecCategories": { $in: categoryList } }
-        ];
-      }
-    }
-    
-    // Apply location filter - use single combined regex for case-insensitive matching
-    if (locations) {
-      const locationList = locations.split(',').map(loc => loc.trim());
-      // Escape special regex characters and combine into single pattern
-      const escapedLocations = locationList.map(loc =>
-        loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      );
-      // Single regex pattern matching any of the locations (case-insensitive)
-      query["graphData.location.displayName"] = {
-        $regex: new RegExp(`^(${escapedLocations.join('|')})$`, 'i')
-      };
-    }
-    
-    // Apply date range filter
-    logger.debug('=== DATE FILTERING DEBUG ===');
-    logger.debug('Raw startDate parameter:', startDate, '(type:', typeof startDate, ')');
-    logger.debug('Raw endDate parameter:', endDate, '(type:', typeof endDate, ')');
-    logger.debug('Query state before date filtering:', JSON.stringify(query, null, 2));
-    
-    if (startDate || endDate) {
-      const dateConditions = [];
-      
-      if (startDate) {
-        const startDateTime = new Date(startDate);
-        logger.debug('Parsed startDateTime:', startDateTime, '(valid:', !isNaN(startDateTime.getTime()), ')');
-        // Event must end after the start date (event doesn't end before range starts)
-        // Use ISO string since that's how dates are stored in CSV import
-        const startCondition = { "graphData.end.dateTime": { $gt: startDateTime.toISOString() } };
-        dateConditions.push(startCondition);
-        logger.debug('Added start condition (overlap):', JSON.stringify(startCondition));
-      }
-      
-      if (endDate) {
-        // Event must start before the end date (event doesn't start after range ends)
-        const endDateTime = new Date(endDate);
-        endDateTime.setDate(endDateTime.getDate() + 1); // Include events ending on the end date
-        logger.debug('Parsed endDateTime (with +1 day):', endDateTime, '(valid:', !isNaN(endDateTime.getTime()), ')');
-        // Use ISO string since that's how dates are stored in CSV import
-        const endCondition = { "graphData.start.dateTime": { $lt: endDateTime.toISOString() } };
-        dateConditions.push(endCondition);
-        logger.debug('Added end condition (overlap):', JSON.stringify(endCondition));
-      }
-      
-      // Add date conditions to the query using $and
-      if (dateConditions.length > 0) {
-        if (query.$and) {
-          query.$and.push(...dateConditions);
-        } else {
-          query.$and = dateConditions;
-        }
-        logger.debug('Applied date conditions to query. Total $and conditions:', query.$and.length);
-      }
-    } else {
-      logger.debug('No date filtering applied - startDate and endDate are both falsy');
-    }
-    logger.debug('Query state after date filtering:', JSON.stringify(query, null, 2));
-    logger.debug('=== END DATE FILTERING DEBUG ===');
-
-    // Apply search filter in MongoDB query (not in memory)
-    if (search) {
-      const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      const searchConditions = [
-        // Top-level fields (CSV imports, source of truth)
-        { eventTitle: searchRegex },
-        { eventDescription: searchRegex },
-        { location: searchRegex },
-        { locationDisplayNames: searchRegex },
-        // graphData fields (Outlook sync fallback)
-        { "graphData.subject": searchRegex },
-        { "graphData.bodyPreview": searchRegex },
-        { "graphData.location.displayName": searchRegex }
-      ];
-
-      // Handle existing $or from category filtering
-      if (query.$or) {
-        // Wrap existing $or and search in $and
-        const existingOr = query.$or;
-        delete query.$or;
-        if (!query.$and) query.$and = [];
-        query.$and.push({ $or: existingOr });
-        query.$and.push({ $or: searchConditions });
-      } else {
-        query.$or = searchConditions;
-      }
-    }
-
-    logger.debug('Executing query for unified events');
-    logger.debug('MongoDB query:', JSON.stringify(query, null, 2));
-    logger.debug('Query parameters:', { categories, locations, startDate, endDate, search, sortBy, sortOrder });
-
-    // Determine sort field and direction for MongoDB
-    let sortField;
-    if (sortBy === 'lastSyncedAt') {
-      sortField = 'lastSyncedAt';
-    } else if (sortBy === 'subject') {
-      sortField = 'graphData.subject';
-    } else if (sortBy === 'startTime') {
-      sortField = 'graphData.start.dateTime';
-    } else {
-      sortField = 'graphData.start.dateTime'; // Default sort by start time
-    }
-    const sortDirection = sortOrder === 'desc' ? -1 : 1;
-
-    // Get total count for pagination
-    const totalCount = await unifiedEventsCollection.countDocuments(query);
-    logger.debug('Total matching events:', totalCount);
-
-    // Database-level pagination - only fetch the page we need
-    const pageSize = limitNum || 50; // Default to 50 if no limit specified
-    const skip = (pageNum - 1) * pageSize;
-
-    let paginatedEvents;
-    if (limitNum === null) {
-      // Return all results when explicitly no limit
-      paginatedEvents = await unifiedEventsCollection
-        .find(query)
-        .sort({ [sortField]: sortDirection })
-        .toArray();
-    } else {
-      // Apply pagination at database level
-      paginatedEvents = await unifiedEventsCollection
-        .find(query)
-        .sort({ [sortField]: sortDirection })
-        .skip(skip)
-        .limit(pageSize)
-        .toArray();
-    }
-
-    logger.debug('Fetched events for page:', paginatedEvents.length)
-    
-    res.status(200).json({
-      events: paginatedEvents.map(event => ({
-        _id: event._id,
-        eventId: event.eventId,
-        calendarId: event.calendarId,
-        calendarName: event.calendarName,
-        subject: event.graphData?.subject || 'Unknown',
-        startTime: event.graphData?.start?.dateTime,
-        endTime: event.graphData?.end?.dateTime,
-        location: event.graphData?.location?.displayName,
-        // Include full graphData and internalData for compatibility
-        graphData: event.graphData,
-        internalData: event.internalData,
-        // Also include flattened fields for backward compatibility
-        categories: event.graphData?.categories || [],
-        lastSyncedAt: event.lastSyncedAt,
-        lastAccessedAt: event.lastAccessedAt,
-        isDeleted: event.isDeleted,
-        etag: event.etag,
-        changeKey: event.changeKey,
-        sourceCalendars: event.sourceCalendars || [],
-        hasInternalData: Object.keys(event.internalData || {}).some(key => 
-          event.internalData[key] && 
-          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
-        )
-      })),
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        totalCount: totalCount,
-        totalPages: limitNum === null ? 1 : Math.ceil(totalCount / limitNum)
-      },
-      filters: {
-        calendarId,
-        status,
-        search,
-        sortBy,
-        sortOrder,
-        categories,
-        locations,
-        startDate,
-        endDate
-      }
-    });
-  } catch (error) {
-    logger.error('Error browsing cached events:', error);
-    res.status(500).json({ error: 'Failed to browse cached events', details: error.message });
-  }
-});
-
-/**
- * Admin endpoint - Get detailed cache event data
- */
-app.get('/api/admin/cache/events/:eventId', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { eventId } = req.params;
-
-    // eventCacheCollection removed - using unifiedEventsCollection instead
-    const cacheEntry = await unifiedEventsCollection.findOne({
-      userId: userId,
-      eventId: eventId
-    });
-
-    if (!cacheEntry) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    res.status(200).json({
-      event: cacheEntry,
-      metadata: {
-        lastSyncedAt: cacheEntry.lastSyncedAt,
-        timeToExpire: Math.max(0, cacheEntry.expiresAt - new Date()),
-        lastAccessedAgo: new Date() - cacheEntry.lastAccessedAt,
-        cacheAge: new Date() - cacheEntry.cachedAt,
-        dataSize: JSON.stringify(cacheEntry.eventData).length
-      }
-    });
-  } catch (error) {
-    logger.error('Error getting cached event details:', error);
-    res.status(500).json({ error: 'Failed to get cached event details' });
-  }
-});
-
-/**
- * Admin endpoint - Manually refresh specific cached events
- */
-app.post('/api/admin/cache/refresh', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { eventIds, calendarIds } = req.body;
-    
-    if (!eventIds && !calendarIds) {
-      return res.status(400).json({ error: 'eventIds array or calendarIds array is required' });
-    }
-    
-    let refreshedCount = 0;
-    let errorCount = 0;
-    const errors = [];
-    
-    if (eventIds && Array.isArray(eventIds)) {
-      // Refresh specific events by marking them for re-sync
-      for (const eventId of eventIds) {
-        try {
-          const result = await unifiedEventsCollection.updateOne(
-            { userId: userId, eventId: eventId },
-            { 
-              $set: { 
-                lastAccessedAt: new Date(),
-                // Could add a flag to force refresh on next sync
-                forceRefresh: true
-              }
-            }
-          );
-          
-          if (result.modifiedCount > 0) {
-            refreshedCount++;
-          }
-        } catch (error) {
-          errorCount++;
-          errors.push({
-            eventId: eventId,
-            error: error.message
-          });
-        }
-      }
-    }
-    
-    if (calendarIds && Array.isArray(calendarIds)) {
-      // Reset delta tokens to force full sync
-      for (const calendarId of calendarIds) {
-        try {
-          await resetDeltaToken(userId, calendarId);
-          refreshedCount++;
-        } catch (error) {
-          errorCount++;
-          errors.push({
-            calendarId: calendarId,
-            error: error.message
-          });
-        }
-      }
-    }
-    
-    res.status(200).json({
-      message: 'Refresh completed',
-      refreshedCount: refreshedCount,
-      errorCount: errorCount,
-      errors: errors.length > 0 ? errors : undefined,
-      note: calendarIds ? 'Delta tokens reset - next sync will be full' : 'Events marked for refresh'
-    });
-  } catch (error) {
-    logger.error('Error refreshing events:', error);
-    res.status(500).json({ error: 'Failed to refresh events' });
-  }
-});
-
-/**
- * Admin endpoint - Cache performance testing
- */
-app.post('/api/admin/cache/test-performance', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { calendarId, testType = 'basic' } = req.body;
-    
-    const results = {
-      testType: testType,
-      timestamp: new Date(),
-      userId: userId,
-      calendarId: calendarId
-    };
-    
-    // Test 1: Event lookup performance (using unified collection)
-    const cacheStartTime = Date.now();
-    const cachedEventCount = await unifiedEventsCollection.countDocuments({
-      userId: userId,
-      calendarId: calendarId,
-      isDeleted: { $ne: true }
-    });
-    const cacheLookupTime = Date.now() - cacheStartTime;
-
-    // Test 2: Sample event queries
-    const queryStartTime = Date.now();
-    const sampleEvents = await unifiedEventsCollection
-      .find({
-        userId: userId,
-        calendarId: calendarId,
-        isDeleted: { $ne: true }
-      })
-      .limit(10)
-      .toArray();
-    const queryTime = Date.now() - queryStartTime;
-
-    // Test 3: Collection utilization
-    const totalCacheSize = await unifiedEventsCollection.estimatedDocumentCount();
-    const userCacheSize = await unifiedEventsCollection.countDocuments({ userId: userId, isDeleted: { $ne: true } });
-    
-    results.performance = {
-      cacheLookupTimeMs: cacheLookupTime,
-      queryTimeMs: queryTime,
-      cachedEventCount: cachedEventCount,
-      sampleEventCount: sampleEvents.length,
-      avgEventSizeBytes: sampleEvents.length > 0 ? 
-        Math.round(sampleEvents.reduce((sum, event) => sum + JSON.stringify(event).length, 0) / sampleEvents.length) : 0
-    };
-    
-    results.utilization = {
-      totalCacheSize: totalCacheSize,
-      userCacheSize: userCacheSize,
-      userCachePercentage: totalCacheSize > 0 ? (userCacheSize / totalCacheSize * 100).toFixed(2) : 0,
-      maxCacheSize: CACHE_CONFIG.MAX_CACHE_SIZE,
-      utilizationPercentage: (totalCacheSize / CACHE_CONFIG.MAX_CACHE_SIZE * 100).toFixed(2)
-    };
-    
-    // Test 4: Index performance (if requested)
-    if (testType === 'detailed') {
-      const indexStartTime = Date.now();
-      const indexStats = await unifiedEventsCollection.aggregate([
-        { $indexStats: {} }
-      ]).toArray();
-      const indexAnalysisTime = Date.now() - indexStartTime;
-      
-      results.indexes = {
-        analysisTimeMs: indexAnalysisTime,
-        indexCount: indexStats.length,
-        indexes: indexStats.map(idx => ({
-          name: idx.name,
-          accesses: idx.accesses?.ops || 0
-        }))
-      };
-    }
-    
-    res.status(200).json(results);
-  } catch (error) {
-    logger.error('Error running cache performance test:', error);
-    res.status(500).json({ error: 'Failed to run cache performance test' });
-  }
-});
-
-/**
- * Admin endpoint - Cache cleanup operations
- */
-app.post('/api/admin/cache/cleanup', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const { operation = 'expired', calendarId } = req.body;
-    
-    let query = { userId: userId };
-    let operationDescription = '';
-    
-    switch (operation) {
-      case 'expired':
-        query.expiresAt = { $lt: new Date() };
-        operationDescription = 'expired cache entries';
-        break;
-      case 'dirty':
-        query.isDirty = true;
-        operationDescription = 'dirty cache entries';
-        break;
-      case 'old':
-        // Older than 7 days
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        query.cachedAt = { $lt: sevenDaysAgo };
-        operationDescription = 'cache entries older than 7 days';
-        break;
-      case 'calendar':
-        if (!calendarId) {
-          return res.status(400).json({ error: 'calendarId required for calendar cleanup' });
-        }
-        query.calendarId = calendarId;
-        operationDescription = `cache entries for calendar ${calendarId}`;
-        break;
-      default:
-        return res.status(400).json({ error: 'Invalid cleanup operation' });
-    }
-    
-    // eventCacheCollection removed - no longer exists
-    const deleteResult = { deletedCount: 0 };
-
-    res.status(200).json({
-      message: `Cache cleanup operation no longer available - cache system migrated to unified events collection`,
-      operation: operation,
-      deletedCount: deleteResult.deletedCount,
-      query: query
-    });
-  } catch (error) {
-    logger.error('Error during cache cleanup:', error);
-    res.status(500).json({ error: 'Failed to perform cache cleanup' });
-  }
-});
 
 // ============================================
 // PUBLIC ENDPOINTS (No Authentication Required)

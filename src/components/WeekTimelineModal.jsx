@@ -168,16 +168,9 @@ export default function WeekTimelineModal({
     });
 
     events.forEach(event => {
-      let dateKey;
-
-      if (event.isAllDayEvent && event.startDate) {
-        // For all-day events, use the startDate field directly
-        dateKey = event.startDate;  // Already in "YYYY-MM-DD" format
-      } else {
-        // For regular events, parse the dateTime
-        const eventStart = new Date(event.start.dateTime);
-        dateKey = formatDateKey(eventStart);
-      }
+      // Use event.start.dateTime - the canonical date field
+      const eventStart = new Date(event.start.dateTime);
+      const dateKey = formatDateKey(eventStart);
 
       if (grouped[dateKey]) {
         if (isAllDayEvent(event)) {

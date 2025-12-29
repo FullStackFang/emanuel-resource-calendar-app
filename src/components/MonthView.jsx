@@ -230,19 +230,14 @@ const MonthView = memo(({
                       {(() => {
                         // Use filteredEvents from Calendar's main filtering system
                         const dayFilteredEvents = filteredEvents.filter(event => {
-                          // Use startDate field directly to avoid timezone issues
-                          // Format: "YYYY-MM-DD"
+                          // Use event.start.dateTime (top-level field set by backend)
                           let eventDateStr;
 
                           if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) {
-                            // For registration times, parse the datetime
                             const regDate = new Date(event.registrationStart);
                             eventDateStr = regDate.toISOString().split('T')[0];
-                          } else if (event.startDate) {
-                            // Use the top-level startDate field (already formatted as YYYY-MM-DD)
-                            eventDateStr = event.startDate;
                           } else {
-                            // Fallback: extract date from datetime string
+                            // Use start.dateTime - the canonical date field
                             eventDateStr = event.start.dateTime.split('T')[0];
                           }
 
