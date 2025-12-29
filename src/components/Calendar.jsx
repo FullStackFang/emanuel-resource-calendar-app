@@ -4578,8 +4578,9 @@
               eventNotes: reservationData.eventNotes || '',
               requesterName: reservationData.requesterName || userProfile?.displayName || '',
               requesterEmail: reservationData.requesterEmail || userProfile?.mail || '',
-              // Include calendarId so the event shows up in the user's calendar view
+              // Include calendarId and calendarOwner so the event shows up in the user's calendar view
               calendarId: reservationData.calendarId || selectedCalendarId,
+              calendarOwner: availableCalendars.find(cal => cal.id === (reservationData.calendarId || selectedCalendarId))?.owner?.address?.toLowerCase() || null,
               // Offsite location fields
               isOffsite: reservationData.isOffsite || false,
               offsiteName: reservationData.offsiteName || '',

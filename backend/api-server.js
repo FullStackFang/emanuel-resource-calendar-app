@@ -14734,6 +14734,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       requesterName,
       requesterEmail,
       calendarId,  // Calendar ID for event to appear in calendar view
+      calendarOwner, // Calendar owner email for filtering
       // Offsite location fields
       isOffsite,
       offsiteName,
@@ -14957,9 +14958,9 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       createdSource: 'room-reservation',
       lastModifiedDateTime: new Date(),
       lastSyncedAt: new Date(),
-      // Use provided calendarId so event shows in user's calendar view
+      // Use provided calendarId and calendarOwner so event shows in user's calendar view
       calendarId: calendarId || null,
-      calendarOwner: calendarId ? getCalendarOwnerFromConfig(calendarId) : null, // Email of calendar owner for filtering
+      calendarOwner: calendarOwner || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null), // Email of calendar owner for filtering
       sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
       syncStatus: 'pending'
