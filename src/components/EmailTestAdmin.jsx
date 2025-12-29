@@ -39,6 +39,7 @@ export default function EmailTestAdmin({ apiToken }) {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [editorView, setEditorView] = useState('template'); // 'template' or 'preview'
 
   // Quill editor configuration
   const quillModules = useMemo(() => ({
@@ -211,6 +212,7 @@ export default function EmailTestAdmin({ apiToken }) {
     setEditSubject(template.subject);
     setEditBody(template.body);
     setPreviewHtml(null);
+    setEditorView('template');
     setError(null);
     setSuccessMessage('');
   };
@@ -319,6 +321,7 @@ export default function EmailTestAdmin({ apiToken }) {
 
       if (response.ok) {
         setPreviewHtml(result.html);
+        setEditorView('preview');
       } else {
         setError(result.error || 'Failed to preview template');
       }
@@ -577,56 +580,9 @@ export default function EmailTestAdmin({ apiToken }) {
         <div className="template-editor-container">
           {selectedTemplate ? (
             <>
-              <h3>Edit: {selectedTemplate.name}</h3>
-
-              <div className="template-editor">
-                <div className="form-group">
-                  <label htmlFor="editSubject">Subject Line</label>
-                  <input
-                    type="text"
-                    id="editSubject"
-                    value={editSubject}
-                    onChange={(e) => setEditSubject(e.target.value)}
-                    placeholder="Email subject"
-                  />
-                  <small className="form-hint">
-                    Available variables: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
-                  </small>
-                </div>
-
-                <div className="form-group">
-                  <label>Body</label>
-                  <div className="quill-editor-container">
-                    <ReactQuill
-                      theme="snow"
-                      value={editBody}
-                      onChange={setEditBody}
-                      modules={quillModules}
-                      formats={quillFormats}
-                      placeholder="Compose your email template..."
-                    />
-                  </div>
-                  <small className="form-hint template-variables-hint">
-                    To include dynamic content, type variables like {'{{'}<em>eventTitle</em>{'}}'}.
-                    Available: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
-                  </small>
-                </div>
-
-                <div className="template-actions">
-                  <button
-                    className="save-button"
-                    onClick={handleSaveTemplate}
-                    disabled={savingTemplate}
-                  >
-                    {savingTemplate ? 'Saving...' : 'Save Template'}
-                  </button>
-                  <button
-                    className="preview-button"
-                    onClick={handlePreviewTemplate}
-                    disabled={previewLoading}
-                  >
-                    {previewLoading ? 'Loading...' : 'Preview'}
-                  </button>
+              <div className="template-editor-header">
+                <h3>Edit: {selectedTemplate.name}</h3>
+                <div className="template-header-actions">
                   <button
                     className="reset-button"
                     onClick={handleResetTemplate}
@@ -634,33 +590,103 @@ export default function EmailTestAdmin({ apiToken }) {
                   >
                     Reset to Default
                   </button>
+                  <button
+                    className="save-button"
+                    onClick={handleSaveTemplate}
+                    disabled={savingTemplate || (editSubject === selectedTemplate.subject && editBody === selectedTemplate.body)}
+                  >
+                    {savingTemplate ? 'Saving...' : 'Save Template'}
+                  </button>
                 </div>
-
-                {selectedTemplate.updatedAt && (
-                  <div className="settings-meta">
-                    Last updated: {new Date(selectedTemplate.updatedAt).toLocaleString()}
-                    {selectedTemplate.updatedBy && ` by ${selectedTemplate.updatedBy}`}
-                  </div>
-                )}
               </div>
 
-              {/* Preview Panel */}
-              {previewHtml && (
-                <div className="template-preview">
-                  <div className="preview-header">
-                    <h4>Preview</h4>
-                    <button
-                      className="close-preview"
-                      onClick={() => setPreviewHtml(null)}
-                    >
-                      ×
-                    </button>
+              {selectedTemplate.updatedAt && (
+                <div className="settings-meta template-meta">
+                  Last updated: {new Date(selectedTemplate.updatedAt).toLocaleString()}
+                  {selectedTemplate.updatedBy && ` by ${selectedTemplate.updatedBy}`}
+                </div>
+              )}
+
+              {/* Editor View Tabs */}
+              <div className="editor-view-tabs">
+                <button
+                  className={`editor-view-tab ${editorView === 'template' ? 'active' : ''}`}
+                  onClick={() => setEditorView('template')}
+                >
+                  Template
+                </button>
+                <button
+                  className={`editor-view-tab ${editorView === 'preview' ? 'active' : ''}`}
+                  onClick={() => {
+                    if (!previewHtml) {
+                      handlePreviewTemplate();
+                    } else {
+                      setEditorView('preview');
+                    }
+                  }}
+                  disabled={previewLoading}
+                >
+                  {previewLoading ? 'Loading...' : 'Preview'}
+                </button>
+              </div>
+
+              {/* Template Editor View */}
+              {editorView === 'template' && (
+                <div className="template-editor">
+                  <div className="form-group">
+                    <label htmlFor="editSubject">Subject Line</label>
+                    <input
+                      type="text"
+                      id="editSubject"
+                      value={editSubject}
+                      onChange={(e) => {
+                        setEditSubject(e.target.value);
+                        setPreviewHtml(null); // Invalidate preview on change
+                      }}
+                      placeholder="Email subject"
+                    />
+                    <small className="form-hint">
+                      Available variables: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
+                    </small>
                   </div>
-                  <iframe
-                    srcDoc={previewHtml}
-                    title="Email Preview"
-                    className="preview-iframe"
-                  />
+
+                  <div className="form-group">
+                    <label>Body</label>
+                    <div className="quill-editor-container">
+                      <ReactQuill
+                        theme="snow"
+                        value={editBody}
+                        onChange={(value) => {
+                          setEditBody(value);
+                          setPreviewHtml(null); // Invalidate preview on change
+                        }}
+                        modules={quillModules}
+                        formats={quillFormats}
+                        placeholder="Compose your email template..."
+                      />
+                    </div>
+                    <small className="form-hint template-variables-hint">
+                      To include dynamic content, type variables like {'{{'}<em>eventTitle</em>{'}}'}.
+                      Available: {selectedTemplate.variables?.map(v => `{{${v}}}`).join(', ')}
+                    </small>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview View */}
+              {editorView === 'preview' && (
+                <div className="template-preview-panel">
+                  {previewHtml ? (
+                    <iframe
+                      srcDoc={previewHtml}
+                      title="Email Preview"
+                      className="preview-iframe"
+                    />
+                  ) : (
+                    <div className="preview-loading">
+                      <p>Loading preview...</p>
+                    </div>
+                  )}
                 </div>
               )}
             </>

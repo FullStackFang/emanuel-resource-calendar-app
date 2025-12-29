@@ -522,13 +522,99 @@
   min-height: 400px;
 }
 
-.template-editor-container h3 {
-  margin: 0 0 20px 0;
-  padding-bottom: 10px;
+.template-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
   border-bottom: 1px solid #e9ecef;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.template-editor-container h3 {
+  margin: 0;
   color: #343a40;
   font-size: 16px;
   font-weight: 600;
+}
+
+.template-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.template-header-actions .save-button,
+.template-header-actions .preview-button,
+.template-header-actions .reset-button {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.template-meta {
+  margin-bottom: 12px;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Editor View Tabs (Template / Preview) - Pill Style */
+.editor-view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.editor-view-tab {
+  padding: 6px 16px;
+  background-color: #e9ecef;
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  color: #495057;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.editor-view-tab:hover:not(:disabled) {
+  background-color: #dee2e6;
+  color: #343a40;
+}
+
+.editor-view-tab.active {
+  background-color: #0078d4;
+  color: white;
+}
+
+.editor-view-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Template Preview Panel (tabbed view) */
+.template-preview-panel {
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  min-height: 400px;
+}
+
+.template-preview-panel .preview-iframe {
+  width: 100%;
+  height: 500px;
+  border: none;
+  display: block;
+}
+
+.preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  color: #6c757d;
 }
 
 .template-editor .form-group {
