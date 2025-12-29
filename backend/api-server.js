@@ -3337,16 +3337,25 @@ function combineNotes(existingNotes, newNotes) {
  */
 function getCalendarOwnerFromConfig(calendarId) {
   try {
+    if (!calendarId) {
+      logger.debug('getCalendarOwnerFromConfig: No calendarId provided');
+      return null;
+    }
+
     const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
     const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+    const trimmedCalendarId = calendarId.trim();
 
     // Find the email that maps to this calendarId
     for (const [email, id] of Object.entries(calendarConfig)) {
       if (email.startsWith('_')) continue; // Skip metadata keys
-      if (id === calendarId) {
+      const trimmedConfigId = (id || '').trim();
+      if (trimmedConfigId === trimmedCalendarId) {
+        logger.debug(`getCalendarOwnerFromConfig: Found owner ${email} for calendarId`);
         return email.toLowerCase(); // Normalize to lowercase
       }
     }
+    logger.debug(`getCalendarOwnerFromConfig: No match found for calendarId: ${trimmedCalendarId.substring(0, 50)}...`);
     return null;
   } catch (error) {
     logger.warn('Could not load calendar config:', error.message);
@@ -4348,13 +4357,14 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
 app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
   try {
     const { eventId } = req.params;
-    const { graphFields, internalFields, calendarId, graphToken } = req.body;
+    const { graphFields, internalFields, calendarId, calendarOwner, graphToken } = req.body;
     const userId = req.user.userId;
 
     logger.debug(`Starting unified audit update for event ${eventId}`, {
       hasGraphFields: !!graphFields,
       hasInternalFields: !!internalFields,
       calendarId,
+      calendarOwner,
       hasGraphToken: !!graphToken
     });
 
@@ -4553,10 +4563,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
     if (isNewEvent) {
       // Insert new event document
+      // Use calendarOwner passed from frontend (from Graph API calendar.owner.address)
+      // Fallback to config lookup if not provided
+      const effectiveCalendarOwner = calendarOwner || getCalendarOwnerFromConfig(calendarId);
       const newEventDoc = {
         userId: userId,
         eventId: actualEventId,
         calendarId: calendarId,
+        calendarOwner: effectiveCalendarOwner, // Email of calendar owner for filtering
         graphData: updatedGraphData,
         internalData: internalFields || {},
         createdAt: new Date(),
@@ -4606,7 +4620,8 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.eventNotes = internalFields?.eventNotes || '';
 
       // Category and assignment fields
-      newEventDoc.mecCategories = internalFields?.mecCategories || [];
+      // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
+      newEventDoc.categories = updatedGraphData.categories || [];
       newEventDoc.assignedTo = internalFields?.assignedTo || '';
 
       // Event series fields (for multi-day events)
@@ -4660,7 +4675,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         if (internalFields.setupNotes !== undefined) updateOperations['setupNotes'] = internalFields.setupNotes;
         if (internalFields.doorNotes !== undefined) updateOperations['doorNotes'] = internalFields.doorNotes;
         if (internalFields.eventNotes !== undefined) updateOperations['eventNotes'] = internalFields.eventNotes;
-        if (internalFields.mecCategories !== undefined) updateOperations['mecCategories'] = internalFields.mecCategories;
+        // Note: categories are updated from graphData, not internalFields (mecCategories is deprecated)
         if (internalFields.assignedTo !== undefined) updateOperations['assignedTo'] = internalFields.assignedTo;
 
         // Event series fields (for multi-day events)
@@ -4723,6 +4738,8 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         updateOperations['location'] = newLocationDisplayName;
         updateOperations['isAllDayEvent'] = updatedGraphData.isAllDay || false;
         updateOperations['virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
+        // Top-level categories mirrors graphData.categories
+        updateOperations['categories'] = updatedGraphData.categories || [];
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -4955,10 +4972,12 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         }
 
         // Create new event document
+        const batchCalendarOwner = getCalendarOwnerFromConfig(calendarId);
         const newEventDoc = {
           userId: userId,
           eventId: actualEventId,
           calendarId: calendarId,
+          calendarOwner: batchCalendarOwner, // Email of calendar owner for filtering
           graphData: graphData,
           internalData: internalFields,
           createdAt: new Date(),
@@ -5006,7 +5025,8 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         newEventDoc.eventNotes = internalFields.eventNotes || '';
 
         // Category and assignment fields
-        newEventDoc.mecCategories = internalFields.mecCategories || [];
+        // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
+        newEventDoc.categories = graphData.categories || [];
         newEventDoc.assignedTo = internalFields.assignedTo || '';
 
         // Event series fields (for multi-day events)
@@ -14924,9 +14944,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       offsiteAddress: isOffsite ? offsiteAddress : '',
       offsiteLat: isOffsite ? (offsiteLat || null) : null,
       offsiteLon: isOffsite ? (offsiteLon || null) : null,
-      mecCategories: [],
+      // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
+      categories: categories || [],
       assignedTo: '',
-      // Categories (syncs with Outlook) and Services (internal)
+      // Services (internal)
       services: services || {},
 
       createdAt: new Date(),
@@ -14938,6 +14959,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       lastSyncedAt: new Date(),
       // Use provided calendarId so event shows in user's calendar view
       calendarId: calendarId || null,
+      calendarOwner: calendarId ? getCalendarOwnerFromConfig(calendarId) : null, // Email of calendar owner for filtering
       sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
       syncStatus: 'pending'

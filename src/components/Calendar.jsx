@@ -1992,6 +1992,9 @@
 
     const patchEventBatch = async (eventId, coreBody, extPayload, calendarId, internalFields) => {
       const targetCalendarId = calendarId || selectedCalendarId;
+      // Get calendar owner from the selected calendar
+      const targetCalendar = availableCalendars.find(cal => cal.id === targetCalendarId);
+      const calendarOwner = targetCalendar?.owner?.address?.toLowerCase() || null;
 
       // Prepare Graph API fields
       const graphFields = { ...coreBody };
@@ -2036,6 +2039,7 @@
           graphFields: Object.keys(graphFields).length > 0 ? graphFields : null,
           internalFields: internalFields && Object.keys(internalFields).length > 0 ? internalFields : null,
           calendarId: targetCalendarId,
+          calendarOwner: calendarOwner,
           graphToken: graphToken
         })
       });
@@ -2098,6 +2102,7 @@
                 body: JSON.stringify({
                   internalFields: internalFields,
                   calendarId: targetCalendarId,
+                  calendarOwner: calendarOwner,
                   graphToken: graphToken
                 })
               });
