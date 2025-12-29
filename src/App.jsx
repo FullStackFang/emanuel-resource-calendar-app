@@ -17,6 +17,7 @@ import MyReservations from './components/MyReservations';
 import LocationReview from './components/LocationReview';
 import ReservationRequests from './components/ReservationRequests';
 import FeatureManagement from './components/FeatureManagement';
+import EmailTestAdmin from './components/EmailTestAdmin';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
@@ -250,6 +251,7 @@ function App() {
                 <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
+                <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               </RoomProvider>

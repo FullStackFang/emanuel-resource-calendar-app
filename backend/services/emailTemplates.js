@@ -1,0 +1,675 @@
+/**
+ * Email Templates for Temple Emanuel Resource Calendar
+ * Provides HTML templates and rendering utilities for notification emails
+ * Supports database overrides for customization via admin UI
+ */
+
+const escapeHtml = require('escape-html');
+const logger = require('../utils/logger');
+
+// Database connection for fetching template overrides
+let dbConnection = null;
+
+/**
+ * Set database connection for fetching template overrides
+ * @param {Object} db - MongoDB database connection
+ */
+function setDbConnection(db) {
+  dbConnection = db;
+}
+
+/**
+ * Template IDs for all email templates
+ */
+const TEMPLATE_IDS = {
+  SUBMISSION_CONFIRMATION: 'submission-confirmation',
+  ADMIN_NEW_REQUEST: 'admin-new-request',
+  APPROVAL: 'approval',
+  REJECTION: 'rejection',
+  RESUBMISSION: 'resubmission',
+  REVIEW_STARTED: 'review-started'
+};
+
+/**
+ * Default templates - used when no database override exists
+ * These contain the subject and body with {{variable}} placeholders
+ */
+const DEFAULT_TEMPLATES = {
+  [TEMPLATE_IDS.SUBMISSION_CONFIRMATION]: {
+    id: TEMPLATE_IDS.SUBMISSION_CONFIRMATION,
+    name: 'Submission Confirmation',
+    description: 'Sent to requester when they submit a reservation request',
+    subject: 'Reservation Request Received: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2d3748;">Reservation Request Received</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Thank you for submitting your reservation request. We have received your request and it is now pending review by our team.
+</p>
+
+<div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Attendees:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{attendeeCount}}</td>
+    </tr>
+  </table>
+</div>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What happens next?</strong><br>
+  Our team will review your request and you will receive another email once it has been approved or if we need additional information.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  If you have any questions, please contact our office.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'attendeeCount']
+  },
+
+  [TEMPLATE_IDS.ADMIN_NEW_REQUEST]: {
+    id: TEMPLATE_IDS.ADMIN_NEW_REQUEST,
+    name: 'Admin New Request Alert',
+    description: 'Sent to admins when a new reservation request is submitted',
+    subject: '[ACTION REQUIRED] New Reservation: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">ACTION REQUIRED</span>
+  New Reservation Request
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  A new reservation request has been submitted and requires your review.
+</p>
+
+<div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Request Summary</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Requester:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{requesterName}} ({{requesterEmail}})</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Attendees:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{attendeeCount}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Submitted:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{submittedAt}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#adminPanelUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Request
+  </a>
+</p>
+{{/adminPanelUrl}}
+
+<p style="color: #718096; font-size: 14px;">
+  Please review this request at your earliest convenience.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'attendeeCount', 'submittedAt', 'adminPanelUrl']
+  },
+
+  [TEMPLATE_IDS.APPROVAL]: {
+    id: TEMPLATE_IDS.APPROVAL,
+    name: 'Approval Notification',
+    description: 'Sent to requester when their reservation is approved',
+    subject: 'Reservation Approved: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #276749;">
+  <span style="background-color: #c6f6d5; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">APPROVED</span>
+  Your Reservation Has Been Approved
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Great news! Your reservation request has been approved. The event has been added to the calendar.
+</p>
+
+<div style="background-color: #f0fff4; border-left: 4px solid #48bb78; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Confirmed Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#adminNotes}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from Admin:</h4>
+  <p style="margin: 0; color: #4a5568;">{{adminNotes}}</p>
+</div>
+{{/adminNotes}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  If you need to make any changes to your reservation, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for using Temple Emanuel's reservation system.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes']
+  },
+
+  [TEMPLATE_IDS.REJECTION]: {
+    id: TEMPLATE_IDS.REJECTION,
+    name: 'Rejection Notification',
+    description: 'Sent to requester when their reservation is not approved',
+    subject: 'Reservation Update: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">NOT APPROVED</span>
+  Reservation Request Update
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  We regret to inform you that your reservation request could not be approved at this time.
+</p>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Request Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#rejectionReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason:</h4>
+  <p style="margin: 0; color: #4a5568;">{{rejectionReason}}</p>
+</div>
+{{/rejectionReason}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What can you do?</strong><br>
+  If you would like to discuss this decision or submit a revised request, please contact our office. We're happy to help you find an alternative that works.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your understanding.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+  },
+
+  [TEMPLATE_IDS.RESUBMISSION]: {
+    id: TEMPLATE_IDS.RESUBMISSION,
+    name: 'Resubmission Confirmation',
+    description: 'Sent to requester when they resubmit a revised request',
+    subject: 'Revised Request Received: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">RESUBMITTED</span>
+  Revised Request Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  We have received your revised reservation request. It has been placed back in the review queue.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Updated Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Our team will review the updated information and you will receive another email with our decision.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your patience.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
+  },
+
+  [TEMPLATE_IDS.REVIEW_STARTED]: {
+    id: TEMPLATE_IDS.REVIEW_STARTED,
+    name: 'Review Started',
+    description: 'Optional notification when admin begins reviewing a request',
+    subject: 'Request Under Review: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">Your Request Is Being Reviewed</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Good news! Your reservation request for <strong>{{eventTitle}}</strong> is currently being reviewed by our team.
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  You will receive another email shortly with the final decision.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your patience.
+</p>`,
+    variables: ['eventTitle', 'requesterName']
+  }
+};
+
+/**
+ * Format datetime for email display
+ */
+function formatDateTime(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
+/**
+ * Format date only (no time)
+ */
+function formatDate(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
+/**
+ * Format time only
+ */
+function formatTime(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+/**
+ * Get template override from database
+ * @param {string} templateId - Template ID
+ * @returns {Promise<Object|null>} Template override or null
+ */
+async function getTemplateOverride(templateId) {
+  if (!dbConnection) return null;
+
+  try {
+    const override = await dbConnection.collection('templeEvents__SystemSettings')
+      .findOne({ _id: `email-template-${templateId}` });
+    return override;
+  } catch (error) {
+    logger.warn('Could not fetch template override:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Get all templates (defaults merged with any database overrides)
+ * @returns {Promise<Object[]>} Array of all templates
+ */
+async function getAllTemplates() {
+  const templates = [];
+
+  for (const [id, defaultTemplate] of Object.entries(DEFAULT_TEMPLATES)) {
+    const override = await getTemplateOverride(id);
+    templates.push({
+      ...defaultTemplate,
+      subject: override?.subject || defaultTemplate.subject,
+      body: override?.body || defaultTemplate.body,
+      isCustomized: !!override,
+      updatedAt: override?.updatedAt,
+      updatedBy: override?.updatedBy
+    });
+  }
+
+  return templates;
+}
+
+/**
+ * Get a single template by ID
+ * @param {string} templateId - Template ID
+ * @returns {Promise<Object|null>} Template or null
+ */
+async function getTemplate(templateId) {
+  const defaultTemplate = DEFAULT_TEMPLATES[templateId];
+  if (!defaultTemplate) return null;
+
+  const override = await getTemplateOverride(templateId);
+  return {
+    ...defaultTemplate,
+    subject: override?.subject || defaultTemplate.subject,
+    body: override?.body || defaultTemplate.body,
+    isCustomized: !!override,
+    updatedAt: override?.updatedAt,
+    updatedBy: override?.updatedBy
+  };
+}
+
+/**
+ * Get default templates (for display/reset)
+ * @returns {Object} All default templates
+ */
+function getDefaultTemplates() {
+  return DEFAULT_TEMPLATES;
+}
+
+/**
+ * Replace template variables with actual values
+ * Supports {{variable}} and {{#variable}}...{{/variable}} for conditionals
+ * @param {string} template - Template string with {{variables}}
+ * @param {Object} variables - Key-value pairs of variable replacements
+ * @returns {string} Rendered template
+ */
+function renderTemplate(template, variables) {
+  let result = template;
+
+  // Handle conditional blocks: {{#variable}}content{{/variable}}
+  // Only show content if variable is truthy
+  result = result.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (match, varName, content) => {
+    const value = variables[varName];
+    if (value && value !== '') {
+      // Replace variables inside the conditional block too
+      return content.replace(/\{\{(\w+)\}\}/g, (m, v) => {
+        return variables[v] !== undefined ? variables[v] : m;
+      });
+    }
+    return '';
+  });
+
+  // Handle regular variables: {{variable}}
+  result = result.replace(/\{\{(\w+)\}\}/g, (match, varName) => {
+    const value = variables[varName];
+    return value !== undefined ? value : match;
+  });
+
+  return result;
+}
+
+/**
+ * Common email wrapper/layout
+ */
+function wrapEmailTemplate(content) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Temple Emanuel Notification</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #f5f5f5;">
+    <tr>
+      <td align="center" style="padding: 20px 10px;">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="background-color: #1a365d; padding: 20px 30px; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px;">Temple Emanuel</h1>
+              <p style="margin: 5px 0 0 0; color: #a0aec0; font-size: 14px;">Resource Calendar Notification</p>
+            </td>
+          </tr>
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px;">
+              ${content}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f7fafc; padding: 20px 30px; border-radius: 0 0 8px 8px; border-top: 1px solid #e2e8f0;">
+              <p style="margin: 0; color: #718096; font-size: 12px; text-align: center;">
+                This is an automated message from the Temple Emanuel Resource Calendar system.<br>
+                Please do not reply directly to this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Extract variables from reservation data
+ */
+function extractVariables(reservation, extras = {}) {
+  return {
+    eventTitle: escapeHtml(reservation.eventTitle || reservation.subject || 'Untitled Event'),
+    requesterName: escapeHtml(reservation.requesterName || reservation.contactName || 'Guest'),
+    requesterEmail: escapeHtml(reservation.requesterEmail || reservation.contactEmail || ''),
+    startTime: formatDateTime(reservation.startTime || reservation.start?.dateTime),
+    endTime: formatTime(reservation.endTime || reservation.end?.dateTime),
+    locations: escapeHtml(
+      reservation.locationDisplayNames?.join(', ') ||
+      reservation.locations?.map(l => l.displayName).join(', ') ||
+      'TBD'
+    ),
+    attendeeCount: String(reservation.attendeeCount || reservation.expectedAttendees || 'Not specified'),
+    submittedAt: formatDateTime(reservation.createdAt || new Date()),
+    ...extras
+  };
+}
+
+/**
+ * Generate email from template
+ * @param {string} templateId - Template ID
+ * @param {Object} variables - Variables to replace in template
+ * @returns {Promise<Object>} { subject, html }
+ */
+async function generateFromTemplate(templateId, variables) {
+  const template = await getTemplate(templateId);
+  if (!template) {
+    throw new Error(`Template not found: ${templateId}`);
+  }
+
+  const subject = renderTemplate(template.subject, variables);
+  const body = renderTemplate(template.body, variables);
+
+  return {
+    subject,
+    html: wrapEmailTemplate(body)
+  };
+}
+
+// =============================================================================
+// BACKWARD-COMPATIBLE GENERATOR FUNCTIONS
+// =============================================================================
+
+/**
+ * Generate submission confirmation email
+ */
+async function generateSubmissionConfirmation(reservation) {
+  const variables = extractVariables(reservation);
+  return generateFromTemplate(TEMPLATE_IDS.SUBMISSION_CONFIRMATION, variables);
+}
+
+/**
+ * Generate admin new request alert email
+ */
+async function generateAdminNewRequestAlert(reservation, adminPanelUrl = '') {
+  const variables = extractVariables(reservation, {
+    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.ADMIN_NEW_REQUEST, variables);
+}
+
+/**
+ * Generate approval notification email
+ */
+async function generateApprovalNotification(reservation, adminNotes = '') {
+  const variables = extractVariables(reservation, {
+    adminNotes: adminNotes ? escapeHtml(adminNotes) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.APPROVAL, variables);
+}
+
+/**
+ * Generate rejection notification email
+ */
+async function generateRejectionNotification(reservation, rejectionReason = '') {
+  const variables = extractVariables(reservation, {
+    rejectionReason: rejectionReason ? escapeHtml(rejectionReason) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.REJECTION, variables);
+}
+
+/**
+ * Generate resubmission confirmation email
+ */
+async function generateResubmissionConfirmation(reservation) {
+  const variables = extractVariables(reservation);
+  return generateFromTemplate(TEMPLATE_IDS.RESUBMISSION, variables);
+}
+
+/**
+ * Generate review started notification
+ */
+async function generateReviewStartedNotification(reservation) {
+  const variables = extractVariables(reservation);
+  return generateFromTemplate(TEMPLATE_IDS.REVIEW_STARTED, variables);
+}
+
+/**
+ * Preview a template with sample data
+ */
+async function previewTemplate(templateId, customSubject = null, customBody = null) {
+  const sampleData = {
+    eventTitle: 'Annual Board Meeting',
+    requesterName: 'John Smith',
+    requesterEmail: 'john.smith@example.com',
+    startTime: formatDateTime(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)), // 1 week from now
+    endTime: formatTime(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000)), // +2 hours
+    locations: 'Main Sanctuary, Meeting Room A',
+    attendeeCount: '50',
+    submittedAt: formatDateTime(new Date()),
+    adminNotes: 'Please arrive 15 minutes early for setup.',
+    rejectionReason: 'The requested space is not available on this date.',
+    adminPanelUrl: 'https://example.com/admin/reservations'
+  };
+
+  const template = await getTemplate(templateId);
+  if (!template) {
+    throw new Error(`Template not found: ${templateId}`);
+  }
+
+  const subjectToRender = customSubject || template.subject;
+  const bodyToRender = customBody || template.body;
+
+  return {
+    subject: renderTemplate(subjectToRender, sampleData),
+    html: wrapEmailTemplate(renderTemplate(bodyToRender, sampleData)),
+    sampleData
+  };
+}
+
+module.exports = {
+  // Database
+  setDbConnection,
+
+  // Template management
+  TEMPLATE_IDS,
+  DEFAULT_TEMPLATES,
+  getAllTemplates,
+  getTemplate,
+  getDefaultTemplates,
+  previewTemplate,
+  renderTemplate,
+
+  // Utility functions
+  formatDateTime,
+  formatDate,
+  formatTime,
+  wrapEmailTemplate,
+  extractVariables,
+  escapeHtml,
+
+  // Generator functions (backward compatible)
+  generateSubmissionConfirmation,
+  generateAdminNewRequestAlert,
+  generateApprovalNotification,
+  generateRejectionNotification,
+  generateResubmissionConfirmation,
+  generateReviewStartedNotification,
+  generateFromTemplate
+};

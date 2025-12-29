@@ -1,0 +1,807 @@
+/* EmailTestAdmin.css - Styles for email testing admin interface */
+
+.email-test-admin {
+  max-width: 1200px;
+}
+
+/* Tabs */
+.email-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 2px solid #e0e0e0;
+  margin: 20px 0 0 0;
+}
+
+.email-tab {
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s ease;
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.email-tab:hover {
+  color: #0078d4;
+  background-color: #f8f9fa;
+}
+
+.email-tab.active {
+  color: #0078d4;
+  border-bottom-color: #0078d4;
+  font-weight: 600;
+}
+
+.email-tab-content {
+  margin-top: 20px;
+}
+
+.email-test-admin h2 {
+  margin: 0 0 8px 0;
+  color: #343a40;
+}
+
+.email-test-admin > .admin-description {
+  color: #6c757d;
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Two-column grid layout */
+.email-admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.email-admin-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Settings Editor Card */
+.email-settings-editor {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.email-settings-editor h3 {
+  margin: 0 0 8px 0;
+  color: #343a40;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-description {
+  color: #6c757d;
+  font-size: 13px;
+  margin: 0 0 16px 0;
+  line-height: 1.4;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Setting Rows */
+.setting-row {
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.setting-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.setting-label input[type="checkbox"] {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #0078d4;
+}
+
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-text strong {
+  color: #343a40;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.setting-text small {
+  color: #6c757d;
+  font-size: 12px;
+}
+
+.setting-label-block {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.setting-label-block strong {
+  display: block;
+  color: #343a40;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.setting-label-block small {
+  display: block;
+  color: #6c757d;
+  font-size: 12px;
+}
+
+/* Redirect Input */
+.redirect-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.redirect-input:focus {
+  border-color: #80bdff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Settings Actions */
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.unsaved-indicator {
+  color: #856404;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.settings-meta {
+  font-size: 12px;
+  color: #6c757d;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+  margin-top: 8px;
+}
+
+/* Configuration Status Card */
+.email-config-status {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.email-config-status h3 {
+  margin: 0 0 15px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+  color: #343a40;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.config-table td {
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+
+.config-table tr:last-child td {
+  border-bottom: none;
+}
+
+.config-table td:first-child {
+  width: 40%;
+  font-weight: 500;
+  color: #495057;
+  font-size: 14px;
+}
+
+.config-table td:last-child {
+  font-size: 13px;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.status-badge.enabled,
+.status-badge.configured {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-badge.disabled,
+.status-badge.missing {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.redirect-active {
+  color: #856404;
+  background-color: #fff3cd;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.redirect-inactive {
+  color: #6c757d;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.config-warning {
+  margin-top: 15px;
+  padding: 12px 15px;
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  border-radius: 6px;
+  color: #856404;
+  font-size: 13px;
+}
+
+.config-warning code {
+  background-color: rgba(0, 0, 0, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+.config-error {
+  margin-top: 15px;
+  padding: 12px 15px;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 6px;
+  color: #721c24;
+  font-size: 13px;
+}
+
+.config-error code {
+  background-color: rgba(0, 0, 0, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+/* Email Test Form Card */
+.email-test-form-container {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.email-test-form-container h3 {
+  margin: 0 0 20px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+  color: #343a40;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.email-test-form .form-group {
+  margin-bottom: 16px;
+}
+
+.email-test-form label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #343a40;
+  font-size: 14px;
+}
+
+.email-test-form input[type="email"],
+.email-test-form input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.email-test-form input:focus,
+.email-test-form textarea:focus {
+  border-color: #80bdff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.email-test-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-hint {
+  display: block;
+  margin-top: 6px;
+  color: #856404;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e9ecef;
+}
+
+/* Test Result Display */
+.test-result {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.test-result.success {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
+}
+
+.test-result.error {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+}
+
+.test-result h4 {
+  margin: 0 0 12px 0;
+  color: #343a40;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.test-result pre {
+  margin: 0;
+  padding: 12px;
+  background-color: rgba(255, 255, 255, 0.6);
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ============================================
+   TEMPLATES TAB STYLES
+   ============================================ */
+
+.templates-container {
+  margin-top: 0;
+}
+
+.templates-grid {
+  display: grid;
+  grid-template-columns: 350px 1fr;
+  gap: 24px;
+}
+
+/* Template List */
+.template-list-container {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.template-list-container h3 {
+  margin: 0 0 8px 0;
+  color: #343a40;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.template-item {
+  padding: 12px 16px;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+
+.template-item:hover {
+  border-color: #0078d4;
+  background-color: #f8f9fa;
+}
+
+.template-item.selected {
+  border-color: #0078d4;
+  background-color: #e8f4fd;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.template-item.customized {
+  border-left: 3px solid #28a745;
+}
+
+.template-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.template-name {
+  font-weight: 600;
+  color: #343a40;
+  font-size: 14px;
+}
+
+.customized-badge {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.template-description {
+  color: #6c757d;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Template Editor */
+.template-editor-container {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  min-height: 400px;
+}
+
+.template-editor-container h3 {
+  margin: 0 0 20px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+  color: #343a40;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.template-editor .form-group {
+  margin-bottom: 16px;
+}
+
+.template-editor label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #343a40;
+  font-size: 14px;
+}
+
+.template-editor input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.template-editor input:focus,
+.template-editor textarea:focus {
+  border-color: #80bdff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.template-body-editor {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: 'Courier New', Consolas, monospace;
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.5;
+  min-height: 300px;
+}
+
+/* Quill WYSIWYG Editor Styles */
+.quill-editor-container {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.quill-editor-container .ql-toolbar {
+  border: none;
+  border-bottom: 1px solid #e9ecef;
+  background: #f8f9fa;
+  padding: 8px 12px;
+}
+
+.quill-editor-container .ql-container {
+  border: none;
+  font-size: 14px;
+  min-height: 300px;
+}
+
+.quill-editor-container .ql-editor {
+  min-height: 300px;
+  line-height: 1.6;
+  padding: 16px;
+}
+
+.quill-editor-container .ql-editor p {
+  margin: 0 0 1em 0;
+}
+
+.quill-editor-container .ql-editor h1,
+.quill-editor-container .ql-editor h2,
+.quill-editor-container .ql-editor h3 {
+  margin: 0 0 0.5em 0;
+}
+
+.quill-editor-container .ql-editor.ql-blank::before {
+  color: #adb5bd;
+  font-style: italic;
+}
+
+/* Fix Quill toolbar button colors */
+.quill-editor-container .ql-toolbar button:hover,
+.quill-editor-container .ql-toolbar button:focus,
+.quill-editor-container .ql-toolbar button.ql-active,
+.quill-editor-container .ql-toolbar .ql-picker-label:hover,
+.quill-editor-container .ql-toolbar .ql-picker-label.ql-active {
+  color: #0078d4;
+}
+
+.quill-editor-container .ql-toolbar button:hover .ql-stroke,
+.quill-editor-container .ql-toolbar button:focus .ql-stroke,
+.quill-editor-container .ql-toolbar button.ql-active .ql-stroke,
+.quill-editor-container .ql-toolbar .ql-picker-label:hover .ql-stroke {
+  stroke: #0078d4;
+}
+
+.quill-editor-container .ql-toolbar button:hover .ql-fill,
+.quill-editor-container .ql-toolbar button:focus .ql-fill,
+.quill-editor-container .ql-toolbar button.ql-active .ql-fill {
+  fill: #0078d4;
+}
+
+/* Focus state for editor */
+.quill-editor-container:focus-within {
+  border-color: #80bdff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Template variables hint */
+.template-variables-hint {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  color: #495057;
+  font-style: normal;
+}
+
+.template-variables-hint em {
+  color: #0078d4;
+  font-weight: 500;
+}
+
+.template-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e9ecef;
+}
+
+.preview-button {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.preview-button:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.preview-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reset-button {
+  background-color: transparent;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reset-button:hover:not(:disabled) {
+  background-color: #dc3545;
+  color: white;
+}
+
+.reset-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* No Template Selected */
+.no-template-selected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #6c757d;
+  font-size: 14px;
+}
+
+/* Template Preview */
+.template-preview {
+  margin-top: 20px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.preview-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #343a40;
+}
+
+.close-preview {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.close-preview:hover {
+  background-color: #e9ecef;
+  color: #343a40;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 500px;
+  border: none;
+  background: #fff;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .templates-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-list-container {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .email-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .email-test-admin {
+    padding: 15px;
+  }
+
+  .config-table td:first-child {
+    width: 45%;
+  }
+
+  .form-actions,
+  .template-actions {
+    flex-direction: column;
+  }
+
+  .form-actions button,
+  .template-actions button {
+    width: 100%;
+  }
+
+  .email-tabs {
+    overflow-x: auto;
+  }
+
+  .email-tab {
+    padding: 10px 16px;
+    white-space: nowrap;
+  }
+}

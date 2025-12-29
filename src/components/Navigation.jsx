@@ -205,6 +205,15 @@ export default function Navigation({ apiToken }) {
                     Calendar Configuration
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/admin/email-test"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Email Test Console
+                  </NavLink>
+                </li>
               </ul>
             )}
           </li>

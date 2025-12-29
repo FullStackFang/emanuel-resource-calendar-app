@@ -12,6 +12,8 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+const emailService = require('./services/emailService');
+const emailTemplates = require('./services/emailTemplates');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
@@ -1606,6 +1608,10 @@ async function connectToDatabase() {
     eventAttachmentsCollection = db.collection('templeEvents__EventAttachments'); // Event-file relationship tracking
     reservationAttachmentsCollection = db.collection('templeEvents__ReservationAttachments'); // Reservation-file relationship tracking
     systemSettingsCollection = db.collection('templeEvents__SystemSettings'); // System-wide settings
+
+    // Initialize email service with database connection
+    emailService.setDbConnection(db);
+    emailTemplates.setDbConnection(db);
 
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
@@ -14990,6 +14996,62 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       requestedRooms: roomNames
     });
 
+    // Send email notifications (non-blocking - don't fail the request if email fails)
+    try {
+      // Prepare reservation data for email templates
+      const reservationForEmail = {
+        _id: result.insertedId,
+        eventTitle,
+        requesterName: requesterName || userEmail,
+        requesterEmail: requesterEmail || userEmail,
+        contactName: isOnBehalfOf ? contactName : null,
+        contactEmail: isOnBehalfOf ? contactEmail : null,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        locationDisplayNames: roomNames,
+        attendeeCount: attendeeCount || 0,
+        createdAt: new Date()
+      };
+
+      // Send submission confirmation to requester
+      const confirmResult = await emailService.sendSubmissionConfirmation(reservationForEmail);
+      logger.info('Submission confirmation email sent', {
+        eventId: eventDoc.eventId,
+        correlationId: confirmResult.correlationId,
+        skipped: confirmResult.skipped
+      });
+
+      // Send alert to admins
+      const adminEmails = await emailService.getAdminEmails(db);
+      if (adminEmails.length > 0) {
+        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        const adminResult = await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
+        logger.info('Admin alert email sent', {
+          eventId: eventDoc.eventId,
+          correlationId: adminResult.correlationId,
+          adminCount: adminEmails.length,
+          skipped: adminResult.skipped
+        });
+      }
+
+      // Record emails in communication history
+      await emailService.recordEmailInHistory(
+        unifiedEventsCollection,
+        result.insertedId,
+        confirmResult,
+        'submission_confirmation',
+        [requesterEmail || userEmail],
+        `Reservation Request Received: ${eventTitle}`
+      );
+
+    } catch (emailError) {
+      // Log but don't fail the request
+      logger.error('Email notification failed (reservation still created):', {
+        eventId: eventDoc.eventId,
+        error: emailError.message
+      });
+    }
+
     res.json({
       success: true,
       eventId: eventDoc.eventId,
@@ -15230,6 +15292,42 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       graphEventCreated: !!graphEventId
     });
 
+    // Send approval notification email (non-blocking)
+    try {
+      const reservationForEmail = {
+        _id: event._id,
+        eventTitle: event.eventTitle || event.graphData?.subject,
+        requesterName: event.roomReservationData?.requestedBy?.name,
+        requesterEmail: event.roomReservationData?.requestedBy?.email,
+        contactEmail: event.roomReservationData?.contactPerson?.email,
+        startTime: event.startDateTime || event.graphData?.start?.dateTime,
+        endTime: event.endDateTime || event.graphData?.end?.dateTime,
+        locationDisplayNames: event.locationDisplayNames ? [event.locationDisplayNames] : []
+      };
+
+      const emailResult = await emailService.sendApprovalNotification(reservationForEmail, notes || '');
+      logger.info('Approval notification email sent', {
+        eventId: event.eventId,
+        correlationId: emailResult.correlationId,
+        skipped: emailResult.skipped
+      });
+
+      // Record in communication history
+      await emailService.recordEmailInHistory(
+        unifiedEventsCollection,
+        event._id,
+        emailResult,
+        'approval_notification',
+        [reservationForEmail.requesterEmail],
+        `Reservation Approved: ${reservationForEmail.eventTitle}`
+      );
+    } catch (emailError) {
+      logger.error('Approval email notification failed:', {
+        eventId: event.eventId,
+        error: emailError.message
+      });
+    }
+
     res.json({
       success: true,
       changeKey: newChangeKey,
@@ -15333,6 +15431,42 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       rejectedBy: userEmail,
       reason
     });
+
+    // Send rejection notification email (non-blocking)
+    try {
+      const reservationForEmail = {
+        _id: event._id,
+        eventTitle: event.eventTitle || event.graphData?.subject,
+        requesterName: event.roomReservationData?.requestedBy?.name,
+        requesterEmail: event.roomReservationData?.requestedBy?.email,
+        contactEmail: event.roomReservationData?.contactPerson?.email,
+        startTime: event.startDateTime || event.graphData?.start?.dateTime,
+        endTime: event.endDateTime || event.graphData?.end?.dateTime,
+        locationDisplayNames: event.locationDisplayNames ? [event.locationDisplayNames] : []
+      };
+
+      const emailResult = await emailService.sendRejectionNotification(reservationForEmail, reason);
+      logger.info('Rejection notification email sent', {
+        eventId: event.eventId,
+        correlationId: emailResult.correlationId,
+        skipped: emailResult.skipped
+      });
+
+      // Record in communication history
+      await emailService.recordEmailInHistory(
+        unifiedEventsCollection,
+        event._id,
+        emailResult,
+        'rejection_notification',
+        [reservationForEmail.requesterEmail],
+        `Reservation Update: ${reservationForEmail.eventTitle}`
+      );
+    } catch (emailError) {
+      logger.error('Rejection email notification failed:', {
+        eventId: event.eventId,
+        error: emailError.message
+      });
+    }
 
     res.json({
       success: true,
@@ -16212,6 +16346,386 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
 // ============================================================================
 // END NEW UNIFIED EVENT API ENDPOINTS
+// ============================================================================
+
+// ============================================================================
+// EMAIL SERVICE TEST ENDPOINTS (Admin only)
+// ============================================================================
+
+/**
+ * Get email service configuration status (includes DB settings)
+ * GET /api/admin/email/config
+ */
+app.get('/api/admin/email/config', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get base config from emailService
+    const baseConfig = emailService.getEmailConfig();
+
+    // Get database settings (overrides env vars)
+    const dbSettings = await systemSettingsCollection.findOne({ _id: 'email-settings' });
+
+    // Merge: DB settings override env vars
+    const config = {
+      ...baseConfig,
+      // DB overrides (if set)
+      enabled: dbSettings?.enabled !== undefined ? dbSettings.enabled : baseConfig.enabled,
+      redirectTo: dbSettings?.redirectTo !== undefined ? dbSettings.redirectTo : baseConfig.redirectTo,
+      // Flag to show if DB settings exist
+      hasDbSettings: !!dbSettings,
+      dbSettings: dbSettings ? {
+        enabled: dbSettings.enabled,
+        redirectTo: dbSettings.redirectTo,
+        updatedAt: dbSettings.updatedAt,
+        updatedBy: dbSettings.updatedBy
+      } : null
+    };
+
+    res.json(config);
+  } catch (error) {
+    logger.error('Error getting email config:', error);
+    res.status(500).json({ error: 'Failed to get email configuration' });
+  }
+});
+
+/**
+ * Update email settings (stored in database)
+ * PUT /api/admin/email/settings
+ * Body: { enabled?: boolean, redirectTo?: string }
+ */
+app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { enabled, redirectTo } = req.body;
+
+    // Validate redirectTo if provided
+    if (redirectTo && redirectTo.trim() !== '' && !emailService.validateEmail(redirectTo)) {
+      return res.status(400).json({ error: 'Invalid redirect email address format' });
+    }
+
+    const updateDoc = {
+      updatedAt: new Date(),
+      updatedBy: userEmail
+    };
+
+    if (enabled !== undefined) {
+      updateDoc.enabled = enabled;
+    }
+
+    if (redirectTo !== undefined) {
+      updateDoc.redirectTo = redirectTo.trim() || null; // Empty string becomes null
+    }
+
+    await systemSettingsCollection.updateOne(
+      { _id: 'email-settings' },
+      { $set: updateDoc },
+      { upsert: true }
+    );
+
+    logger.info('Email settings updated', {
+      updatedBy: userEmail,
+      enabled,
+      redirectTo: redirectTo || '(none)'
+    });
+
+    // Clear the cached settings in emailService
+    emailService.clearSettingsCache();
+
+    res.json({
+      success: true,
+      message: 'Email settings updated successfully',
+      settings: updateDoc
+    });
+
+  } catch (error) {
+    logger.error('Error updating email settings:', error);
+    res.status(500).json({ error: 'Failed to update email settings' });
+  }
+});
+
+/**
+ * Send test email
+ * POST /api/admin/email/test
+ * Body: { to: string, subject?: string, message?: string }
+ */
+app.post('/api/admin/email/test', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const userName = req.user.name || userEmail;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { to, subject, message } = req.body;
+
+    if (!to) {
+      return res.status(400).json({ error: 'Recipient email (to) is required' });
+    }
+
+    // Validate email format
+    if (!emailService.validateEmail(to)) {
+      return res.status(400).json({ error: 'Invalid email address format' });
+    }
+
+    const emailSubject = subject || 'Test Email from Temple Emanuel Calendar';
+    const emailBody = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Test Email</h2>
+        <p>This is a test email from the Temple Emanuel Resource Calendar email notification system.</p>
+        ${message ? `<p><strong>Message:</strong> ${message}</p>` : ''}
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="color: #666; font-size: 14px;">
+          <strong>Sent by:</strong> ${userName} (${userEmail})<br>
+          <strong>Timestamp:</strong> ${new Date().toISOString()}
+        </p>
+        <p style="color: #999; font-size: 12px;">
+          This email was sent as a test from the admin email testing page.
+        </p>
+      </div>
+    `;
+
+    logger.info('Admin sending test email', {
+      adminEmail: userEmail,
+      to,
+      subject: emailSubject
+    });
+
+    const result = await emailService.sendEmail(to, emailSubject, emailBody, {
+      reservationId: 'test-email'
+    });
+
+    res.json({
+      success: true,
+      message: result.skipped
+        ? 'Email was skipped (EMAIL_ENABLED=false). Check server logs for details.'
+        : 'Test email sent successfully',
+      correlationId: result.correlationId,
+      skipped: result.skipped || false
+    });
+
+  } catch (error) {
+    logger.error('Error sending test email:', error);
+    res.status(500).json({
+      error: 'Failed to send test email',
+      details: error.message
+    });
+  }
+});
+
+// ============================================================================
+// EMAIL TEMPLATE MANAGEMENT ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/admin/email/templates
+ * Get all email templates (defaults merged with any customizations)
+ */
+app.get('/api/admin/email/templates', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const templates = await emailTemplates.getAllTemplates();
+    res.json({ templates });
+
+  } catch (error) {
+    logger.error('Error fetching email templates:', error);
+    res.status(500).json({ error: 'Failed to fetch email templates' });
+  }
+});
+
+/**
+ * GET /api/admin/email/templates/:templateId
+ * Get a single email template
+ */
+app.get('/api/admin/email/templates/:templateId', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { templateId } = req.params;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const template = await emailTemplates.getTemplate(templateId);
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    res.json({ template });
+
+  } catch (error) {
+    logger.error('Error fetching email template:', error);
+    res.status(500).json({ error: 'Failed to fetch email template' });
+  }
+});
+
+/**
+ * PUT /api/admin/email/templates/:templateId
+ * Update an email template (saves customization to database)
+ */
+app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { templateId } = req.params;
+    const { subject, body } = req.body;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Validate template exists
+    const defaultTemplates = emailTemplates.getDefaultTemplates();
+    if (!defaultTemplates[templateId]) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Validate inputs
+    if (!subject || !body) {
+      return res.status(400).json({ error: 'Subject and body are required' });
+    }
+
+    // Save to database
+    await db.collection('templeEvents__SystemSettings').updateOne(
+      { _id: `email-template-${templateId}` },
+      {
+        $set: {
+          subject: subject.trim(),
+          body: body.trim(),
+          updatedAt: new Date(),
+          updatedBy: userEmail
+        }
+      },
+      { upsert: true }
+    );
+
+    logger.info('Email template updated', { templateId, updatedBy: userEmail });
+
+    // Return updated template
+    const template = await emailTemplates.getTemplate(templateId);
+    res.json({
+      success: true,
+      message: 'Template updated successfully',
+      template
+    });
+
+  } catch (error) {
+    logger.error('Error updating email template:', error);
+    res.status(500).json({ error: 'Failed to update email template' });
+  }
+});
+
+/**
+ * POST /api/admin/email/templates/:templateId/preview
+ * Preview a template with sample data
+ */
+app.post('/api/admin/email/templates/:templateId/preview', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { templateId } = req.params;
+    const { subject: customSubject, body: customBody } = req.body;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const preview = await emailTemplates.previewTemplate(templateId, customSubject, customBody);
+    res.json(preview);
+
+  } catch (error) {
+    logger.error('Error previewing email template:', error);
+    res.status(500).json({ error: error.message || 'Failed to preview email template' });
+  }
+});
+
+/**
+ * POST /api/admin/email/templates/:templateId/reset
+ * Reset a template to its default (delete customization from database)
+ */
+app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { templateId } = req.params;
+
+    // Admin check
+    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Validate template exists
+    const defaultTemplates = emailTemplates.getDefaultTemplates();
+    if (!defaultTemplates[templateId]) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Delete customization from database
+    await db.collection('templeEvents__SystemSettings').deleteOne({
+      _id: `email-template-${templateId}`
+    });
+
+    logger.info('Email template reset to default', { templateId, resetBy: userEmail });
+
+    // Return default template
+    const template = await emailTemplates.getTemplate(templateId);
+    res.json({
+      success: true,
+      message: 'Template reset to default',
+      template
+    });
+
+  } catch (error) {
+    logger.error('Error resetting email template:', error);
+    res.status(500).json({ error: 'Failed to reset email template' });
+  }
+});
+
+// ============================================================================
+// END EMAIL SERVICE TEST ENDPOINTS
 // ============================================================================
 
 process.on('SIGINT', async () => {
