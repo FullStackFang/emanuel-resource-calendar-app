@@ -211,7 +211,7 @@ export default function Navigation({ apiToken }) {
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}
                   >
-                    Email Test Console
+                    Email Management
                   </NavLink>
                 </li>
               </ul>

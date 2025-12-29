@@ -342,7 +342,16 @@ export default function EmailTestAdmin({ apiToken }) {
 
     return (
       <div className="email-settings-editor">
-        <h3>Email Settings</h3>
+        <div className="settings-header">
+          <h3>Email Settings</h3>
+          <button
+            className="save-button"
+            onClick={handleSaveSettings}
+            disabled={savingSettings || !hasChanges}
+          >
+            {savingSettings ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
         <p className="settings-description">
           Configure email behavior. Changes are saved to the database and take effect immediately.
         </p>
@@ -374,19 +383,6 @@ export default function EmailTestAdmin({ apiToken }) {
               placeholder="your-email@example.com"
               className="redirect-input"
             />
-          </div>
-
-          <div className="settings-actions">
-            <button
-              className="save-button"
-              onClick={handleSaveSettings}
-              disabled={savingSettings || !hasChanges}
-            >
-              {savingSettings ? 'Saving...' : 'Save Settings'}
-            </button>
-            {hasChanges && (
-              <span className="unsaved-indicator">Unsaved changes</span>
-            )}
           </div>
 
           {emailConfig?.dbSettings && (
@@ -434,7 +430,11 @@ export default function EmailTestAdmin({ apiToken }) {
             </tr>
             <tr>
               <td>From Address</td>
-              <td>{emailConfig.fromAddress || 'Not configured'}</td>
+              <td>
+                <span className={`status-badge ${emailConfig.fromAddress ? 'configured' : 'missing'}`}>
+                  {emailConfig.fromAddress || 'Not configured'}
+                </span>
+              </td>
             </tr>
             <tr>
               <td>Client Secret</td>
@@ -460,6 +460,9 @@ export default function EmailTestAdmin({ apiToken }) {
     <div className="email-admin-grid">
       <div className="email-admin-column">
         {renderSettingsEditor()}
+      </div>
+
+      <div className="email-admin-column">
         {renderConfigStatus()}
       </div>
 
@@ -673,7 +676,7 @@ export default function EmailTestAdmin({ apiToken }) {
 
   return (
     <div className="admin-container email-test-admin">
-      <h2>Email Test Console</h2>
+      <h2>Email Management</h2>
       <p className="admin-description">
         Configure email settings, edit templates, and test the notification service.
       </p>
