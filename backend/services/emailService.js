@@ -308,7 +308,13 @@ async function getAdminEmails(db) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendSubmissionConfirmation(reservation) {
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail;
+  // Pending requests use roomReservationData, approved events use top-level
+  const isPending = reservation.status === 'pending';
+  const reqData = reservation.roomReservationData || {};
+  const recipientEmail = isPending
+    ? (reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail)
+    : (reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail);
+
   if (!recipientEmail) {
     logger.warn('No requester email for submission confirmation', {
       reservationId: reservation._id
@@ -316,7 +322,7 @@ async function sendSubmissionConfirmation(reservation) {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = emailTemplates.generateSubmissionConfirmation(reservation);
+  const { subject, html } = await emailTemplates.generateSubmissionConfirmation(reservation);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()
@@ -338,7 +344,7 @@ async function sendAdminNewRequestAlert(reservation, adminEmails, adminPanelUrl 
     return { success: false, error: 'No admin recipients' };
   }
 
-  const { subject, html } = emailTemplates.generateAdminNewRequestAlert(reservation, adminPanelUrl);
+  const { subject, html } = await emailTemplates.generateAdminNewRequestAlert(reservation, adminPanelUrl);
 
   // Send single email to all admins (not multiple emails)
   return sendEmail(adminEmails, subject, html, {
@@ -353,7 +359,10 @@ async function sendAdminNewRequestAlert(reservation, adminEmails, adminPanelUrl 
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendApprovalNotification(reservation, adminNotes = '') {
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail;
+  // Approval emails go to approved events - use top-level, fall back to roomReservationData
+  const reqData = reservation.roomReservationData || {};
+  const recipientEmail = reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail;
+
   if (!recipientEmail) {
     logger.warn('No requester email for approval notification', {
       reservationId: reservation._id
@@ -361,7 +370,7 @@ async function sendApprovalNotification(reservation, adminNotes = '') {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = emailTemplates.generateApprovalNotification(reservation, adminNotes);
+  const { subject, html } = await emailTemplates.generateApprovalNotification(reservation, adminNotes);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()
@@ -375,7 +384,10 @@ async function sendApprovalNotification(reservation, adminNotes = '') {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendRejectionNotification(reservation, rejectionReason = '') {
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail;
+  // Rejection emails - use top-level, fall back to roomReservationData
+  const reqData = reservation.roomReservationData || {};
+  const recipientEmail = reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail;
+
   if (!recipientEmail) {
     logger.warn('No requester email for rejection notification', {
       reservationId: reservation._id
@@ -383,7 +395,7 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = emailTemplates.generateRejectionNotification(reservation, rejectionReason);
+  const { subject, html } = await emailTemplates.generateRejectionNotification(reservation, rejectionReason);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()
@@ -396,7 +408,11 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendResubmissionConfirmation(reservation) {
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail;
+  // Resubmission is for pending requests - use roomReservationData
+  const reqData = reservation.roomReservationData || {};
+  const recipientEmail = reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail ||
+                         reservation.requesterEmail || reservation.contactEmail;
+
   if (!recipientEmail) {
     logger.warn('No requester email for resubmission confirmation', {
       reservationId: reservation._id
@@ -404,7 +420,7 @@ async function sendResubmissionConfirmation(reservation) {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = emailTemplates.generateResubmissionConfirmation(reservation);
+  const { subject, html } = await emailTemplates.generateResubmissionConfirmation(reservation);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()
@@ -417,7 +433,11 @@ async function sendResubmissionConfirmation(reservation) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendReviewStartedNotification(reservation) {
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail;
+  // Review started is for pending requests - use roomReservationData
+  const reqData = reservation.roomReservationData || {};
+  const recipientEmail = reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail ||
+                         reservation.requesterEmail || reservation.contactEmail;
+
   if (!recipientEmail) {
     logger.warn('No requester email for review started notification', {
       reservationId: reservation._id
@@ -425,7 +445,7 @@ async function sendReviewStartedNotification(reservation) {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = emailTemplates.generateReviewStartedNotification(reservation);
+  const { subject, html } = await emailTemplates.generateReviewStartedNotification(reservation);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()

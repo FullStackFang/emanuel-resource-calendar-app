@@ -512,21 +512,93 @@ function wrapEmailTemplate(content) {
 
 /**
  * Extract variables from reservation data
+ * Handles unified events with different data sources based on status:
+ * - Pending requests: use roomReservationData (requester's original submission)
+ * - Approved/other: use top-level fields (application's working data)
  */
 function extractVariables(reservation, extras = {}) {
+  // Determine data source based on status
+  // Pending requests use roomReservationData, approved events use top-level
+  const isPending = reservation.status === 'pending';
+  const reqData = reservation.roomReservationData || {};
+
+  // Get event title
+  const eventTitle = isPending
+    ? (reqData.eventTitle || reservation.subject || 'Untitled Event')
+    : (reservation.subject || reservation.eventTitle || reqData.eventTitle || 'Untitled Event');
+
+  // Get requester info
+  // For pending: use roomReservationData.createdBy* fields
+  // For approved: use top-level fields, fall back to roomReservationData
+  const requesterName = isPending
+    ? (reqData.createdByName || reqData.requesterName || reqData.contactName || 'Guest')
+    : (reservation.requesterName || reservation.contactName || reqData.createdByName || 'Guest');
+
+  const requesterEmail = isPending
+    ? (reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail || '')
+    : (reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail || '');
+
+  // Get date/time info
+  const startDateTime = isPending
+    ? (reqData.startDateTime || reservation.start?.dateTime)
+    : (reservation.start?.dateTime || reservation.startDateTime || reqData.startDateTime);
+
+  const endDateTime = isPending
+    ? (reqData.endDateTime || reservation.end?.dateTime)
+    : (reservation.end?.dateTime || reservation.endDateTime || reqData.endDateTime);
+
+  // Get locations - handle various formats
+  let locationsStr = 'TBD';
+  if (isPending) {
+    // For pending, prefer roomReservationData
+    if (reqData.locationDisplayNames) {
+      locationsStr = Array.isArray(reqData.locationDisplayNames)
+        ? reqData.locationDisplayNames.join(', ')
+        : reqData.locationDisplayNames;
+    } else if (reqData.locations) {
+      locationsStr = Array.isArray(reqData.locations)
+        ? reqData.locations.map(l => typeof l === 'string' ? l : l.displayName).join(', ')
+        : reqData.locations;
+    } else if (reqData.location) {
+      locationsStr = reqData.location;
+    }
+  } else {
+    // For approved, prefer top-level
+    if (reservation.locationDisplayNames) {
+      locationsStr = Array.isArray(reservation.locationDisplayNames)
+        ? reservation.locationDisplayNames.join(', ')
+        : reservation.locationDisplayNames;
+    } else if (reservation.locations) {
+      locationsStr = Array.isArray(reservation.locations)
+        ? reservation.locations.map(l => typeof l === 'string' ? l : l.displayName).join(', ')
+        : reservation.locations;
+    } else if (reservation.location?.displayName) {
+      locationsStr = reservation.location.displayName;
+    } else if (reqData.locationDisplayNames) {
+      // Fall back to roomReservationData
+      locationsStr = Array.isArray(reqData.locationDisplayNames)
+        ? reqData.locationDisplayNames.join(', ')
+        : reqData.locationDisplayNames;
+    }
+  }
+
+  // Get attendee count
+  const attendeeCount = isPending
+    ? (reqData.attendeeCount || reqData.expectedAttendees || 'Not specified')
+    : (reservation.attendeeCount || reservation.expectedAttendees || reqData.attendeeCount || 'Not specified');
+
+  // Get created/submitted date
+  const createdAt = reqData.createdAt || reservation.createdAt || new Date();
+
   return {
-    eventTitle: escapeHtml(reservation.eventTitle || reservation.subject || 'Untitled Event'),
-    requesterName: escapeHtml(reservation.requesterName || reservation.contactName || 'Guest'),
-    requesterEmail: escapeHtml(reservation.requesterEmail || reservation.contactEmail || ''),
-    startTime: formatDateTime(reservation.startTime || reservation.start?.dateTime),
-    endTime: formatTime(reservation.endTime || reservation.end?.dateTime),
-    locations: escapeHtml(
-      reservation.locationDisplayNames?.join(', ') ||
-      reservation.locations?.map(l => l.displayName).join(', ') ||
-      'TBD'
-    ),
-    attendeeCount: String(reservation.attendeeCount || reservation.expectedAttendees || 'Not specified'),
-    submittedAt: formatDateTime(reservation.createdAt || new Date()),
+    eventTitle: escapeHtml(eventTitle),
+    requesterName: escapeHtml(requesterName),
+    requesterEmail: escapeHtml(requesterEmail),
+    startTime: formatDateTime(startDateTime),
+    endTime: formatTime(endDateTime),
+    locations: escapeHtml(locationsStr),
+    attendeeCount: String(attendeeCount),
+    submittedAt: formatDateTime(createdAt),
     ...extras
   };
 }
