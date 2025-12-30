@@ -731,6 +731,20 @@ async function importRsSched() {
       const startDateTime = new Date(row.StartDateTime);
       const endDateTime = new Date(row.EndDateTime);
 
+      // Extract local time strings (HH:MM format) - use CSV values if available, otherwise extract from Date
+      const startTimeStr = row.StartTime ||
+        `${String(startDateTime.getHours()).padStart(2, '0')}:${String(startDateTime.getMinutes()).padStart(2, '0')}`;
+      const endTimeStr = row.EndTime ||
+        `${String(endDateTime.getHours()).padStart(2, '0')}:${String(endDateTime.getMinutes()).padStart(2, '0')}`;
+
+      // Extract date strings (YYYY-MM-DD format)
+      const startDateStr = row.StartDate || startDateTime.toISOString().split('T')[0];
+      const endDateStr = row.EndDate || endDateTime.toISOString().split('T')[0];
+
+      // Format as local datetime (no Z suffix) for graphData and top-level fields
+      const startDateTimeLocal = `${startDateStr}T${startTimeStr}`;
+      const endDateTimeLocal = `${endDateStr}T${endTimeStr}`;
+
       // Match location by rsKey from CSV -> rsKey in locations collection
       let locationIds = [];
       let locationDisplayNames = '';
@@ -781,6 +795,26 @@ async function importRsSched() {
         locationDisplayNames: locationDisplayNames,
         locationCodes: locationCodes,
 
+        // Top-level time fields (for UI/forms compatibility)
+        eventTitle: row.Subject || '',
+        eventDescription: row.Description || '',
+        startDateTime: startDateTimeLocal,
+        endDateTime: endDateTimeLocal,
+        startDate: startDateStr,
+        startTime: startTimeStr,
+        endDate: endDateStr,
+        endTime: endTimeStr,
+        // Default setupTime and doorOpenTime to event start (rsSched doesn't have these)
+        setupTime: startTimeStr,
+        doorOpenTime: startTimeStr,
+        // Default doorCloseTime to event end
+        doorCloseTime: endTimeStr,
+        // Leave teardownTime empty (can be set manually later)
+        teardownTime: '',
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+        isAllDayEvent: row.AllDayEvent === '1' || row.AllDayEvent === 1,
+
         // Store all rsSched data in dedicated object
         rschedData: {
           rsId: row.rsId ? parseInt(row.rsId) : null,
@@ -810,12 +844,12 @@ async function importRsSched() {
         graphData: {
           subject: row.Subject || '',
           start: {
-            dateTime: startDateTime.toISOString(),
-            timeZone: 'UTC'
+            dateTime: startDateTimeLocal,
+            timeZone: 'America/New_York'
           },
           end: {
-            dateTime: endDateTime.toISOString(),
-            timeZone: 'UTC'
+            dateTime: endDateTimeLocal,
+            timeZone: 'America/New_York'
           },
           location: row.Location ? {
             displayName: row.Location,
