@@ -3337,6 +3337,31 @@ function combineNotes(existingNotes, newNotes) {
 }
 
 /**
+ * Retry wrapper for Cosmos DB operations that may hit rate limits (429)
+ * Implements exponential backoff based on RetryAfterMs from error
+ * @param {Function} operation - Async function to execute
+ * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
+ * @returns {Promise} - Result of the operation
+ */
+async function withCosmosRetry(operation, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      // Cosmos DB rate limit error code is 16500
+      if (error.code === 16500 && attempt < maxRetries) {
+        // Use RetryAfterMs from error if available, otherwise exponential backoff
+        const retryAfterMs = error.retryAfterMs || (attempt * 1000);
+        logger.warn(`Cosmos DB rate limit hit (attempt ${attempt}/${maxRetries}), retrying in ${retryAfterMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryAfterMs));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
+/**
  * Get calendarOwner (email) from calendarId using the calendar config
  * The config maps email -> calendarId, so we reverse it
  */
@@ -3347,6 +3372,8 @@ function getCalendarOwnerFromConfig(calendarId) {
       return null;
     }
 
+    const fs = require('fs');
+    const path = require('path');
     const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
     const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
     const trimmedCalendarId = calendarId.trim();
@@ -5992,23 +6019,72 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       return res.status(500).json({ error: 'Database collections not initialized' });
     }
     
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 100, // Default to 100 to prevent Cosmos DB rate limiting; use 0 for no limit
       status = 'all',
-      search = ''
+      search = '',
+      calendarId = '',
+      calendarOwner = '',
+      startDate = '',
+      endDate = '',
+      categories = '',
+      locations = ''
     } = req.query;
-    
+
     const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
-    
-    // Build query
-    let query = { userId: userId };
-    
-    // Debug logging
-    logger.debug('Unified events query:', { userId, status, search, page: pageNum, limit: limitNum });
-    
+    const limitNum = limit === '0' || limit === 0 ? 0 : parseInt(limit) || 100;
+    const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
+
+    // Build query - filter by calendarOwner (email) like the main calendar page
+    let query = {};
+
+    // Calendar filter - prefer calendarOwner (email), fall back to calendarId
+    // Use case-insensitive matching for email
+    if (calendarOwner) {
+      query.calendarOwner = calendarOwner.toLowerCase();
+    } else if (calendarId) {
+      // If calendarId is provided, try to get the calendarOwner from config
+      const ownerEmail = getCalendarOwnerFromConfig(calendarId);
+      if (ownerEmail) {
+        query.calendarOwner = ownerEmail.toLowerCase();
+        console.log(`Resolved calendarId to calendarOwner: ${ownerEmail}`);
+      } else {
+        // CalendarId not in config - search across all calendars
+        // This happens when user is viewing a calendar folder that's not in the config
+        console.log(`CalendarId not found in config, searching across all calendars`);
+        // Don't filter by calendar - will search all events
+      }
+    }
+    // If no calendar filter at all, search across all events
+
+    // Date range filter - use startDateTime for filtering
+    if (startDate) {
+      query.startDateTime = query.startDateTime || {};
+      query.startDateTime.$gte = new Date(startDate).toISOString();
+    }
+    if (endDate) {
+      query.startDateTime = query.startDateTime || {};
+      // End of day for the end date
+      const endOfDay = new Date(endDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      query.startDateTime.$lte = endOfDay.toISOString();
+    }
+
+    // Debug logging - use console.log for visibility during debugging
+    console.log('=== Unified Events Search Debug ===');
+    console.log('Query params:', {
+      calendarOwner: query.calendarOwner || 'not set',
+      calendarId: query.calendarId || 'not set',
+      status,
+      search,
+      startDate,
+      endDate,
+      page: pageNum,
+      limit: limitNum
+    });
+    logger.debug('Unified events query:', { calendarOwner: query.calendarOwner, status, search, startDate, endDate, page: pageNum, limit: limitNum });
+
     // Status filter
     if (status === 'active') {
       query.isDeleted = { $ne: true };
@@ -6022,22 +6098,22 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         { "internalData.teardownMinutes": { $gt: 0 } }
       ];
     }
-    
-    // Search filter - check both top-level and graphData fields
+
+    // Search filter - use only essential top-level fields to reduce Cosmos DB RU consumption
+    // Reduced from 9 fields to 3 to prevent 429 rate limiting errors
     if (search) {
-      const searchRegex = new RegExp(search, 'i'); // case-insensitive regex
+      // Escape special regex characters in search term
+      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchConditions = [
-        // Top-level fields (CSV imports, source of truth)
-        { eventTitle: searchRegex },
-        { eventDescription: searchRegex },
-        { location: searchRegex },
-        { locationDisplayNames: searchRegex },
-        // graphData fields (Outlook sync fallback)
-        { 'graphData.subject': searchRegex },
-        { 'graphData.bodyPreview': searchRegex },
-        { 'graphData.location.displayName': searchRegex }
+        // Top-level fields only (source of truth for unified events)
+        // eventTitle contains the canonical title (from CSV or Graph sync)
+        { eventTitle: { $regex: escapedSearch, $options: 'i' } },
+        // eventDescription contains notes/body content
+        { eventDescription: { $regex: escapedSearch, $options: 'i' } },
+        // locationDisplayName is the consolidated location string
+        { locationDisplayName: { $regex: escapedSearch, $options: 'i' } }
       ];
-      
+
       // If there's already an $or condition (for enriched status), combine them
       if (query.$or) {
         query.$and = [
@@ -6051,35 +6127,144 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     }
     
     // Get total count first
-    const total = await unifiedEventsCollection.countDocuments(query);
+    console.log('Final query (userId, calendarId, isDeleted):', {
+      userId: query.userId,
+      calendarId: query.calendarId,
+      isDeleted: query.isDeleted,
+      hasOr: !!query.$or,
+      hasAnd: !!query.$and,
+      orConditionsCount: query.$or?.length || 0
+    });
+    if (search) {
+      console.log('Search term:', search);
+    }
+
+    // Wrap database operations with retry logic for Cosmos DB rate limiting
+    // Cap count at 5000 to prevent long-running queries on broad searches
+    const MAX_COUNT = 5000;
+    let total = 0;
+    let totalCapped = false;
+
+    // For paginated queries, get the count (needed for pagination UI)
+    // For limit=0 (export), skip count to save RUs
+    if (limitNum > 0) {
+      total = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query, { limit: MAX_COUNT + 1 }));
+      if (total > MAX_COUNT) {
+        totalCapped = true;
+        total = MAX_COUNT;
+        console.log(`Total events capped at ${MAX_COUNT} (actual count exceeds limit)`);
+      } else {
+        console.log('Total events found:', total);
+      }
+    }
+
+    logger.debug('Total events found:', total, 'capped:', totalCapped, 'with query:', JSON.stringify(query));
+
+    // Get events without server-side sorting to avoid Cosmos DB index issues
+    // Sort client-side after fetching
+    // Use projection to reduce document size and RU consumption
+    let events = await withCosmosRetry(async () => {
+      let cursor = unifiedEventsCollection.find(query).project({
+        _id: 1, eventId: 1, eventTitle: 1, subject: 1,
+        startDateTime: 1, endDateTime: 1, startDate: 1, startTime: 1,
+        endDate: 1, endTime: 1, startTimeZone: 1, endTimeZone: 1, isAllDayEvent: 1,
+        location: 1, locationDisplayName: 1, locationDisplayNames: 1, locations: 1, locationCodes: 1,
+        eventDescription: 1, calendarId: 1, calendarOwner: 1, calendarName: 1,
+        categories: 1, isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
+        setupTime: 1, teardownTime: 1, doorOpenTime: 1, doorCloseTime: 1,
+        setupMinutes: 1, teardownMinutes: 1,
+        'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
+        'graphData.location': 1, 'graphData.categories': 1, 'graphData.organizer': 1, 'graphData.bodyPreview': 1
+      });
+
+      // Apply pagination only if limit is specified (limitNum > 0)
+      if (limitNum > 0) {
+        cursor = cursor.skip(skip).limit(limitNum);
+      }
+
+      return cursor.toArray();
+    });
+    console.log('Events returned:', events.length);
+
+    // Sort client-side by startDateTime (Cosmos DB doesn't support sorting without index)
+    events.sort((a, b) => {
+      const dateA = a.startDateTime ? new Date(a.startDateTime) : new Date(0);
+      const dateB = b.startDateTime ? new Date(b.startDateTime) : new Date(0);
+      return dateA - dateB;
+    });
     
-    logger.debug('Total events found:', total, 'with query:', JSON.stringify(query));
+    // Format events for response - include all fields needed by EventSearch.jsx
+    // Only include essential graphData fields to reduce response size
+    const formattedEvents = events.map(event => {
+      // Extract only essential fields from graphData to avoid huge response
+      const essentialGraphData = event.graphData ? {
+        subject: event.graphData.subject,
+        start: event.graphData.start,
+        end: event.graphData.end,
+        location: event.graphData.location,
+        categories: event.graphData.categories,
+        bodyPreview: event.graphData.bodyPreview,
+        organizer: event.graphData.organizer
+      } : null;
+
+      return {
+        _id: event._id,
+        eventId: event.eventId,
+        // Title fields - prefer top-level eventTitle, then subject, then graphData
+        eventTitle: event.eventTitle,
+        subject: event.eventTitle || event.subject || event.graphData?.subject || 'No Subject',
+        // Include only essential graphData for proper datetime formatting
+        graphData: essentialGraphData,
+        // Include top-level datetime fields (source of truth)
+        startDateTime: event.startDateTime,
+        endDateTime: event.endDateTime,
+        startDate: event.startDate,
+        startTime: event.startTime,
+        endDate: event.endDate,
+        endTime: event.endTime,
+        startTimeZone: event.startTimeZone,
+        endTimeZone: event.endTimeZone,
+        isAllDayEvent: event.isAllDayEvent,
+        // Setup/teardown times
+        setupTime: event.setupTime,
+        teardownTime: event.teardownTime,
+        doorOpenTime: event.doorOpenTime,
+        doorCloseTime: event.doorCloseTime,
+        setupMinutes: event.setupMinutes,
+        teardownMinutes: event.teardownMinutes,
+        // Location fields
+        location: event.location || event.locationDisplayName || event.graphData?.location?.displayName,
+        locationDisplayName: event.locationDisplayName,
+        locationDisplayNames: event.locationDisplayNames,
+        locations: event.locations,
+        locationCodes: event.locationCodes,
+        // Event metadata
+        eventDescription: event.eventDescription,
+        calendarId: event.calendarId,
+        calendarOwner: event.calendarOwner,
+        calendarName: event.calendarName,
+        categories: event.categories,
+        isDeleted: event.isDeleted || false,
+        hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
+        internalData: event.internalData,
+        sourceCalendars: event.sourceCalendars || [],
+        lastSyncedAt: event.lastSyncedAt
+      };
+    });
     
-    // Get events without sorting to avoid Cosmos DB index issues
-    const events = await unifiedEventsCollection.find(query)
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
-    
-    // Format events for response
-    const formattedEvents = events.map(event => ({
-      _id: event._id,
-      eventId: event.eventId,
-      subject: event.subject || event.graphData?.subject || 'No Subject',
-      startTime: event.startTime || event.graphData?.start?.dateTime,
-      location: event.location || event.graphData?.location?.displayName,
-      isDeleted: event.isDeleted || false,
-      hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
-      internalData: event.internalData,
-      sourceCalendars: event.sourceCalendars || [],
-      lastSyncedAt: event.lastSyncedAt
-    }));
-    
+    // Calculate pagination info
+    const hasNextPage = limitNum > 0 && (skip + formattedEvents.length) < total;
+    const totalPages = limitNum > 0 ? Math.ceil(total / limitNum) : 1;
+
     res.status(200).json({
       events: formattedEvents,
       total: total,
+      totalCount: total, // Alias for frontend compatibility
+      totalCapped: totalCapped, // True if actual count exceeds MAX_COUNT
       page: pageNum,
-      limit: limitNum
+      limit: limitNum,
+      hasNextPage: totalCapped || hasNextPage, // If capped, there are definitely more
+      totalPages: totalCapped ? '?' : totalPages // Unknown if capped
     });
   } catch (error) {
     logger.error('Error getting unified events:', error);

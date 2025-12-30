@@ -50,7 +50,7 @@ const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
 
 
 // Search function implementation using unified backend search (includes CSV events)
-async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarId = null, timezone = 'UTC') {
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC') {
   try {
     // Build search parameters
     const params = new URLSearchParams({
@@ -58,7 +58,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       sortBy: 'startTime',
       sortOrder: 'asc'
     });
-    
+
     // Add limit only if specified (no arbitrary limit)
     if (limit) {
       params.append('limit', limit.toString());
@@ -69,9 +69,9 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       params.append('search', searchTerm);
     }
 
-    // Add calendar filter if provided
-    if (calendarId) {
-      params.append('calendarId', calendarId);
+    // Add calendar owner filter if provided (email address)
+    if (calendarOwner) {
+      params.append('calendarOwner', calendarOwner);
     }
 
     // Add category filters
@@ -103,14 +103,14 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       locations,
       page,
       limit,
-      calendarId,
+      calendarOwner,
       timezone
     });
     console.log("Unified search params:", params.toString());
     console.log("Display timezone:", timezone);
 
     // Make the API request to unified search endpoint
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/cache/events?${params.toString()}`, {
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/unified/events?${params.toString()}`, {
       headers: {
         'Authorization': `Bearer ${apiToken}`,
         'Content-Type': 'application/json'
@@ -149,54 +149,101 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 
     // Backend now handles all filtering - no client-side filtering needed!
 
+    // Helper to check if a string is a valid ISO datetime (not just time)
+    const isValidISODateTime = (str) => {
+      if (!str) return false;
+      // Must contain a date component (YYYY-MM-DD) to be valid
+      return /^\d{4}-\d{2}-\d{2}/.test(str);
+    };
+
+    // Helper to build valid datetime string
+    const buildDateTime = (isoDateTime, graphDateTime, dateStr, timeStr) => {
+      // First priority: top-level ISO datetime (startDateTime/endDateTime)
+      if (isoDateTime && isValidISODateTime(isoDateTime)) return isoDateTime;
+      // Second priority: full ISO datetime from Graph API (must be valid ISO, not just time)
+      if (graphDateTime && isValidISODateTime(graphDateTime)) return graphDateTime;
+      // Third priority: combine date + time
+      if (dateStr && timeStr) return `${dateStr}T${timeStr}`;
+      // Fourth priority: combine date with graphDateTime if it's just a time
+      if (dateStr && graphDateTime && !isValidISODateTime(graphDateTime)) {
+        return `${dateStr}T${graphDateTime}`;
+      }
+      // Fifth priority: if we only have a date, use midnight
+      if (dateStr) return `${dateStr}T00:00:00`;
+      // If we only have time (no date), this is invalid for datetime parsing
+      // Return null and let the display component handle it
+      return null;
+    };
+
     // Convert unified event format to Graph-like format for compatibility
     const convertedResults = results.map(event => ({
       id: event.eventId,
-      subject: event.graphData?.subject || event.subject,
+      subject: event.eventTitle || event.subject || event.graphData?.subject,
       start: {
-        dateTime: event.graphData?.start?.dateTime ||
-                  (event.startDate && event.startTime
-                    ? `${event.startDate}T${event.startTime}`
-                    : event.startTime),
-        timeZone: event.graphData?.start?.timeZone || timezone
+        dateTime: buildDateTime(
+          event.startDateTime,
+          event.graphData?.start?.dateTime,
+          event.startDate,
+          event.startTime
+        ),
+        timeZone: event.startTimeZone || event.graphData?.start?.timeZone || timezone
       },
       end: {
-        dateTime: event.graphData?.end?.dateTime ||
-                  (event.startDate && event.endTime
-                    ? `${event.startDate}T${event.endTime}`
-                    : event.endTime),
-        timeZone: event.graphData?.end?.timeZone || timezone
+        dateTime: buildDateTime(
+          event.endDateTime,
+          event.graphData?.end?.dateTime,
+          event.endDate || event.startDate, // Use endDate if available, fall back to startDate
+          event.endTime
+        ),
+        timeZone: event.endTimeZone || event.graphData?.end?.timeZone || timezone
       },
-      location: event.graphData?.location || { displayName: event.location || '' },
-      categories: [...(event.graphData?.categories || []), ...(event.internalData?.mecCategories || [])].filter((cat, index, arr) => arr.indexOf(cat) === index), // Merge and deduplicate categories
-      bodyPreview: event.graphData?.bodyPreview || '',
+      // Location - prefer top-level fields
+      location: event.graphData?.location || {
+        displayName: event.locationDisplayName || event.location || event.locationDisplayNames || ''
+      },
+      // Categories - merge top-level, graphData, and internal categories
+      categories: [
+        ...(event.categories || []),
+        ...(event.graphData?.categories || []),
+        ...(event.internalData?.mecCategories || [])
+      ].filter((cat, index, arr) => arr.indexOf(cat) === index), // Deduplicate
+      bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
       calendarName: event.calendarName,
       // Include internal data for enriched display
       internalData: event.internalData,
       mecCategories: event.internalData?.mecCategories || [],
-      setupMinutes: event.internalData?.setupMinutes,
-      teardownMinutes: event.internalData?.teardownMinutes,
+      setupMinutes: event.setupMinutes || event.internalData?.setupMinutes,
+      teardownMinutes: event.teardownMinutes || event.internalData?.teardownMinutes,
       assignedTo: event.internalData?.assignedTo,
       estimatedCost: event.internalData?.estimatedCost,
       actualCost: event.internalData?.actualCost,
       // Top-level time fields from unified events collection
       startDate: event.startDate,
       startTime: event.startTime,
+      endDate: event.endDate,
       endTime: event.endTime,
+      startDateTime: event.startDateTime,
+      endDateTime: event.endDateTime,
       setupTime: event.setupTime,
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
       doorCloseTime: event.doorCloseTime,
       eventDescription: event.eventDescription,
-      locationDisplayNames: event.locationDisplayNames
+      eventTitle: event.eventTitle,
+      locationDisplayName: event.locationDisplayName,
+      locationDisplayNames: event.locationDisplayNames,
+      locations: event.locations,
+      locationCodes: event.locationCodes,
+      isAllDayEvent: event.isAllDayEvent
     }));
 
     return {
       results: convertedResults,
       nextLink: data.hasNextPage ? page + 1 : null,
       totalCount: data.totalCount || convertedResults.length,
+      totalCapped: data.totalCapped || false, // True if count exceeds 5000
       timezone: timezone
     };
   } catch (error) {
@@ -237,7 +284,7 @@ function EventSearchInner({
   const [currentPage, setCurrentPage] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [autoLoadMore, setAutoLoadMore] = useState(true);
+  const [autoLoadMore, setAutoLoadMore] = useState(false); // Disabled - user must click Load More
   const [loadingStatus, setLoadingStatus] = useState('');
   const [totalAvailableEvents, setTotalAvailableEvents] = useState(null);
   const loadingTimeoutRef = useRef(null);
@@ -276,7 +323,21 @@ function EventSearchInner({
       try {
         let result;
 
-        console.log(`Searching in calendar: ${searchCalendarId || 'default'} with timezone: ${userTimezone}`);
+        // Look up the calendar owner email from availableCalendars
+        // The dropdown uses calendar.id (Graph calendarId) as value
+        // We need to find that calendar and get owner.address (email) for backend filtering
+        const selectedCalendar = searchCalendarId
+          ? availableCalendars?.find(cal => cal.id === searchCalendarId)
+          : null;
+        const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
+
+        console.log(`EventSearch: Looking up calendar by ID: ${searchCalendarId?.substring(0, 30)}...`);
+        console.log(`EventSearch: Selected calendar:`, selectedCalendar ? {
+          name: selectedCalendar.name,
+          ownerName: selectedCalendar.owner?.name,
+          ownerEmail: selectedCalendar.owner?.address
+        } : 'none');
+        console.log(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
 
         result = await searchEvents(
           apiToken,
@@ -285,15 +346,16 @@ function EventSearchInner({
           selectedCategories,
           selectedLocations,
           1, // Start with page 1
-          null, // No limit - let backend return all matching results
-          searchCalendarId,
+          100, // Load first 100 results; user clicks Load More for next batch
+          calendarOwnerEmail, // Pass calendar owner email instead of calendarId
           userTimezone // Use shared timezone
         );
 
         // Set the total count if available
         if (result.totalCount !== null) {
           setTotalAvailableEvents(result.totalCount);
-          setLoadingStatus(`Found ${result.totalCount} events. Loading first batch...`);
+          const countDisplay = result.totalCapped ? `${result.totalCount}+` : result.totalCount;
+          setLoadingStatus(`Found ${countDisplay} events. Showing first ${Math.min(result.results.length, 100)}.`);
         }
         
         setHasNextPage(result.nextLink !== null);
@@ -395,6 +457,12 @@ function EventSearchInner({
       }
       
       const nextPage = currentPage + 1;
+      // Look up the calendar owner email from availableCalendars
+      const selectedCalendar = searchCalendarId
+        ? availableCalendars?.find(cal => cal.id === searchCalendarId)
+        : null;
+      const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
+
       const result = await searchEvents(
         apiToken,
         searchTerm,
@@ -402,8 +470,8 @@ function EventSearchInner({
         selectedCategories,
         selectedLocations,
         nextPage,
-        null, // No limit - let backend return all matching results
-        searchCalendarId,
+        100, // Load 100 at a time for pagination
+        calendarOwnerEmail, // Pass calendar owner email instead of calendarId
         userTimezone // Use shared timezone
       );
       
@@ -488,9 +556,18 @@ function EventSearchInner({
   
   // Handle search execution - only triggered by button click
   const handleSearch = () => {
+    // Require at least one filter
     if (!searchTerm && !dateRange.start && !dateRange.end &&
         !selectedCategories.length && !selectedLocations.length) {
       setSearchError('Please enter a search term or select search criteria');
+      return;
+    }
+
+    // Require minimum 2 characters for search term if no other filters
+    const hasOtherFilters = dateRange.start || dateRange.end ||
+                           selectedCategories.length > 0 || selectedLocations.length > 0;
+    if (searchTerm && searchTerm.trim().length < 2 && !hasOtherFilters) {
+      setSearchError('Search term must be at least 2 characters, or add a date range/category/location filter');
       return;
     }
 
@@ -576,12 +653,20 @@ function EventSearchInner({
       >
         <div className="result-title">{event.subject}</div>
         <div className="result-date">
-          {formatDateTimeWithTimezone(event.start.dateTime, userTimezone)}
+          {event.start?.dateTime
+            ? formatDateTimeWithTimezone(event.start.dateTime, userTimezone)
+            : (event.startDate || event.startTime || 'No date')}
         </div>
-        
+
         {/* Duration info */}
         <div className="result-duration">
-          Duration: {formatDateTimeWithTimezone(event.start.dateTime, userTimezone)} - {formatDateTimeWithTimezone(event.end.dateTime, userTimezone)}
+          {event.start?.dateTime && event.end?.dateTime ? (
+            <>Duration: {formatDateTimeWithTimezone(event.start.dateTime, userTimezone)} - {formatDateTimeWithTimezone(event.end.dateTime, userTimezone)}</>
+          ) : (
+            event.startTime && event.endTime
+              ? `Time: ${event.startTime} - ${event.endTime}`
+              : null
+          )}
         </div>
         
         {/* Location tag(s) */}
@@ -783,11 +868,12 @@ function EventSearchInner({
               searchTerm={searchTerm}
               categories={selectedCategories}
               locations={selectedLocations}
-              apiToken={graphToken}
+              apiToken={apiToken}
               dateRange={dateRange}
               apiBaseUrl={APP_CONFIG.API_BASE_URL}
               graphToken={graphToken}
-              selectedCalendarId={selectedCalendarId}
+              selectedCalendarId={searchCalendarId}
+              calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
               timezone={userTimezone} // Pass shared timezone to export
             />
           )}

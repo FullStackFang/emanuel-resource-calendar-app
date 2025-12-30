@@ -2,121 +2,118 @@
 import React, { useState } from 'react';
 import { jsPDF } from 'jspdf';
 
-const EventSearchExport = ({ 
-  searchResults, 
-  searchTerm, 
-  categories = [], 
+const EventSearchExport = ({
+  searchResults,
+  searchTerm,
+  categories = [],
   locations = [],
   apiToken = null,
   dateRange,
   apiBaseUrl = 'http://localhost:3001',
   graphToken, // Add this prop to access the Microsoft Graph token
   selectedCalendarId, // Add this prop to know which calendar to search
+  calendarOwner = null, // Calendar owner email for unified backend filtering
   timezone = 'UTC' // Display timezone passed from parent
 }) => {
   const [sortBy, setSortBy] = useState('date'); // Default sort by date
   const [isExporting, setIsExporting] = useState(false);
   
-  // Function to fetch ALL events matching the search criteria (not paginated)
+  // Function to fetch ALL events matching the search criteria from unified backend
+  // Uses limit=0 to get all results (no pagination) for export
   const fetchAllMatchingEvents = async () => {
     try {
-      let allEvents = [];
-      let nextLink = null;
-      let baseUrl;
-      
-      if (selectedCalendarId) {
-        baseUrl = `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events`;
-      } else {
-        baseUrl = 'https://graph.microsoft.com/v1.0/me/events';
-      }
+      // Build query params for unified backend API
+      const params = new URLSearchParams({
+        limit: '0', // No limit - get all matching results for export
+        status: 'active'
+      });
 
-      // Build the initial URL with search filters
-      let url = `${baseUrl}?$top=250&$orderby=start/dateTime desc&$count=true`;
-      let filters = [];
-      
-      // Add simple subject search if provided
+      // Add search term if provided
       if (searchTerm) {
-        filters.push(`contains(subject,'${searchTerm.replace(/'/g, "''")}')`);
-      }
-      
-      // Add date filters if provided
-      if (dateRange.start) {
-        const startDate = new Date(dateRange.start).toISOString();
-        filters.push(`start/dateTime ge '${startDate}'`);
-      }
-      
-      if (dateRange.end) {
-        const endDate = new Date(dateRange.end).toISOString();
-        filters.push(`end/dateTime le '${endDate}'`);
-      }
-      
-      // Add filters to the URL
-      if (filters.length > 0) {
-        url += `&$filter=${encodeURIComponent(filters.join(' and '))}`;
+        params.append('search', searchTerm);
       }
 
-      // Keep fetching until we have all events
-      do {
-        const headers = {
-          Authorization: `Bearer ${graphToken}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'outlook.timezone="UTC"' // Always fetch in UTC for consistency
-        };
-        
-        if (!nextLink) {
-          headers['ConsistencyLevel'] = 'eventual';
+      // Add calendar owner filter (email address)
+      if (calendarOwner) {
+        params.append('calendarOwner', calendarOwner);
+      }
+
+      // Add date range filters
+      if (dateRange?.start) {
+        params.append('startDate', dateRange.start);
+      }
+      if (dateRange?.end) {
+        params.append('endDate', dateRange.end);
+      }
+
+      // Add category filters
+      if (categories && categories.length > 0) {
+        params.append('categories', categories.join(','));
+      }
+
+      // Add location filters
+      if (locations && locations.length > 0) {
+        params.append('locations', locations.join(','));
+      }
+
+      console.log('Export: Fetching all events from unified backend with params:', params.toString());
+
+      const response = await fetch(
+        `${apiBaseUrl}/admin/unified/events?${params.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
+          }
         }
-        
-        const response = await fetch(nextLink || url, { headers });
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
-        }
-        
-        const data = await response.json();
-        let results = data.value || [];
-        
-        // Apply client-side filtering for categories and locations
-        if (categories && categories.length > 0) {
-          results = results.filter(event => {
-            // Handle "Uncategorized" special case
-            if (categories.includes('Uncategorized')) {
-              if (!event.categories || event.categories.length === 0) {
-                return true;
-              }
-            }
-            
-            // Check if any of the event's categories match our filter
-            return event.categories && 
-                   event.categories.some(cat => categories.includes(cat));
-          });
-        }
-        
-        // Filter by locations client-side
-        if (locations && locations.length > 0) {
-          results = results.filter(event => {
-            const eventLocation = event.location?.displayName || '';
-            
-            // Check if any of our location filters match
-            return locations.some(loc => eventLocation.includes(loc));
-          });
-        }
-        
-        allEvents = [...allEvents, ...results];
-        nextLink = data['@odata.nextLink'] || null;
-        
-      } while (nextLink);
-      
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `Request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`Export: Fetched ${data.events?.length || 0} events for export`);
+
+      // Transform unified events to match expected format for export
+      const events = (data.events || []).map(event => ({
+        id: event.eventId,
+        subject: event.eventTitle || event.subject || event.graphData?.subject || 'Untitled',
+        start: {
+          dateTime: event.startDateTime || event.graphData?.start?.dateTime
+        },
+        end: {
+          dateTime: event.endDateTime || event.graphData?.end?.dateTime
+        },
+        location: {
+          displayName: event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
+        },
+        categories: event.categories || event.graphData?.categories || [],
+        body: {
+          content: event.eventDescription || event.graphData?.bodyPreview || ''
+        },
+        bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
+        attendees: event.graphData?.attendees || [],
+        isAllDay: event.isAllDayEvent || event.graphData?.isAllDay || false,
+        importance: event.graphData?.importance || 'normal',
+        showAs: event.graphData?.showAs || 'busy',
+        recurrence: event.graphData?.recurrence || null,
+        organizer: event.graphData?.organizer || null,
+        webLink: event.graphData?.webLink || '',
+        createdDateTime: event.graphData?.createdDateTime,
+        lastModifiedDateTime: event.lastSyncedAt || event.graphData?.lastModifiedDateTime
+      }));
+
       // Sort results by start date (latest first)
-      return allEvents.sort((a, b) => {
-        const aStartTime = new Date(a.start.dateTime);
-        const bStartTime = new Date(b.start.dateTime);
+      return events.sort((a, b) => {
+        const aStartTime = new Date(a.start?.dateTime || 0);
+        const bStartTime = new Date(b.start?.dateTime || 0);
         return bStartTime - aStartTime;
       });
-      
+
     } catch (error) {
-      console.error('Error fetching all matching events:', error);
+      console.error('Error fetching all matching events for export:', error);
       throw error;
     }
   };
@@ -333,8 +330,12 @@ const EventSearchExport = ({
     }
   };
   
-  const handleExport = () => {
+  const handleExport = async () => {
+    setIsExporting(true);
     try {
+      // Fetch ALL matching events (not just the loaded batch of 100)
+      const allMatchingEvents = await fetchAllMatchingEvents();
+      console.log(`PDF Export: Fetched ${allMatchingEvents.length} events for export`);
       // Create new PDF document
       const doc = new jsPDF();
       
@@ -447,7 +448,7 @@ const EventSearchExport = ({
       let y = addColumnHeaders(startY);
       
       // Sort events based on the selected sort option
-      const sortedEvents = [...searchResults].sort((a, b) => {
+      const sortedEvents = [...allMatchingEvents].sort((a, b) => {
         if (sortBy === 'date') {
           // Sort by date ascending (oldest to newest)
           return new Date(a.start.dateTime) - new Date(b.start.dateTime);
@@ -693,7 +694,7 @@ const EventSearchExport = ({
       // Add search results count
       const resultCountY = Math.min(y + 10, 280);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Total Results: ${searchResults.length}`, doc.internal.pageSize.getWidth() / 2, resultCountY, { align: 'center' });
+      doc.text(`Total Results: ${allMatchingEvents.length}`, doc.internal.pageSize.getWidth() / 2, resultCountY, { align: 'center' });
       
       // Calculate the final page count and add page numbers to all pages
       const totalPages = doc.internal.getNumberOfPages();
@@ -713,6 +714,8 @@ const EventSearchExport = ({
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('There was an error generating the PDF. Please try again.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -740,21 +743,23 @@ const EventSearchExport = ({
       
       <button
         onClick={handleExport}
+        disabled={isExporting}
         className='export-search-pdf-button'
         style={{
           padding: '6px 12px',
-          backgroundColor: '#0078d4',
+          backgroundColor: isExporting ? '#cccccc' : '#0078d4',
           color: '#fff',
           border: 'none',
           borderRadius: '4px',
-          cursor: 'pointer',
+          cursor: isExporting ? 'not-allowed' : 'pointer',
           fontSize: '0.9rem',
           display: 'flex',
           alignItems: 'center',
           gap: '4px'
         }}
       >
-        <span role="img" aria-label="export">📄</span> Export Results to PDF
+        <span role="img" aria-label="export">📄</span>
+        {isExporting ? 'Exporting...' : 'Export Results to PDF'}
       </button>
 
       <button
