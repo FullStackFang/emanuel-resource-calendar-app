@@ -3,6 +3,7 @@ import { processEventsForOverlap } from '../utils/eventOverlapUtils';
 import { logger } from '../utils/logger';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
+import { sortEventsByStartTime } from '../utils/eventTransformers';
 
 const WeekView = memo(({
   // Props
@@ -196,7 +197,7 @@ const WeekView = memo(({
                   });
 
                   // Sort events by start time
-                  const sortedEvents = dayEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+                  const sortedEvents = sortEventsByStartTime(dayEvents);
 
                   return (
                     <div className="event-container">

@@ -2664,10 +2664,9 @@ async function bulkUpsertEvents(userId, events) {
       }
 
       // Build event document
-      const startDateTime = event.graphData?.start?.dateTime;
-      const endDateTime = event.graphData?.end?.dateTime;
-      const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-      const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
+      // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
+      const startDateTime = event.graphData?.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
+      const endDateTime = event.graphData?.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
       const doc = {
         userId: userId,
@@ -2681,15 +2680,15 @@ async function bulkUpsertEvents(userId, events) {
         locationCodes: locationCodes,
         virtualMeetingUrl: virtualMeetingUrl,
         virtualPlatform: virtualPlatform,
-        // Top-level fields
+        // Top-level fields - no Z suffix
         eventTitle: event.graphData?.subject || 'Untitled Event',
         eventDescription: extractTextFromHtml(event.graphData?.body?.content) || event.graphData?.bodyPreview || '',
-        startDateTime: utcStartString,
-        endDateTime: utcEndString,
-        startDate: utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '',
-        startTime: utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '',
-        endDate: utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '',
-        endTime: utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '',
+        startDateTime: startDateTime,
+        endDateTime: endDateTime,
+        startDate: startDateTime ? startDateTime.split('T')[0] : '',
+        startTime: startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+        endDate: endDateTime ? endDateTime.split('T')[0] : '',
+        endTime: endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '',
         isAllDayEvent: event.graphData?.isAllDay || false,
         // Status fields
         isDeleted: false,
@@ -3718,8 +3717,9 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                 || eventIdLookupMap.get(graphEvent.id);
               const eventId = existingEventId || crypto.randomUUID(); // Use existing or generate new
 
-              const utcStartString = startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`;
-              const utcEndString = endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`;
+              // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
+              const cleanStartDateTime = startDateTime.replace(/Z$/, '').replace(/\.0+Z?$/, '');
+              const cleanEndDateTime = endDateTime.replace(/Z$/, '').replace(/\.0+Z?$/, '');
 
               const unifiedEvent = {
                 eventId: eventId, // Use existing UUID or generate new one
@@ -3761,15 +3761,15 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   actualCost: null,
                   customFields: {}
                 },
-                // TOP-LEVEL APPLICATION FIELDS (for forms/UI)
+                // TOP-LEVEL APPLICATION FIELDS (for forms/UI) - no Z suffix
                 eventTitle: graphEvent.subject || 'Untitled Event',
                 eventDescription: extractTextFromHtml(graphEvent.body?.content) || graphEvent.bodyPreview || '',
-                startDateTime: utcStartString,
-                endDateTime: utcEndString,
-                startDate: utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '',
-                startTime: utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '',
-                endDate: utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '',
-                endTime: utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '',
+                startDateTime: cleanStartDateTime,
+                endDateTime: cleanEndDateTime,
+                startDate: cleanStartDateTime ? cleanStartDateTime.split('T')[0] : '',
+                startTime: cleanStartDateTime ? cleanStartDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+                endDate: cleanEndDateTime ? cleanEndDateTime.split('T')[0] : '',
+                endTime: cleanEndDateTime ? cleanEndDateTime.split('T')[1]?.substring(0, 5) || '' : '',
                 isAllDayEvent: graphEvent.isAllDay || false,
                 setupTime: '',
                 teardownTime: '',
@@ -4628,22 +4628,20 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       newEventDoc.locationDisplayNames = updatedGraphData.location?.displayName || '';
 
       // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
-      const startDateTime = updatedGraphData.start?.dateTime;
-      const endDateTime = updatedGraphData.end?.dateTime;
+      // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
+      const startDateTime = updatedGraphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
+      const endDateTime = updatedGraphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
       newEventDoc.eventTitle = updatedGraphData.subject || 'Untitled Event';
       newEventDoc.eventDescription = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
-      // Convert to UTC strings with Z suffix
-      const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-      const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
-      // Store datetime with Z suffix to ensure UTC interpretation
-      newEventDoc.startDateTime = utcStartString;
-      newEventDoc.endDateTime = utcEndString;
-      // Extract date and time in UTC (not server local time)
-      newEventDoc.startDate = utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '';
-      newEventDoc.startTime = utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '';
-      newEventDoc.endDate = utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '';
-      newEventDoc.endTime = utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '';
+      // Store datetime as local time (no Z suffix) - consistent with sync behavior
+      newEventDoc.startDateTime = startDateTime;
+      newEventDoc.endDateTime = endDateTime;
+      // Extract date and time components directly from the string (not via Date parsing)
+      newEventDoc.startDate = startDateTime ? startDateTime.split('T')[0] : '';
+      newEventDoc.startTime = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+      newEventDoc.endDate = endDateTime ? endDateTime.split('T')[0] : '';
+      newEventDoc.endTime = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
       // location field removed - locationDisplayNames is the single source of truth
       newEventDoc.isAllDayEvent = updatedGraphData.isAllDay || false;
 
@@ -4760,22 +4758,20 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         }
 
         // Update top-level fields from graphData
-        const startDateTime = updatedGraphData.start?.dateTime;
-        const endDateTime = updatedGraphData.end?.dateTime;
+        // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
+        const startDateTime = updatedGraphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
+        const endDateTime = updatedGraphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
         updateOperations['eventTitle'] = updatedGraphData.subject || 'Untitled Event';
         updateOperations['eventDescription'] = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
-        // Convert to UTC strings with Z suffix
-        const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-        const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
-        // Store datetime with Z suffix to ensure UTC interpretation
-        updateOperations['startDateTime'] = utcStartString;
-        updateOperations['endDateTime'] = utcEndString;
-        // Extract date and time in UTC (not server local time)
-        updateOperations['startDate'] = utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '';
-        updateOperations['startTime'] = utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '';
-        updateOperations['endDate'] = utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '';
-        updateOperations['endTime'] = utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '';
+        // Store datetime as local time (no Z suffix) - consistent with sync behavior
+        updateOperations['startDateTime'] = startDateTime;
+        updateOperations['endDateTime'] = endDateTime;
+        // Extract date and time components directly from the string (not via Date parsing)
+        updateOperations['startDate'] = startDateTime ? startDateTime.split('T')[0] : '';
+        updateOperations['startTime'] = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+        updateOperations['endDate'] = endDateTime ? endDateTime.split('T')[0] : '';
+        updateOperations['endTime'] = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
         updateOperations['location'] = newLocationDisplayName;
         updateOperations['isAllDayEvent'] = updatedGraphData.isAllDay || false;
         updateOperations['virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
@@ -5035,21 +5031,21 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         newEventDoc.locationDisplayNames = processedLocationDisplayName || graphData.location?.displayName || '';
 
         // TOP-LEVEL APPLICATION FIELDS
-        const startDateTime = graphData.start?.dateTime;
-        const endDateTime = graphData.end?.dateTime;
+        // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
+        const startDateTime = graphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
+        const endDateTime = graphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
         newEventDoc.eventTitle = graphData.subject || 'Untitled Event';
         newEventDoc.eventDescription = extractTextFromHtml(graphData.body?.content) || graphData.bodyPreview || '';
 
-        const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-        const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
-
-        newEventDoc.startDateTime = utcStartString;
-        newEventDoc.endDateTime = utcEndString;
-        newEventDoc.startDate = utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '';
-        newEventDoc.startTime = utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '';
-        newEventDoc.endDate = utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '';
-        newEventDoc.endTime = utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '';
+        // Store datetime as local time (no Z suffix) - consistent with sync behavior
+        newEventDoc.startDateTime = startDateTime;
+        newEventDoc.endDateTime = endDateTime;
+        // Extract date and time components directly from the string (not via Date parsing)
+        newEventDoc.startDate = startDateTime ? startDateTime.split('T')[0] : '';
+        newEventDoc.startTime = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+        newEventDoc.endDate = endDateTime ? endDateTime.split('T')[0] : '';
+        newEventDoc.endTime = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
         newEventDoc.isAllDayEvent = graphData.isAllDay || false;
 
         // Timing fields

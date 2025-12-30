@@ -120,3 +120,25 @@ export function transformEventsToFlatStructure(events) {
   if (!Array.isArray(events)) return [];
   return events.map(transformEventToFlatStructure).filter(Boolean);
 }
+
+/**
+ * Sorts events by their start time (earliest first)
+ * Creates a new array to avoid mutating the source
+ *
+ * @param {Array} events - Array of events with start.dateTime property
+ * @returns {Array} New sorted array of events
+ */
+export function sortEventsByStartTime(events) {
+  if (!Array.isArray(events) || events.length === 0) return events;
+
+  return [...events].sort((a, b) => {
+    const timeA = new Date(a.start?.dateTime).getTime();
+    const timeB = new Date(b.start?.dateTime).getTime();
+
+    // Handle invalid dates by pushing them to the end
+    if (isNaN(timeA)) return 1;
+    if (isNaN(timeB)) return -1;
+
+    return timeA - timeB;
+  });
+}

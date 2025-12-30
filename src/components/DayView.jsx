@@ -5,6 +5,7 @@ import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUt
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
+import { sortEventsByStartTime } from '../utils/eventTransformers';
 
 const DayView = memo(({
   // Props
@@ -207,7 +208,7 @@ const DayView = memo(({
                 });
 
                 // Sort events by start time
-                const sortedEvents = groupEvents.sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
+                const sortedEvents = sortEventsByStartTime(groupEvents);
 
                 return (
                   <div className="event-container">

@@ -2,6 +2,7 @@ import React, { memo, useCallback } from 'react';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
+import { sortEventsByStartTime } from '../utils/eventTransformers';
 import './DayEventPanel.css';
 
 const DayEventPanel = memo(({
@@ -101,8 +102,7 @@ const DayEventPanel = memo(({
           </div>
         ) : (
           <div className="events-list">
-            {dayEvents
-              .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime))
+            {sortEventsByStartTime(dayEvents)
               .map(event => {
                 const isPending = event.status === 'pending';
                 // Get primary category for color

@@ -3,6 +3,7 @@ import DayEventPanel from './DayEventPanel';
 import MultiSelect from './MultiSelect';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
+import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { logger } from '../utils/logger';
 import './MonthView.css';
 
@@ -133,8 +134,8 @@ const MonthView = memo(({
       );
     });
 
-    // Add timezone to each event for proper formatting
-    return eventsForDay.map(event => ({
+    // Sort events by start time and add timezone for proper formatting
+    return sortEventsByStartTime(eventsForDay).map(event => ({
       ...event,
       _timezone: userTimezone // Add timezone info for formatting
     }));
