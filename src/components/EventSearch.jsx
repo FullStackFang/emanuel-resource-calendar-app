@@ -1,12 +1,13 @@
 // src/components/EventSearch.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { 
-  QueryClient, 
+import {
+  QueryClient,
   QueryClientProvider,
-  useQuery, 
-  useMutation, 
-  useQueryClient 
+  useQuery,
+  useMutation,
+  useQueryClient
 } from '@tanstack/react-query';
+import { logger } from '../utils/logger';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
 import CalendarSelector from './CalendarSelector';
@@ -95,8 +96,8 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     // Filter by active events only
     params.append('status', 'active');
 
-    console.log("=== EventSearch Debug ===");
-    console.log("Search parameters sent to backend:", {
+    logger.debug("=== EventSearch Debug ===");
+    logger.debug("Search parameters sent to backend:", {
       searchTerm,
       dateRange,
       categories,
@@ -106,8 +107,8 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       calendarOwner,
       timezone
     });
-    console.log("Unified search params:", params.toString());
-    console.log("Display timezone:", timezone);
+    logger.debug("Unified search params:", params.toString());
+    logger.debug("Display timezone:", timezone);
 
     // Make the API request to unified search endpoint
     const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/unified/events?${params.toString()}`, {
@@ -123,9 +124,9 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     }
 
     const data = await response.json();
-    console.log("Unified search response:", data);
-    console.log("Backend filters applied:", data.filters);
-    console.log("Result summary:", {
+    logger.debug("Unified search response:", data);
+    logger.debug("Backend filters applied:", data.filters);
+    logger.debug("Result summary:", {
       totalCount: data.pagination?.totalCount,
       returnedCount: data.events?.length,
       totalPages: data.pagination?.totalPages,
@@ -137,9 +138,9 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     
     // Debug: Log category data for first few events
     if (results.length > 0) {
-      console.log("Category debugging - first 3 events:");
+      logger.debug("Category debugging - first 3 events:");
       results.slice(0, 3).forEach((event, index) => {
-        console.log(`Event ${index + 1}:`, {
+        logger.debug(`Event ${index + 1}:`, {
           subject: event.graphData?.subject || event.subject,
           graphCategories: event.graphData?.categories,
           mecCategories: event.internalData?.mecCategories
@@ -247,7 +248,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       timezone: timezone
     };
   } catch (error) {
-    console.error('Error searching unified events:', error);
+    logger.error('Error searching unified events:', error);
     throw error;
   }
 }
@@ -331,13 +332,13 @@ function EventSearchInner({
           : null;
         const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
-        console.log(`EventSearch: Looking up calendar by ID: ${searchCalendarId?.substring(0, 30)}...`);
-        console.log(`EventSearch: Selected calendar:`, selectedCalendar ? {
+        logger.debug(`EventSearch: Looking up calendar by ID: ${searchCalendarId?.substring(0, 30)}...`);
+        logger.debug(`EventSearch: Selected calendar:`, selectedCalendar ? {
           name: selectedCalendar.name,
           ownerName: selectedCalendar.owner?.name,
           ownerEmail: selectedCalendar.owner?.address
         } : 'none');
-        console.log(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
+        logger.debug(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
 
         result = await searchEvents(
           apiToken,
@@ -370,7 +371,7 @@ function EventSearchInner({
           return aStartTime - bStartTime;
         });
         
-        console.log("Query function returning:", {
+        logger.debug("Query function returning:", {
           resultsCount: sortedResults.length,
           sampleTitles: sortedResults.slice(0, 3).map(r => r.subject)
         });
@@ -415,7 +416,7 @@ function EventSearchInner({
   // Setup mutation for updating events
   const updateEventMutation = useMutation({
     mutationFn: (updatedEvent) => {
-      console.log("Saving event to calendar:", updatedEvent.calendarId || searchCalendarId);
+      logger.debug("Saving event to calendar:", updatedEvent.calendarId || searchCalendarId);
       return onSaveEvent(updatedEvent);
     },
     onSuccess: () => {
@@ -432,7 +433,7 @@ function EventSearchInner({
   // Calculate total results
   const searchResults = searchData || [];
   
-  console.log("React Query Result:", {
+  logger.debug("React Query Result:", {
     searchData: searchData,
     searchResultsLength: searchResults.length,
     isLoading,
@@ -504,7 +505,7 @@ function EventSearchInner({
         setTimeout(() => setLoadingStatus(''), 2000);
       }
     } catch (error) {
-      console.error('Error loading more results:', error);
+      logger.error('Error loading more results:', error);
       
       if (error.message && (error.message.includes('token is expired') || 
                             error.message.includes('Lifetime validation failed'))) {

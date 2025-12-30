@@ -1,5 +1,5 @@
 // api-server.js - Express API for MongoDB
-console.log('🚀 API SERVER FILE LOADED - CODE VERSION 2.0');
+console.log('🚀 API SERVER FILE LOADED - CODE VERSION 2.0'); // Keep as console.log - runs before logger is imported
 const express = require('express');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
@@ -114,7 +114,7 @@ app.options('*', (req, res) => {
 
 // Log all incoming requests for debugging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  logger.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   
   // Special detailed logging for delta sync requests
   if (req.url.includes('/events/sync-delta')) {
@@ -185,11 +185,11 @@ let systemSettingsCollection; // System-wide settings (calendar config, etc)
  */
 async function createEventCacheIndexes() {
   try {
-    console.log('Creating event cache indexes...');
+    logger.log('Creating event cache indexes...');
     
     // Event cache indexes removed - using unifiedEventsCollection instead
   } catch (error) {
-    console.error('Error creating event cache indexes:', error);
+    logger.error('Error creating event cache indexes:', error);
     // Don't throw - let the app continue even if index creation fails
   }
 }
@@ -199,7 +199,7 @@ async function createEventCacheIndexes() {
  */
 async function createUnifiedEventIndexes() {
   try {
-    console.log('Creating unified event indexes...');
+    logger.log('Creating unified event indexes...');
     
     // Unique index to prevent duplicate events (by internal eventId)
     await unifiedEventsCollection.createIndex(
@@ -306,15 +306,15 @@ async function createUnifiedEventIndexes() {
       }
     );
 
-    console.log('Unified event indexes created successfully');
+    logger.log('Unified event indexes created successfully');
   } catch (error) {
     // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
     // Code 67 = CannotCreateIndex - This is expected if indexes already exist or collection has data
     // The indexes are already present from previous deployments, so this error is safe to suppress
     if (error.code === 67 || error.codeName === 'CannotCreateIndex') {
-      console.log('Unified event indexes already exist (expected behavior on Azure Cosmos DB)');
+      logger.log('Unified event indexes already exist (expected behavior on Azure Cosmos DB)');
     } else {
-      console.error('Error creating unified event indexes:', error);
+      logger.error('Error creating unified event indexes:', error);
     }
   }
 }
@@ -324,7 +324,7 @@ async function createUnifiedEventIndexes() {
  */
 async function createCalendarDeltaIndexes() {
   try {
-    console.log('Creating calendar delta indexes...');
+    logger.log('Creating calendar delta indexes...');
     
     // Unique index for delta tokens
     await calendarDeltasCollection.createIndex(
@@ -351,9 +351,9 @@ async function createCalendarDeltaIndexes() {
       }
     );
     
-    console.log('Calendar delta indexes created successfully');
+    logger.log('Calendar delta indexes created successfully');
   } catch (error) {
-    console.error('Error creating calendar delta indexes:', error);
+    logger.error('Error creating calendar delta indexes:', error);
   }
 }
 
@@ -362,7 +362,7 @@ async function createCalendarDeltaIndexes() {
  */
 async function createLocationIndexes() {
   try {
-    console.log('Creating location indexes...');
+    logger.log('Creating location indexes...');
     
     // Index for location name (unique)
     await locationsCollection.createIndex(
@@ -388,7 +388,7 @@ async function createLocationIndexes() {
       { name: "location_code", background: true, sparse: true }
     );
     
-    console.log('Location indexes created successfully');
+    logger.log('Location indexes created successfully');
   } catch (error) {
     logger.error('Error creating location indexes:', error);
   }
@@ -399,7 +399,7 @@ async function createLocationIndexes() {
  */
 async function createRoomReservationIndexes() {
   try {
-    console.log('Creating room reservation indexes...');
+    logger.log('Creating room reservation indexes...');
     
     // Index for finding reservations by requester
     await roomReservationsCollection.createIndex(
@@ -425,9 +425,9 @@ async function createRoomReservationIndexes() {
       { name: "rooms_datetime", background: true }
     );
     
-    console.log('Room reservation indexes created successfully');
+    logger.log('Room reservation indexes created successfully');
   } catch (error) {
-    console.error('Error creating room reservation indexes:', error);
+    logger.error('Error creating room reservation indexes:', error);
   }
 }
 
@@ -436,7 +436,7 @@ async function createRoomReservationIndexes() {
  */
 async function createReservationTokenIndexes() {
   try {
-    console.log('Creating reservation token indexes...');
+    logger.log('Creating reservation token indexes...');
     
     // Unique index for tokens
     await reservationTokensCollection.createIndex(
@@ -456,9 +456,9 @@ async function createReservationTokenIndexes() {
       { name: "expiry_cleanup", background: true, expireAfterSeconds: 0 }
     );
     
-    console.log('Reservation token indexes created successfully');
+    logger.log('Reservation token indexes created successfully');
   } catch (error) {
-    console.error('Error creating reservation token indexes:', error);
+    logger.error('Error creating reservation token indexes:', error);
   }
 }
 
@@ -467,7 +467,7 @@ async function createReservationTokenIndexes() {
  */
 async function createRoomCapabilityTypesIndexes() {
   try {
-    console.log('Creating room capability types indexes...');
+    logger.log('Creating room capability types indexes...');
     
     // Unique index for capability keys
     await roomCapabilityTypesCollection.createIndex(
@@ -487,9 +487,9 @@ async function createRoomCapabilityTypesIndexes() {
       { name: "active_capabilities", background: true }
     );
     
-    console.log('Room capability types indexes created successfully');
+    logger.log('Room capability types indexes created successfully');
   } catch (error) {
-    console.error('Error creating room capability types indexes:', error);
+    logger.error('Error creating room capability types indexes:', error);
   }
 }
 
@@ -498,7 +498,7 @@ async function createRoomCapabilityTypesIndexes() {
  */
 async function createEventServiceTypesIndexes() {
   try {
-    console.log('Creating event service types indexes...');
+    logger.log('Creating event service types indexes...');
     
     // Unique index for service keys
     await eventServiceTypesCollection.createIndex(
@@ -518,9 +518,9 @@ async function createEventServiceTypesIndexes() {
       { name: "active_services", background: true }
     );
     
-    console.log('Event service types indexes created successfully');
+    logger.log('Event service types indexes created successfully');
   } catch (error) {
-    console.error('Error creating event service types indexes:', error);
+    logger.error('Error creating event service types indexes:', error);
   }
 }
 
@@ -529,7 +529,7 @@ async function createEventServiceTypesIndexes() {
  */
 async function createFeatureCategoriesIndexes() {
   try {
-    console.log('Creating feature categories indexes...');
+    logger.log('Creating feature categories indexes...');
 
     // Unique index for category keys
     await featureCategoriesCollection.createIndex(
@@ -543,9 +543,9 @@ async function createFeatureCategoriesIndexes() {
       { name: "category_display_order", background: true }
     );
 
-    console.log('Feature categories indexes created successfully');
+    logger.log('Feature categories indexes created successfully');
   } catch (error) {
-    console.error('Error creating feature categories indexes:', error);
+    logger.error('Error creating feature categories indexes:', error);
   }
 }
 
@@ -554,7 +554,7 @@ async function createFeatureCategoriesIndexes() {
  */
 async function createCategoriesIndexes() {
   try {
-    console.log('Creating categories indexes...');
+    logger.log('Creating categories indexes...');
 
     // Unique index for category names
     await categoriesCollection.createIndex(
@@ -574,9 +574,9 @@ async function createCategoriesIndexes() {
       { name: "category_type", background: true }
     );
 
-    console.log('Categories indexes created successfully');
+    logger.log('Categories indexes created successfully');
   } catch (error) {
-    console.error('Error creating categories indexes:', error);
+    logger.error('Error creating categories indexes:', error);
   }
 }
 
@@ -585,7 +585,7 @@ async function createCategoriesIndexes() {
  */
 async function createEventAttachmentsIndexes() {
   try {
-    console.log('Creating event attachments indexes...');
+    logger.log('Creating event attachments indexes...');
 
     // Index for finding attachments by eventId
     await eventAttachmentsCollection.createIndex(
@@ -605,9 +605,9 @@ async function createEventAttachmentsIndexes() {
       { name: "attachments_by_date_user", background: true }
     );
 
-    console.log('Event attachments indexes created successfully');
+    logger.log('Event attachments indexes created successfully');
   } catch (error) {
-    console.error('Error creating event attachments indexes:', error);
+    logger.error('Error creating event attachments indexes:', error);
   }
 }
 
@@ -616,7 +616,7 @@ async function createEventAttachmentsIndexes() {
  */
 async function createEventAuditHistoryIndexes() {
   try {
-    console.log('Creating event audit history indexes...');
+    logger.log('Creating event audit history indexes...');
 
     // Index for finding audit history by event
     await eventAuditHistoryCollection.createIndex(
@@ -648,9 +648,9 @@ async function createEventAuditHistoryIndexes() {
       { name: "change_type_history", background: true }
     );
 
-    console.log('Event audit history indexes created successfully');
+    logger.log('Event audit history indexes created successfully');
   } catch (error) {
-    console.error('Error creating event audit history indexes:', error);
+    logger.error('Error creating event audit history indexes:', error);
   }
 }
 
@@ -659,7 +659,7 @@ async function createEventAuditHistoryIndexes() {
  */
 async function createReservationAuditHistoryIndexes() {
   try {
-    console.log('Creating reservation audit history indexes...');
+    logger.log('Creating reservation audit history indexes...');
 
     // Index for finding audit history by reservation
     await reservationAuditHistoryCollection.createIndex(
@@ -685,9 +685,9 @@ async function createReservationAuditHistoryIndexes() {
       { name: "reservation_change_type", background: true }
     );
 
-    console.log('Reservation audit history indexes created successfully');
+    logger.log('Reservation audit history indexes created successfully');
   } catch (error) {
-    console.error('Error creating reservation audit history indexes:', error);
+    logger.error('Error creating reservation audit history indexes:', error);
   }
 }
 
@@ -700,7 +700,7 @@ async function seedInitialFeatureCategories() {
   try {
     const categoryCount = await featureCategoriesCollection.countDocuments();
     if (categoryCount === 0) {
-      console.log('Seeding initial feature categories...');
+      logger.log('Seeding initial feature categories...');
       
       const initialCategories = [
         {
@@ -760,10 +760,10 @@ async function seedInitialFeatureCategories() {
       ];
       
       await featureCategoriesCollection.insertMany(initialCategories);
-      console.log(`Seeded ${initialCategories.length} initial feature categories`);
+      logger.log(`Seeded ${initialCategories.length} initial feature categories`);
     }
   } catch (error) {
-    console.error('Error seeding initial feature categories:', error);
+    logger.error('Error seeding initial feature categories:', error);
   }
 }
 
@@ -774,7 +774,7 @@ async function seedInitialCategories() {
   try {
     const categoryCount = await categoriesCollection.countDocuments();
     if (categoryCount === 0) {
-      console.log('Seeding initial event categories...');
+      logger.log('Seeding initial event categories...');
 
       const initialCategories = [
         {
@@ -850,10 +850,10 @@ async function seedInitialCategories() {
       ];
 
       await categoriesCollection.insertMany(initialCategories);
-      console.log(`Seeded ${initialCategories.length} initial event categories`);
+      logger.log(`Seeded ${initialCategories.length} initial event categories`);
     }
   } catch (error) {
-    console.error('Error seeding initial event categories:', error);
+    logger.error('Error seeding initial event categories:', error);
   }
 }
 
@@ -864,7 +864,7 @@ async function seedInitialRoomCapabilityTypes() {
   try {
     const capabilityCount = await roomCapabilityTypesCollection.countDocuments();
     if (capabilityCount === 0) {
-      console.log('Seeding initial room capability types...');
+      logger.log('Seeding initial room capability types...');
       
       const initialCapabilities = [
         // Infrastructure
@@ -995,10 +995,10 @@ async function seedInitialRoomCapabilityTypes() {
       ];
       
       await roomCapabilityTypesCollection.insertMany(initialCapabilities);
-      console.log(`Seeded ${initialCapabilities.length} initial room capability types`);
+      logger.log(`Seeded ${initialCapabilities.length} initial room capability types`);
     }
   } catch (error) {
-    console.error('Error seeding initial room capability types:', error);
+    logger.error('Error seeding initial room capability types:', error);
   }
 }
 
@@ -1009,7 +1009,7 @@ async function seedInitialEventServiceTypes() {
   try {
     const serviceCount = await eventServiceTypesCollection.countDocuments();
     if (serviceCount === 0) {
-      console.log('Seeding initial event service types...');
+      logger.log('Seeding initial event service types...');
       
       const initialServices = [
         // Catering
@@ -1163,10 +1163,10 @@ async function seedInitialEventServiceTypes() {
       ];
       
       await eventServiceTypesCollection.insertMany(initialServices);
-      console.log(`Seeded ${initialServices.length} initial event service types`);
+      logger.log(`Seeded ${initialServices.length} initial event service types`);
     }
   } catch (error) {
-    console.error('Error seeding initial event service types:', error);
+    logger.error('Error seeding initial event service types:', error);
   }
 }
 
@@ -1511,7 +1511,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       teardownTimeMinutes: conflict.teardownTimeMinutes || 0
     }));
   } catch (error) {
-    console.error('Error checking room conflicts:', error);
+    logger.error('Error checking room conflicts:', error);
     throw error;
   }
 }
@@ -1582,10 +1582,10 @@ function getChanges(oldData, newData, fields) {
 async function connectToDatabase() {
   try {
     await client.connect();
-    console.log('Connected to MongoDB');
+    logger.log('Connected to MongoDB');
     
     const dbName = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
-    console.log(`API Server connecting to database: '${dbName}'`);
+    logger.log(`API Server connecting to database: '${dbName}'`);
     db = client.db(dbName);
     usersCollection = db.collection('templeEvents__Users');
     // internalEventsCollection removed - using unifiedEventsCollection (templeEvents__Events) instead
@@ -1642,11 +1642,11 @@ async function connectToDatabase() {
     await seedInitialRoomCapabilityTypes();
     await seedInitialEventServiceTypes();
     
-    console.log('Database and collections initialized');
+    logger.log('Database and collections initialized');
   } catch (error) {
-    console.error('Error connecting to MongoDB:', error);
+    logger.error('Error connecting to MongoDB:', error);
     // Try to reconnect after a delay instead of exiting
-    console.log('Attempting to reconnect in 5 seconds...');
+    logger.log('Attempting to reconnect in 5 seconds...');
     setTimeout(connectToDatabase, 5000);
   }
 }
@@ -1664,30 +1664,30 @@ const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('No token provided or invalid format');
+      logger.error('No token provided or invalid format');
       return res.status(401).json({ error: 'Authentication required' });
     }
     
     const token = authHeader.split(' ')[1];
-    console.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
+    logger.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
     
     // Decode token to inspect it (for debugging)
     try {
       const tokenParts = token.split('.');
       if (tokenParts.length === 3) {
         const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
-        console.log('Token audience:', payload.aud);
-        console.log('Expected audience:', APP_ID);
+        logger.log('Token audience:', payload.aud);
+        logger.log('Expected audience:', APP_ID);
       }
     } catch (e) {
-      console.error('Error decoding token:', e);
+      logger.error('Error decoding token:', e);
     }
     
     // Get the signing key
     const getKey = (header, callback) => {
       msalJwksClient.getSigningKey(header.kid, (err, key) => {
         if (err) {
-          console.error('Error getting signing key:', err);
+          logger.error('Error getting signing key:', err);
           return callback(err);
         }
         const signingKey = key.publicKey || key.rsaPublicKey;
@@ -1712,11 +1712,11 @@ const verifyToken = async (req, res, next) => {
       ]
     }, (err, decoded) => {
       if (err) {
-        console.error('Token verification error:', err);
+        logger.error('Token verification error:', err);
         return res.status(401).json({ error: 'Invalid token' });
       }
       
-      console.log('Token decoded successfully');
+      logger.log('Token decoded successfully');
       
       // Extract user info from token
       req.user = {
@@ -1728,7 +1728,7 @@ const verifyToken = async (req, res, next) => {
       next();
     });
   } catch (error) {
-    console.error('Authentication error:', error);
+    logger.error('Authentication error:', error);
     res.status(500).json({ error: 'Authentication failed' });
   }
 };
@@ -1915,7 +1915,7 @@ app.get('/api/internal-events', verifyToken, async (req, res) => {
     
     res.status(200).json(events);
   } catch (error) {
-    console.error('Error fetching internal events:', error);
+    logger.error('Error fetching internal events:', error);
     res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
@@ -1961,7 +1961,7 @@ app.post('/api/internal-events/enrich', verifyToken, async (req, res) => {
     
     res.status(200).json(enrichmentMap);
   } catch (error) {
-    console.error('Error fetching enrichment data:', error);
+    logger.error('Error fetching enrichment data:', error);
     res.status(500).json({ error: 'Failed to fetch enrichment data' });
   }
 });
@@ -1973,7 +1973,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
     const updates = req.body;
     const userId = req.user.userId;
     
-    console.log(`Updating internal data for event ${graphEventId} for user ${userId}:`, updates);
+    logger.log(`Updating internal data for event ${graphEventId} for user ${userId}:`, updates);
     
     // Define which fields can be updated
     const allowedFields = [
@@ -2058,7 +2058,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
     const updatedEvent = await unifiedEventsCollection.findOne({ eventId: graphEventId });
     res.status(200).json(updatedEvent);
   } catch (error) {
-    console.error('Error updating internal event:', error);
+    logger.error('Error updating internal event:', error);
     res.status(500).json({ error: 'Failed to update internal event' });
   }
 });
@@ -2079,7 +2079,7 @@ app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => 
     
     res.status(200).json(cleanCategories);
   } catch (error) {
-    console.error('Error fetching MEC categories:', error);
+    logger.error('Error fetching MEC categories:', error);
     res.status(500).json({ error: 'Failed to fetch MEC categories' });
   }
 });
@@ -2110,7 +2110,7 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
       });
     } catch (collectionError) {
       // Collection might not exist yet
-      console.log('Unified events collection might not exist yet:', collectionError.message);
+      logger.log('Unified events collection might not exist yet:', collectionError.message);
       res.status(200).json({
         totalEvents: 0,
         activeEvents: 0,
@@ -2119,7 +2119,7 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error getting sync status:', error);
+    logger.error('Error getting sync status:', error);
     res.status(500).json({ error: 'Failed to get sync status' });
   }
 });
@@ -4041,7 +4041,7 @@ app.post('/api/events/force-sync', verifyToken, async (req, res) => {
  * Get unified events endpoint
  */
 app.get('/api/events', verifyToken, async (req, res) => {
-  console.log('===== /api/events endpoint hit =====');
+  logger.log('===== /api/events endpoint hit =====');
   try {
     const { calendarId, startTime, endTime, status, page = 1, limit = 20 } = req.query;
     const userId = req.user.userId;
@@ -4049,7 +4049,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     // NEW: Handle room-reservation-request filtering
     if (status === 'room-reservation-request') {
-      console.log('🔍 Filtering for room reservation requests');
+      logger.log('🔍 Filtering for room reservation requests');
 
       // Build query for room reservations
       const query = {
@@ -4062,14 +4062,14 @@ app.get('/api/events', verifyToken, async (req, res) => {
       const user = await usersCollection.findOne({ userId });
       const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
 
-      console.log('👤 User info:', { userId, userEmail, canViewAll });
+      logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
       // Non-admin users can only see their own requests
       if (!canViewAll) {
         query['roomReservationData.requestedBy.userId'] = userId;
       }
 
-      console.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
+      logger.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
 
       // Execute query
       const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -4082,7 +4082,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
       const totalCount = await unifiedEventsCollection.countDocuments(query);
 
-      console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+      logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
 
       return res.json({
         events,
@@ -4207,7 +4207,7 @@ app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
  * GET /api/room-reservation-events?limit=1000
  */
 app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
-  console.log('===== /api/room-reservation-events endpoint hit =====');
+  logger.log('===== /api/room-reservation-events endpoint hit =====');
   try {
     const { page = 1, limit = 20 } = req.query;
     const userId = req.user.userId;
@@ -4223,14 +4223,14 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
     const user = await usersCollection.findOne({ userId });
     const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
 
-    console.log('👤 User info:', { userId, userEmail, canViewAll });
+    logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
     // Non-admin users can only see their own requests
     if (!canViewAll) {
       query['roomReservationData.requestedBy.userId'] = userId;
     }
 
-    console.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
+    logger.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
 
     // Execute query (no sort due to Cosmos DB index limitations)
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -4242,7 +4242,7 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
 
     const totalCount = await unifiedEventsCollection.countDocuments(query);
 
-    console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+    logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
 
     res.json({
       events,
@@ -6048,11 +6048,11 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       const ownerEmail = getCalendarOwnerFromConfig(calendarId);
       if (ownerEmail) {
         query.calendarOwner = ownerEmail.toLowerCase();
-        console.log(`Resolved calendarId to calendarOwner: ${ownerEmail}`);
+        logger.log(`Resolved calendarId to calendarOwner: ${ownerEmail}`);
       } else {
         // CalendarId not in config - search across all calendars
         // This happens when user is viewing a calendar folder that's not in the config
-        console.log(`CalendarId not found in config, searching across all calendars`);
+        logger.log(`CalendarId not found in config, searching across all calendars`);
         // Don't filter by calendar - will search all events
       }
     }
@@ -6072,8 +6072,8 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     }
 
     // Debug logging - use console.log for visibility during debugging
-    console.log('=== Unified Events Search Debug ===');
-    console.log('Query params:', {
+    logger.log('=== Unified Events Search Debug ===');
+    logger.log('Query params:', {
       calendarOwner: query.calendarOwner || 'not set',
       calendarId: query.calendarId || 'not set',
       status,
@@ -6127,7 +6127,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     }
     
     // Get total count first
-    console.log('Final query (userId, calendarId, isDeleted):', {
+    logger.log('Final query (userId, calendarId, isDeleted):', {
       userId: query.userId,
       calendarId: query.calendarId,
       isDeleted: query.isDeleted,
@@ -6136,7 +6136,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       orConditionsCount: query.$or?.length || 0
     });
     if (search) {
-      console.log('Search term:', search);
+      logger.log('Search term:', search);
     }
 
     // Wrap database operations with retry logic for Cosmos DB rate limiting
@@ -6152,9 +6152,9 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       if (total > MAX_COUNT) {
         totalCapped = true;
         total = MAX_COUNT;
-        console.log(`Total events capped at ${MAX_COUNT} (actual count exceeds limit)`);
+        logger.log(`Total events capped at ${MAX_COUNT} (actual count exceeds limit)`);
       } else {
-        console.log('Total events found:', total);
+        logger.log('Total events found:', total);
       }
     }
 
@@ -6184,7 +6184,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
 
       return cursor.toArray();
     });
-    console.log('Events returned:', events.length);
+    logger.log('Events returned:', events.length);
 
     // Sort client-side by startDateTime (Cosmos DB doesn't support sorting without index)
     events.sort((a, b) => {
@@ -10099,11 +10099,11 @@ app.get('/api/public/internal-events', async (req, res) => {
     });
     
     // Log the export for monitoring purposes
-    console.log(`Public export requested: ${events.length} events exported`);
+    logger.log(`Public export requested: ${events.length} events exported`);
     
     res.status(200).json(events);
   } catch (error) {
-    console.error('Error fetching internal events for public export:', error);
+    logger.error('Error fetching internal events for public export:', error);
     res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
@@ -10121,7 +10121,7 @@ app.get('/api/public/mec-categories', async (req, res) => {
     
     res.status(200).json(cleanCategories);
   } catch (error) {
-    console.error('Error fetching MEC categories:', error);
+    logger.error('Error fetching MEC categories:', error);
     res.status(500).json({ error: 'Failed to fetch MEC categories' });
   }
 });
@@ -10134,7 +10134,7 @@ app.get('/api/health', (req, res) => {
 // Get current user (using MSAL token)
 app.get('/api/users/current', verifyToken, async (req, res) => {
   try {
-    console.log('Getting current user for:', req.user.email);
+    logger.log('Getting current user for:', req.user.email);
     
     // First try to find user by userId (MSAL ID)
     let user = await usersCollection.findOne({ userId: req.user.userId });
@@ -10145,7 +10145,7 @@ app.get('/api/users/current', verifyToken, async (req, res) => {
     }
     
     if (!user) {
-      console.log('User not found, returning 404');
+      logger.log('User not found, returning 404');
       return res.status(404).json({ error: 'User not found' });
     }
     
@@ -10155,10 +10155,10 @@ app.get('/api/users/current', verifyToken, async (req, res) => {
       { $set: { lastLogin: new Date() } }
     );
     
-    console.log('Returning user:', user._id.toString());
+    logger.log('Returning user:', user._id.toString());
     res.status(200).json(user);
   } catch (error) {
-    console.error('Error getting current user:', error);
+    logger.error('Error getting current user:', error);
     res.status(500).json({ error: 'Failed to retrieve user' });
   }
 });
@@ -10167,7 +10167,7 @@ app.get('/api/users/current', verifyToken, async (req, res) => {
 app.put('/api/users/current', verifyToken, async (req, res) => {
   try {
     const updates = req.body;
-    console.log('Updating current user, received data:', updates);
+    logger.log('Updating current user, received data:', updates);
     
     // First try to find user by userId (MSAL ID)
     let user = await usersCollection.findOne({ userId: req.user.userId });
@@ -10179,7 +10179,7 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
     
     if (!user) {
       // User doesn't exist, create a new one
-      console.log('User not found, creating new user');
+      logger.log('User not found, creating new user');
       const newUser = {
         userId: req.user.userId,
         email: req.user.email,
@@ -10197,10 +10197,10 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
         updatedAt: new Date()
       };
       
-      console.log('Creating new user:', newUser);
+      logger.log('Creating new user:', newUser);
       const result = await usersCollection.insertOne(newUser);
       const createdUser = await usersCollection.findOne({ _id: result.insertedId });
-      console.log('New user created with ID:', createdUser._id.toString());
+      logger.log('New user created with ID:', createdUser._id.toString());
       return res.status(201).json(createdUser);
     }
     
@@ -10216,7 +10216,7 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
       };
     }
     
-    console.log('Updating user:', user._id.toString());
+    logger.log('Updating user:', user._id.toString());
     const result = await usersCollection.updateOne(
       { _id: user._id },
       { $set: updates }
@@ -10224,10 +10224,10 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
     
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: user._id });
-    console.log('User updated successfully');
+    logger.log('User updated successfully');
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.error('Error updating current user:', error);
+    logger.error('Error updating current user:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
@@ -10236,11 +10236,11 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
 app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
   try {
     const updates = req.body;
-    console.log('Updating user preferences, received data:', updates);
-    console.log('User from token:', req.user);
+    logger.log('Updating user preferences, received data:', updates);
+    logger.log('User from token:', req.user);
     
     if (!req.user || !req.user.userId || !req.user.email) {
-      console.error('Invalid user data from token:', req.user);
+      logger.error('Invalid user data from token:', req.user);
       return res.status(401).json({ 
         error: 'Invalid user data',
         message: 'The authentication token did not contain valid user information'
@@ -10249,16 +10249,16 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
     
     // First try to find user by userId (MSAL ID)
     let user = await usersCollection.findOne({ userId: req.user.userId });
-    console.log('User found by userId:', user ? 'yes' : 'no');
+    logger.log('User found by userId:', user ? 'yes' : 'no');
     
     // If not found, try to find by email
     if (!user) {
       user = await usersCollection.findOne({ email: req.user.email });
-      console.log('User found by email:', user ? 'yes' : 'no');
+      logger.log('User found by email:', user ? 'yes' : 'no');
     }
     
     if (!user) {
-      console.log('No preferences found, returning default preferences');
+      logger.log('No preferences found, returning default preferences');
       // Return default preferences instead of 404
       const defaultPreferences = {
         startOfWeek: 'Sunday',
@@ -10286,7 +10286,7 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
       }
     };
     
-    console.log('Updating user preferences:', user._id.toString());
+    logger.log('Updating user preferences:', user._id.toString());
     const result = await usersCollection.updateOne(
       { _id: user._id },
       { $set: updateData }
@@ -10294,10 +10294,10 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
     
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: user._id });
-    console.log('User preferences updated successfully');
+    logger.log('User preferences updated successfully');
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.error('Error updating user preferences:', error);
+    logger.error('Error updating user preferences:', error);
     res.status(500).json({ 
       error: 'Failed to update preferences',
       message: error.message
@@ -10311,7 +10311,7 @@ app.get('/api/users', verifyToken, async (req, res) => {
     const users = await usersCollection.find({}).toArray();
     res.status(200).json(users);
   } catch (error) {
-    console.error('Error getting users:', error);
+    logger.error('Error getting users:', error);
     res.status(500).json({ error: 'Failed to retrieve users' });
   }
 });
@@ -10328,7 +10328,7 @@ app.get('/api/users/:id', verifyToken, async (req, res) => {
     
     res.status(200).json(user);
   } catch (error) {
-    console.error('Error getting user:', error);
+    logger.error('Error getting user:', error);
     res.status(500).json({ error: 'Failed to retrieve user' });
   }
 });
@@ -10345,7 +10345,7 @@ app.get('/api/users/email/:email', verifyToken, async (req, res) => {
     
     res.status(200).json(user);
   } catch (error) {
-    console.error('Error getting user by email:', error);
+    logger.error('Error getting user by email:', error);
     res.status(500).json({ error: 'Failed to retrieve user' });
   }
 });
@@ -10371,7 +10371,7 @@ app.post('/api/users', verifyToken, async (req, res) => {
     const createdUser = await usersCollection.findOne({ _id: result.insertedId });
     res.status(201).json(createdUser);
   } catch (error) {
-    console.error('Error creating user:', error);
+    logger.error('Error creating user:', error);
     res.status(500).json({ error: 'Failed to create user' });
   }
 });
@@ -10398,7 +10398,7 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
     const updatedUser = await usersCollection.findOne({ _id: new ObjectId(id) });
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.error('Error updating user:', error);
+    logger.error('Error updating user:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
@@ -10415,7 +10415,7 @@ app.delete('/api/users/:id', verifyToken, async (req, res) => {
     
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
-    console.error('Error deleting user:', error);
+    logger.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
@@ -10715,7 +10715,7 @@ app.get('/api/rooms', async (req, res) => {
     res.status(200).json(transformedRooms);
 
   } catch (error) {
-    console.error('Error in rooms endpoint:', error);
+    logger.error('Error in rooms endpoint:', error);
     logger.error('Error in rooms endpoint:', error);
 
     // Return empty array instead of hardcoded fallback
@@ -10764,7 +10764,7 @@ app.get('/api/locations', async (req, res) => {
     res.status(200).json(transformedLocations);
     
   } catch (error) {
-    console.error('Error in locations endpoint:', error);
+    logger.error('Error in locations endpoint:', error);
     logger.error('Error in locations endpoint:', error);
     
     // Return empty array instead of hardcoded fallback locations
@@ -10793,7 +10793,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     const start = new Date(new Date(startDateTime).getTime() - (setupMinutes * 60 * 1000)).toISOString();
     const end = new Date(new Date(endDateTime).getTime() + (teardownMinutes * 60 * 1000)).toISOString();
 
-    console.log('[AVAILABILITY DEBUG] Query parameters:', {
+    logger.log('[AVAILABILITY DEBUG] Query parameters:', {
       originalStart: startDateTime,
       originalEnd: endDateTime,
       start,
@@ -10837,10 +10837,10 @@ app.get('/api/rooms/availability', async (req, res) => {
     // Also create string versions for events that store locations as strings (unified form events)
     const roomIdStrings = roomObjectIds.map(id => id.toString());
 
-    console.log('[AVAILABILITY DEBUG] Searching for rooms:', roomObjectIds.map(id => id.toString()));
-    console.log('[AVAILABILITY DEBUG] Room ID strings for query:', roomIdStrings);
-    console.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
-    console.log('[AVAILABILITY DEBUG] Date range for query:', { start, end });
+    logger.log('[AVAILABILITY DEBUG] Searching for rooms:', roomObjectIds.map(id => id.toString()));
+    logger.log('[AVAILABILITY DEBUG] Room ID strings for query:', roomIdStrings);
+    logger.log('[AVAILABILITY DEBUG] Room details:', rooms.map(r => ({ id: r._id.toString(), name: r.name || r.displayName })));
+    logger.log('[AVAILABILITY DEBUG] Date range for query:', { start, end });
 
     let allEvents = [];
     if (roomObjectIds.length > 0) {
@@ -10855,8 +10855,8 @@ app.get('/api/rooms/availability', async (req, res) => {
         ]
       }).toArray();
 
-      console.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
-      console.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
+      logger.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
+      logger.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
         _id: e._id?.toString(),
         eventTitle: e.eventTitle || e.subject || e.graphData?.subject,
         locations: e.locations,
@@ -10877,7 +10877,7 @@ app.get('/api/rooms/availability', async (req, res) => {
       !e.status || !['pending', 'approved'].includes(e.status)
     );
 
-    console.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
+    logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
     
     // Helper function to format time for display
     const formatTime = (date) => date.toLocaleTimeString('en-US', { 
@@ -10900,7 +10900,7 @@ app.get('/api/rooms/availability', async (req, res) => {
         event.locations && event.locations.some(locId => locId.toString() === roomIdString)
       );
 
-      console.log(`[AVAILABILITY DEBUG] Room ${room.name || room.displayName} (${roomIdString}):`, {
+      logger.log(`[AVAILABILITY DEBUG] Room ${room.name || room.displayName} (${roomIdString}):`, {
         totalReservations: allReservations.length,
         filteredReservations: roomReservations.length,
         totalCalendarEvents: allCalendarEvents.length,
@@ -14653,7 +14653,7 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
 
 // Graceful shutdown handling
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully');
+  logger.log('SIGTERM received, shutting down gracefully');
   await client.close();
   process.exit(0);
 });
@@ -16273,7 +16273,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
  */
 app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
   try {
-    console.log('\n========== DELETE /api/admin/events/:id CALLED ==========');
+    logger.log('\n========== DELETE /api/admin/events/:id CALLED ==========');
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
@@ -16288,7 +16288,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     const id = req.params.id;
     const { graphToken, editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId } = req.body;
 
-    console.log('DELETE request params:', {
+    logger.log('DELETE request params:', {
       mongoId: id,
       hasGraphToken: !!graphToken,
       graphTokenLength: graphToken?.length,
@@ -16302,11 +16302,11 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
 
     if (!event) {
-      console.log('❌ Event not found in MongoDB:', id);
+      logger.log('❌ Event not found in MongoDB:', id);
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    console.log('✅ Event found in MongoDB:', {
+    logger.log('✅ Event found in MongoDB:', {
       mongoId: id,
       eventId: event.eventId,
       calendarId: event.calendarId,
@@ -16318,7 +16318,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Step 2: If event has eventId, delete from Microsoft Graph first
     if (event.eventId && graphToken) {
-      console.log('🔄 Attempting Graph API delete...');
+      logger.log('🔄 Attempting Graph API delete...');
       try {
         // Use graphData.id (Graph API ID) instead of eventId (internal MongoDB UUID)
         const graphEventId = event.graphData?.id || event.eventId;
@@ -16329,7 +16329,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Handle recurring event deletion based on editScope
         if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
           // Delete single occurrence - need to find the occurrence ID first
-          console.log('🔄 Deleting single occurrence of recurring event:', {
+          logger.log('🔄 Deleting single occurrence of recurring event:', {
             seriesMasterId,
             occurrenceDate,
             editScope
@@ -16346,7 +16346,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`
             : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
 
-          console.log('📡 Fetching occurrence instances:', instancesUrl);
+          logger.log('📡 Fetching occurrence instances:', instancesUrl);
 
           const instancesResponse = await fetch(instancesUrl, {
             headers: {
@@ -16366,14 +16366,14 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
               if (targetOccurrence) {
                 targetOccurrenceId = targetOccurrence.id;
-                console.log('✅ Found occurrence ID:', targetOccurrenceId);
+                logger.log('✅ Found occurrence ID:', targetOccurrenceId);
               } else {
-                console.log('⚠️ No matching occurrence found for date');
+                logger.log('⚠️ No matching occurrence found for date');
               }
             }
           } else {
             const errorText = await instancesResponse.text();
-            console.log('⚠️ Failed to fetch instances:', instancesResponse.status, errorText);
+            logger.log('⚠️ Failed to fetch instances:', instancesResponse.status, errorText);
           }
 
           // Use occurrence ID if found, otherwise fall back to series master
@@ -16383,7 +16383,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // Delete entire series - delete the series master
-          console.log('🔄 Deleting entire recurring series:', { seriesMasterId });
+          logger.log('🔄 Deleting entire recurring series:', { seriesMasterId });
           graphApiUrl = calendarId
             ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`
             : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
@@ -16394,9 +16394,9 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             : `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
         }
 
-        console.log('📡 Graph API URL:', graphApiUrl);
-        console.log('📡 Using Graph Event ID:', targetOccurrenceId || graphEventId);
-        console.log('📡 Edit scope:', editScope || 'single event');
+        logger.log('📡 Graph API URL:', graphApiUrl);
+        logger.log('📡 Using Graph Event ID:', targetOccurrenceId || graphEventId);
+        logger.log('📡 Edit scope:', editScope || 'single event');
 
         const graphResponse = await fetch(graphApiUrl, {
           method: 'DELETE',
@@ -16405,7 +16405,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         });
 
-        console.log('📊 Graph API response:', {
+        logger.log('📊 Graph API response:', {
           status: graphResponse.status,
           statusText: graphResponse.statusText,
           ok: graphResponse.ok
@@ -16414,7 +16414,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         if (graphResponse.ok || graphResponse.status === 404) {
           // 404 means already deleted from Graph - that's okay
           graphDeleted = true;
-          console.log('✅ Event deleted from Microsoft Graph');
+          logger.log('✅ Event deleted from Microsoft Graph');
           logger.info('Event deleted from Microsoft Graph:', {
             eventId: event.eventId,
             calendarId: calendarId,
@@ -16422,38 +16422,38 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             targetOccurrenceId
           });
         } else {
-          console.log('⚠️ Graph API delete returned non-OK status:', graphResponse.status);
+          logger.log('⚠️ Graph API delete returned non-OK status:', graphResponse.status);
           logger.warn(`Graph API delete returned ${graphResponse.status}, continuing with MongoDB deletion`);
           graphDeleted = false;
         }
       } catch (graphError) {
-        console.log('❌ Graph API delete error:', graphError.message);
+        logger.log('❌ Graph API delete error:', graphError.message);
         logger.warn('Error deleting from Graph API, continuing with MongoDB deletion:', graphError);
         graphDeleted = false;
       }
     } else {
-      console.log('⏭️ Skipping Graph API delete:', {
+      logger.log('⏭️ Skipping Graph API delete:', {
         hasEventId: !!event.eventId,
         hasGraphToken: !!graphToken
       });
     }
 
     // Step 3: Hard delete the event from MongoDB
-    console.log('🔄 Deleting from MongoDB...');
+    logger.log('🔄 Deleting from MongoDB...');
     const deleteResult = await unifiedEventsCollection.deleteOne(
       { _id: new ObjectId(id) }
     );
 
-    console.log('📊 MongoDB delete result:', {
+    logger.log('📊 MongoDB delete result:', {
       deletedCount: deleteResult.deletedCount
     });
 
     if (deleteResult.deletedCount === 0) {
-      console.log('❌ Event not found in MongoDB for deletion');
+      logger.log('❌ Event not found in MongoDB for deletion');
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    console.log('✅ Event deleted from MongoDB');
+    logger.log('✅ Event deleted from MongoDB');
     logger.info('Internal event deleted:', {
       mongoId: id,
       eventId: event.eventId,
@@ -16461,7 +16461,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       deletedBy: userEmail
     });
 
-    console.log('========== DELETE COMPLETE ==========\n');
+    logger.log('========== DELETE COMPLETE ==========\n');
     res.json({
       success: true,
       message: 'Event deleted successfully',
@@ -16479,7 +16479,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
  * GET /api/events?status=room-reservation-request
  */
 app.get('/api/events', verifyToken, async (req, res) => {
-  console.log('===== CODE UPDATE LOADED! =====');
+  logger.log('===== CODE UPDATE LOADED! =====');
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
@@ -16506,8 +16506,8 @@ app.get('/api/events', verifyToken, async (req, res) => {
       query['roomReservationData.requestedBy.userId'] = userId;
     }
 
-    console.log('🔍 GET /api/events query:', JSON.stringify(query, null, 2));
-    console.log('👤 User info:', { userId, userEmail, canViewAll });
+    logger.log('🔍 GET /api/events query:', JSON.stringify(query, null, 2));
+    logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
     // Execute query with pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -16520,7 +16520,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     const totalCount = await unifiedEventsCollection.countDocuments(query);
 
-    console.log('📊 Query results:', { totalCount, returnedCount: events.length });
+    logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
 
     res.json({
       events,
@@ -16923,7 +16923,7 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
 // ============================================================================
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully');
+  logger.log('SIGINT received, shutting down gracefully');
   await client.close();
   process.exit(0);
 });
@@ -16933,9 +16933,9 @@ async function startServer() {
   await connectToDatabase();
   
   app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Using App ID: ${APP_ID}`);
-    console.log(`Tenant ID: ${TENANT_ID}`);
+    logger.log(`Server is running on port ${PORT}`);
+    logger.log(`Using App ID: ${APP_ID}`);
+    logger.log(`Tenant ID: ${TENANT_ID}`);
   });
 }
 

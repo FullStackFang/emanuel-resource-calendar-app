@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { msalConfig } from '../config/authConfig';
+import { logger } from '../utils/logger';
 
 function SchemaExtensionAdmin({ accessToken }) {
   // State for extensions and form
@@ -38,43 +39,43 @@ function SchemaExtensionAdmin({ accessToken }) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Failed to fetch schema extensions:', errorData);
+        logger.error('Failed to fetch schema extensions:', errorData);
         setMessage('Error loading schema extensions');
         setLoading(false);
         return;
       }
       
       const data = await response.json();
-      console.log('Loaded schema extensions:', data.value);
+      logger.debug('Loaded schema extensions:', data.value);
 
       // Find extensions that match our schema name
       const schemaNameMatch = data.value.filter(ext => 
         ext.id.includes('_myCustomEvent')
       );
-      console.log('Extensions matching schema name:', schemaNameMatch);
+      logger.debug('Extensions matching schema name:', schemaNameMatch);
 
       // Direct look up of a specific extension
       const directExtensionMatch = data.value.filter(ext => 
         ext.id === 'ext4osqkn85_myCustomEvent'
       );
-      console.log('Direct extension match:', directExtensionMatch);
+      logger.debug('Direct extension match:', directExtensionMatch);
       
       // Get your app ID
       const appId = msalConfig.auth.clientId;
-      console.log('My App ID:', appId);
+      logger.debug('My App ID:', appId);
       
       // First, check if any extensions match our criteria
       const ownedByMyApp = data.value.filter(ext => ext.owner === appId);
-      console.log('Extensions owned by my app:', ownedByMyApp);
+      logger.debug('Extensions owned by my app:', ownedByMyApp);
       
       const prefixMatch = data.value.filter(ext => 
         ext.id.startsWith(`ext${appId.replace(/-/g, '')}`)
       );
-      console.log('Extensions with my app ID prefix:', prefixMatch);
+      logger.debug('Extensions with my app ID prefix:', prefixMatch);
       
       // If none of the extensions match our criteria, let's use a different approach
       if (ownedByMyApp.length === 0 && prefixMatch.length === 0) {
-        console.log('No extensions found matching app ID criteria, using fallback filtering');
+        logger.debug('No extensions found matching app ID criteria, using fallback filtering');
         
         // Filter by target type and property names
         const filteredByProperties = data.value.filter(ext => 
@@ -86,7 +87,7 @@ function SchemaExtensionAdmin({ accessToken }) {
           ))
         );
         
-        console.log('Extensions filtered by properties:', filteredByProperties);
+        logger.debug('Extensions filtered by properties:', filteredByProperties);
         
         // If this still returns nothing, at least show extensions that target events
         if (filteredByProperties.length === 0) {
@@ -94,7 +95,7 @@ function SchemaExtensionAdmin({ accessToken }) {
             ext.targetTypes && ext.targetTypes.includes('event')
           );
           
-          console.log('Event-targeted extensions:', eventExtensions);
+          logger.debug('Event-targeted extensions:', eventExtensions);
           
           setExtensions(eventExtensions.length > 0 ? eventExtensions : []);
         } else {
@@ -109,13 +110,13 @@ function SchemaExtensionAdmin({ accessToken }) {
         const uniqueExtensions = Array.from(new Set(filteredExtensions.map(ext => ext.id)))
           .map(id => filteredExtensions.find(ext => ext.id === id));
         
-        console.log('Using combined filtered extensions:', uniqueExtensions);
+        logger.debug('Using combined filtered extensions:', uniqueExtensions);
         setExtensions(uniqueExtensions);
       }
       
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching schema extensions:', err);
+      logger.error('Error fetching schema extensions:', err);
       setMessage('Error loading schema extensions');
       setLoading(false);
     }
@@ -169,7 +170,7 @@ function SchemaExtensionAdmin({ accessToken }) {
       setMessage('Creating schema extension...');
       
       const appId = msalConfig.auth.clientId;
-      console.log('App ID:', appId); // Debugging
+      logger.debug('App ID:', appId); // Debugging
       
       // Create the schema extension with explicit id
       // Using a simple schema name that Microsoft Graph will prefix
@@ -188,7 +189,7 @@ function SchemaExtensionAdmin({ accessToken }) {
           : [{ name: "eventCode", type: "String" }]
       };
       
-      console.log('Creating schema extension with payload:', JSON.stringify(schemaExtension, null, 2));
+      logger.debug('Creating schema extension with payload:', JSON.stringify(schemaExtension, null, 2));
       
       const response = await fetch('https://graph.microsoft.com/v1.0/schemaExtensions', {
         method: 'POST',
@@ -200,7 +201,7 @@ function SchemaExtensionAdmin({ accessToken }) {
       });
       
       const responseText = await response.text();
-      console.log('Raw response:', responseText);
+      logger.debug('Raw response:', responseText);
       
       let errorData;
       try {
@@ -210,8 +211,8 @@ function SchemaExtensionAdmin({ accessToken }) {
       }
       
       if (!response.ok) {
-        console.error('Failed to create schema extension. Status:', response.status);
-        console.error('Error details:', JSON.stringify(errorData, null, 2));
+        logger.error('Failed to create schema extension. Status:', response.status);
+        logger.error('Error details:', JSON.stringify(errorData, null, 2));
         setMessage(`Error creating schema: ${errorData.error?.message || 'Unknown error'}`);
         return;
       } else {
@@ -219,7 +220,7 @@ function SchemaExtensionAdmin({ accessToken }) {
         await updateToAvailable(errorData.id);
       }
       
-      console.log('Schema extension created:', errorData);
+      logger.debug('Schema extension created:', errorData);
       
       // Reset form
       setFormData({
@@ -232,7 +233,7 @@ function SchemaExtensionAdmin({ accessToken }) {
       // Reload extensions
       loadSchemaExtensions();
     } catch (err) {
-      console.error('Error creating schema extension:', err);
+      logger.error('Error creating schema extension:', err);
       setMessage(`Error creating schema: ${err.message}`);
     }
   };
@@ -240,7 +241,7 @@ function SchemaExtensionAdmin({ accessToken }) {
   // Update schema extension to Available status
   const updateToAvailable = async (schemaId) => {
     try {
-      console.log(`Updating schema extension ${schemaId} to Available status...`);
+      logger.debug(`Updating schema extension ${schemaId} to Available status...`);
       
       const updateResponse = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions/${schemaId}`, {
         method: 'PATCH',
@@ -254,15 +255,15 @@ function SchemaExtensionAdmin({ accessToken }) {
       });
       
       if (updateResponse.ok) {
-        console.log(`Schema extension ${schemaId} updated to Available status`);
+        logger.debug(`Schema extension ${schemaId} updated to Available status`);
         setMessage(`Schema extension ${schemaId} created and set to Available status`);
       } else {
         const errorData = await updateResponse.json();
-        console.error('Failed to update schema extension status:', errorData);
+        logger.error('Failed to update schema extension status:', errorData);
         setMessage(`Schema created but failed to update status: ${errorData.error?.message || 'Unknown error'}`);
       }
     } catch (err) {
-      console.error('Error updating schema extension:', err);
+      logger.error('Error updating schema extension:', err);
       setMessage(`Schema created but error updating status: ${err.message}`);
     }
   };
@@ -285,7 +286,7 @@ function SchemaExtensionAdmin({ accessToken }) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Failed to delete schema extension:', errorData);
+        logger.error('Failed to delete schema extension:', errorData);
         setMessage(`Error deleting schema: ${errorData.error?.message || 'Unknown error'}`);
         return;
       }
@@ -295,7 +296,7 @@ function SchemaExtensionAdmin({ accessToken }) {
       // Reload extensions
       loadSchemaExtensions();
     } catch (err) {
-      console.error('Error deleting schema extension:', err);
+      logger.error('Error deleting schema extension:', err);
       setMessage(`Error deleting schema: ${err.message}`);
     }
   };

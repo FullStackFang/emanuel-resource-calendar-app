@@ -38,6 +38,8 @@
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
   import { usePermissions } from '../hooks/usePermissions';
+  import { useQueryClient } from '@tanstack/react-query';
+  import { useBaseCategoriesQuery, useOutlookCategoriesQuery, OUTLOOK_CATEGORIES_QUERY_KEY } from '../hooks/useCategoriesQuery';
   import {
     TimezoneSelector,
     formatEventTime,
@@ -101,9 +103,12 @@
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
     const allEventsRef = useRef(allEvents);
     const [showSearch, setShowSearch] = useState(false);
-    const [outlookCategories, setOutlookCategories] = useState([]);
-    const [baseCategories, setBaseCategories] = useState([]); // Base categories from database
     const [schemaExtensions, setSchemaExtensions] = useState([]);
+
+    // Use TanStack Query for categories - provides automatic caching and background refresh
+    const queryClient = useQueryClient();
+    const { data: baseCategories = [] } = useBaseCategoriesQuery(apiToken);
+    const { data: outlookCategories = [] } = useOutlookCategoriesQuery(graphToken);
 
     // Track last summary time to prevent duplicate summaries
     const lastSummaryTimeRef = useRef(0);
@@ -1023,65 +1028,8 @@
       }
     }, [graphToken]);
 
-    /**
-     * Load base categories from database
-     * @returns {Array} Array of base category objects
-     */
-    const loadBaseCategories = useCallback(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/categories`, {
-          headers: {
-            Authorization: `Bearer ${apiToken}`
-          }
-        });
-
-        if (!response.ok) {
-          logger.error('Failed to fetch base categories:', response.status);
-          return [];
-        }
-
-        const categories = await response.json();
-        return categories;
-      } catch (err) {
-        logger.error('Error loading base categories:', err);
-        return [];
-      }
-    }, [apiToken]);
-
-    /**
-     * Load categories from Outlook
-     * @returns {Array} Array of category objects
-     */
-    const loadOutlookCategories = useCallback(async () => {
-      try {
-        const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
-          headers: {
-            Authorization: `Bearer ${graphToken}`
-          }
-        });
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          logger.error('Failed to fetch Outlook categories:', errorData);
-          return [];
-        }
-        
-        const data = await response.json();
-        // Fetched Outlook categories
-        
-        // Extract category names
-        const outlookCategories = data.value.map(cat => ({
-          id: cat.id,
-          name: cat.displayName,
-          color: cat.color
-        }));
-        
-        return outlookCategories;
-      } catch (err) {
-        logger.error('Error fetching Outlook categories:', err);
-        return [];
-      }
-    }, [graphToken]);
+    // NOTE: loadBaseCategories and loadOutlookCategories have been replaced by TanStack Query hooks
+    // useBaseCategoriesQuery and useOutlookCategoriesQuery (see state declarations above)
 
     // Loads the current user's available calendars (both owned and shared)
     const loadAvailableCalendars = useCallback(async () => {
@@ -1752,23 +1700,11 @@
           }
         }
         
-        // Load base categories from database
-        const baseCats = await loadBaseCategories();
-        setBaseCategories(baseCats);
-        logger.debug('Loaded base categories during init:', baseCats.length);
+        // Categories are now loaded via TanStack Query hooks (useBaseCategoriesQuery, useOutlookCategoriesQuery)
+        // They are automatically cached and refreshed in the background
+        // Mark categories as loaded immediately since TanStack Query handles the loading state
+        setLoadingState(prev => ({ ...prev, categories: false }));
 
-        // Load Outlook categories
-        // Load Outlook categories
-        const categories = await loadOutlookCategories();
-        setOutlookCategories(categories);
-        // Note: Don't mark categories as loaded yet - wait for events to load so dynamic categories can be generated
-
-        // Create default categories if needed (optional)
-        if (categories.length === 0) {
-          // No categories found, creating defaults
-          await createDefaultCategories();
-        }
-        
         // Step 3: Load schema extensions
         // Load schema extensions
         await loadSchemaExtensions();
@@ -1778,9 +1714,6 @@
         // Load calendar events - pass calendar data directly to avoid race condition
         await loadEvents(false, calendars);
         setLoadingState(prev => ({ ...prev, events: false }));
-
-        // Step 5: Mark categories as loaded after events are available (so dynamic categories can be generated)
-        setLoadingState(prev => ({ ...prev, categories: false }));
 
         logger.log("Application initialized successfully");
         setInitializing(false);
@@ -1802,7 +1735,7 @@
         // Clear timeout on error
         clearTimeout(timeoutId);
       }
-    }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadOutlookCategories, loadSchemaExtensions, loadEvents]);
+    }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadSchemaExtensions, loadEvents]);
 
     //---------------------------------------------------------------------------
     // CACHE MANAGEMENT FUNCTIONS
@@ -2957,7 +2890,8 @@
           }
         }
         
-        setOutlookCategories(createdCategories);
+        // Invalidate the Outlook categories cache to trigger a refetch
+        queryClient.invalidateQueries({ queryKey: OUTLOOK_CATEGORIES_QUERY_KEY });
         return createdCategories;
       } catch (err) {
         logger.error('Error creating default categories:', err);
@@ -3003,15 +2937,16 @@
         const data = await response.json();
         logger.debug(`Created new Outlook category: ${categoryName}`, data);
         
-        // Add the new category to the local state
+        // Create the category object
         const newCategory = {
           id: data.id,
           name: data.displayName,
           color: data.color
         };
-        
-        setOutlookCategories(prev => [...prev, newCategory]);
-        
+
+        // Invalidate the Outlook categories cache to trigger a refetch
+        queryClient.invalidateQueries({ queryKey: OUTLOOK_CATEGORIES_QUERY_KEY });
+
         return newCategory;
       } catch (err) {
         logger.error(`Error creating category ${categoryName}:`, err);

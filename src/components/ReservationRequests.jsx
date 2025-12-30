@@ -125,8 +125,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       const newData = await newEventsResponse.json();
 
       // Transform new events to match old reservation format for display
-      console.log('🔧 RAW BACKEND EVENT (first event):', newData.events?.[0]);
-      console.log('🔧 RAW BACKEND - First event series fields:', {
+      logger.debug('🔧 RAW BACKEND EVENT (first event):', newData.events?.[0]);
+      logger.debug('🔧 RAW BACKEND - First event series fields:', {
         eventId: newData.events?.[0]?.eventId,
         hasEventSeriesId: !!newData.events?.[0]?.eventSeriesId,
         eventSeriesId: newData.events?.[0]?.eventSeriesId,
@@ -135,7 +135,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       });
 
       const transformedNewEvents = (newData.events || []).map(event => {
-        console.log('🔧 Transforming event:', {
+        logger.debug('🔧 Transforming event:', {
           eventId: event.eventId,
           hasEventSeriesId: !!event.eventSeriesId,
           eventSeriesId: event.eventSeriesId,
@@ -181,7 +181,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       };
       });
 
-      console.log('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
+      logger.debug('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
         eventId: transformedNewEvents?.[0]?.eventId,
         hasEventSeriesId: !!transformedNewEvents?.[0]?.eventSeriesId,
         eventSeriesId: transformedNewEvents?.[0]?.eventSeriesId,
@@ -395,7 +395,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setOriginalChangeKey(reservation.changeKey);
     setHasChanges(false);
 
-    console.log('📦 OPENING REVIEW MODAL - Reservation Object:', {
+    logger.debug('📦 OPENING REVIEW MODAL - Reservation Object:', {
       eventId: reservation.eventId,
       hasEventSeriesId: !!reservation.eventSeriesId,
       eventSeriesId: reservation.eventSeriesId,
@@ -431,13 +431,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Handle locked event click from SchedulingAssistant
   const handleLockedEventClick = async (reservationId) => {
-    console.log('[ReservationRequests] Locked event clicked:', reservationId);
+    logger.debug('[ReservationRequests] Locked event clicked:', reservationId);
 
     // Find the reservation in our list
     const targetReservation = allReservations.find(r => r._id === reservationId);
 
     if (!targetReservation) {
-      console.error('[ReservationRequests] Could not find reservation with ID:', reservationId);
+      logger.error('[ReservationRequests] Could not find reservation with ID:', reservationId);
       alert('Could not find the selected reservation. It may have been deleted.');
       return;
     }
@@ -449,13 +449,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                             `Do you want to continue?`;
 
       if (!window.confirm(confirmMessage)) {
-        console.log('[ReservationRequests] Navigation cancelled - user chose to stay');
+        logger.debug('[ReservationRequests] Navigation cancelled - user chose to stay');
         return;
       }
     }
 
     // Close current modal and open the new one
-    console.log('[ReservationRequests] Navigating to reservation:', targetReservation.eventTitle);
+    logger.debug('[ReservationRequests] Navigating to reservation:', targetReservation.eventTitle);
     await closeReviewModal();
 
     // Small delay to ensure cleanup completes
@@ -489,14 +489,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     // If result is provided, it means RoomReservationReview already saved
     // Just update our local state with the new changeKey and refresh the data
     if (result && result.changeKey) {
-      console.log('📝 Updating reservation data after save:', result);
+      logger.debug('📝 Updating reservation data after save:', result);
 
       setOriginalChangeKey(result.changeKey);
       setHasChanges(false);
 
       // Update the selected reservation with the saved data
       if (result.reservation) {
-        console.log('🔄 Updating selectedReservation with saved data');
+        logger.debug('🔄 Updating selectedReservation with saved data');
         setSelectedReservation(result.reservation);
 
         // Also update the reservation in allReservations array
@@ -505,7 +505,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             res._id === result.reservation._id ? result.reservation : res
           );
         });
-        console.log('✅ Updated allReservations array');
+        logger.debug('✅ Updated allReservations array');
       }
 
       setError('✅ Changes saved successfully');
@@ -575,7 +575,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   
   const handleApprove = async (reservation) => {
     try {
-      console.log('🚀 Starting reservation approval process:', {
+      logger.debug('🚀 Starting reservation approval process:', {
         reservationId: reservation._id,
         eventTitle: reservation.eventTitle,
         calendarMode,
@@ -593,14 +593,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         targetCalendar: selectedTargetCalendar || defaultCalendar
       };
 
-      console.log('📤 Sending approval request:', requestBody);
+      logger.debug('📤 Sending approval request:', requestBody);
 
       // Use new endpoint for unified events, old endpoint for legacy reservations
       const approveEndpoint = reservation._isNewUnifiedEvent
         ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`
         : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`;
 
-      console.log('🔗 Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
+      logger.debug('🔗 Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
 
       const response = await fetch(approveEndpoint, {
         method: 'PUT',
@@ -640,32 +640,32 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Approval request failed:', response.status, errorText);
+        logger.error('❌ Approval request failed:', response.status, errorText);
         throw new Error(`Failed to approve reservation: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
-      console.log('✅ Approval response received:', result);
+      logger.debug('✅ Approval response received:', result);
 
       // Check for calendar event creation results (backend returns as 'calendarEvent')
       const calendarEventResult = result.calendarEvent || result.calendarEventResult;
       
       if (createCalendarEvent && calendarEventResult) {
         if (calendarEventResult.success) {
-          console.log('📅 Calendar event created successfully:', {
+          logger.debug('📅 Calendar event created successfully:', {
             eventId: calendarEventResult.eventId,
             calendar: calendarEventResult.targetCalendar
           });
           setError(`✅ Reservation approved and calendar event created in ${calendarEventResult.targetCalendar}`);
         } else {
-          console.error('📅 Calendar event creation failed:', calendarEventResult.error);
+          logger.error('📅 Calendar event creation failed:', calendarEventResult.error);
           setError(`⚠️ Reservation approved but calendar event creation failed: ${calendarEventResult.error}`);
         }
       } else if (createCalendarEvent) {
-        console.warn('📅 Calendar event creation was requested but no result received');
+        logger.warn('📅 Calendar event creation was requested but no result received');
         setError('⚠️ Reservation approved but calendar event creation status unknown');
       } else {
-        console.log('✅ Reservation approved (calendar event creation disabled)');
+        logger.debug('✅ Reservation approved (calendar event creation disabled)');
         setError('✅ Reservation approved successfully');
       }
       
@@ -685,7 +685,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setTimeout(() => setError(''), 5000);
       
     } catch (err) {
-      console.error('❌ Error in approval process:', err);
+      logger.error('❌ Error in approval process:', err);
       logger.error('Error approving reservation:', err);
       setError(`Failed to approve reservation: ${err.message}`);
     }
@@ -738,7 +738,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
     
     try {
-      console.log('🗑️ Starting reservation deletion:', {
+      logger.debug('🗑️ Starting reservation deletion:', {
         reservationId: reservation._id,
         eventTitle: reservation.eventTitle
       });
@@ -752,12 +752,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Delete request failed:', response.status, errorText);
+        logger.error('❌ Delete request failed:', response.status, errorText);
         throw new Error(`Failed to delete reservation: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
-      console.log('✅ Reservation deleted successfully:', result);
+      logger.debug('✅ Reservation deleted successfully:', result);
       
       // Remove from local state
       setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
@@ -772,7 +772,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setTimeout(() => setError(''), 3000);
       
     } catch (err) {
-      console.error('❌ Error deleting reservation:', err);
+      logger.error('❌ Error deleting reservation:', err);
       logger.error('Error deleting reservation:', err);
       setError(`Failed to delete reservation: ${err.message}`);
     }
@@ -780,7 +780,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   const handleSync = async (reservation) => {
     try {
-      console.log('🔄 Starting reservation calendar sync:', {
+      logger.debug('🔄 Starting reservation calendar sync:', {
         reservationId: reservation._id,
         eventTitle: reservation.eventTitle,
         calendarMode,
@@ -792,7 +792,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         graphToken: graphToken
       };
 
-      console.log('📤 Sending sync request:', requestBody);
+      logger.debug('📤 Sending sync request:', requestBody);
 
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/sync`, {
         method: 'PUT',
@@ -805,24 +805,24 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Sync request failed:', response.status, errorText);
+        logger.error('❌ Sync request failed:', response.status, errorText);
         throw new Error(`Failed to sync calendar event: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
-      console.log('✅ Sync response received:', result);
+      logger.debug('✅ Sync response received:', result);
 
       // Check for calendar event sync results
       const calendarEventResult = result.calendarEvent;
       
       if (calendarEventResult && calendarEventResult.success) {
-        console.log('📅 Calendar event synced successfully:', {
+        logger.debug('📅 Calendar event synced successfully:', {
           eventId: calendarEventResult.eventId,
           calendar: calendarEventResult.targetCalendar
         });
         setError(`🔄 Calendar event synced successfully in ${calendarEventResult.targetCalendar}`);
       } else {
-        console.error('📅 Calendar event sync failed:', calendarEventResult?.error);
+        logger.error('📅 Calendar event sync failed:', calendarEventResult?.error);
         setError(`⚠️ Calendar event sync failed: ${calendarEventResult?.error || 'Unknown error'}`);
       }
       
@@ -836,7 +836,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setTimeout(() => setError(''), 5000);
       
     } catch (err) {
-      console.error('❌ Error in sync process:', err);
+      logger.error('❌ Error in sync process:', err);
       logger.error('Error syncing reservation:', err);
       setError(`Failed to sync calendar event: ${err.message}`);
     }

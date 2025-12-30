@@ -1,7 +1,7 @@
 // src/context/LocationContext.jsx
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useCallback, useMemo } from 'react';
+import { useLocationsQuery } from '../hooks/useLocationsQuery';
 import { logger } from '../utils/logger';
-import APP_CONFIG from '../config/config';
 
 const LocationContext = createContext();
 
@@ -16,66 +16,32 @@ export const useLocations = () => {
 
 // Location Provider component
 export const LocationProvider = ({ children, apiToken }) => {
-  const [locations, setLocations] = useState([]); // All locations from templeEvents__Locations
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastLoaded, setLastLoaded] = useState(null);
+  // Use TanStack Query for data fetching with automatic caching
+  const {
+    data: locations = [],
+    isLoading: loading,
+    isError,
+    error: queryError,
+    refetch,
+    dataUpdatedAt
+  } = useLocationsQuery(apiToken);
 
-  // Load all locations from templeEvents__Locations collection
-  // This replaces both loadLocations() and loadGeneralLocations()
+  // Convert query error to string for backward compatibility
+  const error = isError ? (queryError?.message || 'Failed to load locations') : null;
+  const lastLoaded = dataUpdatedAt || null;
+
+  // Legacy compatibility: loadLocations now triggers a refetch
   const loadLocations = useCallback(async (force = false) => {
-    // Skip if recently loaded and not forcing
-    if (!force && lastLoaded && Date.now() - lastLoaded < 5 * 60 * 1000) { // 5 minutes cache
-      return;
+    if (force) {
+      await refetch();
     }
-
-    try {
-      setError(null);
-      if (locations.length === 0) {
-        setLoading(true); // Only show loading on first load
-      }
-
-      // Load all locations from templeEvents__Locations
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/locations`, {
-        headers: apiToken ? {
-          'Authorization': `Bearer ${apiToken}`
-        } : {}
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load locations: ${response.status}`);
-      }
-
-      const locationData = await response.json();
-      setLocations(Array.isArray(locationData) ? locationData : []);
-      setLastLoaded(Date.now());
-
-      logger.debug('Locations loaded successfully:', {
-        count: Array.isArray(locationData) ? locationData.length : 0,
-        reservable: Array.isArray(locationData) ? locationData.filter(l => l.isReservable).length : 0,
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (err) {
-      logger.error('Error loading locations:', err);
-      setError(err.message);
-      // Don't clear existing locations on error, keep cached data
-    } finally {
-      setLoading(false);
-    }
-  }, [apiToken, locations.length, lastLoaded]);
+    // Non-forced calls are handled by TanStack Query's staleTime
+  }, [refetch]);
 
   // Legacy compatibility: loadGeneralLocations now just calls loadLocations
   const loadGeneralLocations = useCallback(async (force = false) => {
     return loadLocations(force);
   }, [loadLocations]);
-
-  // Load locations on mount and when apiToken changes
-  useEffect(() => {
-    if (apiToken) {
-      loadLocations(); // Single load from templeEvents__Locations
-    }
-  }, [apiToken, loadLocations]);
 
   // Get location by ID with fallback (supports legacy room terminology)
   const getLocationById = useCallback((locationId) => {
@@ -196,12 +162,12 @@ export const LocationProvider = ({ children, apiToken }) => {
 
   // Debug logging for room availability
   if (locations.length > 0 && reservableRooms.length === 0) {
-    console.warn('⚠️ LocationContext: No reservable rooms found!', {
+    logger.warn('LocationContext: No reservable rooms found!', {
       totalLocations: locations.length,
       sample: locations.slice(0, 3).map(l => ({ name: l.name, isReservable: l.isReservable }))
     });
   } else if (reservableRooms.length > 0) {
-    console.log('✅ LocationContext: Reservable rooms available:', {
+    logger.debug('LocationContext: Reservable rooms available:', {
       total: reservableRooms.length,
       rooms: reservableRooms.map(r => r.name)
     });

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { loginRequest, apiRequest } from './config/authConfig';
+import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
 import Calendar from './components/Calendar';
 import Settings from './components/Settings';
@@ -204,9 +207,10 @@ function App() {
 
 
   return (
-    <Router>
-      <RoleSimulationProvider>
-      <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <RoleSimulationProvider>
+        <div className={`app-container ${(!apiToken || !graphToken) ? 'signed-out' : ''}`}>
         <AppHeader onSignIn={handleSignIn} onSignOut={handleSignOut} />
         <main>
           {apiToken && graphToken ? (
@@ -269,8 +273,10 @@ function App() {
           )}
         </main>
       </div>
-      </RoleSimulationProvider>
-    </Router>
+        </RoleSimulationProvider>
+      </Router>
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   );
 }
 

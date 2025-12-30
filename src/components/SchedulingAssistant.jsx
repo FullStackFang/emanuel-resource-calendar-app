@@ -1,5 +1,6 @@
 // src/components/SchedulingAssistant.jsx
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { logger } from '../utils/logger';
 import './SchedulingAssistant.css';
 
 export default function SchedulingAssistant({
@@ -79,18 +80,18 @@ export default function SchedulingAssistant({
   useEffect(() => {
     // Don't clear events while loading new availability data - keep showing existing events
     if (availabilityLoading) {
-      console.log('[SchedulingAssistant] Skipping update - availabilityLoading=true');
+      logger.debug('[SchedulingAssistant] Skipping update - availabilityLoading=true');
       return;
     }
 
     if (!availability || !selectedRooms.length) {
-      console.log('[SchedulingAssistant] Clearing events - availability:', !!availability, 'rooms:', selectedRooms.length);
+      logger.debug('[SchedulingAssistant] Clearing events - availability:', !!availability, 'rooms:', selectedRooms.length);
       setEventBlocks([]);
       setRoomStats({});
       return;
     }
 
-    console.log('[SchedulingAssistant] Processing availability - Rooms:', selectedRooms.length, 'Date:', effectiveDate);
+    logger.debug('[SchedulingAssistant] Processing availability - Rooms:', selectedRooms.length, 'Date:', effectiveDate);
 
     const blocks = [];
     const stats = {};
@@ -99,12 +100,12 @@ export default function SchedulingAssistant({
       const roomAvailability = availability.find(a => a.room._id === room._id);
 
       if (!roomAvailability || !roomAvailability.conflicts) {
-        console.log(`[SchedulingAssistant] No availability data for room: ${room.name}`);
+        logger.debug(`[SchedulingAssistant] No availability data for room: ${room.name}`);
         stats[room._id] = { conflictCount: 0, eventCount: 0 };
         return;
       }
 
-      console.log(`[SchedulingAssistant] Room: ${room.name} - Reservations: ${roomAvailability.conflicts.reservations?.length || 0}, Events: ${roomAvailability.conflicts.events?.length || 0}`);
+      logger.debug(`[SchedulingAssistant] Room: ${room.name} - Reservations: ${roomAvailability.conflicts.reservations?.length || 0}, Events: ${roomAvailability.conflicts.events?.length || 0}`);
 
       const roomColor = locationColors[roomIndex % locationColors.length];
       let roomEventCount = 0;
@@ -113,12 +114,12 @@ export default function SchedulingAssistant({
       // Process reservations
       if (roomAvailability.conflicts.reservations) {
         roomAvailability.conflicts.reservations.forEach(reservation => {
-          console.log(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" - Event: ${reservation.originalStart} to ${reservation.originalEnd}, Blocked: ${reservation.effectiveStart} to ${reservation.effectiveEnd}`);
+          logger.debug(`[SchedulingAssistant] Processing reservation: "${reservation.eventTitle}" - Event: ${reservation.originalStart} to ${reservation.originalEnd}, Blocked: ${reservation.effectiveStart} to ${reservation.effectiveEnd}`);
           const reservationId = reservation._id || reservation.id;
 
           // SKIP the current reservation being edited - it will be shown as the user event instead
           if (currentReservationId && reservationId === currentReservationId) {
-            console.log(`[SchedulingAssistant] Skipping current reservation from backend: "${reservation.eventTitle}"`);
+            logger.debug(`[SchedulingAssistant] Skipping current reservation from backend: "${reservation.eventTitle}"`);
             return; // Skip this reservation
           }
 
@@ -129,7 +130,7 @@ export default function SchedulingAssistant({
 
           if (manualAdjustment) {
             // Use the manually adjusted position and times
-            console.log(`[SchedulingAssistant] Using manually adjusted position for: "${reservation.eventTitle}"`);
+            logger.debug(`[SchedulingAssistant] Using manually adjusted position for: "${reservation.eventTitle}"`);
             startTime = manualAdjustment.startTime;
             endTime = manualAdjustment.endTime;
             position = {
@@ -173,7 +174,7 @@ export default function SchedulingAssistant({
         roomAvailability.conflicts.events.forEach(event => {
           // SKIP the current event being edited - it will be shown as the user event instead
           if (currentReservationId && event.id === currentReservationId) {
-            console.log(`[SchedulingAssistant] Skipping current calendar event from backend: "${event.subject}"`);
+            logger.debug(`[SchedulingAssistant] Skipping current calendar event from backend: "${event.subject}"`);
             return; // Skip this event
           }
 
@@ -253,7 +254,7 @@ export default function SchedulingAssistant({
 
           position = calculateEventPosition(startTime, endTime);
 
-          console.log(`[SchedulingAssistant] User event effective blocking - Event: ${eventStartTime} - ${eventEndTime}, Blocked: ${setupTime || eventStartTime} - ${teardownTime || eventEndTime}`);
+          logger.debug(`[SchedulingAssistant] User event effective blocking - Event: ${eventStartTime} - ${eventEndTime}, Blocked: ${setupTime || eventStartTime} - ${teardownTime || eventEndTime}`);
         }
 
         const roomColor = locationColors[roomIndex % locationColors.length];
@@ -328,8 +329,8 @@ export default function SchedulingAssistant({
       }
     });
 
-    console.log(`[SchedulingAssistant] FINAL: Generated ${blocks.length} total event blocks`);
-    blocks.forEach(b => console.log(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()} (top: ${b.top}px)`));
+    logger.debug(`[SchedulingAssistant] FINAL: Generated ${blocks.length} total event blocks`);
+    blocks.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()} (top: ${b.top}px)`));
 
     setEventBlocks(blocks);
     setRoomStats(stats);
@@ -361,7 +362,7 @@ export default function SchedulingAssistant({
     setCanScrollLeft(needsCarousel);
     setCanScrollRight(needsCarousel);
 
-    console.log('[Carousel] Update:', {
+    logger.debug('[Carousel] Update:', {
       totalTabs: selectedRooms.length,
       activeIndex: activeRoomIndex,
       needsCarousel,
@@ -651,7 +652,7 @@ export default function SchedulingAssistant({
   const handleMouseDown = (e, block) => {
     // Block all backend events (only user event is draggable)
     if (!block.isUserEvent) {
-      console.log('[Drag] BLOCKED - Backend event locked:', block.title);
+      logger.debug('[Drag] BLOCKED - Backend event locked:', block.title);
       return;
     }
 
@@ -659,7 +660,7 @@ export default function SchedulingAssistant({
     e.preventDefault();
     e.stopPropagation();
 
-    console.log('[Drag] START - event:', block.title);
+    logger.debug('[Drag] START - event:', block.title);
 
     // Store where on the event block the user clicked (in logical coordinates)
     const eventElement = e.currentTarget;
@@ -790,7 +791,7 @@ export default function SchedulingAssistant({
           return `${hours}:${minutes}`;
         };
 
-        console.log('[Drag] END - Event dragged:', {
+        logger.debug('[Drag] END - Event dragged:', {
           eventId: draggingEventId,
           isUserEvent: draggedBlock.isUserEvent,
           originalStart: formatTime(draggedBlock.startTime),
@@ -836,7 +837,7 @@ export default function SchedulingAssistant({
           const newDoorOpenTime = doorOpenTime ? new Date(newEventStart.getTime() - doorOpenDuration) : null;
           const newDoorCloseTime = doorCloseTime ? new Date(newEventEnd.getTime() + doorCloseDuration) : null;
 
-          console.log('[Drag] User event time calculation:', {
+          logger.debug('[Drag] User event time calculation:', {
             originalBlockStart: new Date(originalBlockStart).toLocaleTimeString(),
             originalBlockEnd: new Date(originalBlockEnd).toLocaleTimeString(),
             originalEventStart: eventStart.toLocaleTimeString(),
@@ -937,13 +938,13 @@ export default function SchedulingAssistant({
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
 
-      console.log('[Drag] Global mouse listeners attached');
+      logger.debug('[Drag] Global mouse listeners attached');
 
       return () => {
         // Clean up listeners when dragging stops
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
-        console.log('[Drag] Global mouse listeners removed');
+        logger.debug('[Drag] Global mouse listeners removed');
       };
     }
   }, [draggingEventId, handleMouseMove, handleMouseUp]);
@@ -1097,8 +1098,8 @@ export default function SchedulingAssistant({
 
     const filtered = eventBlocks.filter(block => block.room._id === activeRoom._id);
 
-    console.log(`[SchedulingAssistant] VISIBLE for ${activeRoom.name}: ${filtered.length} events`);
-    filtered.forEach(b => console.log(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()}`));
+    logger.debug(`[SchedulingAssistant] VISIBLE for ${activeRoom.name}: ${filtered.length} events`);
+    filtered.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()}`));
 
     return filtered;
   }, [activeRoom, eventBlocks]);
@@ -1127,7 +1128,7 @@ export default function SchedulingAssistant({
     if (eventStartTime) {
       const [hours, minutes] = eventStartTime.split(':').map(Number);
       targetHour = hours + minutes / 60;
-      console.log(`[SchedulingAssistant] Initial auto-scroll to user event time: ${eventStartTime} (hour ${targetHour})`);
+      logger.debug(`[SchedulingAssistant] Initial auto-scroll to user event time: ${eventStartTime} (hour ${targetHour})`);
     } else if (visibleEventBlocks.length > 0) {
       // Otherwise, find earliest conflicting event, or just earliest event if no conflicts
       const conflictingEvents = visibleEventBlocks.filter(b => b.isConflict);
@@ -1139,7 +1140,7 @@ export default function SchedulingAssistant({
 
       const dayStart = new Date(effectiveDate + 'T00:00:00');
       targetHour = (earliestEvent.startTime - dayStart) / (1000 * 60 * 60);
-      console.log(`[SchedulingAssistant] Initial auto-scroll to earliest event: ${earliestEvent.title} (hour ${targetHour})`);
+      logger.debug(`[SchedulingAssistant] Initial auto-scroll to earliest event: ${earliestEvent.title} (hour ${targetHour})`);
     }
 
     // Calculate scroll position to show event near top with 2 hours of context before it
@@ -1160,7 +1161,7 @@ export default function SchedulingAssistant({
   // Handle navigation button click for locked events
   const handleNavigateToEvent = (e, reservationId) => {
     e.stopPropagation(); // Prevent event block click
-    console.log('[SchedulingAssistant] Navigate button clicked for reservation:', reservationId);
+    logger.debug('[SchedulingAssistant] Navigate button clicked for reservation:', reservationId);
 
     if (onLockedEventClick) {
       onLockedEventClick(reservationId);

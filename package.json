@@ -19,7 +19,9 @@
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@microsoft/microsoft-graph-types": "^2.40.0",
     "@react-pdf/renderer": "^4.3.0",
-    "@tanstack/react-query": "^5.75.5",
+    "@tanstack/query-sync-storage-persister": "^5.90.18",
+    "@tanstack/react-query": "^5.90.16",
+    "@tanstack/react-query-persist-client": "^5.90.18",
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
@@ -34,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
+    "@tanstack/react-query-devtools": "^5.91.2",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",

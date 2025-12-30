@@ -15,6 +15,7 @@ The Emanuel Resource Calendar is a Temple Events Calendar application with Micro
 | Frontend | React SPA with Vite |
 | UI Framework | Microsoft Fluent UI |
 | Authentication | Azure AD / MSAL |
+| Data Fetching | TanStack Query (React Query) |
 | Backend | Node.js / Express |
 | Database | MongoDB (Azure Cosmos DB) |
 | External APIs | Microsoft Graph API |
@@ -28,11 +29,20 @@ The Emanuel Resource Calendar is a Temple Events Calendar application with Micro
 │   ├── services/                 # API and data services
 │   ├── context/                  # React Context providers
 │   ├── hooks/                    # Custom React hooks
+│   │   ├── useLocationsQuery.js  # TanStack Query hook for locations
+│   │   ├── useCategoriesQuery.js # TanStack Query hooks for categories
+│   │   └── ...
 │   ├── utils/                    # Utility functions
+│   │   ├── logger.js             # Environment-aware logging utility
+│   │   └── ...
 │   └── config/                   # Configuration files
+│       ├── queryClient.js        # TanStack Query client with localStorage persistence
+│       └── ...
 ├── backend/                      # Backend API server
 │   ├── api-server.js             # Main Express server
 │   ├── utils/                    # Backend utilities
+│   │   ├── logger.js             # Environment-aware logging utility
+│   │   └── ...
 │   └── csv-imports/              # CSV import scripts
 ├── public/                       # Static assets
 └── certs/                        # SSL certificates for development
@@ -431,14 +441,41 @@ POST /api/room-reservations/public/:token
 
 ---
 
-## Context Providers
+## Context Providers & Data Fetching
+
+### React Context Providers
 
 | Context | Purpose |
 |---------|---------|
 | `UserPreferencesContext` | User preferences state |
 | `TimezoneContext` | Timezone handling |
-| `LocationContext` | Location/room data |
+| `LocationContext` | Location/room data (uses TanStack Query internally) |
 | `RoleSimulationContext` | Admin role simulation for testing |
+
+### TanStack Query (React Query)
+
+TanStack Query provides automatic caching and background data fetching for categories and locations.
+
+**Query Client Configuration** (`src/config/queryClient.js`):
+- 5-minute stale time (data considered fresh)
+- 30-minute garbage collection time
+- Automatic refetch on window focus
+- localStorage persistence (24-hour max age)
+
+**Query Hooks**:
+
+| Hook | Query Key | Purpose |
+|------|-----------|---------|
+| `useLocationsQuery` | `['locations']` | Fetch locations from `/api/locations` |
+| `useBaseCategoriesQuery` | `['baseCategories']` | Fetch categories from `/api/categories` |
+| `useOutlookCategoriesQuery` | `['outlookCategories']` | Fetch Outlook categories from Graph API |
+
+**Benefits**:
+- Cached data shown instantly on return visits
+- Background refetch updates data without loading state
+- Request deduplication (multiple components share one API call)
+- Automatic retries on failure
+- React Query DevTools for debugging (development only)
 
 ---
 
@@ -548,9 +585,73 @@ node generateCert.js  # Generate self-signed certs
 
 ## Recent Improvements
 
+### December 2024 - Data Caching & Logging
+
+**TanStack Query Integration**:
+- Added TanStack Query for categories and locations data fetching
+- Implemented localStorage persistence for instant UI on return visits
+- Categories and locations now load from cache immediately while fresh data fetches in background
+- Prevents incorrect event grouping when API is slow
+- React Query DevTools available in development for cache debugging
+
+**Logger Migration**:
+- Migrated console.log statements to centralized logger utility
+- Debug logs automatically suppressed in production (`NODE_ENV=production`)
+- Error and warning logs always visible for troubleshooting
+- Override available via `VITE_DEBUG=true` (frontend) or `DEBUG=true` (backend)
+
+**Files Added**:
+- `src/config/queryClient.js` - TanStack Query client configuration
+- `src/hooks/useLocationsQuery.js` - Locations query hook
+- `src/hooks/useCategoriesQuery.js` - Categories query hooks
+
+**Files Updated**:
+- `src/App.jsx` - Added QueryClientProvider wrapper
+- `src/context/LocationContext.jsx` - Uses useLocationsQuery internally
+- `src/components/Calendar.jsx` - Uses category query hooks
+- Multiple components migrated from console.log to logger
+
+### Previous Improvements
+
 - Room/Location consolidation into single collection
-- Reduced console logging by 67%
 - Fixed calendar loading race conditions
 - Enhanced event search with better filtering
 - Icon-based room feature selection
 - Communication history tracking for reservations
+
+---
+
+## Logging System
+
+### Environment-Aware Logger
+
+Both frontend and backend use a centralized logger that automatically suppresses debug output in production.
+
+**Frontend** (`src/utils/logger.js`):
+```javascript
+import { logger } from '../utils/logger';
+
+logger.log('General info');     // Suppressed in production
+logger.debug('Debug info');     // Suppressed in production, adds [DEBUG] prefix
+logger.error('Error message');  // Always shown
+logger.warn('Warning message'); // Always shown
+```
+
+**Backend** (`backend/utils/logger.js`):
+```javascript
+const logger = require('./utils/logger');
+
+logger.log('General info');     // Suppressed in production
+logger.debug('Debug info');     // Suppressed in production
+logger.error('Error message');  // Always shown
+logger.warn('Warning message'); // Always shown
+logger.request('GET', '/api/events'); // API request logging
+logger.db('find', 'events');    // Database operation logging
+```
+
+**Environment Detection**:
+| Environment | Debug Logs | Error/Warning Logs |
+|-------------|------------|-------------------|
+| Development | Shown | Shown |
+| Production | Suppressed | Shown |
+| Production + DEBUG=true | Shown | Shown |
