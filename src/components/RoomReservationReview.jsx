@@ -1,11 +1,12 @@
 // src/components/RoomReservationReview.jsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import ReservationAuditHistory from './ReservationAuditHistory';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
+import { extractTextFromHtml } from '../utils/textUtils';
 import './RoomReservationForm.css';
 
 /**
@@ -47,10 +48,9 @@ export default function RoomReservationReview({
   readOnly = false // Read-only mode for viewers
 }) {
   // Review-specific state
-  const [initialData, setInitialData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [originalChangeKey, setOriginalChangeKey] = useState(null);
+  const [originalChangeKey, setOriginalChangeKey] = useState(reservation?.changeKey || null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
 
   // Refs to access base component's state
@@ -58,6 +58,141 @@ export default function RoomReservationReview({
   const timeErrorsRef = useRef(null);
   const validateRef = useRef(null);
   const getProcessedFormDataRef = useRef(null); // Ref to hold the getProcessedFormData function
+
+  // Track previous reservation ID for changeKey updates
+  const prevReservationIdRef = useRef(null);
+
+  // Compute initialData synchronously from reservation prop (no flicker!)
+  const initialData = useMemo(() => {
+    if (!reservation) return {};
+
+    // Handle both formats: combined datetime OR separate date/time fields
+    let startDate, startTime, endDate, endTime;
+
+    if (reservation.startDate && reservation.endDate) {
+      // New format: separate date/time fields
+      startDate = reservation.startDate;
+      startTime = reservation.startTime || '';
+      endDate = reservation.endDate;
+      endTime = reservation.endTime || '';
+    } else if (reservation.startDateTime && reservation.endDateTime) {
+      // Old format: combined datetime fields
+      const startDateTime = new Date(reservation.startDateTime);
+      const endDateTime = new Date(reservation.endDateTime);
+
+      // Validate dates
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        console.error('❌ Invalid date values in reservation:', {
+          startDateTime: reservation.startDateTime,
+          endDateTime: reservation.endDateTime
+        });
+        return {};
+      }
+
+      startDate = startDateTime.toISOString().split('T')[0];
+      startTime = startDateTime.toTimeString().slice(0, 5);
+      endDate = endDateTime.toISOString().split('T')[0];
+      endTime = endDateTime.toTimeString().slice(0, 5);
+    } else {
+      // No valid date/time information
+      startDate = '';
+      startTime = '';
+      endDate = '';
+      endTime = '';
+    }
+
+    // Detect if this is an offsite event (has Graph location but no internal rooms)
+    const hasGraphLocation = reservation.graphData?.location?.displayName;
+    const hasInternalRooms = reservation.locations && reservation.locations.length > 0;
+    const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
+
+    // Format address from Graph API location data
+    const formatGraphAddress = (address) => {
+      if (!address) return '';
+      const parts = [
+        address.street,
+        address.city,
+        address.state,
+        address.postalCode,
+        address.countryOrRegion
+      ].filter(Boolean);
+      return parts.join(', ');
+    };
+
+    // Process eventDescription - strip HTML if present
+    const rawDescription = reservation.eventDescription || '';
+    const eventDescription = rawDescription.includes('<') ? extractTextFromHtml(rawDescription) : rawDescription;
+
+    // Auto-populate doorCloseTime with endTime if not set
+    const doorCloseTime = reservation.doorCloseTime || endTime || '';
+
+    // Auto-populate teardownTime with endTime + 1 hour if not set
+    let teardownTime = reservation.teardownTime || '';
+    if (!teardownTime && endTime) {
+      const [hours, minutes] = endTime.split(':');
+      const endTimeDate = new Date();
+      endTimeDate.setHours(parseInt(hours), parseInt(minutes));
+      endTimeDate.setHours(endTimeDate.getHours() + 1);
+      const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
+      const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
+      teardownTime = `${teardownHours}:${teardownMinutes}`;
+    }
+
+    return {
+      requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
+      requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
+      department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
+      phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
+      eventTitle: reservation.eventTitle || '',
+      eventDescription,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
+      doorOpenTime: reservation.doorOpenTime || '',
+      doorCloseTime,
+      setupTime: reservation.setupTime || '',
+      teardownTime,
+      setupNotes: reservation.setupNotes || '',
+      doorNotes: reservation.doorNotes || '',
+      eventNotes: reservation.eventNotes || '',
+      attendeeCount: reservation.attendeeCount || '',
+      requestedRooms: reservation.locations || [],
+      specialRequirements: reservation.specialRequirements || '',
+      setupTimeMinutes: reservation.setupTimeMinutes || 0,
+      teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
+      contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
+      contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
+      isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false,
+      reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
+      isAllDayEvent: reservation.isAllDayEvent || false,
+      virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
+      graphData: reservation.graphData || null,
+      eventId: reservation.eventId || null,
+      eventSeriesId: reservation.eventSeriesId || null,
+      seriesIndex: reservation.seriesIndex || null,
+      seriesLength: reservation.seriesLength || null,
+      recurrence: reservation.recurrence || reservation.graphData?.recurrence || null,
+      isOffsite: isOffsiteEvent,
+      offsiteName: isOffsiteEvent ? reservation.graphData.location.displayName : '',
+      offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
+      offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
+      offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
+      categories: reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
+      services: reservation.services || {},
+      // Flag to tell FormBase that data is pre-processed
+      _isPreProcessed: true
+    };
+  }, [reservation]);
+
+  // Update changeKey when reservation changes
+  useEffect(() => {
+    const currentId = reservation?._id || reservation?.eventId;
+    if (currentId && currentId !== prevReservationIdRef.current) {
+      setOriginalChangeKey(reservation?.changeKey || null);
+      prevReservationIdRef.current = currentId;
+    }
+  }, [reservation]);
 
   // Notify parent when isSaving changes
   useEffect(() => {
@@ -72,141 +207,6 @@ export default function RoomReservationReview({
       onIsNavigatingChange(isNavigating);
     }
   }, [isNavigating, onIsNavigatingChange]);
-
-  // Track if form has been initialized to prevent re-initialization on every change
-  const isInitializedRef = React.useRef(false);
-  const reservationIdRef = React.useRef(null);
-
-  // Initialize form data from reservation (only once per reservation)
-  useEffect(() => {
-    if (reservation) {
-      // Only initialize if this is a different reservation (different ID or first time)
-      const currentReservationId = reservation._id || reservation.eventId || JSON.stringify(reservation);
-      const isDifferentReservation = reservationIdRef.current !== currentReservationId;
-
-      if (!isInitializedRef.current || isDifferentReservation) {
-        console.log('📋 Initializing form data from reservation:', {
-          id: reservation._id,
-          startDateTime: reservation.startDateTime,
-          endDateTime: reservation.endDateTime,
-          startDate: reservation.startDate,
-          startTime: reservation.startTime,
-          endDate: reservation.endDate,
-          endTime: reservation.endTime,
-          services: reservation.services
-        });
-
-        // Handle both formats: combined datetime OR separate date/time fields
-        let startDate, startTime, endDate, endTime;
-
-        if (reservation.startDate && reservation.endDate) {
-          // New format: separate date/time fields
-          startDate = reservation.startDate;
-          startTime = reservation.startTime || '';
-          endDate = reservation.endDate;
-          endTime = reservation.endTime || '';
-        } else if (reservation.startDateTime && reservation.endDateTime) {
-          // Old format: combined datetime fields
-          const startDateTime = new Date(reservation.startDateTime);
-          const endDateTime = new Date(reservation.endDateTime);
-
-          // Validate dates
-          if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-            console.error('❌ Invalid date values in reservation:', {
-              startDateTime: reservation.startDateTime,
-              endDateTime: reservation.endDateTime,
-              parsedStart: startDateTime,
-              parsedEnd: endDateTime
-            });
-            return;
-          }
-
-          startDate = startDateTime.toISOString().split('T')[0];
-          startTime = startDateTime.toTimeString().slice(0, 5);
-          endDate = endDateTime.toISOString().split('T')[0];
-          endTime = endDateTime.toTimeString().slice(0, 5);
-        } else {
-          // No valid date/time information
-          console.error('❌ Missing date/time information in reservation');
-          startDate = '';
-          startTime = '';
-          endDate = '';
-          endTime = '';
-        }
-
-        // Detect if this is an offsite event (has Graph location but no internal rooms)
-        const hasGraphLocation = reservation.graphData?.location?.displayName;
-        const hasInternalRooms = reservation.locations && reservation.locations.length > 0;
-        const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
-
-        // Format address from Graph API location data
-        const formatGraphAddress = (address) => {
-          if (!address) return '';
-          const parts = [
-            address.street,
-            address.city,
-            address.state,
-            address.postalCode,
-            address.countryOrRegion
-          ].filter(Boolean);
-          return parts.join(', ');
-        };
-
-        setInitialData({
-          requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
-          requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
-          department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
-          phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
-          eventTitle: reservation.eventTitle || '',
-          eventDescription: reservation.eventDescription || '',
-          startDate,
-          startTime,
-          endDate,
-          endTime,
-          doorOpenTime: reservation.doorOpenTime || '',
-          doorCloseTime: reservation.doorCloseTime || '',
-          setupTime: reservation.setupTime || '',
-          teardownTime: reservation.teardownTime || '',
-          setupNotes: reservation.setupNotes || '',
-          doorNotes: reservation.doorNotes || '',
-          eventNotes: reservation.eventNotes || '',
-          attendeeCount: reservation.attendeeCount || '',
-          requestedRooms: reservation.locations || [],  // Use locations field as single source of truth
-          specialRequirements: reservation.specialRequirements || '',
-          setupTimeMinutes: reservation.setupTimeMinutes || 0,
-          teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-          contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
-          contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
-          isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false,
-          reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
-          isAllDayEvent: reservation.isAllDayEvent || false,
-          virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
-          graphData: reservation.graphData || null,
-          eventId: reservation.eventId || null,
-          eventSeriesId: reservation.eventSeriesId || null,
-          seriesIndex: reservation.seriesIndex || null,
-          seriesLength: reservation.seriesLength || null,
-          // Offsite fields - auto-populate from Graph location if no internal rooms
-          isOffsite: isOffsiteEvent,
-          offsiteName: isOffsiteEvent ? reservation.graphData.location.displayName : '',
-          offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
-          offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
-          offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
-          // Categories - check graphData.categories first (Outlook), then mecCategories (CSV imports)
-          categories: reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
-          // Services (internal use only)
-          services: reservation.services || {}
-        });
-
-        // Store original changeKey for optimistic concurrency control
-        setOriginalChangeKey(reservation.changeKey);
-
-        // Mark as initialized for this reservation
-        isInitializedRef.current = true;
-        reservationIdRef.current = currentReservationId;
-      }
-    }
-  }, [reservation]);
 
   // Handle data changes from base component
   const handleDataChange = (updatedData) => {
@@ -496,6 +496,12 @@ export default function RoomReservationReview({
       onReject(formData.reviewNotes);
     }
   };
+
+  // Data is computed synchronously via useMemo, so it's ready on first render
+  // Only show empty state if reservation prop is missing entirely
+  if (!reservation) {
+    return null;
+  }
 
   return (
     <div className="room-reservation-form" style={{ maxWidth: '100%', padding: '10px' }}>

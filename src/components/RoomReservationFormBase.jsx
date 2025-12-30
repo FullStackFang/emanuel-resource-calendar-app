@@ -123,12 +123,14 @@ export default function RoomReservationFormBase({
 
   // Series navigation state
   const [seriesEvents, setSeriesEvents] = useState([]); // Array of events in the series
-  const [currentEventId, setCurrentEventId] = useState(null); // Current event ID for highlighting
+  const [currentEventId, setCurrentEventId] = useState(initialData?.eventId || null); // Current event ID for highlighting
   const [loadingEventId, setLoadingEventId] = useState(null); // Event ID currently being loaded
 
   // Recurrence state
   const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
-  const [recurrencePattern, setRecurrencePattern] = useState(null); // { pattern, range }
+  const [recurrencePattern, setRecurrencePattern] = useState(
+    initialData?.recurrence || initialData?.graphData?.recurrence || null
+  ); // { pattern, range }
 
   // Category state - check categories first (from graphData), then mecCategories (CSV imports)
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -247,11 +249,21 @@ export default function RoomReservationFormBase({
     // 2. AND (this is first initialization OR reservation ID changed)
     const hasInitialData = initialData && Object.keys(initialData).length > 0;
     const isNewReservation = currentReservationId !== lastReservationIdRef.current;
-    const shouldInitialize = hasInitialData && (!isInitializedRef.current || isNewReservation);
+    const isFirstInit = !isInitializedRef.current;
+    const shouldInitialize = hasInitialData && (isFirstInit || isNewReservation);
+
+    // Skip first initialization if data was pre-processed by parent
+    // (data is already in formData via useState spread, auxiliary state also initialized)
+    if (isFirstInit && initialData?._isPreProcessed) {
+      // Just mark as initialized, skip all state updates
+      isInitializedRef.current = true;
+      lastReservationIdRef.current = currentReservationId;
+      return;
+    }
 
     if (shouldInitialize) {
       logger.debug('[RoomReservationFormBase] Initializing form data', {
-        isFirstInit: !isInitializedRef.current,
+        isFirstInit,
         isNewReservation,
         reservationId: currentReservationId
       });
@@ -261,7 +273,7 @@ export default function RoomReservationFormBase({
       };
 
       // Strip HTML from eventDescription if it contains HTML tags
-      if (newData.eventDescription) {
+      if (newData.eventDescription && !initialData._isPreProcessed) {
         newData.eventDescription = extractTextFromHtml(newData.eventDescription);
       }
 
