@@ -57,7 +57,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     const params = new URLSearchParams({
       page: page.toString(),
       sortBy: 'startTime',
-      sortOrder: 'asc'
+      sortOrder: 'desc'
     });
 
     // Add limit only if specified (no arbitrary limit)
@@ -362,13 +362,13 @@ function EventSearchInner({
         setHasNextPage(result.nextLink !== null);
         setCurrentPage(1); // Reset to page 1 for new search
 
-        // Sort results by start date (earliest first)
+        // Sort results by start date (latest first)
         const sortedResults = [...result.results].sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          
-          // For ascending order: earliest first (a - b)
-          return aStartTime - bStartTime;
+
+          // For descending order: latest first (b - a)
+          return bStartTime - aStartTime;
         });
         
         logger.debug("Query function returning:", {
@@ -487,7 +487,7 @@ function EventSearchInner({
         const sortedResults = combinedResults.sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
-          return aStartTime - bStartTime;
+          return bStartTime - aStartTime;
         });
         
         if (totalAvailableEvents) {
