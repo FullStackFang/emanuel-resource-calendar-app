@@ -3891,24 +3891,33 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // STEP 2: Return events directly from MongoDB (source of truth)
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
-    const transformedLoadEvents = unifiedEvents.map(event => ({
-      ...event,  // Spread all MongoDB fields directly
-      // Add frontend compatibility wrappers
-      id: event.eventId || event._id?.toString(),
-      subject: event.eventTitle || '(No Subject)',
-      start: {
-        dateTime: event.startDateTime,
-        timeZone: 'UTC'
-      },
-      end: {
-        dateTime: event.endDateTime,
-        timeZone: 'UTC'
-      },
-      location: { displayName: event.locationDisplayName || '' },
-      bodyPreview: event.eventDescription || '',
-      isAllDay: event.isAllDayEvent ?? false,
-      categories: event.categories || []
-    }));
+    const transformedLoadEvents = unifiedEvents.map(event => {
+      // Determine the correct timezone for this event:
+      // 1. Use graphData timezone if available (from Graph API sync)
+      // 2. For room reservations, use America/New_York (user enters local time)
+      // 3. Default to America/New_York for the organization
+      const eventTimezone = event.graphData?.start?.timeZone ||
+                           (event.source === 'Room Reservation System' ? 'America/New_York' : 'America/New_York');
+
+      return {
+        ...event,  // Spread all MongoDB fields directly
+        // Add frontend compatibility wrappers
+        id: event.eventId || event._id?.toString(),
+        subject: event.eventTitle || '(No Subject)',
+        start: {
+          dateTime: event.startDateTime,
+          timeZone: eventTimezone
+        },
+        end: {
+          dateTime: event.endDateTime,
+          timeZone: eventTimezone
+        },
+        location: { displayName: event.locationDisplayName || '' },
+        bodyPreview: event.eventDescription || '',
+        isAllDay: event.isAllDayEvent ?? false,
+        categories: event.categories || []
+      };
+    });
 
     // Calculate totals
     const cachedCount = unifiedEvents.filter(e => !e._fromGraph).length;
@@ -14920,14 +14929,15 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
       eventTitle,
       eventDescription: eventDescription || '',
-      // Convert to UTC strings with Z suffix
-      startDateTime: startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '',
-      endDateTime: endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '',
-      // Extract date and time in UTC (not server local time)
-      startDate: startDateTime ? new Date(startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`).toISOString().split('T')[0] : '',
-      startTime: startDateTime ? new Date(startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`).toISOString().slice(11, 16) : '',
-      endDate: endDateTime ? new Date(endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`).toISOString().split('T')[0] : '',
-      endTime: endDateTime ? new Date(endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`).toISOString().slice(11, 16) : '',
+      // Store datetime as-is (local time in America/New_York, no Z suffix)
+      // The graphData.start/end.timeZone specifies the timezone
+      startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : '',
+      endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : '',
+      // Extract date and time components (preserve local time values)
+      startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : '',
+      startTime: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
+      endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : '',
+      endTime: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
       setupTime: setupTime || '',
       teardownTime: teardownTime || '',
       doorOpenTime: doorOpenTime || '',

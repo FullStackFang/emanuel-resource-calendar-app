@@ -171,11 +171,25 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
     let date;
 
     // If source timezone is provided and matches display timezone,
-    // the datetime value represents local time in that timezone
-    // Just strip the 'Z' and parse as local time representation
+    // the datetime value represents local time in that timezone.
+    // We extract time components directly from the string to avoid
+    // JavaScript Date parsing issues with timezones.
     if (sourceTimezone && sourceTimezone !== 'UTC' && displayTimezone === sourceTimezone) {
       // Strip 'Z' suffix if present - the time is actually in the source timezone
       const localTimeString = dateString.replace(/Z$/, '').replace(/\.0+Z$/, '');
+
+      // Extract time components directly from the string (e.g., "2026-01-03T13:30:00")
+      // This avoids browser-local timezone interpretation issues
+      const timeMatch = localTimeString.match(/T(\d{2}):(\d{2})/);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1], 10);
+        const minutes = timeMatch[2];
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const displayHours = hours === 0 ? 12 : (hours > 12 ? hours - 12 : hours);
+        return `${displayHours}:${minutes} ${period}`;
+      }
+
+      // Fallback to Date parsing if regex fails
       date = new Date(localTimeString);
 
       if (isNaN(date.getTime())) {
@@ -183,11 +197,12 @@ export const formatEventTime = (dateString, displayTimezone = DEFAULT_TIMEZONE, 
         return '';
       }
 
-      // Format in local time (no timezone conversion needed since source === display)
+      // Format in the source timezone explicitly
       return date.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
+        timeZone: getSafeTimezone(sourceTimezone),
       });
     }
 

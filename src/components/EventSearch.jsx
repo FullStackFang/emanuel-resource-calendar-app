@@ -943,14 +943,14 @@ function EventSearchInner({
                     <div className="time-cell">
                       <span className="time-label">Event Start</span>
                       <span className="time-value">
-                        {formatEventTime(selectedEvent.start?.dateTime, userTimezone)}
+                        {formatEventTime(selectedEvent.start?.dateTime, userTimezone, selectedEvent.subject, selectedEvent.start?.timeZone || selectedEvent.graphData?.start?.timeZone)}
                       </span>
                     </div>
                     {/* Row 2: Event End | Door Close | Teardown */}
                     <div className="time-cell">
                       <span className="time-label">Event End</span>
                       <span className="time-value">
-                        {formatEventTime(selectedEvent.end?.dateTime, userTimezone)}
+                        {formatEventTime(selectedEvent.end?.dateTime, userTimezone, selectedEvent.subject, selectedEvent.end?.timeZone || selectedEvent.graphData?.end?.timeZone)}
                       </span>
                     </div>
                     <div className="time-cell">
