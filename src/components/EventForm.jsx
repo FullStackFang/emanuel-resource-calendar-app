@@ -628,42 +628,35 @@ function EventForm({
 
     logger.debug("PREPARING EVENT DATA FOR PREVIEW:");
     logger.debug(`  Form values: startDate=${formData.startDate}, startTime=${formData.startTime}`);
-    
-    // Convert display times to UTC for API
-    const startUtc = displayToUtcTime(
-      formData.startDate, 
-      isAllDay ? '00:00' : formData.startTime
-    );
-    
-    const endUtc = displayToUtcTime(
-      formData.endDate, 
-      isAllDay ? '23:59:59' : formData.endTime
-    );
-    
-    logger.debug(`  Converted to UTC: start=${startUtc}, end=${endUtc}`);
-    
-    // For all-day events, end time is set to 23:59:59 on the same day
-    const adjustedEndUtc = endUtc;
+
+    // Build datetime strings in local timezone format (no UTC conversion)
+    // Graph API accepts datetime with timezone specification
+    const startDateTime = `${formData.startDate}T${isAllDay ? '00:00:00' : formData.startTime}`;
+    const endDateTime = `${formData.endDate}T${isAllDay ? '23:59:59' : formData.endTime}`;
+
+    logger.debug(`  Local datetime: start=${startDateTime}, end=${endDateTime}, timezone=${userTimeZone}`);
+
     if (isAllDay) {
       logger.debug(`  All-day event: ${formData.startDate} 00:00:00 to ${formData.endDate} 23:59:59`);
     }
-    
+
     // Build location display name - use offsite info if offsite, otherwise room names
     const locationDisplayName = isOffsite
       ? `${offsiteName}; ${offsiteAddress}`
       : (formData.locations.length > 0 ? formData.locations.join('; ') : 'Unspecified');
 
     // Build the payload for Graph API
+    // Use local timezone format - datetime represents wall clock time in userTimeZone
     const eventData = {
       id: formData.id,
       subject: formData.subject,
       start: {
-        dateTime: startUtc,
-        timeZone: 'UTC'
+        dateTime: startDateTime,
+        timeZone: userTimeZone
       },
       end: {
-        dateTime: adjustedEndUtc,
-        timeZone: 'UTC'
+        dateTime: endDateTime,
+        timeZone: userTimeZone
       },
       location: {
         displayName: locationDisplayName

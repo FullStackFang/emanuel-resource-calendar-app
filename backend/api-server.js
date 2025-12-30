@@ -2439,23 +2439,22 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     }
 
     // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
-    // Parse datetime strings into separate date/time fields
-    const startDateTime = graphEvent.start?.dateTime;
-    const endDateTime = graphEvent.end?.dateTime;
+    // Graph API returns datetime in the timezone specified by graphEvent.start.timeZone
+    // Store as local time string WITHOUT 'Z' suffix (not UTC)
+    const startDateTime = graphEvent.start?.dateTime?.replace(/Z$/, '') || '';
+    const endDateTime = graphEvent.end?.dateTime?.replace(/Z$/, '') || '';
 
     unifiedEvent.eventTitle = graphEvent.subject || 'Untitled Event';
     unifiedEvent.eventDescription = extractTextFromHtml(graphEvent.body?.content) || graphEvent.bodyPreview || '';
-    // Convert to UTC strings with Z suffix
-    const utcStartString = startDateTime ? (startDateTime.endsWith('Z') ? startDateTime : `${startDateTime}Z`) : '';
-    const utcEndString = endDateTime ? (endDateTime.endsWith('Z') ? endDateTime : `${endDateTime}Z`) : '';
-    // Store datetime with Z suffix to ensure UTC interpretation
-    unifiedEvent.startDateTime = utcStartString;
-    unifiedEvent.endDateTime = utcEndString;
-    // Extract date and time in UTC (not server local time)
-    unifiedEvent.startDate = utcStartString ? new Date(utcStartString).toISOString().split('T')[0] : '';
-    unifiedEvent.startTime = utcStartString ? new Date(utcStartString).toISOString().slice(11, 16) : '';
-    unifiedEvent.endDate = utcEndString ? new Date(utcEndString).toISOString().split('T')[0] : '';
-    unifiedEvent.endTime = utcEndString ? new Date(utcEndString).toISOString().slice(11, 16) : '';
+    // Store datetime as local time (no Z suffix) - timezone is in graphData.start/end.timeZone
+    unifiedEvent.startDateTime = startDateTime;
+    unifiedEvent.endDateTime = endDateTime;
+    // Extract date and time components directly from the string (not via Date parsing)
+    // Format: "2026-01-03T13:30:00" -> date: "2026-01-03", time: "13:30"
+    unifiedEvent.startDate = startDateTime ? startDateTime.split('T')[0] : '';
+    unifiedEvent.startTime = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+    unifiedEvent.endDate = endDateTime ? endDateTime.split('T')[0] : '';
+    unifiedEvent.endTime = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
     // location field removed - locationDisplayNames is the single source of truth
     unifiedEvent.isAllDayEvent = graphEvent.isAllDay || false;
 
