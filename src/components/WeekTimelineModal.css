@@ -236,8 +236,8 @@
   max-width: 400px; /* Cap it so it doesn't get too wide */
   padding: 12px 14px;
 
-  /* Override inline height - let content determine size */
-  height: auto !important;
+  /* Keep original inline height - don't shrink below event duration */
+  /* Content will overflow visibly if it expands beyond the block */
   min-height: 60px;
 
   z-index: 200 !important; /* Override inline z-index to always be on top */
@@ -253,7 +253,7 @@
     0 12px 32px rgba(0, 0, 0, 0.35),
     0 0 25px rgba(6, 182, 212, 0.25);
 
-  /* Allow content to expand naturally */
+  /* Allow content to expand naturally beyond the block */
   overflow: visible;
 }
 
@@ -309,7 +309,7 @@
   min-width: 250px;
   max-width: 400px;
   padding: 12px 14px;
-  height: auto !important;
+  /* Keep original inline height - don't shrink below event duration */
   min-height: 60px;
   background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
   border-left: 4px solid #0e7490;
