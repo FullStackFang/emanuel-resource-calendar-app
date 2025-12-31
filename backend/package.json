@@ -7,7 +7,7 @@
     "start": "node api-server.js",
     "dev": "nodemon api-server.js",
     "predeploy": "powershell -Command \"@{commit=$(git rev-parse --short HEAD);buildTime=(Get-Date -Format o)} | ConvertTo-Json | Out-File -Encoding utf8 build-info.json; if(Test-Path backend.zip){Remove-Item backend.zip}; Compress-Archive -Path *.js,*.json,*.md,utils,services,csv-imports,.deployment,web.config -DestinationPath backend.zip\"",
-    "deploy": "npm run predeploy && az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --src-path backend.zip --type zip"
+    "deploy": "npm run predeploy && az webapp deployment source config-zip --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --src backend.zip"
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.3",
