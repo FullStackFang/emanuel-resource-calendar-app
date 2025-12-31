@@ -21,6 +21,7 @@ import './RoomReservationForm.css';
  */
 export default function RoomReservationReview({
   reservation,
+  prefetchedAvailability = null, // Pre-fetched room availability data from parent
   apiToken,
   graphToken, // Graph API token for calendar operations
   onApprove,
@@ -508,6 +509,7 @@ export default function RoomReservationReview({
       <form onSubmit={(e) => e.preventDefault()}>
         <RoomReservationFormBase
           initialData={initialData}
+          prefetchedAvailability={prefetchedAvailability}
           onDataChange={handleDataChange}
           onHasChangesChange={onHasChangesChange}
           onIsNavigatingChange={setIsNavigating}

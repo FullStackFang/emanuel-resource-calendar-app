@@ -71,7 +71,10 @@ export default function RoomReservationFormBase({
   onFormDataRef = null,         // Callback to expose formData getter
   onTimeErrorsRef = null,       // Callback to expose timeErrors getter
   onValidateRef = null,         // Callback to expose validation function
-  onFormValidChange = null      // Callback when form validity changes
+  onFormValidChange = null,     // Callback when form validity changes
+
+  // Pre-fetched data
+  prefetchedAvailability = null // Pre-fetched room availability data from parent
 }) {
   // Form state
   const [formData, setFormData] = useState({
@@ -111,8 +114,10 @@ export default function RoomReservationFormBase({
     ...initialData
   });
 
-  const [availability, setAvailability] = useState([]);
+  const [availability, setAvailability] = useState(prefetchedAvailability || []);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  // Track if we used prefetched data (to skip initial fetch)
+  const usedPrefetchedData = useRef(!!prefetchedAvailability);
   const [availabilityLoading, setAvailabilityLoading] = useState(false); // Day availability loading for SchedulingAssistant
   const [assistantRooms, setAssistantRooms] = useState([]);
   const [timeErrors, setTimeErrors] = useState([]);
@@ -445,10 +450,9 @@ export default function RoomReservationFormBase({
     } catch (err) {
       logger.error('Error checking availability:', err);
     } finally {
-      // Only clear loading if assistant mode didn't take over
-      if (assistantRoomsRef.current.length === 0) {
-        setCheckingAvailability(false);
-      }
+      // Always clear the checkingAvailability loading state
+      // Assistant mode has its own loading state (availabilityLoading)
+      setCheckingAvailability(false);
     }
   };
 
@@ -515,6 +519,11 @@ export default function RoomReservationFormBase({
 
   // Check availability when dates or times change (for non-assistant mode)
   useEffect(() => {
+    // Skip initial fetch if we have prefetched data (prevents duplicate API call on modal open)
+    if (usedPrefetchedData.current) {
+      usedPrefetchedData.current = false; // Clear flag so future changes trigger fetch
+      return;
+    }
     if (formData.startDate && formData.startTime && formData.endDate && formData.endTime && assistantRooms.length === 0) {
       checkAvailability();
     }

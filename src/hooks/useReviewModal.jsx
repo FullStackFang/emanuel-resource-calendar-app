@@ -46,6 +46,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
 
+  // Pre-fetched availability data (fetched before modal opens)
+  const [prefetchedAvailability, setPrefetchedAvailability] = useState(null);
+
   // Form validity state (controlled by child form component)
   const [isFormValid, setIsFormValid] = useState(true);
 
@@ -78,13 +81,37 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
     }
 
+    // Pre-fetch room availability for existing events with dates
+    // This ensures the modal opens with all data ready (no loading spinner inside)
+    let availability = null;
+    if (item.startDate && item.startTime && item.endDate && item.endTime) {
+      try {
+        const startDateTime = `${item.startDate}T${item.startTime}`;
+        const endDateTime = `${item.endDate}T${item.endTime}`;
+        const params = new URLSearchParams({
+          startDateTime,
+          endDateTime,
+          setupTimeMinutes: item.setupTimeMinutes || 0,
+          teardownTimeMinutes: item.teardownTimeMinutes || 0
+        });
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+        if (response.ok) {
+          availability = await response.json();
+        }
+      } catch (err) {
+        // Silently fail - form will re-fetch if needed
+        logger.debug('Pre-fetch availability failed, form will re-fetch:', err.message);
+      }
+    }
+
+    setPrefetchedAvailability(availability);
     setCurrentItem(item);
     setEditableData(item);
     setOriginalChangeKey(item.changeKey);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
-  }, [apiToken]);
+  }, [apiToken, holdError]);
 
   /**
    * Close modal and release any holds
@@ -102,6 +129,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
     setEditScope(null); // Reset edit scope for recurring events
+    setPrefetchedAvailability(null); // Clear prefetched availability data
   }, [currentItem, reviewHold]);
 
   /**
@@ -565,6 +593,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     pendingRejectConfirmation,
     pendingSaveConfirmation,
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
+    prefetchedAvailability, // Pre-fetched room availability data
 
     // Actions
     openModal,

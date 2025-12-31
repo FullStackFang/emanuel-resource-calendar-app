@@ -5736,6 +5736,7 @@
           {reviewModal.currentItem && (
             <RoomReservationReview
               reservation={reviewModal.editableData}
+              prefetchedAvailability={reviewModal.prefetchedAvailability}
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}
