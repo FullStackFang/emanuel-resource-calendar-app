@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "npm run build && cd dist && az webapp up --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --html"
+    "deploy": "npm run build && powershell -Command \"Remove-Item dist.zip -ErrorAction SilentlyContinue; Compress-Archive -Path dist/* -DestinationPath dist.zip -CompressionLevel Fastest\" && az webapp deployment source config-zip --resource-group DefaultResourceGroup-EUS --name emanuEl-resourceScheduler --src dist.zip"
   },
   "dependencies": {
     "@azure/app-configuration": "^1.9.0",
