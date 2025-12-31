@@ -11,6 +11,7 @@ import { logger } from '../utils/logger';
 import MultiSelect from './MultiSelect';
 import EventSearchExport from './EventSearchExport';
 import CalendarSelector from './CalendarSelector';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './EventSearch.css';
 import APP_CONFIG from '../config/config';
 import { useTimezone } from '../context/TimezoneContext';
@@ -902,7 +903,7 @@ function EventSearchInner({
         <div className="search-results-column">
           <div className="search-results">
             {isLoading || isFetching ? (
-              <div className="loading-indicator">Searching...</div>
+              <LoadingSpinner minHeight={200} />
             ) : searchResults.length > 0 ? (
               <>
                 {/* Load More button at the TOP of the results list */}

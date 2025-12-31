@@ -1,6 +1,6 @@
 // src/components/CalendarConfigAdmin.jsx
 import React, { useState, useEffect } from 'react';
-import { RotatingLines } from 'react-loader-spinner';
+import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './CalendarConfigAdmin.css';
@@ -173,15 +173,7 @@ export default function CalendarConfigAdmin({ apiToken }) {
   if (loading) {
     return (
       <div className="calendar-config-admin">
-        <div className="calendar-config-loading">
-          <RotatingLines
-            strokeColor="#007bff"
-            strokeWidth="5"
-            animationDuration="0.75"
-            width="64"
-            visible={true}
-          />
-        </div>
+        <LoadingSpinner />
       </div>
     );
   }

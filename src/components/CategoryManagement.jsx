@@ -1,5 +1,6 @@
 // src/components/CategoryManagement.jsx
 import React, { useState, useEffect } from 'react';
+import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './CategoryManagement.css';
@@ -164,7 +165,7 @@ export default function CategoryManagement({ apiToken }) {
   };
 
   if (loading) {
-    return <div className="category-management-loading">Loading categories...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

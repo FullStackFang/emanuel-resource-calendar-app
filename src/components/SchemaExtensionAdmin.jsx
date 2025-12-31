@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { msalConfig } from '../config/authConfig';
 import { logger } from '../utils/logger';
+import LoadingSpinner from './shared/LoadingSpinner';
 
 function SchemaExtensionAdmin({ accessToken }) {
   // State for extensions and form
@@ -390,7 +391,7 @@ function SchemaExtensionAdmin({ accessToken }) {
         <div className="admin-section extensions-section">
           <h3>Existing Schema Extensions</h3>
           {loading ? (
-            <div className="loading">Loading schema extensions...</div>
+            <LoadingSpinner />
           ) : extensions.length === 0 ? (
             <div className="no-data">No schema extensions found</div>
           ) : (

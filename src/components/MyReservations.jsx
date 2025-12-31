@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import LoadingSpinner from './shared/LoadingSpinner';
 import CommunicationHistory from './CommunicationHistory';
 import './MyReservations.css';
 
@@ -178,7 +179,7 @@ export default function MyReservations({ apiToken }) {
   }
 
   if (loading && allReservations.length === 0) {
-    return <div className="my-reservations loading">Loading your reservation requests...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

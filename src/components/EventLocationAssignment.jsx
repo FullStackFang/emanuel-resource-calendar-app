@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './EventLocationAssignment.css';
 
 const EventLocationAssignment = ({ apiToken }) => {
@@ -134,10 +135,7 @@ const EventLocationAssignment = ({ apiToken }) => {
   if (loading && unassignedStrings.length === 0) {
     return (
       <div className="event-location-assignment">
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p>Loading unassigned location strings...</p>
-        </div>
+        <LoadingSpinner />
       </div>
     );
   }

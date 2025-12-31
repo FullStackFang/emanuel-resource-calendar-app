@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './CSVImportWithMapping.css';
 
 const IMPORT_STEPS = [
@@ -437,7 +438,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
               style={{ display: 'none' }}
             />
 
-            {analyzing && <p>Analyzing file...</p>}
+            {analyzing && <LoadingSpinner minHeight={100} size={40} />}
 
             {csvHeaders.length > 0 && (
               <div className="analysis-results">
@@ -468,7 +469,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
               {syncToCalendar && (
                 <div className="calendar-dropdown">
                   {loadingCalendars ? (
-                    <p>Loading calendars...</p>
+                    <LoadingSpinner minHeight={100} size={40} />
                   ) : (
                     <select
                       value={selectedCalendarId}
@@ -557,7 +558,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
             <h3>Preview Import</h3>
 
             {previewing ? (
-              <p>Generating preview...</p>
+              <LoadingSpinner minHeight={100} size={40} />
             ) : previewData ? (
               <div className="preview-section">
                 <div className="preview-summary">

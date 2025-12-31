@@ -7,6 +7,7 @@ import CSVImport from './CSVImport';
 import CSVImportWithMapping from './CSVImportWithMapping';
 import CSVImportWithCalendar from './CSVImportWithCalendar';
 import EventDetailsModal from './EventDetailsModal';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Admin.css';
 import './UnifiedEventsAdmin.css';
 
@@ -351,7 +352,7 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
   // Render overview tab
   const renderOverview = () => {
     if (!overview) {
-      return <div className="loading">Loading overview...</div>;
+      return <LoadingSpinner />;
     }
 
     const { counts, deltaTokens } = overview;
@@ -475,7 +476,7 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         {/* Events Table */}
         <div className="events-table-container">
           {loading ? (
-            <div className="loading">Loading events...</div>
+            <LoadingSpinner minHeight={200} />
           ) : events.length > 0 ? (
             <table className="unified-events-table">
               <thead>
@@ -1533,7 +1534,7 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
 
       {/* Tab Content */}
       <div className="tab-content">
-        {loading && <div className="loading-overlay">Loading...</div>}
+        {loading && <div className="loading-overlay"><LoadingSpinner minHeight={100} size={40} /></div>}
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'events' && renderEvents()}
         {activeTab === 'csv-import' && <CSVImport apiToken={apiToken} availableCalendars={availableCalendars} />}

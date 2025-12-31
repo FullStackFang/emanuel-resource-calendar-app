@@ -11,6 +11,7 @@ import VirtualMeetingModal from './VirtualMeetingModal';
 import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
+import LoadingSpinner from './shared/LoadingSpinner';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import { extractTextFromHtml } from '../utils/textUtils';
 import './RoomReservationForm.css';
@@ -1340,13 +1341,13 @@ export default function RoomReservationFormBase({
             )}
 
             {checkingAvailability && (
-              <div className="loading-message">Checking availability...</div>
+              <LoadingSpinner minHeight={100} size={40} />
             )}
 
             <div className="room-selection-container">
               <div className="room-cards-section">
                 {roomsLoading ? (
-                  <div className="loading-message">Loading locations...</div>
+                  <LoadingSpinner minHeight={100} size={40} />
                 ) : rooms.length === 0 ? (
                   <div className="no-rooms-message">
                     No locations available. Please contact the office for assistance.

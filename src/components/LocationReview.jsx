@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useLocations } from '../context/LocationContext';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './LocationReview.css';
 
 export default function LocationReview({ apiToken }) {
@@ -531,7 +532,7 @@ export default function LocationReview({ apiToken }) {
   };
 
   if (loading) {
-    return <div className="location-review loading">Loading location data...</div>;
+    return <LoadingSpinner />;
   }
   
   return (

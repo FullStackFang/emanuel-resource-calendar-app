@@ -1,6 +1,7 @@
 // src/components/UserAdmin.jsx
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Admin.css'; // Assuming you have similar styling for admin pages
 import APP_CONFIG from '../config/config';
 
@@ -300,7 +301,7 @@ export default function UserAdmin({ apiToken }) {
   const currentUserEmail = accounts.length > 0 ? accounts[0].username : '';
 
   if (loading && users.length === 0) {
-    return <div className="admin-loading">Loading users...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

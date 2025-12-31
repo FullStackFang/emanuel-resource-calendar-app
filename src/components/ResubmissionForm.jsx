@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import RoomTimeline from './RoomTimeline';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './ResubmissionForm.css';
 
 export default function ResubmissionForm({ apiToken }) {
@@ -471,7 +472,7 @@ export default function ResubmissionForm({ apiToken }) {
           )}
           
           {checkingAvailability && (
-            <div className="loading-message">Checking availability...</div>
+            <LoadingSpinner minHeight={100} size={40} />
           )}
           
           <div className="room-grid">
@@ -574,7 +575,7 @@ export default function ResubmissionForm({ apiToken }) {
           </div>
           
           {roomsLoading && (
-            <div className="loading-message">Loading available rooms...</div>
+            <LoadingSpinner minHeight={100} size={40} />
           )}
           
           {!roomsLoading && rooms.length === 0 && (

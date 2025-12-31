@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import eventDataService from '../services/eventDataService';
 import './EventSyncAdmin.css';
-import './Admin.css'; 
+import './Admin.css';
 import CalendarSelector from './CalendarSelector';
 import APP_CONFIG from '../config/config';
+import LoadingSpinner from './shared/LoadingSpinner';
 
 export default function EventSyncAdmin({ 
   graphToken, 
@@ -159,10 +160,7 @@ export default function EventSyncAdmin({
       
       {/* Loading spinner for initial load */}
       {loading && !syncStatus && (
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p>Loading sync status...</p>
-        </div>
+        <LoadingSpinner />
       )}
       
       {/* Sync Status */}

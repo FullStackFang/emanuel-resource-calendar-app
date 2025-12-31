@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
 import ReviewModal from './shared/ReviewModal';
@@ -876,7 +877,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   }
 
   if (loading && allReservations.length === 0) {
-    return <div className="reservation-requests loading">Loading reservation requests...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

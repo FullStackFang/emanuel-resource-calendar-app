@@ -1,5 +1,6 @@
 // src/components/shared/ReviewModal.jsx
 import React, { useEffect, useCallback, useState } from 'react';
+import LoadingSpinner from './LoadingSpinner';
 import './ReviewModal.css';
 
 /**
@@ -369,10 +370,7 @@ export default function ReviewModal({
           {/* Loading Overlay for Series Navigation */}
           {isNavigating && (
             <div className="navigation-loading-overlay">
-              <div className="navigation-loading-spinner">
-                <div className="spinner"></div>
-                <div className="loading-text">Loading event...</div>
-              </div>
+              <LoadingSpinner minHeight={100} size={40} />
             </div>
           )}
         </div>

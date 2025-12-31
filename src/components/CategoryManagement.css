@@ -33,12 +33,6 @@
   background-color: #106ebe;
 }
 
-.category-management-loading {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-}
-
 .error-message {
   background-color: #fee;
   color: #c00;

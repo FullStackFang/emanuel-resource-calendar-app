@@ -42,8 +42,7 @@
   font-size: 12px;
 }
 
-/* Loading and Error States */
-.audit-history-loading,
+/* Error and Empty States */
 .audit-history-error,
 .audit-history-empty {
   display: flex;
@@ -55,7 +54,6 @@
   color: #5f6368;
 }
 
-.loading-spinner,
 .error-icon,
 .empty-icon {
   font-size: 24px;

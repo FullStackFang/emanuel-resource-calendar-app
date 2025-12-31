@@ -1,12 +1,13 @@
 // src/components/Settings.jsx
 import React from 'react';
 import { useUserPreferences } from '../hooks/useUserPreferences';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Settings.css';
 
 export default function Settings() {
   const { prefs, loading, updatePrefs } = useUserPreferences();
 
-  if (loading) return <div className="settings-loading">Loading settings…</div>;
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="settings-container">

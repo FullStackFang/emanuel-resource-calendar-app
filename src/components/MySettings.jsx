@@ -1,6 +1,7 @@
 // src/components/MySettings.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
 
@@ -207,7 +208,7 @@ export default function MySettings({ apiToken }) {
 
   // Show loading indicator
   if (loading && !userProfile) {
-    return <div className="settings-loading">Loading your settings...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

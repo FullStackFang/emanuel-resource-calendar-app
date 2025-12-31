@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useUserPreferences } from '../hooks/useUserPreferences';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
 
@@ -250,7 +251,7 @@ export default function UserSettingsManager() {
   }, [prefs, selectedUser]);
 
   if (loading) {
-    return <div className="settings-loading">Loading user settings...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import './Admin.css';
 import './EmailTestAdmin.css';
@@ -401,7 +402,7 @@ export default function EmailTestAdmin({ apiToken }) {
 
   const renderConfigStatus = () => {
     if (configLoading) {
-      return <div className="admin-loading">Loading configuration...</div>;
+      return <LoadingSpinner minHeight={150} />;
     }
 
     if (!emailConfig) {
@@ -554,7 +555,7 @@ export default function EmailTestAdmin({ apiToken }) {
           </p>
 
           {templatesLoading ? (
-            <div className="admin-loading">Loading templates...</div>
+            <LoadingSpinner minHeight={150} />
           ) : (
             <div className="template-list">
               {templates.map((template) => (

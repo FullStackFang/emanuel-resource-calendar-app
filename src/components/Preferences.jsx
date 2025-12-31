@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { loadUserPreferences, saveUserPreferences } from '../services/userPreferencesService';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './Preferences.css'; 
 
 function Preferences({ accessToken }) {
@@ -83,7 +84,7 @@ function Preferences({ accessToken }) {
   };
 
   if (isLoading) {
-    return <div className="loading">Loading preferences...</div>;
+    return <LoadingSpinner />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RotatingLines } from 'react-loader-spinner';
+import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './ReservationAuditHistory.css';
@@ -144,18 +144,7 @@ const ReservationAuditHistory = ({ reservationId, apiToken, refreshTrigger }) =>
   };
 
   if (loading) {
-    return (
-      <div className="reservation-audit-history-loading">
-        <RotatingLines
-          strokeColor="#007bff"
-          strokeWidth="5"
-          animationDuration="0.75"
-          width="40"
-          visible={true}
-        />
-        <div>Loading reservation history...</div>
-      </div>
-    );
+    return <LoadingSpinner minHeight={150} />;
   }
 
   if (error) {

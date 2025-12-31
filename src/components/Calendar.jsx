@@ -27,6 +27,7 @@
   import { useReviewModal } from '../hooks/useReviewModal';
   import ReviewModal from './shared/ReviewModal';
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
+  import LoadingSpinner from './shared/LoadingSpinner';
   import RoomReservationReview from './RoomReservationReview';
     // import { getCalendars } from '../services/graphService';
   import { 
@@ -5229,7 +5230,7 @@
       return (
         <div className="loading-overlay">
           <div className="loading-content">
-            <div className="loading-spinner"></div>
+            <LoadingSpinner size={64} minHeight={100} />
             <p>{loadingText}</p>
           </div>
         </div>

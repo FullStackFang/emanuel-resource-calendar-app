@@ -318,13 +318,6 @@
   text-transform: uppercase;
 }
 
-.calendar-config-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-}
-
 /* Allowed Display Calendars Section */
 .allowed-calendars-section {
   margin-top: 24px;

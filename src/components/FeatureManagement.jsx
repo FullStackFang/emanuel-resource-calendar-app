@@ -1,6 +1,7 @@
 // src/components/FeatureManagement.jsx
 import React, { useState, useEffect } from 'react';
 import featureConfigService from '../services/featureConfigService';
+import LoadingSpinner from './shared/LoadingSpinner';
 import { logger } from '../utils/logger';
 import './FeatureManagement.css';
 
@@ -228,7 +229,7 @@ export default function FeatureManagement({ apiToken }) {
   if (loading) {
     return (
       <div className="feature-management">
-        <div className="loading">Loading feature configuration...</div>
+        <LoadingSpinner />
       </div>
     );
   }

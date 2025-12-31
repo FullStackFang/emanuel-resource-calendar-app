@@ -1,6 +1,7 @@
 // src/components/CategorySelectorModal.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './CategorySelectorModal.css';
 
 /**
@@ -121,7 +122,7 @@ export default function CategorySelectorModal({
         {/* Content */}
         <div className="category-modal-content">
           {loading ? (
-            <div className="category-loading">Loading categories...</div>
+            <LoadingSpinner minHeight={150} size={40} />
           ) : error ? (
             <div className="category-error">
               <p>{error}</p>
