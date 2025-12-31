@@ -20,17 +20,23 @@
 
 .add-category-btn {
   padding: 10px 20px;
-  background-color: #0078d4;
+  background-color: #1a73e8;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.9rem;
   font-weight: 500;
+  transition: all 0.2s ease;
 }
 
 .add-category-btn:hover {
-  background-color: #106ebe;
+  background-color: #1557b0;
+}
+
+.add-category-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .error-message {
@@ -44,8 +50,9 @@
 
 .categories-list {
   background: white;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
 }
 
@@ -55,24 +62,25 @@
 }
 
 .categories-table thead {
-  background-color: #f8f8f8;
+  background-color: #f9fafb;
 }
 
 .categories-table th {
   padding: 12px;
   text-align: left;
   font-weight: 600;
-  color: #333;
-  border-bottom: 2px solid #e0e0e0;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .categories-table td {
   padding: 12px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
 }
 
 .categories-table tbody tr:hover {
-  background-color: #f8f8f8;
+  background-color: #f9fafb;
 }
 
 .color-swatch {
@@ -93,11 +101,12 @@
 }
 
 .category-type-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   text-transform: uppercase;
+  letter-spacing: 0.025em;
 }
 
 .category-type-badge.base {
@@ -115,52 +124,70 @@
   gap: 8px;
 }
 
-.edit-btn,
-.delete-btn,
-.save-btn,
-.cancel-btn {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
+.category-management .edit-btn,
+.category-management .delete-btn,
+.category-management .save-btn,
+.category-management .cancel-btn {
+  padding: 6px 12px !important;
+  border: none !important;
+  border-radius: 4px !important;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 0.85rem !important;
   font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
-.edit-btn {
-  background-color: #0078d4;
-  color: white;
+.category-management .edit-btn:hover,
+.category-management .delete-btn:hover,
+.category-management .save-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.edit-btn:hover {
-  background-color: #106ebe;
+.category-management .edit-btn:disabled,
+.category-management .delete-btn:disabled,
+.category-management .save-btn:disabled,
+.category-management .cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.delete-btn {
-  background-color: #d13438;
-  color: white;
+.category-management .edit-btn {
+  background-color: #1a73e8 !important;
+  color: white !important;
 }
 
-.delete-btn:hover {
-  background-color: #a62d30;
+.category-management .edit-btn:hover {
+  background-color: #1557b0 !important;
 }
 
-.save-btn {
-  background-color: #107c10;
-  color: white;
+.category-management .delete-btn {
+  background-color: #d93025 !important;
+  color: white !important;
 }
 
-.save-btn:hover {
-  background-color: #0d5c0d;
+.category-management .delete-btn:hover {
+  background-color: #b7241c !important;
 }
 
-.cancel-btn {
-  background-color: #f3f3f3;
-  color: #333;
+.category-management .save-btn {
+  background-color: #1e8e3e !important;
+  color: white !important;
 }
 
-.cancel-btn:hover {
-  background-color: #e0e0e0;
+.category-management .save-btn:hover {
+  background-color: #137333 !important;
+}
+
+.category-management .cancel-btn {
+  background-color: #f3f3f3 !important;
+  color: #333 !important;
+}
+
+.category-management .cancel-btn:hover {
+  background-color: #e0e0e0 !important;
 }
 
 .no-categories {
