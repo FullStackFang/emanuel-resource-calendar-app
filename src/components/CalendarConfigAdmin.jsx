@@ -16,6 +16,11 @@ export default function CalendarConfigAdmin({ apiToken }) {
   const [lastModifiedAt, setLastModifiedAt] = useState(null);
   const [selectedCalendar, setSelectedCalendar] = useState('');
 
+  // Allowed display calendars state
+  const [allowedDisplayCalendars, setAllowedDisplayCalendars] = useState([]);
+  const [selectedAllowedCalendars, setSelectedAllowedCalendars] = useState([]);
+  const [savingAllowedCalendars, setSavingAllowedCalendars] = useState(false);
+
   useEffect(() => {
     loadCalendarSettings();
   }, []);
@@ -42,6 +47,10 @@ export default function CalendarConfigAdmin({ apiToken }) {
       setCalendarIds(data.calendarIds);
       setLastModifiedBy(data.lastModifiedBy);
       setLastModifiedAt(data.lastModifiedAt);
+
+      // Load allowed display calendars
+      setAllowedDisplayCalendars(data.allowedDisplayCalendars || []);
+      setSelectedAllowedCalendars(data.allowedDisplayCalendars || []);
 
     } catch (err) {
       logger.error('Error loading calendar settings:', err);
@@ -99,6 +108,67 @@ export default function CalendarConfigAdmin({ apiToken }) {
     setError('');
     setSuccess('');
   };
+
+  // Handle saving allowed display calendars
+  const handleSaveAllowedCalendars = async () => {
+    try {
+      setError('');
+      setSuccess('');
+      setSavingAllowedCalendars(true);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-display-settings`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          allowedDisplayCalendars: selectedAllowedCalendars
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Failed to update: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setAllowedDisplayCalendars(data.allowedDisplayCalendars);
+      setSuccess('Allowed display calendars updated successfully!');
+
+      logger.info('Allowed display calendars updated:', data.allowedDisplayCalendars);
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(''), 3000);
+
+    } catch (err) {
+      logger.error('Error updating allowed display calendars:', err);
+      setError(err.message);
+    } finally {
+      setSavingAllowedCalendars(false);
+    }
+  };
+
+  const handleCancelAllowedCalendars = () => {
+    setSelectedAllowedCalendars(allowedDisplayCalendars);
+    setError('');
+    setSuccess('');
+  };
+
+  // Toggle a calendar in the allowed list
+  const toggleAllowedCalendar = (calendar) => {
+    setSelectedAllowedCalendars(prev => {
+      if (prev.includes(calendar)) {
+        return prev.filter(c => c !== calendar);
+      } else {
+        return [...prev, calendar];
+      }
+    });
+  };
+
+  // Check if allowed calendars have changed
+  const allowedCalendarsChanged = JSON.stringify([...selectedAllowedCalendars].sort()) !==
+                                   JSON.stringify([...allowedDisplayCalendars].sort());
 
   if (loading) {
     return (
@@ -202,6 +272,56 @@ export default function CalendarConfigAdmin({ apiToken }) {
             {new Date(lastModifiedAt).toLocaleString()}
           </div>
         )}
+
+        {/* Allowed Display Calendars Section */}
+        <div className="setting-group allowed-calendars-section">
+          <h3>Allowed Display Calendars</h3>
+          <p className="setting-description">
+            Select which calendars should appear in the main calendar selector dropdown.
+            Users will only see calendars from this list that they have access to.
+          </p>
+
+          <div className="calendar-checkbox-list">
+            {availableCalendars.map((calendar) => (
+              <label key={calendar} className="calendar-checkbox-item">
+                <input
+                  type="checkbox"
+                  checked={selectedAllowedCalendars.includes(calendar)}
+                  onChange={() => toggleAllowedCalendar(calendar)}
+                  disabled={savingAllowedCalendars}
+                />
+                <span className="calendar-name">{calendar}</span>
+                {allowedDisplayCalendars.includes(calendar) && (
+                  <span className="currently-allowed-badge">Currently allowed</span>
+                )}
+              </label>
+            ))}
+          </div>
+
+          <div className="action-buttons">
+            <button
+              className="btn-primary"
+              onClick={handleSaveAllowedCalendars}
+              disabled={!allowedCalendarsChanged || savingAllowedCalendars}
+            >
+              {savingAllowedCalendars ? 'Saving...' : 'Save Display Settings'}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={handleCancelAllowedCalendars}
+              disabled={!allowedCalendarsChanged || savingAllowedCalendars}
+            >
+              Cancel
+            </button>
+          </div>
+
+          {selectedAllowedCalendars.length === 0 && (
+            <div className="warning-message">
+              <span className="warning-icon">Warning:</span>
+              No calendars selected. All calendars will be shown if no allowed calendars are configured.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="info-panel">

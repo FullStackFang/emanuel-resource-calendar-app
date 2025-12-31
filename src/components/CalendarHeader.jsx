@@ -93,6 +93,7 @@ const CalendarHeader = ({
   availableCalendars,
   onCalendarChange,
   changingCalendar,
+  calendarAccessError,
 
   // User preferences update
   updateUserProfilePreferences
@@ -187,6 +188,7 @@ const CalendarHeader = ({
                 availableCalendars={availableCalendars}
                 onCalendarChange={onCalendarChange}
                 changingCalendar={changingCalendar}
+                accessError={calendarAccessError}
               />
             </div>
 

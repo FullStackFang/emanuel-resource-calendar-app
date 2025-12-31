@@ -1,11 +1,22 @@
 // src/components/CalendarSelector.jsx
 import React from 'react';
+import './CalendarSelector.css';
 
 /**
  * CalendarSelector - Dropdown for selecting which calendar to display
  * Now integrated into CalendarHeader toolbar styling
  */
-function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarChange, changingCalendar }) {
+function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarChange, changingCalendar, accessError }) {
+  // Show error message if user has no access to any allowed calendars
+  if (accessError) {
+    return (
+      <div className="calendar-selector-error" title={accessError}>
+        <span className="error-icon">!</span>
+        <span className="error-text">No calendar access</span>
+      </div>
+    );
+  }
+
   if (!availableCalendars || availableCalendars.length === 0) {
     return null;
   }

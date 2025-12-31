@@ -3559,10 +3559,25 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     }
 
     // STEP 2: Fetch from Graph API and merge with cache
-    logger.log('📡 STEP 2: Fetching events from Graph API...');
+    // Check if Graph sync is disabled in config
+    const fs = require('fs');
+    const path = require('path');
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    let disableGraphSync = false;
+    try {
+      const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+      disableGraphSync = calendarConfig.disableGraphSync === true;
+    } catch (configError) {
+      logger.warn('Could not read calendar config for disableGraphSync setting:', configError.message);
+    }
+
     const newGraphEvents = []; // Events from Graph not in cache
 
-    if (startTime && endTime && graphToken) {
+    if (disableGraphSync) {
+      logger.log('📡 STEP 2: Graph sync DISABLED - loading from MongoDB only');
+      loadResults.strategy = 'mongodb-only';
+    } else if (startTime && endTime && graphToken) {
+      logger.log('📡 STEP 2: Fetching events from Graph API...');
       logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime}, graphToken: ${!!graphToken})`);
 
       for (const { calendarOwner, calendarId } of calendarsToLoad) {
@@ -5906,8 +5921,8 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
     const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
 
-    // Remove the _instructions field
-    const { _instructions, ...calendars } = calendarConfig;
+    // Remove the _instructions and allowedDisplayCalendars fields from calendar mappings
+    const { _instructions, allowedDisplayCalendars, ...calendars } = calendarConfig;
 
     // Get current default calendar setting from database
     let settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
@@ -5927,6 +5942,7 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
       defaultCalendar: settings.defaultCalendar,
       availableCalendars: Object.keys(calendars),
       calendarIds: calendars,
+      allowedDisplayCalendars: allowedDisplayCalendars || [],
       lastModifiedBy: settings.lastModifiedBy,
       lastModifiedAt: settings.lastModifiedAt
     });
@@ -5999,6 +6015,101 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error updating calendar settings:', error);
     res.status(500).json({ error: 'Failed to update calendar settings' });
+  }
+});
+
+/**
+ * Public endpoint - Get allowed display calendars for calendar selector
+ * This is NOT admin-only because regular users need to know which calendars they can view
+ */
+app.get('/api/calendar-display-config', verifyToken, async (req, res) => {
+  try {
+    // Load calendar-config.json
+    const fs = require('fs');
+    const path = require('path');
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+
+    // Get allowed display calendars (default to empty array if not configured)
+    const allowedDisplayCalendars = calendarConfig.allowedDisplayCalendars || [];
+
+    // Get calendar IDs for the allowed calendars
+    const { _instructions, allowedDisplayCalendars: _, ...calendarMappings } = calendarConfig;
+
+    const allowedCalendarIds = {};
+    allowedDisplayCalendars.forEach(email => {
+      if (calendarMappings[email]) {
+        allowedCalendarIds[email] = calendarMappings[email];
+      }
+    });
+
+    res.json({
+      allowedDisplayCalendars,
+      calendarIds: allowedCalendarIds
+    });
+
+  } catch (error) {
+    logger.error('Error getting calendar display config:', error);
+    res.status(500).json({ error: 'Failed to get calendar display config' });
+  }
+});
+
+/**
+ * Admin endpoint - Update allowed display calendars
+ * Updates which calendars appear in the main calendar selector dropdown
+ */
+app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { allowedDisplayCalendars } = req.body;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!Array.isArray(allowedDisplayCalendars)) {
+      return res.status(400).json({ error: 'allowedDisplayCalendars must be an array' });
+    }
+
+    // Load current config
+    const fs = require('fs');
+    const path = require('path');
+    const calendarConfigPath = path.join(__dirname, 'calendar-config.json');
+    const calendarConfig = JSON.parse(fs.readFileSync(calendarConfigPath, 'utf8'));
+
+    // Validate that all specified calendars exist in config
+    const { _instructions, allowedDisplayCalendars: _, ...existingCalendars } = calendarConfig;
+    const invalidCalendars = allowedDisplayCalendars.filter(email => !existingCalendars[email]);
+
+    if (invalidCalendars.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid calendars specified',
+        invalidCalendars
+      });
+    }
+
+    // Update config file
+    calendarConfig.allowedDisplayCalendars = allowedDisplayCalendars;
+    fs.writeFileSync(calendarConfigPath, JSON.stringify(calendarConfig, null, 2));
+
+    logger.info('Allowed display calendars updated:', {
+      allowedDisplayCalendars,
+      updatedBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      allowedDisplayCalendars
+    });
+
+  } catch (error) {
+    logger.error('Error updating allowed display calendars:', error);
+    res.status(500).json({ error: 'Failed to update allowed display calendars' });
   }
 });
 

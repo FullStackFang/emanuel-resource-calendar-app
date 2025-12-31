@@ -1,0 +1,30 @@
+/* CalendarSelector.css */
+
+.calendar-selector-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c00;
+  font-size: 13px;
+}
+
+.calendar-selector-error .error-icon {
+  background-color: #c00;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.calendar-selector-error .error-text {
+  white-space: nowrap;
+}

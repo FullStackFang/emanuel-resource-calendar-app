@@ -97,7 +97,10 @@
       extensions: true,
       events: true
     });
-    
+
+    // Calendar access error (when user has no access to any allowed calendars)
+    const [calendarAccessError, setCalendarAccessError] = useState(null);
+
     // Core calendar data
     const [allEvents, setAllEventsState] = useState([]);
     // Ref to always have access to current allEvents in callbacks (prevents stale closure)
@@ -1031,23 +1034,48 @@
     // NOTE: loadBaseCategories and loadOutlookCategories have been replaced by TanStack Query hooks
     // useBaseCategoriesQuery and useOutlookCategoriesQuery (see state declarations above)
 
+    // Helper function to fetch allowed calendars configuration from backend
+    const fetchAllowedCalendarsConfig = useCallback(async () => {
+      if (!apiToken) return null;
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/calendar-display-config`, {
+          headers: {
+            Authorization: `Bearer ${apiToken}`
+          }
+        });
+
+        if (!response.ok) {
+          logger.warn('Failed to fetch allowed calendars config, showing all calendars');
+          return null;
+        }
+
+        return await response.json();
+      } catch (error) {
+        logger.error('Error fetching allowed calendars config:', error);
+        return null;
+      }
+    }, [apiToken]);
+
     // Loads the current user's available calendars (both owned and shared)
+    // Filters to only show admin-configured allowed calendars
     const loadAvailableCalendars = useCallback(async () => {
       if (!graphToken) return [];
-      
+
       try {
+        // Fetch all calendars from Graph API
         const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,owner,canEdit,isDefaultCalendar&$orderby=name', {
           headers: {
             Authorization: `Bearer ${graphToken}`
           }
         });
-        
+
         if (!response.ok) {
           throw new Error('Failed to fetch calendars');
         }
-        
+
         const data = await response.json();
-        const calendars = data.value.map(calendar => ({
+        let calendars = data.value.map(calendar => ({
           id: calendar.id,
           name: calendar.name,
           owner: calendar.owner,  // Keep full owner object for shared calendars
@@ -1056,16 +1084,40 @@
           // Determine if shared based on owner info
           isShared: calendar.owner && calendar.owner.address && !calendar.isDefaultCalendar || false
         }));
-        
+
+        // Fetch allowed calendars configuration from backend
+        const allowedConfig = await fetchAllowedCalendarsConfig();
+
+        if (allowedConfig && allowedConfig.allowedDisplayCalendars && allowedConfig.allowedDisplayCalendars.length > 0) {
+          // Filter calendars to only include those in the allowed list
+          const allowedEmails = allowedConfig.allowedDisplayCalendars.map(e => e.toLowerCase());
+
+          calendars = calendars.filter(cal => {
+            const ownerEmail = cal.owner?.address?.toLowerCase();
+            return ownerEmail && allowedEmails.includes(ownerEmail);
+          });
+
+          // Check if user has access to any allowed calendars
+          if (calendars.length === 0) {
+            logger.warn('User does not have access to any allowed calendars');
+            setCalendarAccessError('You do not have access to any configured calendars. Please contact your administrator.');
+          } else {
+            setCalendarAccessError(null);
+          }
+        } else {
+          // No allowed calendars configured - clear any previous error
+          setCalendarAccessError(null);
+        }
+
         // Update parent state with calendars
         setAvailableCalendars(calendars);
-        
+
         return calendars;
       } catch (error) {
         logger.error('Error fetching calendars:', error);
         return [];
       }
-    }, [graphToken, setAvailableCalendars]);
+    }, [graphToken, apiToken, setAvailableCalendars, fetchAllowedCalendarsConfig]);
 
     /**
      * TBD
@@ -1358,9 +1410,10 @@
           return false;
         } else {
           // No events returned but no errors - this might be legitimate (empty calendar)
-          // Only clear events if this was explicitly a successful empty result
-          if (loadResult.source === 'regular_load' && loadResult.loadResults?.totalEvents === 0) {
+          // Clear events when 0 events returned, regardless of loading strategy
+          if (loadResult.loadResults?.totalEvents === 0) {
             setAllEvents([]);
+            logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
             return true;
           } else {
             logger.warn('loadEventsUnified: No events returned, keeping existing events');
@@ -5263,6 +5316,7 @@
           availableCalendars={availableCalendars}
           onCalendarChange={setSelectedCalendarId}
           changingCalendar={changingCalendar}
+          calendarAccessError={calendarAccessError}
           updateUserProfilePreferences={updateUserProfilePreferences}
         />
 

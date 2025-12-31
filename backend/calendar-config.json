@@ -1,5 +1,10 @@
 {
   "_instructions": "Add your calendars here. Get the calendar ID from MongoDB Compass (calendarId field) or frontend console",
+  "disableGraphSync": true,
+  "allowedDisplayCalendars": [
+    "TempleEventsSandbox@emanuelnyc.org",
+    "TempleEvents@emanuelnyc.org"
+  ],
   "stephen.fang@emanuelnyc.org": "AAMkADgwMDdhZjYzLWM0NmEtNDkwMS1iNDE5LTVhNDU1MTdhMTZiZABGAAAAAACfSy_DEMqQRoVhNzy5-0oVBwDD2Ip2-foaTaGvZlaNMb4-AAAAAAEGAADD2Ip2-foaTaGvZlaNMb4-AAABix-xAAA=",
   "TempleEvents@emanuelnyc.org": "AAMkADgwMDdhZjYzLWM0NmEtNDkwMS1iNDE5LTVhNDU1MTdhMTZiZABGAAAAAACfSy_DEMqQRoVhNzy5-0oVBwDD2Ip2-foaTaGvZlaNMb4-AAAAAAEGAADD2Ip2-foaTaGvZlaNMb4-AALX9NflAAA=" ,
   "TempleEventsSandbox@emanuelnyc.org": "AAMkADgwMDdhZjYzLWM0NmEtNDkwMS1iNDE5LTVhNDU1MTdhMTZiZABGAAAAAACfSy_DEMqQRoVhNzy5-0oVBwDD2Ip2-foaTaGvZlaNMb4-AAAAAAEGAADD2Ip2-foaTaGvZlaNMb4-AALftN6zAAA=",
