@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node api-server.js",
     "dev": "nodemon api-server.js",
-    "deploy": "powershell -Command \"Get-ChildItem -Exclude node_modules | Compress-Archive -DestinationPath backend.zip -Force\" && az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --src-path backend.zip --type zip"
+    "deploy": "powershell -Command \"@{commit=$(git rev-parse --short HEAD);buildTime=(Get-Date -Format o)} | ConvertTo-Json | Out-File -Encoding utf8 build-info.json; Get-ChildItem -Exclude node_modules | Compress-Archive -DestinationPath backend.zip -Force\" && az webapp deploy --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --src-path backend.zip --type zip"
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.3",

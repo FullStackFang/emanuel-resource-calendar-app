@@ -10238,6 +10238,27 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'API is running' });
 });
 
+// Version info endpoint - shows deployed version
+app.get('/api/version', (req, res) => {
+  const packageJson = require('./package.json');
+  let buildInfo = { commit: 'dev', buildTime: null };
+
+  // Try to read build-info.json (generated during deploy)
+  try {
+    buildInfo = require('./build-info.json');
+  } catch (e) {
+    // File doesn't exist in dev mode, use defaults
+  }
+
+  res.status(200).json({
+    version: packageJson.version,
+    name: packageJson.name,
+    commit: buildInfo.commit || 'dev',
+    buildTime: buildInfo.buildTime || null,
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Get current user (using MSAL token)
 app.get('/api/users/current', verifyToken, async (req, res) => {
   try {

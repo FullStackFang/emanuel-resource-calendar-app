@@ -28,3 +28,5 @@ dist-ssr
 
 # Distribution files
 dist.zip
+backend.zip
+build-info.json
