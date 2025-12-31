@@ -5,7 +5,8 @@
   "main": "api-server.js",
   "scripts": {
     "start": "node api-server.js",
-    "dev": "nodemon api-server.js"
+    "dev": "nodemon api-server.js",
+    "deploy": "zip -r backend.zip . -x 'node_modules/*' && az webapp deployment source config-zip --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --src backend.zip"
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.3",
