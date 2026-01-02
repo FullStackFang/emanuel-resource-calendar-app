@@ -1732,25 +1732,37 @@
         }
         
         // Set default calendar if none selected
-        if (!selectedCalendarId) {
-          // First, try to find the configured default calendar by owner email
-          const configuredDefault = calendars.find(cal =>
-            cal.owner?.address?.toLowerCase() === APP_CONFIG.DEFAULT_DISPLAY_CALENDAR.toLowerCase()
-          );
+        if (!selectedCalendarId && calendars.length > 0) {
+          let defaultCalToSelect = null;
 
-          if (configuredDefault) {
-            calendarDebug.logStateChange('selectedCalendarId', null, configuredDefault.id);
-            setSelectedCalendarId(configuredDefault.id);
-          } else {
-            // Fallback to Graph API default or first calendar
-            const defaultCalendar = calendars.find(cal => cal.isDefaultCalendar);
-            if (defaultCalendar) {
-              calendarDebug.logStateChange('selectedCalendarId', null, defaultCalendar.id);
-              setSelectedCalendarId(defaultCalendar.id);
-            } else if (calendars.length > 0) {
-              calendarDebug.logStateChange('selectedCalendarId', null, calendars[0].id);
-              setSelectedCalendarId(calendars[0].id);
-            }
+          // First, try to use the admin-configured default calendar from database
+          const allowedConfig = await fetchAllowedCalendarsConfig();
+          if (allowedConfig?.defaultCalendar) {
+            defaultCalToSelect = calendars.find(cal =>
+              cal.owner?.address?.toLowerCase() === allowedConfig.defaultCalendar.toLowerCase()
+            );
+          }
+
+          // If admin default not found, fallback to APP_CONFIG default
+          if (!defaultCalToSelect) {
+            defaultCalToSelect = calendars.find(cal =>
+              cal.owner?.address?.toLowerCase() === APP_CONFIG.DEFAULT_DISPLAY_CALENDAR.toLowerCase()
+            );
+          }
+
+          // Fallback to Graph API default
+          if (!defaultCalToSelect) {
+            defaultCalToSelect = calendars.find(cal => cal.isDefaultCalendar);
+          }
+
+          // Final fallback to first calendar
+          if (!defaultCalToSelect) {
+            defaultCalToSelect = calendars[0];
+          }
+
+          if (defaultCalToSelect) {
+            calendarDebug.logStateChange('selectedCalendarId', null, defaultCalToSelect.id);
+            setSelectedCalendarId(defaultCalToSelect.id);
           }
         }
         

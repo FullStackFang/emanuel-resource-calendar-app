@@ -6043,9 +6043,14 @@ app.get('/api/calendar-display-config', verifyToken, async (req, res) => {
       }
     });
 
+    // Get default display calendar from database settings
+    const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
+    const defaultCalendar = settings?.defaultCalendar || null;
+
     res.json({
       allowedDisplayCalendars,
-      calendarIds: allowedCalendarIds
+      calendarIds: allowedCalendarIds,
+      defaultCalendar
     });
 
   } catch (error) {

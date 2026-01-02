@@ -38,7 +38,8 @@
       "Bash(netstat:*)",
       "Bash(TZ='Asia/Tokyo' node:*)",
       "Bash(mongosh:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(wc:*)"
     ],
     "deny": []
   }

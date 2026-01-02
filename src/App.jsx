@@ -275,7 +275,7 @@ function App() {
       </div>
         </RoleSimulationProvider>
       </Router>
-      <ReactQueryDevtools initialIsOpen={false} />
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );
 }
