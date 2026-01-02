@@ -64,6 +64,25 @@ export const ROLE_TEMPLATES = {
 // Default permissions for non-simulating users (admin level)
 const DEFAULT_PERMISSIONS = ROLE_TEMPLATES.admin.permissions;
 
+// Helper to get permissions from a role key
+export function getPermissionsForRole(roleKey) {
+  if (roleKey && ROLE_TEMPLATES[roleKey]) {
+    return ROLE_TEMPLATES[roleKey].permissions;
+  }
+  // Default to viewer permissions for unknown roles
+  return ROLE_TEMPLATES.viewer.permissions;
+}
+
+// Helper to derive role from legacy granular permissions (for migration)
+export function getRoleFromLegacyPermissions(preferences) {
+  if (!preferences) return 'viewer';
+
+  if (preferences.isAdmin) return 'admin';
+  if (preferences.createEvents && preferences.editEvents && preferences.deleteEvents) return 'approver';
+  if (preferences.createEvents || preferences.editEvents) return 'requester';
+  return 'viewer';
+}
+
 // Create context
 const RoleSimulationContext = createContext();
 
@@ -72,6 +91,7 @@ export function RoleSimulationProvider({ children }) {
   const { instance, accounts } = useMsal();
   const [simulatedRole, setSimulatedRole] = useState(null);
   const [isActualAdmin, setIsActualAdmin] = useState(false);
+  const [userRole, setUserRole] = useState('viewer'); // User's actual role from database
 
   // Check if the actual user is an admin (can use simulation feature)
   useEffect(() => {
@@ -131,13 +151,15 @@ export function RoleSimulationProvider({ children }) {
     setSimulatedRole(null);
   }, []);
 
-  // Get effective permissions based on simulation state
+  // Get effective permissions based on simulation state and user role
   const getEffectivePermissions = useCallback(() => {
+    // If simulating, use simulated role's permissions
     if (simulatedRole && ROLE_TEMPLATES[simulatedRole]) {
       return ROLE_TEMPLATES[simulatedRole].permissions;
     }
-    return DEFAULT_PERMISSIONS;
-  }, [simulatedRole]);
+    // Otherwise, use user's actual role permissions
+    return getPermissionsForRole(userRole);
+  }, [simulatedRole, userRole]);
 
   // Context value
   const value = {
@@ -148,6 +170,8 @@ export function RoleSimulationProvider({ children }) {
 
     // Actual user status
     isActualAdmin,
+    userRole,
+    setUserRole,
 
     // Actions
     startSimulation,
@@ -188,9 +212,11 @@ export function useRoleSimulationSafe() {
       isSimulating: false,
       simulatedRoleName: null,
       isActualAdmin: false,
+      userRole: 'viewer',
+      setUserRole: () => {},
       startSimulation: () => false,
       endSimulation: () => {},
-      effectivePermissions: DEFAULT_PERMISSIONS,
+      effectivePermissions: ROLE_TEMPLATES.viewer.permissions,
       roleTemplates: ROLE_TEMPLATES
     };
   }

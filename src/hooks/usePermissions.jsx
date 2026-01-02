@@ -2,15 +2,22 @@
 import { useRoleSimulation } from '../context/RoleSimulationContext';
 
 /**
- * Hook to access effective permissions based on role simulation state.
+ * Hook to access effective permissions based on role simulation state and user role.
  * When simulating a role, returns that role's permissions.
- * When not simulating, returns full admin permissions.
+ * When not simulating, returns permissions based on user's actual role from database.
  */
 export function usePermissions() {
-  const { effectivePermissions, isSimulating, simulatedRoleName, isActualAdmin } = useRoleSimulation();
+  const {
+    effectivePermissions,
+    isSimulating,
+    simulatedRoleName,
+    isActualAdmin,
+    userRole,
+    setUserRole
+  } = useRoleSimulation();
 
   return {
-    // Permission flags
+    // Permission flags (derived from user's role or simulated role)
     canViewCalendar: effectivePermissions.canViewCalendar,
     canSubmitReservation: effectivePermissions.canSubmitReservation,
     canCreateEvents: effectivePermissions.canCreateEvents,
@@ -24,7 +31,11 @@ export function usePermissions() {
     simulatedRoleName,
 
     // Actual user status (for showing simulation controls)
-    isActualAdmin
+    isActualAdmin,
+
+    // User's actual role from database
+    userRole,
+    setUserRole
   };
 }
 

@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './Admin.css'; // Assuming you have similar styling for admin pages
 import APP_CONFIG from '../config/config';
+import { ROLE_TEMPLATES } from '../context/RoleSimulationContext';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 // const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
@@ -26,10 +27,7 @@ export default function UserAdmin({ apiToken }) {
       defaultView: 'week',
       defaultGroupBy: 'categories',
       preferredZoomLevel: 100,
-      createEvents: false,
-      editEvents: false,
-      deleteEvents: false,
-      isAdmin: false
+      role: 'viewer' // Default role for new users
     }
   });
   
@@ -197,10 +195,7 @@ export default function UserAdmin({ apiToken }) {
           defaultView: newUser.preferences.defaultView || 'week',
           defaultGroupBy: newUser.preferences.defaultGroupBy || 'categories',
           preferredZoomLevel: newUser.preferences.preferredZoomLevel || 100,
-          createEvents: newUser.preferences.createEvents ?? true,
-          editEvents: newUser.preferences.editEvents ?? true,
-          deleteEvents: newUser.preferences.deleteEvents ?? false,
-          isAdmin: newUser.preferences.isAdmin ?? false
+          role: newUser.preferences.role || 'viewer'
         },
         // Add creation timestamp
         createdAt: new Date().toISOString()
@@ -247,10 +242,7 @@ export default function UserAdmin({ apiToken }) {
           defaultView: 'week',
           defaultGroupBy: 'categories',
           preferredZoomLevel: 100,
-          createEvents: true,
-          editEvents: true,
-          deleteEvents: false,
-          isAdmin: false
+          role: 'viewer'
         }
       });
       setIsCreatingUser(false);
@@ -378,41 +370,18 @@ export default function UserAdmin({ apiToken }) {
           
           <div className="form-row">
             <div className="form-group">
-              <label>Permissions:</label>
-              <div className="checkbox-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.createEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.createEvents', e.target.checked)}
-                  />
-                  Create Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.editEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.editEvents', e.target.checked)}
-                  />
-                  Edit Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.deleteEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.deleteEvents', e.target.checked)}
-                  />
-                  Delete Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.isAdmin}
-                    onChange={(e) => handleNewUserInputChange('preferences.isAdmin', e.target.checked)}
-                  />
-                  Admin Access
-                </label>
-              </div>
+              <label>Role:</label>
+              <select
+                value={newUser.preferences.role || 'viewer'}
+                onChange={(e) => handleNewUserInputChange('preferences.role', e.target.value)}
+                className="role-select"
+              >
+                {Object.entries(ROLE_TEMPLATES).map(([key, template]) => (
+                  <option key={key} value={key}>
+                    {template.name} - {template.description}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           
@@ -443,7 +412,7 @@ export default function UserAdmin({ apiToken }) {
               <th>Email</th>
               <th>Default View</th>
               <th>Start of Week</th>
-              <th>Permissions</th>
+              <th>Role</th>
               <th>Last Login</th>
               <th>Actions</th>
             </tr>
@@ -511,47 +480,21 @@ export default function UserAdmin({ apiToken }) {
                   </td>
                   <td>
                     {editingRows[user._id] ? (
-                      <div className="inline-checkboxes">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.createEvents ?? true}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.createEvents', e.target.checked)}
-                          />
-                          Create
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.editEvents ?? true}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.editEvents', e.target.checked)}
-                          />
-                          Edit
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.deleteEvents ?? false}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.deleteEvents', e.target.checked)}
-                          />
-                          Delete
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.isAdmin ?? false}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.isAdmin', e.target.checked)}
-                          />
-                          Admin
-                        </label>
-                      </div>
+                      <select
+                        value={user.preferences?.role || 'viewer'}
+                        onChange={(e) => handleInputChange(user._id, 'preferences.role', e.target.value)}
+                        className="role-select"
+                      >
+                        {Object.entries(ROLE_TEMPLATES).map(([key, template]) => (
+                          <option key={key} value={key}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
-                      <ul className="permissions-list">
-                        {user.preferences?.createEvents && <li>Create</li>}
-                        {user.preferences?.editEvents && <li>Edit</li>}
-                        {user.preferences?.deleteEvents && <li>Delete</li>}
-                        {user.preferences?.isAdmin && <li>Admin</li>}
-                      </ul>
+                      <span className="role-badge">
+                        {ROLE_TEMPLATES[user.preferences?.role]?.name || 'Viewer'}
+                      </span>
                     )}
                   </td>
                   <td>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>

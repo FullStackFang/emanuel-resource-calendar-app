@@ -39,6 +39,7 @@
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
   import { usePermissions } from '../hooks/usePermissions';
+  import { getRoleFromLegacyPermissions } from '../context/RoleSimulationContext';
   import { useQueryClient } from '@tanstack/react-query';
   import { useBaseCategoriesQuery, useOutlookCategoriesQuery, OUTLOOK_CATEGORIES_QUERY_KEY } from '../hooks/useCategoriesQuery';
   import {
@@ -198,7 +199,8 @@
       canSubmitReservation,
       canApproveReservations,
       isAdmin: isSimulatedAdmin,
-      isSimulating
+      isSimulating,
+      setUserRole
     } = usePermissions();
 
     // Timezone context initialized
@@ -218,21 +220,22 @@
 
     // User permissions initialized
 
-    // Effective permissions: Role Simulation overrides action permissions when simulating
+    // Effective permissions: combines user preferences with role-based action permissions
+    // Action permissions come from usePermissions hook (which handles both simulation and actual user role)
     const effectivePermissions = useMemo(() => ({
-      // User preferences (always from userPermissions state)
+      // User preferences (UI settings from userPermissions state)
       startOfWeek: userPermissions.startOfWeek,
       defaultView: userPermissions.defaultView,
       defaultGroupBy: userPermissions.defaultGroupBy,
       preferredZoomLevel: userPermissions.preferredZoomLevel,
       preferredTimeZone: userPermissions.preferredTimeZone,
-      // Action permissions: use Role Simulation when simulating, otherwise use userPermissions
-      createEvents: isSimulating ? canCreateEvents : userPermissions.createEvents,
-      editEvents: isSimulating ? canEditEvents : userPermissions.editEvents,
-      deleteEvents: isSimulating ? canDeleteEvents : userPermissions.deleteEvents,
-      submitReservation: isSimulating ? canSubmitReservation : (userPermissions.submitReservation ?? true),
-      isAdmin: isSimulating ? isSimulatedAdmin : userPermissions.isAdmin,
-    }), [userPermissions, isSimulating, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
+      // Action permissions: always from usePermissions hook (handles both simulation and actual role)
+      createEvents: canCreateEvents,
+      editEvents: canEditEvents,
+      deleteEvents: canDeleteEvents,
+      submitReservation: canSubmitReservation,
+      isAdmin: isSimulatedAdmin,
+    }), [userPermissions, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
 
     // Calculate date range based on current view and user preferences
     const dateRange = useMemo(() => {
@@ -1625,27 +1628,22 @@
           const data = await response.json();
           logger.debug("Full user profile data from API:", data);
           setUserProfile(data);
-          
-          // Based on UserAdmin component, permissions are stored in preferences
-          const hasCreatePermission = data.preferences?.createEvents ?? true;  // Default to true if not set
-          const hasEditPermission = data.preferences?.editEvents ?? true;      // Default to true if not set
-          const hasDeletePermission = data.preferences?.deleteEvents ?? false; // Default to false if not set
-          const isAdmin = data.preferences?.isAdmin ?? false;                  // Default to false if not set
-          
+
+          // Set user's role from database (or derive from legacy permissions)
+          const userRole = data.preferences?.role || getRoleFromLegacyPermissions(data.preferences);
+          setUserRole(userRole);
+          logger.debug("User role set to:", userRole);
+
           const permissions = {
             startOfWeek: data.preferences?.startOfWeek || 'Monday',
             defaultView: data.preferences?.defaultView || 'week',
             defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
             preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
             preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York',
-            createEvents: hasCreatePermission,
-            editEvents: hasEditPermission,
-            deleteEvents: hasDeletePermission,  
-            isAdmin: isAdmin,
           };
-          
-          // TEMPORARY: Don't overwrite test permissions
-          // setUserPermissions(permissions);
+
+          // Set user preferences (UI settings only, permissions come from role)
+          setUserPermissions(prev => ({ ...prev, ...permissions }));
           if (data.preferences?.preferredTimeZone) {
             setUserTimezone(data.preferences.preferredTimeZone);
           }

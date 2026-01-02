@@ -10319,9 +10319,7 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
         displayName: updates.displayName || req.user.name || req.user.email.split('@')[0],
         preferences: updates.preferences || {
           startOfWeek: 'Sunday',
-          createEvents: true,
-          editEvents: true,
-          deleteEvents: false,
+          role: 'viewer', // Default role for new users
           defaultView: 'week',
           defaultGroupBy: 'categories',
           preferredZoomLevel: 100
@@ -10395,15 +10393,13 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
       // Return default preferences instead of 404
       const defaultPreferences = {
         startOfWeek: 'Sunday',
-        createEvents: true,
-        editEvents: true,
-        deleteEvents: false,
+        role: 'viewer', // Default role for new users
         defaultView: 'week',
         defaultGroupBy: 'categories',
         preferredZoomLevel: 100,
         ...updates // Merge any provided preferences
       };
-      
+
       return res.status(200).json({
         message: 'Using default preferences',
         preferences: defaultPreferences
