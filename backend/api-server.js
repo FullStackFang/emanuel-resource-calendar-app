@@ -17055,6 +17055,96 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
 // END EMAIL SERVICE TEST ENDPOINTS
 // ============================================================================
 
+// ============================================================================
+// AI CHAT ENDPOINTS (Step 1: Basic Chat)
+// ============================================================================
+
+const Anthropic = require('@anthropic-ai/sdk');
+let anthropicClient = null;
+const aiConversations = new Map(); // Store conversation history per user
+
+// POST /api/ai/chat - Send message to Claude
+app.post('/api/ai/chat', verifyToken, async (req, res) => {
+  try {
+    const { message, clearHistory } = req.body;
+    const userId = req.user.oid || req.user.userId;
+    const modelName = process.env.AI_MODEL || 'claude-3-5-haiku-20241022';
+
+    if (!message) {
+      return res.status(400).json({ error: 'Message required' });
+    }
+
+    // Lazy initialize client
+    if (!anthropicClient && process.env.ANTHROPIC_API_KEY) {
+      anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    }
+
+    if (!anthropicClient) {
+      return res.status(503).json({ error: 'AI not configured' });
+    }
+
+    // Get or initialize conversation history
+    if (clearHistory) {
+      aiConversations.delete(userId);
+    }
+    let history = aiConversations.get(userId) || [];
+
+    // Add user message to history
+    history.push({ role: 'user', content: message });
+
+    // Keep only last 20 messages to avoid token limits
+    if (history.length > 20) {
+      history = history.slice(-20);
+    }
+
+    const systemPrompt = `You are a helpful calendar assistant for Temple Emanuel, a synagogue in New York City.
+
+IMPORTANT: You are running as model "${modelName}" via the Anthropic API. If a user asks what model you are, what version you are, or anything about your model/version, you MUST respond that you are "${modelName}". Do not deflect or say you don't know - this information is accurate.
+
+Be concise, friendly, and helpful. Help users with calendar-related questions, scheduling, and Temple Emanuel information.`;
+
+    const response = await anthropicClient.messages.create({
+      model: modelName,
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: history
+    });
+
+    const text = response.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+
+    // Add assistant response to history
+    history.push({ role: 'assistant', content: text });
+    aiConversations.set(userId, history);
+
+    res.json({ message: text, model: modelName });
+  } catch (error) {
+    logger.error('AI chat error:', error.message);
+    res.status(500).json({ error: 'Failed to process message' });
+  }
+});
+
+// GET /api/ai/status - Check if AI is enabled
+app.get('/api/ai/status', verifyToken, (req, res) => {
+  res.json({
+    enabled: !!process.env.ANTHROPIC_API_KEY,
+    model: process.env.AI_MODEL || 'claude-3-5-haiku-20241022'
+  });
+});
+
+// DELETE /api/ai/chat - Clear conversation history
+app.delete('/api/ai/chat', verifyToken, (req, res) => {
+  const userId = req.user.oid || req.user.userId;
+  aiConversations.delete(userId);
+  res.json({ success: true });
+});
+
+// ============================================================================
+// END AI CHAT ENDPOINTS
+// ============================================================================
+
 process.on('SIGINT', async () => {
   logger.log('SIGINT received, shutting down gracefully');
   await client.close();

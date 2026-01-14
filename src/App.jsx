@@ -21,6 +21,7 @@ import LocationReview from './components/LocationReview';
 import ReservationRequests from './components/ReservationRequests';
 import FeatureManagement from './components/FeatureManagement';
 import EmailTestAdmin from './components/EmailTestAdmin';
+import AIChat from './components/AIChat';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
@@ -42,6 +43,7 @@ function App() {
   const [availableCalendars, setAvailableCalendars] = useState([]);
   const [changingCalendar, setChangingCalendar] = useState(false);
   const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
+  const [showAIChat, setShowAIChat] = useState(false);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
@@ -258,6 +260,20 @@ function App() {
                 <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+
+              {/* AI Chat */}
+              <AIChat
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                apiToken={apiToken}
+              />
+              <button
+                className="ai-chat-fab"
+                onClick={() => setShowAIChat(true)}
+                title="Open Chat Assistant"
+              >
+                <img src="/emanuel_logo.png" alt="Chat" className="ai-chat-fab-icon" />
+              </button>
               </RoomProvider>
             </TimezoneProvider>
           ) : signedOut ? (
@@ -275,7 +291,9 @@ function App() {
       </div>
         </RoleSimulationProvider>
       </Router>
+      {/* TanStack Query DevTools - disabled to avoid UI clutter
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+      */}
     </QueryClientProvider>
   );
 }
