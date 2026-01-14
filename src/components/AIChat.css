@@ -196,6 +196,65 @@
   transform: scale(0.95);
 }
 
+/* Reservation Summary Card */
+.ai-chat-reservation-summary {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 1px solid #e0e0e0;
+}
+
+.ai-chat-summary-header {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.ai-chat-summary-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-chat-summary-row {
+  display: flex;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ai-chat-summary-label {
+  color: #666;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.ai-chat-summary-value {
+  color: #333;
+  font-weight: 500;
+}
+
+.ai-chat-open-form-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: #0078d4;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-chat-open-form-btn:hover {
+  background: #106ebe;
+}
+
 /* Mobile */
 @media (max-width: 480px) {
   .ai-chat-overlay {

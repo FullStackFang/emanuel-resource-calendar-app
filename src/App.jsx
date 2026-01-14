@@ -22,6 +22,7 @@ import ReservationRequests from './components/ReservationRequests';
 import FeatureManagement from './components/FeatureManagement';
 import EmailTestAdmin from './components/EmailTestAdmin';
 import AIChat from './components/AIChat';
+import ReviewModal from './components/shared/ReviewModal';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
@@ -44,6 +45,12 @@ function App() {
   const [changingCalendar, setChangingCalendar] = useState(false);
   const [showRegistrationTimes, setShowRegistrationTimes] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
+  const [showReservationModal, setShowReservationModal] = useState(false);
+  const [reservationPrefillData, setReservationPrefillData] = useState(null);
+  const [reservationHasChanges, setReservationHasChanges] = useState(false);
+  const [reservationIsFormValid, setReservationIsFormValid] = useState(false);
+  const [reservationIsSaving, setReservationIsSaving] = useState(false);
+  const [reservationSaveFunction, setReservationSaveFunction] = useState(null);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
@@ -79,6 +86,19 @@ function App() {
   const handleRegistrationTimesToggle = useCallback((enabled) => {
     setShowRegistrationTimes(enabled);
     logger.debug('Registration times toggled:', enabled);
+  }, []);
+
+  // Listen for AI chat reservation modal event
+  useEffect(() => {
+    const handleOpenReservationModal = (event) => {
+      const { formData } = event.detail;
+      logger.debug('Opening reservation modal with prefill data:', formData);
+      setReservationPrefillData(formData);
+      setShowReservationModal(true);
+    };
+
+    window.addEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
+    return () => window.removeEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
   }, []);
 
   // Memoized token acquisition function
@@ -274,6 +294,58 @@ function App() {
               >
                 <img src="/emanuel_logo.png" alt="Chat" className="ai-chat-fab-icon" />
               </button>
+
+              {/* AI Chat Reservation Modal - wrapped with zoom to match calendar page scaling */}
+              <div style={{ zoom: 0.8 }}>
+                <ReviewModal
+                  isOpen={showReservationModal}
+                  title="Add Event - AI Assistant"
+                  mode="create"
+                  onClose={() => {
+                    setShowReservationModal(false);
+                    setReservationPrefillData(null);
+                    setReservationHasChanges(false);
+                    setReservationIsFormValid(false);
+                    setReservationSaveFunction(null);
+                  }}
+                  onSave={() => {
+                    if (reservationSaveFunction) {
+                      reservationSaveFunction();
+                    }
+                  }}
+                  hasChanges={reservationHasChanges}
+                  isFormValid={reservationIsFormValid}
+                  isSaving={reservationIsSaving}
+                  showTabs={true}
+                >
+                  <UnifiedEventForm
+                    mode="create"
+                    apiToken={apiToken}
+                    prefillData={reservationPrefillData}
+                    hideActionBar={true}
+                    onHasChangesChange={setReservationHasChanges}
+                    onFormValidChange={setReservationIsFormValid}
+                    onIsSavingChange={setReservationIsSaving}
+                    onSaveFunctionReady={(fn) => setReservationSaveFunction(() => fn)}
+                    onCancel={() => {
+                      setShowReservationModal(false);
+                      setReservationPrefillData(null);
+                      setReservationHasChanges(false);
+                      setReservationIsFormValid(false);
+                      setReservationSaveFunction(null);
+                    }}
+                    onSuccess={() => {
+                      setShowReservationModal(false);
+                      setReservationPrefillData(null);
+                      setReservationHasChanges(false);
+                      setReservationIsFormValid(false);
+                      setReservationSaveFunction(null);
+                      // Trigger calendar refresh
+                      window.dispatchEvent(new CustomEvent('ai-chat-calendar-refresh'));
+                    }}
+                  />
+                </ReviewModal>
+              </div>
               </RoomProvider>
             </TimezoneProvider>
           ) : signedOut ? (

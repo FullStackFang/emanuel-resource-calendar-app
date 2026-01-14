@@ -17056,27 +17056,35 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
 // ============================================================================
 
 // ============================================================================
-// AI CHAT ENDPOINTS (Step 1: Basic Chat)
+// AI CHAT ENDPOINTS (Step 2: With MCP Tools)
 // ============================================================================
 
 const Anthropic = require('@anthropic-ai/sdk');
+const { toolDefinitions, MCPToolExecutor } = require('./services/mcpTools');
+
 let anthropicClient = null;
+let mcpToolExecutor = null;
 const aiConversations = new Map(); // Store conversation history per user
 
-// POST /api/ai/chat - Send message to Claude
+// POST /api/ai/chat - Send message to Claude with tool support
 app.post('/api/ai/chat', verifyToken, async (req, res) => {
   try {
     const { message, clearHistory } = req.body;
     const userId = req.user.oid || req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username;
+    const userName = req.user.name;
     const modelName = process.env.AI_MODEL || 'claude-3-5-haiku-20241022';
 
     if (!message) {
       return res.status(400).json({ error: 'Message required' });
     }
 
-    // Lazy initialize client
+    // Lazy initialize clients
     if (!anthropicClient && process.env.ANTHROPIC_API_KEY) {
       anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    }
+    if (!mcpToolExecutor && db) {
+      mcpToolExecutor = new MCPToolExecutor(db);
     }
 
     if (!anthropicClient) {
@@ -17097,29 +17105,133 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
       history = history.slice(-20);
     }
 
+    // Get current date for the system prompt
+    const today = new Date();
+    const currentDate = today.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
     const systemPrompt = `You are a helpful calendar assistant for Temple Emanuel, a synagogue in New York City.
 
-IMPORTANT: You are running as model "${modelName}" via the Anthropic API. If a user asks what model you are, what version you are, or anything about your model/version, you MUST respond that you are "${modelName}". Do not deflect or say you don't know - this information is accurate.
+IMPORTANT: Today's date is ${currentDate}. Always use the current year (${today.getFullYear()}) when scheduling events unless the user specifically requests a different year.
 
-Be concise, friendly, and helpful. Help users with calendar-related questions, scheduling, and Temple Emanuel information.`;
+You are running as model "${modelName}". If asked about your model, respond with "${modelName}".
 
-    const response = await anthropicClient.messages.create({
+You have access to tools to help users:
+- list_locations: Show available rooms/spaces
+- list_categories: Show available event categories
+- search_events: Find events on the calendar
+- check_availability: Check if a room is free at a specific time
+- create_event_request: Create a pending room reservation
+
+When a user wants to book/reserve a room:
+1. First use list_locations if they need to see room options
+2. Use list_categories to find appropriate event categories
+3. Use check_availability to verify the time slot is free
+4. Use create_event_request to create the booking (requires: eventTitle, category, date, eventStartTime, eventEndTime, setupTime, doorOpenTime, locationId)
+
+Required times for booking:
+- setupTime: When setup begins (typically 30-60 min before event)
+- doorOpenTime: When guests can start arriving
+- eventStartTime/eventEndTime: The actual event times
+- Optional: doorCloseTime, teardownTime
+
+Be concise and helpful. When you use tools, explain what you found or did.`;
+
+    const userContext = {
+      userId,
+      email: userEmail,
+      name: userName
+    };
+
+    // Call Claude with tools
+    let response = await anthropicClient.messages.create({
       model: modelName,
       max_tokens: 1024,
       system: systemPrompt,
+      tools: toolDefinitions,
       messages: history
     });
 
+    // Handle tool use loop (max 5 iterations)
+    let iterations = 0;
+    let shouldRefreshCalendar = false;  // Track if calendar needs refresh
+    let reservationFormData = null;     // Track if reservation form should open
+    let reservationSummary = null;      // Track reservation summary
+
+    while (response.stop_reason === 'tool_use' && iterations < 5) {
+      iterations++;
+
+      // Add assistant's response (with tool_use blocks) to history
+      history.push({ role: 'assistant', content: response.content });
+
+      // Execute each tool call
+      const toolResults = [];
+      for (const block of response.content) {
+        if (block.type === 'tool_use') {
+          logger.debug(`[AI] Executing tool: ${block.name}`);
+          const result = await mcpToolExecutor.execute(block.name, block.input, userContext);
+
+          // Check if tool wants calendar refresh
+          if (result.refreshCalendar) {
+            shouldRefreshCalendar = true;
+          }
+
+          // Check if tool wants to open reservation form
+          if (result.openReservationForm && result.formData) {
+            reservationFormData = result.formData;
+            reservationSummary = result.summary;
+          }
+
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result)
+          });
+        }
+      }
+
+      // Add tool results to history
+      history.push({ role: 'user', content: toolResults });
+
+      // Continue conversation with tool results
+      response = await anthropicClient.messages.create({
+        model: modelName,
+        max_tokens: 1024,
+        system: systemPrompt,
+        tools: toolDefinitions,
+        messages: history
+      });
+    }
+
+    // Extract final text response
     const text = response.content
       .filter(b => b.type === 'text')
       .map(b => b.text)
       .join('');
 
-    // Add assistant response to history
-    history.push({ role: 'assistant', content: text });
+    // Add final assistant response to history
+    history.push({ role: 'assistant', content: response.content });
     aiConversations.set(userId, history);
 
-    res.json({ message: text, model: modelName });
+    // Build response with optional form data
+    const responseData = {
+      message: text,
+      model: modelName,
+      refreshCalendar: shouldRefreshCalendar
+    };
+
+    // Include reservation form data if present
+    if (reservationFormData) {
+      responseData.openReservationForm = true;
+      responseData.formData = reservationFormData;
+      responseData.summary = reservationSummary;
+    }
+
+    res.json(responseData);
   } catch (error) {
     logger.error('AI chat error:', error.message);
     res.status(500).json({ error: 'Failed to process message' });
@@ -17132,6 +17244,37 @@ app.get('/api/ai/status', verifyToken, (req, res) => {
     enabled: !!process.env.ANTHROPIC_API_KEY,
     model: process.env.AI_MODEL || 'claude-3-5-haiku-20241022'
   });
+});
+
+// GET /api/ai/chat/history - Get conversation history for UI restoration
+app.get('/api/ai/chat/history', verifyToken, (req, res) => {
+  const userId = req.user.oid || req.user.userId;
+  const history = aiConversations.get(userId) || [];
+
+  // Convert internal format to UI-friendly format
+  const messages = [];
+  for (const msg of history) {
+    if (msg.role === 'user') {
+      // User messages - extract text content
+      if (typeof msg.content === 'string') {
+        messages.push({ role: 'user', content: msg.content });
+      }
+      // Skip tool_result messages (they're not displayed)
+    } else if (msg.role === 'assistant') {
+      // Assistant messages - extract text blocks only
+      if (Array.isArray(msg.content)) {
+        const text = msg.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('');
+        if (text) {
+          messages.push({ role: 'assistant', content: text });
+        }
+      }
+    }
+  }
+
+  res.json({ messages });
 });
 
 // DELETE /api/ai/chat - Clear conversation history

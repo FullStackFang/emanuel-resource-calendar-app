@@ -1453,6 +1453,17 @@
       }
     }, [isDemoMode, loadDemoEvents, loadEventsUnified]);
 
+    // Listen for AI chat calendar refresh events
+    useEffect(() => {
+      const handleAIChatRefresh = () => {
+        logger.debug('AI Chat triggered calendar refresh');
+        loadEvents(true);
+      };
+
+      window.addEventListener('ai-chat-calendar-refresh', handleAIChatRefresh);
+      return () => window.removeEventListener('ai-chat-calendar-refresh', handleAIChatRefresh);
+    }, [loadEvents]);
+
     /**
      * Sync events to internal database 
      * @param {Date} startDate - Start date of the range to sync
@@ -2838,6 +2849,7 @@
           let addedToAnyGroup = false;
 
           event.locations.forEach(locationId => {
+            if (!locationId) return; // Skip null/undefined location IDs
             const locationIdStr = locationId.toString();
             // Find the location object to get its rsKey
             const matchingLoc = generalLocations.find(loc =>

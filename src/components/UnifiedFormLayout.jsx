@@ -29,6 +29,7 @@ const UnifiedFormLayout = ({
   className = '',
   onSubmit,
   headerContent,
+  hideActionBar = false, // Hide action bar when wrapped in external modal (e.g., ReviewModal)
   children // Allow custom content instead of automatic section rendering
 }) => {
 
@@ -313,21 +314,23 @@ const UnifiedFormLayout = ({
 
   return (
     <div className={`unified-form-layout ${className}`}>
-      {/* Sticky Action Bar */}
-      <div className="unified-action-bar">
-        <div className="action-bar-content">
-          {title && <h2 className="form-title">{title}</h2>}
-          {hasChanges && (
-            <span className="unsaved-changes-indicator" title="You have unsaved changes">
-              ● Unsaved changes
-            </span>
-          )}
-          <div className="review-actions">
-            {headerContent}
-            {actions.map(renderAction)}
+      {/* Sticky Action Bar - hidden when wrapped in external modal */}
+      {!hideActionBar && (
+        <div className="unified-action-bar">
+          <div className="action-bar-content">
+            {title && <h2 className="form-title">{title}</h2>}
+            {hasChanges && (
+              <span className="unsaved-changes-indicator" title="You have unsaved changes">
+                ● Unsaved changes
+              </span>
+            )}
+            <div className="review-actions">
+              {headerContent}
+              {actions.map(renderAction)}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Scrollable Form Content */}
       <div className="unified-form-content">

@@ -1,6 +1,6 @@
 // src/components/UnifiedEventForm.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
@@ -27,9 +27,11 @@ export default function UnifiedEventForm({
   // Common props
   apiToken,
   onCancel,
+  onSuccess,
   // Create mode props
   isPublic = false,
   token,
+  prefillData = null,
   // Reservation-specific props
   reservation,
   onApprove,
@@ -38,6 +40,7 @@ export default function UnifiedEventForm({
   onHasChangesChange,
   onIsSavingChange,
   onSaveFunctionReady,
+  onFormValidChange,
   onLockedEventClick,
   // Event-specific props
   event,
@@ -49,7 +52,9 @@ export default function UnifiedEventForm({
   userTimeZone,
   savingEvent,
   // UI customization
-  headerContent
+  headerContent,
+  hideActionBar = false, // Hide internal action bar when wrapped in ReviewModal
+  activeTab = 'details' // Tab control from ReviewModal
 }) {
   // Mode-specific state
   const [success, setSuccess] = useState(false);
@@ -58,6 +63,7 @@ export default function UnifiedEventForm({
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isFormValid, setIsFormValid] = useState(false);
   const [originalChangeKey, setOriginalChangeKey] = useState(null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
   const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
@@ -69,7 +75,38 @@ export default function UnifiedEventForm({
   const validateRef = useRef(null);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { accounts } = useMsal();
+
+  // Handle prefill data from AI chat (either via prop or navigation state)
+  useEffect(() => {
+    const prefill = prefillData || location.state?.prefillData;
+    if (mode === 'create' && prefill) {
+      logger.debug('Received prefill data from AI chat:', prefill);
+
+      // Map AI chat form data to the form's expected field names
+      const mappedData = {
+        eventTitle: prefill.eventTitle || '',
+        eventDescription: prefill.eventDescription || '',
+        categories: prefill.category ? [prefill.category] : [],
+        startDate: prefill.startDate || prefill.date || '',
+        endDate: prefill.endDate || prefill.date || '',
+        startTime: prefill.eventStartTime || '',
+        endTime: prefill.eventEndTime || '',
+        setupTime: prefill.setupTime || '',
+        doorOpenTime: prefill.doorOpenTime || '',
+        doorCloseTime: prefill.doorCloseTime || '',
+        teardownTime: prefill.teardownTime || '',
+        requestedRooms: prefill.locationId ? [prefill.locationId] : [],
+        attendeeCount: prefill.attendeeCount || ''
+      };
+
+      setInitialData(prev => ({ ...prev, ...mappedData }));
+      setHasAutoFilled(true);
+      setHasChanges(true); // Mark as changed since form is pre-filled
+      logger.debug('Applied AI chat prefill data to form');
+    }
+  }, [mode, prefillData, location.state]);
 
   // Auto-fill user email/name in create mode (authenticated users only)
   useEffect(() => {
@@ -77,10 +114,11 @@ export default function UnifiedEventForm({
       const userEmail = accounts[0].username;
       const displayName = accounts[0].name || '';
 
-      setInitialData({
+      setInitialData(prev => ({
+        ...prev,
         requesterEmail: userEmail,
         requesterName: displayName
-      });
+      }));
 
       setHasAutoFilled(true);
       logger.debug('Auto-filled user info for authenticated user:', { userEmail, displayName });
@@ -538,6 +576,7 @@ export default function UnifiedEventForm({
       hasChanges={hasChanges}
       errors={{}}
       headerContent={headerContent}
+      hideActionBar={hideActionBar}
     >
       {submitError && (
         <div className="error-message" style={{ margin: '10px' }}>
@@ -551,19 +590,76 @@ export default function UnifiedEventForm({
           setHasChanges(true);
         }}
         onHasChangesChange={setHasChanges}
+        onFormValidChange={(valid) => {
+          setIsFormValid(valid);
+          if (onFormValidChange) {
+            onFormValidChange(valid);
+          }
+        }}
         readOnly={mode === 'event' ? readOnly : false}
         isAdmin={true}
         reservationStatus={mode === 'reservation' ? reservation?.status : null}
         currentReservationId={mode === 'reservation' ? reservation?._id : null}
         onLockedEventClick={onLockedEventClick}
-        showAllTabs={true}
+        activeTab={activeTab}
+        showAllTabs={!hideActionBar}
         onFormDataRef={(getter) => { formDataRef.current = getter; }}
         onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
         onValidateRef={(getter) => { validateRef.current = getter; }}
         renderAdditionalContent={() => (
           <>
-            {/* Attachments & History Tabs - only in reservation mode */}
-            {mode === 'reservation' && reservation && apiToken && (
+            {/* Attachments Tab Content */}
+            {hideActionBar && activeTab === 'attachments' && (
+              <div style={{ marginTop: '20px' }}>
+                <section className="form-section">
+                  {mode === 'reservation' && reservation && apiToken ? (
+                    <AttachmentsSection
+                      resourceId={reservation?.eventId}
+                      resourceType="event"
+                      apiToken={apiToken}
+                      readOnly={reservation?.status === 'inactive'}
+                    />
+                  ) : (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
+                      <p>Attachments can be added after submitting your request.</p>
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {/* History Tab Content */}
+            {hideActionBar && activeTab === 'history' && (
+              <div style={{ marginTop: '20px' }}>
+                <section className="form-section">
+                  {mode === 'reservation' && reservation && apiToken ? (
+                    <ReservationAuditHistory
+                      reservationId={reservation?._id}
+                      apiToken={apiToken}
+                      refreshTrigger={auditRefreshTrigger}
+                    />
+                  ) : (
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
+                      <p>History will be available after submitting your request.</p>
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {/* Admin Tab Content */}
+            {hideActionBar && activeTab === 'admin' && (
+              <div style={{ marginTop: '20px' }}>
+                <section className="form-section">
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
+                    <p>Admin options will be available after the request is submitted.</p>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* Legacy inline tabs - for standalone form without ReviewModal */}
+            {!hideActionBar && mode === 'reservation' && reservation && apiToken && (
               <div style={{ marginTop: '20px' }}>
                 <section className="form-section">
                   <div className="history-tabs-container">

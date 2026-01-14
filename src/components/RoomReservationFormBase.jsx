@@ -152,6 +152,33 @@ export default function RoomReservationFormBase({
     }
   }, [initialData?.categories, initialData?.mecCategories, initialData?.internalData?.mecCategories]);
 
+  // Sync form fields when initialData changes (e.g., from AI chat prefill)
+  // This handles the case where initialData is set after component mounts
+  useEffect(() => {
+    // Only sync if initialData has actual content (not just empty defaults)
+    const hasEventData = initialData?.eventTitle || initialData?.startDate || initialData?.selectedLocations?.length || initialData?.requestedRooms?.length;
+    if (hasEventData) {
+      logger.debug('Syncing form fields from initialData:', initialData);
+      setFormData(prev => ({
+        ...prev,
+        eventTitle: initialData.eventTitle || prev.eventTitle,
+        eventDescription: initialData.eventDescription || prev.eventDescription,
+        startDate: initialData.startDate || prev.startDate,
+        endDate: initialData.endDate || prev.endDate,
+        // Support both naming conventions: eventStartTime/eventEndTime and startTime/endTime
+        startTime: initialData.startTime || initialData.eventStartTime || prev.startTime,
+        endTime: initialData.endTime || initialData.eventEndTime || prev.endTime,
+        setupTime: initialData.setupTime || prev.setupTime,
+        teardownTime: initialData.teardownTime || prev.teardownTime,
+        doorOpenTime: initialData.doorOpenTime || prev.doorOpenTime,
+        doorCloseTime: initialData.doorCloseTime || prev.doorCloseTime,
+        // Support both naming conventions: requestedRooms and selectedLocations
+        requestedRooms: initialData.requestedRooms || initialData.selectedLocations || prev.requestedRooms,
+        attendeeCount: initialData.attendeeCount || prev.attendeeCount
+      }));
+    }
+  }, [initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime]);
+
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
