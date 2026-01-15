@@ -98,7 +98,10 @@ export default function UnifiedEventForm({
         doorCloseTime: prefill.doorCloseTime || '',
         teardownTime: prefill.teardownTime || '',
         requestedRooms: prefill.locationId ? [prefill.locationId] : [],
-        attendeeCount: prefill.attendeeCount || ''
+        attendeeCount: prefill.attendeeCount || '',
+        // Include calendar info so the event shows up in calendar view
+        calendarId: prefill.calendarId || null,
+        calendarOwner: prefill.calendarOwner || null
       };
 
       setInitialData(prev => ({ ...prev, ...mappedData }));
@@ -234,6 +237,12 @@ export default function UnifiedEventForm({
   const handleSubmit = useCallback(async (e) => {
     if (e) e.preventDefault();
 
+    // Prevent double-submission
+    if (submitting) {
+      logger.debug('Submission already in progress, ignoring duplicate click');
+      return;
+    }
+
     const formData = formDataRef.current ? formDataRef.current() : {};
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
 
@@ -244,6 +253,10 @@ export default function UnifiedEventForm({
 
     setSubmitting(true);
     setSubmitError('');
+    // Report saving state to parent (for ReviewModal button state)
+    if (onIsSavingChange) {
+      onIsSavingChange(true);
+    }
 
     try {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
@@ -287,13 +300,22 @@ export default function UnifiedEventForm({
 
       setSuccess(true);
 
+      // Call onSuccess callback if provided (for modal flow)
+      if (onSuccess) {
+        onSuccess(result);
+      }
+
     } catch (err) {
       logger.error('Error submitting reservation:', err);
       setSubmitError(err.message || 'Failed to submit reservation request');
     } finally {
       setSubmitting(false);
+      // Report saving state to parent
+      if (onIsSavingChange) {
+        onIsSavingChange(false);
+      }
     }
-  }, [formDataRef, validateRef, isPublic, token, apiToken]);
+  }, [formDataRef, validateRef, isPublic, token, apiToken, onSuccess, onIsSavingChange, submitting]);
 
   // Save changes (reservation mode)
   const handleSaveChanges = useCallback(async () => {
@@ -366,12 +388,13 @@ export default function UnifiedEventForm({
     }
   }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave]);
 
-  // Expose save function to parent
+  // Expose save function to parent (use handleSubmit for create mode, handleSaveChanges for others)
   useEffect(() => {
     if (onSaveFunctionReady) {
-      onSaveFunctionReady(handleSaveChanges);
+      const saveFunction = mode === 'create' ? handleSubmit : handleSaveChanges;
+      onSaveFunctionReady(saveFunction);
     }
-  }, [onSaveFunctionReady, handleSaveChanges]);
+  }, [onSaveFunctionReady, handleSaveChanges, handleSubmit, mode]);
 
   // Approve handler
   const handleApprove = () => {

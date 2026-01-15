@@ -141,6 +141,12 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+/* Assistant messages with reservation summary should take full width */
+.ai-chat-msg-assistant:has(.ai-chat-reservation-summary) {
+  max-width: 100%;
+  align-self: stretch;
+}
+
 .ai-chat-input-area {
   display: flex;
   gap: 10px;

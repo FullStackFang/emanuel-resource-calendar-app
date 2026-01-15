@@ -3930,7 +3930,46 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       }
     }
 
-    // STEP 2: Return events directly from MongoDB (source of truth)
+    // STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
+    const userEmail = req.user.email;
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
+                    user?.permissions?.canViewAllReservations || userEmail?.includes('admin');
+
+    logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdmin: ${isAdmin}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);
+    logger.log(`[PENDING] User roles: ${JSON.stringify(user?.roles)}, permissions: ${JSON.stringify(user?.permissions)}`);
+
+    if (isAdmin) {
+      const pendingQuery = {
+        isDeleted: { $ne: true },
+        status: 'pending'
+      };
+
+      // Add date filter if provided
+      if (startTime && endTime) {
+        const startDateStr = new Date(startTime).toISOString().split('T')[0];
+        const endDateStr = new Date(endTime).toISOString().split('T')[0];
+        pendingQuery.startDate = { $lte: endDateStr };
+        pendingQuery.endDate = { $gte: startDateStr };
+      }
+
+      logger.log(`[PENDING] Admin ${userEmail} - querying pending events:`, JSON.stringify(pendingQuery));
+      const pendingReservations = await unifiedEventsCollection.find(pendingQuery).toArray();
+      logger.log(`[PENDING] Found ${pendingReservations.length} pending reservations for admin ${userEmail}`);
+
+      // Merge with unified events (avoid duplicates)
+      const existingIds = new Set(unifiedEvents.map(e => e.eventId));
+      const newPendingEvents = pendingReservations.filter(r => !existingIds.has(r.eventId));
+      logger.log(`[PENDING] After dedup: ${newPendingEvents.length} new pending events to add`);
+      if (newPendingEvents.length > 0) {
+        logger.log(`[PENDING] Adding ${newPendingEvents.length} pending reservations to calendar view`);
+        unifiedEvents = unifiedEvents.concat(newPendingEvents);
+      }
+    } else {
+      logger.log(`[PENDING] Skipping pending events - user is not admin`);
+    }
+
+    // STEP 3: Return events directly from MongoDB (source of truth)
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
     const transformedLoadEvents = unifiedEvents.map(event => {
       // Determine the correct timezone for this event:
@@ -3944,7 +3983,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         ...event,  // Spread all MongoDB fields directly
         // Add frontend compatibility wrappers
         id: event.eventId || event._id?.toString(),
-        subject: event.eventTitle || '(No Subject)',
+        subject: event.eventTitle || event.graphData?.subject || '(No Subject)',
         start: {
           dateTime: event.startDateTime,
           timeZone: eventTimezone
@@ -3953,10 +3992,14 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           dateTime: event.endDateTime,
           timeZone: eventTimezone
         },
-        location: { displayName: event.locationDisplayName || '' },
-        bodyPreview: event.eventDescription || '',
+        // Handle different location field names (location, locationDisplayNames, locationDisplayName)
+        location: { displayName: event.locationDisplayNames || event.locationDisplayName || event.location || '' },
+        bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
         isAllDay: event.isAllDayEvent ?? false,
-        categories: event.categories || []
+        categories: event.categories || event.graphData?.categories || [],
+        // Explicitly include status for frontend styling
+        status: event.status || null,
+        source: event.source || null
       };
     });
 
@@ -4119,41 +4162,86 @@ app.get('/api/events', verifyToken, async (req, res) => {
     }
 
     const unifiedEvents = await getUnifiedEvents(userId, calendarId, startDate, endDate);
-    
+
+    // Check if user is admin/approver to also show pending reservations
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
+                    user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+
+    logger.debug(`[PENDING] User ${userEmail} isAdmin: ${isAdmin}, startDate: ${startDate}, endDate: ${endDate}`);
+
+    // Fetch pending room reservations for admins
+    let pendingReservations = [];
+    if (isAdmin) {
+      const pendingQuery = {
+        isDeleted: { $ne: true },
+        status: 'pending'
+      };
+
+      // Add date filter if date range provided
+      if (startDate && endDate) {
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = endDate.toISOString().split('T')[0];
+        pendingQuery.startDate = { $lte: endDateStr };
+        pendingQuery.endDate = { $gte: startDateStr };
+      }
+
+      logger.debug(`[PENDING] Query: ${JSON.stringify(pendingQuery)}`);
+      pendingReservations = await unifiedEventsCollection.find(pendingQuery).toArray();
+      logger.log(`[PENDING] Found ${pendingReservations.length} pending reservations for admin ${userEmail}`);
+    }
+
+    // Merge calendar events with pending reservations (avoid duplicates by eventId)
+    const existingIds = new Set(unifiedEvents.map(e => e.eventId));
+    const allEvents = [
+      ...unifiedEvents,
+      ...pendingReservations.filter(r => !existingIds.has(r.eventId))
+    ];
+
     // Transform events to frontend format
-    const transformedApiEvents = unifiedEvents.map(event => {
+    const transformedApiEvents = allEvents.map(event => {
+      const internalData = event.internalData || {};
+      const graphData = event.graphData || {};
+
       // Normalize category field - frontend expects a single string
       let category = '';
-      if (event.internalData.mecCategories && event.internalData.mecCategories.length > 0) {
+      if (internalData.mecCategories && internalData.mecCategories.length > 0) {
         // CSV imports use mecCategories
-        category = event.internalData.mecCategories[0];
-      } else if (event.graphData.categories && event.graphData.categories.length > 0) {
+        category = internalData.mecCategories[0];
+      } else if (graphData.categories && graphData.categories.length > 0) {
         // Graph events use categories
-        category = event.graphData.categories[0];
+        category = graphData.categories[0];
+      } else if (event.categories && event.categories.length > 0) {
+        // Room reservations store categories at top level
+        category = event.categories[0];
       }
-      
+
       return {
         // Use Graph data as base
-        ...event.graphData,
+        ...graphData,
         // Add internal enrichments
-        ...event.internalData,
+        ...internalData,
         // Explicitly include ID fields (ensures they're not overwritten)
         eventId: event.eventId,                          // Internal unique ID (UUID)
-        id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
-        graphId: event.graphData?.id || null,           // Explicit Graph/Outlook ID
+        id: graphData?.id || event.eventId,             // Graph ID or fallback to eventId
+        graphId: graphData?.id || null,                 // Explicit Graph/Outlook ID
         // Override with normalized category
         category: category,
         // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(event.internalData).some(key =>
-          event.internalData[key] &&
-          (Array.isArray(event.internalData[key]) ? event.internalData[key].length > 0 : true)
+        _hasInternalData: Object.keys(internalData).some(key =>
+          internalData[key] &&
+          (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
         ),
         _lastSyncedAt: event.lastSyncedAt,
         _cached: true,
         // Include top-level services field (stored outside graphData/internalData)
-        services: event.services || {}
+        services: event.services || {},
+        // Include status for pending reservations (so frontend can style them)
+        status: event.status || null,
+        // Include source to identify room reservations
+        source: event.source || null
       };
     });
     
@@ -17125,13 +17213,15 @@ You have access to tools to help users:
 - list_categories: Show available event categories
 - search_events: Find events on the calendar
 - check_availability: Check if a room is free at a specific time
-- create_event_request: Create a pending room reservation
+- prepare_event_request: Prepare a room reservation form for the user to review and submit
 
 When a user wants to book/reserve a room:
 1. First use list_locations if they need to see room options
 2. Use list_categories to find appropriate event categories
 3. Use check_availability to verify the time slot is free
-4. Use create_event_request to create the booking (requires: eventTitle, category, date, eventStartTime, eventEndTime, setupTime, doorOpenTime, locationId)
+4. Use prepare_event_request to prepare the booking form (requires: eventTitle, category, date, eventStartTime, eventEndTime, setupTime, doorOpenTime, locationId)
+
+IMPORTANT: When you call prepare_event_request successfully, a "Review & Submit" button will appear for the user to open the reservation form. If the user asks to see the form, review button, or wants to proceed with booking, call prepare_event_request again with the same details.
 
 Required times for booking:
 - setupTime: When setup begins (typically 30-60 min before event)

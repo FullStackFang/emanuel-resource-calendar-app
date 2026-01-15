@@ -11,10 +11,15 @@ export default function AIChat({ isOpen, onClose, apiToken, onCalendarRefresh })
   const [model, setModel] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change or chat opens
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (isOpen) {
+      // Use setTimeout to ensure DOM is rendered before scrolling
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [messages, isOpen]);
 
   // Fetch model info and conversation history on open
   useEffect(() => {

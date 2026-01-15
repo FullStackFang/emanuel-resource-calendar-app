@@ -51,6 +51,7 @@ function App() {
   const [reservationIsFormValid, setReservationIsFormValid] = useState(false);
   const [reservationIsSaving, setReservationIsSaving] = useState(false);
   const [reservationSaveFunction, setReservationSaveFunction] = useState(null);
+  const [reservationIsConfirming, setReservationIsConfirming] = useState(false);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
@@ -92,14 +93,26 @@ function App() {
   useEffect(() => {
     const handleOpenReservationModal = (event) => {
       const { formData } = event.detail;
-      logger.debug('Opening reservation modal with prefill data:', formData);
-      setReservationPrefillData(formData);
+
+      // Get calendar owner from availableCalendars for the selected calendar
+      const selectedCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+      const calendarOwner = selectedCalendar?.owner?.address?.toLowerCase() || null;
+
+      // Add calendarId and calendarOwner to prefill data so the event shows up in calendar view
+      const enrichedFormData = {
+        ...formData,
+        calendarId: selectedCalendarId,
+        calendarOwner: calendarOwner
+      };
+
+      logger.debug('Opening reservation modal with prefill data:', enrichedFormData);
+      setReservationPrefillData(enrichedFormData);
       setShowReservationModal(true);
     };
 
     window.addEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
     return () => window.removeEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
-  }, []);
+  }, [selectedCalendarId, availableCalendars]);
 
   // Memoized token acquisition function
   const acquireTokens = useCallback(async (account) => {
@@ -307,15 +320,25 @@ function App() {
                     setReservationHasChanges(false);
                     setReservationIsFormValid(false);
                     setReservationSaveFunction(null);
+                    setReservationIsConfirming(false);
                   }}
                   onSave={() => {
-                    if (reservationSaveFunction) {
-                      reservationSaveFunction();
+                    if (!reservationIsConfirming) {
+                      // First click: show confirmation
+                      setReservationIsConfirming(true);
+                    } else {
+                      // Second click: actually submit
+                      if (reservationSaveFunction) {
+                        reservationSaveFunction();
+                      }
+                      setReservationIsConfirming(false);
                     }
                   }}
                   hasChanges={reservationHasChanges}
                   isFormValid={reservationIsFormValid}
                   isSaving={reservationIsSaving}
+                  isSaveConfirming={reservationIsConfirming}
+                  onCancelSave={() => setReservationIsConfirming(false)}
                   showTabs={true}
                 >
                   <UnifiedEventForm
@@ -333,6 +356,7 @@ function App() {
                       setReservationHasChanges(false);
                       setReservationIsFormValid(false);
                       setReservationSaveFunction(null);
+                      setReservationIsConfirming(false);
                     }}
                     onSuccess={() => {
                       setShowReservationModal(false);
@@ -340,6 +364,7 @@ function App() {
                       setReservationHasChanges(false);
                       setReservationIsFormValid(false);
                       setReservationSaveFunction(null);
+                      setReservationIsConfirming(false);
                       // Trigger calendar refresh
                       window.dispatchEvent(new CustomEvent('ai-chat-calendar-refresh'));
                     }}
