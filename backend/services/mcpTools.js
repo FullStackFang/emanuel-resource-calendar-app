@@ -306,6 +306,22 @@ class MCPToolExecutor {
   async findBestLocationMatch(searchTerm) {
     if (!searchTerm) return { match: null, confidence: 0, allMatches: [] };
 
+    // Check if searchTerm looks like an ObjectId - if so, look it up directly
+    if (ObjectId.isValid(searchTerm) && searchTerm.length === 24) {
+      try {
+        const location = await this.locationsCollection.findOne(
+          { _id: new ObjectId(searchTerm) },
+          { projection: { displayName: 1 } }
+        );
+        if (location && location.displayName) {
+          logger.info(`[MCP] Found location by ObjectId: "${location.displayName}"`);
+          return { match: location.displayName, confidence: 1.0, allMatches: [{ name: location.displayName, score: 1.0 }] };
+        }
+      } catch (e) {
+        // Not a valid ObjectId, continue with fuzzy matching
+      }
+    }
+
     const normalized = this.normalizeLocationString(searchTerm);
     logger.info(`[MCP] Finding location match for: "${searchTerm}" (normalized: "${normalized}")`);
 
