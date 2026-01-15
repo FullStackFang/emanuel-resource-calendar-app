@@ -17229,7 +17229,22 @@ Required times for booking:
 - eventStartTime/eventEndTime: The actual event times
 - Optional: doorCloseTime, teardownTime
 
-Be concise and helpful. When you use tools, explain what you found or did.`;
+Be concise and helpful. When you use tools, explain what you found or did.
+
+FORMATTING GUIDELINES:
+When listing events, use a clean, easy-to-read format with each event on its own line.
+Use this format for each event: "• [Event Title] - [Start Time] to [End Time]"
+Group by date with a blank line between dates.
+For availability checks, be direct: "Available" or "Conflict: [event name] at [time]"
+
+Example format:
+
+January 16, 2026:
+• Young Families: Baby Shabbat - 9:00 AM to 9:45 AM
+• Intro to Judaism - 6:30 PM to 8:30 PM
+
+January 17, 2026:
+• Shabbat Service - 10:00 AM to 12:00 PM`;
 
     const userContext = {
       userId,

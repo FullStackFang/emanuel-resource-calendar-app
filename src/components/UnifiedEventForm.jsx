@@ -165,10 +165,12 @@ export default function UnifiedEventForm({
         phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
         eventTitle: reservation.eventTitle || '',
         eventDescription: reservation.eventDescription || '',
-        startDate: startDateTime.toISOString().split('T')[0],
-        startTime: startDateTime.toTimeString().slice(0, 5),
-        endDate: endDateTime.toISOString().split('T')[0],
-        endTime: endDateTime.toTimeString().slice(0, 5),
+        // Use pre-computed date/time fields stored in event's timezone (America/New_York)
+        // Fall back to parsing if not available (legacy data)
+        startDate: reservation.startDate || startDateTime.toISOString().split('T')[0],
+        startTime: reservation.startTime || startDateTime.toTimeString().slice(0, 5),
+        endDate: reservation.endDate || endDateTime.toISOString().split('T')[0],
+        endTime: reservation.endTime || endDateTime.toTimeString().slice(0, 5),
         doorOpenTime: reservation.doorOpenTime || '',
         doorCloseTime: reservation.doorCloseTime || '',
         setupTime: reservation.setupTime || '',
@@ -208,10 +210,12 @@ export default function UnifiedEventForm({
       setInitialData({
         eventTitle: event.subject || '',
         eventDescription: event.body?.content || event.bodyPreview || '',
-        startDate: startDateTime.toISOString().split('T')[0],
-        startTime: startDateTime.toTimeString().slice(0, 5),
-        endDate: endDateTime.toISOString().split('T')[0],
-        endTime: endDateTime.toTimeString().slice(0, 5),
+        // Use pre-computed date/time fields stored in event's timezone if available
+        // Fall back to parsing if not available (e.g., pure Graph API events)
+        startDate: event.startDate || startDateTime.toISOString().split('T')[0],
+        startTime: event.startTime || startDateTime.toTimeString().slice(0, 5),
+        endDate: event.endDate || endDateTime.toISOString().split('T')[0],
+        endTime: event.endTime || endDateTime.toTimeString().slice(0, 5),
         requestedRooms: locationString ? locationString.split('; ').filter(Boolean) : [],
         attendeeCount: event.attendees?.length || '',
         setupTimeMinutes: event.internalEnrichment?.setupTimeMinutes || 0,

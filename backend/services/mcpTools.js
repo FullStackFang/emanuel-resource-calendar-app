@@ -200,6 +200,158 @@ class MCPToolExecutor {
   }
 
   /**
+   * Normalize a location string for comparison
+   * Handles variations like "bluementhal_hall" → "blumenthal hall"
+   */
+  normalizeLocationString(str) {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .replace(/[-_]/g, ' ')        // hyphens and underscores to spaces
+      .replace(/[^a-z0-9\s]/g, '')  // remove other special chars
+      .replace(/\s+/g, ' ')         // collapse whitespace
+      .trim();
+  }
+
+  /**
+   * Calculate Levenshtein distance between two strings
+   */
+  levenshteinDistance(str1, str2) {
+    const m = str1.length;
+    const n = str2.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        }
+      }
+    }
+    return dp[m][n];
+  }
+
+  /**
+   * Calculate similarity score between two strings (0-1)
+   * Uses multiple strategies: exact, contains, word overlap, and fuzzy matching
+   */
+  calculateSimilarity(searchTerm, locationName) {
+    const s1 = this.normalizeLocationString(searchTerm);
+    const s2 = this.normalizeLocationString(locationName);
+
+    if (!s1 || !s2) return 0;
+    if (s1 === s2) return 1.0;
+
+    let maxScore = 0;
+
+    // Strategy 1: One contains the other (e.g., "blumenthal" in "blumenthal hall")
+    if (s2.includes(s1)) {
+      // Search term is contained in location name
+      maxScore = Math.max(maxScore, 0.85 + (s1.length / s2.length) * 0.1);
+    }
+    if (s1.includes(s2)) {
+      // Location name is contained in search term (rare but possible)
+      maxScore = Math.max(maxScore, 0.8);
+    }
+
+    // Strategy 2: Word-level matching
+    const words1 = s1.split(' ').filter(w => w.length >= 2);
+    const words2 = s2.split(' ').filter(w => w.length >= 2);
+
+    for (const w1 of words1) {
+      for (const w2 of words2) {
+        // Exact word match
+        if (w1 === w2) {
+          maxScore = Math.max(maxScore, 0.75);
+        }
+        // Word contains (e.g., "blumen" matches "blumenthal")
+        else if (w2.includes(w1) && w1.length >= 3) {
+          maxScore = Math.max(maxScore, 0.6 + (w1.length / w2.length) * 0.2);
+        }
+        else if (w1.includes(w2) && w2.length >= 3) {
+          maxScore = Math.max(maxScore, 0.6 + (w2.length / w1.length) * 0.2);
+        }
+        // Fuzzy word match using Levenshtein
+        else if (w1.length >= 4 && w2.length >= 4) {
+          const distance = this.levenshteinDistance(w1, w2);
+          const maxLen = Math.max(w1.length, w2.length);
+          const similarity = 1 - (distance / maxLen);
+          if (similarity >= 0.7) {  // Allow ~30% character difference
+            maxScore = Math.max(maxScore, similarity * 0.7);
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Overall string similarity using Levenshtein
+    const distance = this.levenshteinDistance(s1, s2);
+    const maxLen = Math.max(s1.length, s2.length);
+    const overallSimilarity = 1 - (distance / maxLen);
+    if (overallSimilarity > 0.6) {
+      maxScore = Math.max(maxScore, overallSimilarity * 0.8);
+    }
+
+    return maxScore;
+  }
+
+  /**
+   * Find the best matching location name from known locations
+   * Always returns a result with confidence info
+   */
+  async findBestLocationMatch(searchTerm) {
+    if (!searchTerm) return { match: null, confidence: 0, allMatches: [] };
+
+    const normalized = this.normalizeLocationString(searchTerm);
+    logger.info(`[MCP] Finding location match for: "${searchTerm}" (normalized: "${normalized}")`);
+
+    // Get all unique location names from locations collection
+    const locations = await this.locationsCollection
+      .find({})
+      .project({ displayName: 1 })
+      .toArray();
+
+    const locationNames = locations
+      .map(l => l.displayName)
+      .filter(Boolean);
+
+    // Also get unique locationDisplayNames from events
+    const eventLocations = await this.eventsCollection.distinct('locationDisplayName');
+    const eventLocations2 = await this.eventsCollection.distinct('locationDisplayNames');
+
+    const allNames = [...new Set([...locationNames, ...eventLocations, ...eventLocations2].filter(Boolean))];
+
+    logger.info(`[MCP] Comparing against ${allNames.length} known locations`);
+
+    // Score all locations
+    const scored = allNames.map(name => ({
+      name,
+      score: this.calculateSimilarity(searchTerm, name)
+    })).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+    // Get top matches
+    const topMatches = scored.slice(0, 5);
+
+    if (topMatches.length > 0) {
+      logger.info(`[MCP] Top matches:`, topMatches.map(m => `${m.name} (${m.score.toFixed(2)})`).join(', '));
+    } else {
+      logger.info(`[MCP] No matches found for "${searchTerm}"`);
+    }
+
+    const bestMatch = topMatches[0] || null;
+
+    return {
+      match: bestMatch?.name || normalized,
+      confidence: bestMatch?.score || 0,
+      allMatches: topMatches
+    };
+  }
+
+  /**
    * List available locations/rooms
    */
   async listLocations(input) {
@@ -277,44 +429,105 @@ class MCPToolExecutor {
    * Search for events
    */
   async searchEvents(input) {
-    const { startDate, endDate, searchText, locationId } = input || {};
+    let { startDate, endDate, searchText, locationId } = input || {};
+
+    logger.info(`[MCP] searchEvents called with:`, { startDate, endDate, searchText, locationId });
+
+    // Smart detection: if searchText looks like a location, treat it as locationId
+    if (searchText && !locationId) {
+      const locationCheck = await this.findBestLocationMatch(searchText);
+      if (locationCheck.confidence >= 0.7) {
+        logger.info(`[MCP] Auto-detected "${searchText}" as location (confidence: ${locationCheck.confidence.toFixed(2)}), switching to location filter`);
+        locationId = searchText;
+        searchText = undefined;  // Clear searchText since it's actually a location
+      }
+    }
 
     // Default date range: today + 7 days
-    const start = startDate ? new Date(startDate) : new Date();
-    start.setHours(0, 0, 0, 0);
+    const today = new Date();
+    const startDateStr = startDate || today.toISOString().split('T')[0];
 
-    const end = endDate ? new Date(endDate) : new Date(start);
-    if (!endDate) {
-      end.setDate(end.getDate() + 7);
+    let endDateStr;
+    if (endDate) {
+      endDateStr = endDate;
+    } else {
+      const defaultEnd = new Date(today);
+      defaultEnd.setDate(defaultEnd.getDate() + 7);
+      endDateStr = defaultEnd.toISOString().split('T')[0];
     }
-    end.setHours(23, 59, 59, 999);
 
-    const query = {
-      'start.dateTime': {
-        $gte: start.toISOString(),
-        $lte: end.toISOString()
-      }
+    // Build datetime range strings for comparison (local time, NO UTC conversion)
+    const startDateTimeStr = `${startDateStr}T00:00:00`;
+    const endDateTimeStr = `${endDateStr}T23:59:59`;
+
+    // Query using multiple field paths (events may use different structures)
+    const dateQuery = {
+      $or: [
+        // Top-level startDateTime (normalized events)
+        {
+          startDateTime: { $gte: startDateTimeStr, $lte: endDateTimeStr }
+        },
+        // Nested start.dateTime (Graph API structure)
+        {
+          'start.dateTime': { $gte: startDateTimeStr, $lte: endDateTimeStr }
+        },
+        // Date-only field (fallback)
+        {
+          startDate: { $gte: startDateStr, $lte: endDateStr }
+        }
+      ]
     };
 
-    if (searchText) {
-      query.subject = { $regex: searchText, $options: 'i' };
-    }
+    const query = { ...dateQuery, isDeleted: { $ne: true } };
 
-    if (locationId) {
-      query.$or = [
-        { 'roomReservationData.location': { $regex: locationId, $options: 'i' } },
-        { 'location.displayName': { $regex: locationId, $options: 'i' } }
+    if (searchText) {
+      query.$and = [
+        { $or: [
+          { subject: { $regex: searchText, $options: 'i' } },
+          { eventTitle: { $regex: searchText, $options: 'i' } }
+        ]}
       ];
     }
+
+    // Track location matching info for response
+    let locationMatchInfo = null;
+
+    if (locationId) {
+      // Use fuzzy matching to find the best location name
+      const matchResult = await this.findBestLocationMatch(locationId);
+      locationMatchInfo = matchResult;
+      const matchedLocation = matchResult.match;
+      logger.info(`[MCP] Using location match: "${matchedLocation}" (confidence: ${matchResult.confidence.toFixed(2)}) for search`);
+
+      const locationMatch = {
+        $or: [
+          { 'locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
+          { 'locationDisplayName': { $regex: matchedLocation, $options: 'i' } },
+          { 'location': { $regex: matchedLocation, $options: 'i' } },
+          { 'graphData.location.displayName': { $regex: matchedLocation, $options: 'i' } }
+        ]
+      };
+      query.$and = query.$and || [];
+      query.$and.push(locationMatch);
+    }
+
+    logger.info(`[MCP] searchEvents query:`, JSON.stringify(query, null, 2));
 
     const events = await this.eventsCollection
       .find(query)
       .project({
         _id: 1,
         subject: 1,
+        eventTitle: 1,
         start: 1,
         end: 1,
+        startDateTime: 1,
+        endDateTime: 1,
+        startDate: 1,
+        startTime: 1,
+        endTime: 1,
         location: 1,
+        locationDisplayNames: 1,
         organizer: 1,
         status: 1,
         syncStatus: 1
@@ -322,33 +535,51 @@ class MCPToolExecutor {
       .limit(50)
       .toArray();
 
-    // Sort in memory (Cosmos DB may not have index on start.dateTime)
+    logger.info(`[MCP] searchEvents found ${events.length} events`);
+    if (events.length > 0) {
+      logger.info(`[MCP] First event:`, events[0]);
+    }
+
+    // Sort by start time
     events.sort((a, b) => {
-      const aTime = a.start?.dateTime || '';
-      const bTime = b.start?.dateTime || '';
+      const aTime = a.startDateTime || a.start?.dateTime || '';
+      const bTime = b.startDateTime || b.start?.dateTime || '';
       return aTime.localeCompare(bTime);
     });
 
     // Return only first 20 after sorting
     const limitedEvents = events.slice(0, 20);
 
-    return {
+    const result = {
       count: limitedEvents.length,
-      dateRange: {
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0]
-      },
+      dateRange: { start: startDateStr, end: endDateStr },
       events: limitedEvents.map(e => ({
         id: e._id.toString(),
-        title: e.subject,
-        start: e.start?.dateTime,
-        end: e.end?.dateTime,
-        location: e.location?.displayName,
-        organizer: e.organizer?.emailAddress?.name,
+        title: e.eventTitle || e.subject || 'Untitled',
+        start: e.startTime || e.startDateTime?.split('T')[1]?.substring(0, 5) || e.start?.dateTime?.split('T')[1]?.substring(0, 5),
+        end: e.endTime || e.endDateTime?.split('T')[1]?.substring(0, 5) || e.end?.dateTime?.split('T')[1]?.substring(0, 5),
+        date: e.startDate || e.startDateTime?.split('T')[0] || e.start?.dateTime?.split('T')[0],
+        location: e.locationDisplayNames || e.locationDisplayName || e.location?.displayName || e.location,
         status: e.status,
         syncStatus: e.syncStatus
       }))
     };
+
+    // Include location matching info if a location search was performed
+    if (locationMatchInfo) {
+      result.locationSearch = {
+        searchedFor: locationId,
+        matchedTo: locationMatchInfo.match,
+        confidence: locationMatchInfo.confidence,
+        otherMatches: locationMatchInfo.allMatches.slice(1, 4).map(m => m.name)
+      };
+      // Add helpful message if confidence is low
+      if (locationMatchInfo.confidence < 0.5 && limitedEvents.length === 0) {
+        result.locationSuggestion = `Could not find exact match for "${locationId}". Did you mean: ${locationMatchInfo.allMatches.slice(0, 3).map(m => m.name).join(', ')}?`;
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -357,41 +588,109 @@ class MCPToolExecutor {
   async checkAvailability(input) {
     const { locationId, date, startTime, endTime } = input;
 
+    logger.info(`[MCP] checkAvailability called with:`, { locationId, date, startTime, endTime });
+
     if (!date || !startTime || !endTime) {
       return { error: 'date, startTime, and endTime are required' };
     }
 
-    const startDateTime = new Date(`${date}T${startTime}:00`);
-    const endDateTime = new Date(`${date}T${endTime}:00`);
+    // Build local datetime strings (matching database format - NO 'Z' suffix, NO UTC conversion)
+    // Database stores times in America/New_York local time
+    const startDateTimeStr = `${date}T${startTime}:00`;
+    const endDateTimeStr = `${date}T${endTime}:00`;
+    logger.info(`[MCP] checkAvailability date range:`, { startDateTimeStr, endDateTimeStr });
 
-    // Check events collection for conflicts
-    const conflicts = await this.eventsCollection.find({
-      $or: [
-        { 'roomReservationData.location': { $regex: locationId, $options: 'i' } },
-        { 'location.displayName': { $regex: locationId, $options: 'i' } }
-      ],
-      'start.dateTime': { $lt: endDateTime.toISOString() },
-      'end.dateTime': { $gt: startDateTime.toISOString() },
-      'status': { $ne: 'rejected' }
-    }).toArray();
-
-    if (conflicts.length === 0) {
-      return {
-        available: true,
-        message: `The space is available on ${date} from ${startTime} to ${endTime}`
-      };
+    // Use fuzzy matching to find the best location name
+    let matchedLocation = locationId;
+    let locationMatchInfo = null;
+    if (locationId) {
+      const matchResult = await this.findBestLocationMatch(locationId);
+      locationMatchInfo = matchResult;
+      matchedLocation = matchResult.match;
+      logger.info(`[MCP] Using location match: "${matchedLocation}" (confidence: ${matchResult.confidence.toFixed(2)}) for availability check`);
     }
 
-    return {
+    // Build location query - check multiple location fields for flexible matching
+    const locationQuery = matchedLocation ? {
+      $or: [
+        { 'locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
+        { 'locationDisplayName': { $regex: matchedLocation, $options: 'i' } },
+        { 'location': { $regex: matchedLocation, $options: 'i' } },
+        { 'locations': { $regex: matchedLocation, $options: 'i' } },
+        { 'graphData.location.displayName': { $regex: matchedLocation, $options: 'i' } },
+        { 'graphData.locations.displayName': { $regex: matchedLocation, $options: 'i' } }
+      ]
+    } : {};
+
+    // Query for overlapping events using string comparison
+    // Event overlaps if: event.start < queryEnd AND event.end > queryStart
+    // Check multiple field paths since events may use different structures
+    const conflicts = await this.eventsCollection.find({
+      ...locationQuery,
+      $and: [
+        // Event must start before query end (check multiple field paths)
+        {
+          $or: [
+            { startDateTime: { $lt: endDateTimeStr } },
+            { 'start.dateTime': { $lt: endDateTimeStr } },
+            { startDate: { $lte: date } }  // Date-only fallback
+          ]
+        },
+        // Event must end after query start (check multiple field paths)
+        {
+          $or: [
+            { endDateTime: { $gt: startDateTimeStr } },
+            { 'end.dateTime': { $gt: startDateTimeStr } },
+            { endDate: { $gte: date } }  // Date-only fallback
+          ]
+        }
+      ],
+      isDeleted: { $ne: true },
+      status: { $ne: 'rejected' }
+    }).toArray();
+
+    logger.info(`[MCP] checkAvailability found ${conflicts.length} conflicts`);
+    if (conflicts.length > 0) {
+      logger.info(`[MCP] First conflict:`, conflicts[0]);
+    }
+
+    // Build location info for response
+    const locationInfo = locationMatchInfo ? {
+      searchedFor: locationId,
+      matchedTo: locationMatchInfo.match,
+      confidence: locationMatchInfo.confidence,
+      otherMatches: locationMatchInfo.allMatches.slice(1, 4).map(m => m.name)
+    } : null;
+
+    if (conflicts.length === 0) {
+      const result = {
+        available: true,
+        message: `${matchedLocation || 'The space'} is available on ${date} from ${startTime} to ${endTime}`
+      };
+      if (locationInfo) {
+        result.locationSearch = locationInfo;
+        if (locationMatchInfo.confidence < 0.5) {
+          result.locationNote = `Note: Low confidence match for "${locationId}". Other options: ${locationMatchInfo.allMatches.slice(0, 3).map(m => m.name).join(', ')}`;
+        }
+      }
+      return result;
+    }
+
+    const result = {
       available: false,
       conflictCount: conflicts.length,
-      conflicts: conflicts.slice(0, 3).map(c => ({
-        title: c.subject || c.roomReservationData?.eventTitle,
-        start: c.start?.dateTime,
-        end: c.end?.dateTime
+      conflicts: conflicts.slice(0, 5).map(c => ({
+        title: c.eventTitle || c.graphData?.subject || 'Untitled Event',
+        start: c.startTime || c.startDateTime?.split('T')[1]?.substring(0, 5),
+        end: c.endTime || c.endDateTime?.split('T')[1]?.substring(0, 5),
+        date: c.startDate || c.startDateTime?.split('T')[0]
       })),
-      message: `Found ${conflicts.length} conflicting event(s)`
+      message: `Found ${conflicts.length} conflicting event(s) at ${matchedLocation || 'this location'}`
     };
+    if (locationInfo) {
+      result.locationSearch = locationInfo;
+    }
+    return result;
   }
 
   /**
