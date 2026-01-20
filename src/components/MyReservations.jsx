@@ -20,6 +20,7 @@ export default function MyReservations({ apiToken }) {
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [deletingDraft, setDeletingDraft] = useState(false);
   
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -29,6 +30,18 @@ export default function MyReservations({ apiToken }) {
     if (apiToken) {
       loadMyReservations();
     }
+  }, [apiToken]);
+
+  // Listen for refresh event (triggered after draft submission)
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (apiToken) {
+        loadMyReservations();
+      }
+    };
+
+    window.addEventListener('refresh-my-reservations', handleRefresh);
+    return () => window.removeEventListener('refresh-my-reservations', handleRefresh);
   }, [apiToken]);
 
   const loadMyReservations = async () => {
@@ -58,10 +71,19 @@ export default function MyReservations({ apiToken }) {
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {
     if (activeTab === 'all') {
-      return allReservations;
+      // 'all' shows everything except drafts by default
+      return allReservations.filter(r => r.status !== 'draft');
+    }
+    if (activeTab === 'drafts') {
+      return allReservations.filter(r => r.status === 'draft');
     }
     return allReservations.filter(reservation => reservation.status === activeTab);
   }, [allReservations, activeTab]);
+
+  // Count drafts for tab badge
+  const draftsCount = useMemo(() =>
+    allReservations.filter(r => r.status === 'draft').length,
+  [allReservations]);
 
   // Pagination for filtered results
   const itemsPerPage = 20;
@@ -120,6 +142,52 @@ export default function MyReservations({ apiToken }) {
       }
     });
   };
+
+  // Handle continue editing a draft - dispatch event to open modal
+  const handleEditDraft = (draft) => {
+    // Dispatch custom event to open draft in modal (handled by App.jsx)
+    window.dispatchEvent(new CustomEvent('open-draft-modal', {
+      detail: { draft }
+    }));
+  };
+
+  // Handle delete draft
+  const handleDeleteDraft = async (draft) => {
+    if (!window.confirm('Are you sure you want to delete this draft? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingDraft(true);
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draft._id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to delete draft');
+
+      // Remove draft from local state
+      setAllReservations(prev => prev.filter(r => r._id !== draft._id));
+      setSelectedReservation(null);
+    } catch (err) {
+      logger.error('Error deleting draft:', err);
+      setError('Failed to delete draft');
+    } finally {
+      setDeletingDraft(false);
+    }
+  };
+
+  // Calculate days until draft auto-deletes
+  const getDaysUntilDelete = (draftCreatedAt) => {
+    if (!draftCreatedAt) return null;
+    const createdDate = new Date(draftCreatedAt);
+    const deleteDate = new Date(createdDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const daysRemaining = Math.ceil((deleteDate - now) / (24 * 60 * 60 * 1000));
+    return Math.max(0, daysRemaining);
+  };
   
   const formatDateTime = (date) => {
     return new Date(date).toLocaleString('en-US', {
@@ -162,6 +230,7 @@ export default function MyReservations({ apiToken }) {
       case 'approved': return 'status-approved';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
+      case 'draft': return 'status-draft';
       default: return '';
     }
   };
@@ -196,11 +265,18 @@ export default function MyReservations({ apiToken }) {
       <div className="tabs-container">
         <div className="tabs">
           <button
+            className={`tab ${activeTab === 'drafts' ? 'active' : ''}`}
+            onClick={() => handleTabChange('drafts')}
+          >
+            Drafts
+            <span className="count draft-count">({draftsCount})</span>
+          </button>
+          <button
             className={`tab ${activeTab === 'all' ? 'active' : ''}`}
             onClick={() => handleTabChange('all')}
           >
             All Requests
-            <span className="count">({allReservations.length})</span>
+            <span className="count">({allReservations.filter(r => r.status !== 'draft').length})</span>
           </button>
           <button
             className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
@@ -248,9 +324,16 @@ export default function MyReservations({ apiToken }) {
           </thead>
           <tbody>
             {paginatedReservations.map(reservation => (
-              <tr key={reservation._id}>
+              <tr key={reservation._id} className={reservation.status === 'draft' ? 'draft-row' : ''}>
                 <td className="submitted-date">
-                  {new Date(reservation.submittedAt).toLocaleDateString()}
+                  {reservation.status === 'draft' ? (
+                    <>
+                      <span className="draft-label">Last saved</span>
+                      {new Date(reservation.lastDraftSaved || reservation.submittedAt).toLocaleDateString()}
+                    </>
+                  ) : (
+                    new Date(reservation.submittedAt).toLocaleDateString()
+                  )}
                 </td>
                 <td className="event-details">
                   <strong>{reservation.eventTitle}</strong>
@@ -265,37 +348,50 @@ export default function MyReservations({ apiToken }) {
                   )}
                 </td>
                 <td className="datetime">
-                  {isSameDay(reservation.startDateTime, reservation.endDateTime) ? (
-                    <>
-                      <div className="date">{formatDate(reservation.startDateTime)}</div>
-                      <div className="time-range">{formatTime(reservation.startDateTime)} – {formatTime(reservation.endDateTime)}</div>
-                    </>
+                  {reservation.startDateTime && reservation.endDateTime ? (
+                    isSameDay(reservation.startDateTime, reservation.endDateTime) ? (
+                      <>
+                        <div className="date">{formatDate(reservation.startDateTime)}</div>
+                        <div className="time-range">{formatTime(reservation.startDateTime)} – {formatTime(reservation.endDateTime)}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>{formatDateTime(reservation.startDateTime)}</div>
+                        <div className="to">to</div>
+                        <div>{formatDateTime(reservation.endDateTime)}</div>
+                      </>
+                    )
                   ) : (
-                    <>
-                      <div>{formatDateTime(reservation.startDateTime)}</div>
-                      <div className="to">to</div>
-                      <div>{formatDateTime(reservation.endDateTime)}</div>
-                    </>
+                    <span className="not-set">Not set</span>
                   )}
                 </td>
                 <td className="rooms">
-                  {reservation.requestedRooms.map(roomId => {
-                    const roomDetails = getRoomDetails(roomId);
-                    return (
-                      <div 
-                        key={roomId} 
-                        className="room-badge"
-                        title={roomDetails.location ? `${roomDetails.name} - ${roomDetails.location}` : roomDetails.name}
-                      >
-                        {roomDetails.name}
-                      </div>
-                    );
-                  })}
+                  {reservation.requestedRooms && reservation.requestedRooms.length > 0 ? (
+                    reservation.requestedRooms.map(roomId => {
+                      const roomDetails = getRoomDetails(roomId);
+                      return (
+                        <div
+                          key={roomId}
+                          className="room-badge"
+                          title={roomDetails.location ? `${roomDetails.name} - ${roomDetails.location}` : roomDetails.name}
+                        >
+                          {roomDetails.name}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <span className="not-set">Not selected</span>
+                  )}
                 </td>
                 <td>
                   <span className={`status-badge ${getStatusBadgeClass(reservation.status)}`}>
                     {reservation.status}
                   </span>
+                  {reservation.status === 'draft' && reservation.draftCreatedAt && (
+                    <div className="draft-warning">
+                      Auto-deletes in {getDaysUntilDelete(reservation.draftCreatedAt)} days
+                    </div>
+                  )}
                   {reservation.rejectionReason && (
                     <div className="rejection-reason" title={reservation.rejectionReason}>
                       ❌ {reservation.rejectionReason}
@@ -306,19 +402,38 @@ export default function MyReservations({ apiToken }) {
                       🚫 {reservation.cancelReason}
                     </div>
                   )}
-                  {reservation.actionDate && reservation.status !== 'pending' && (
+                  {reservation.actionDate && reservation.status !== 'pending' && reservation.status !== 'draft' && (
                     <div className="action-date">
                       {reservation.status === 'approved' ? '✅' : reservation.status === 'rejected' ? '❌' : '🚫'} {new Date(reservation.actionDate).toLocaleDateString()}
                     </div>
                   )}
                 </td>
                 <td className="actions">
-                  <button
-                    className="view-btn"
-                    onClick={() => setSelectedReservation(reservation)}
-                  >
-                    View Details
-                  </button>
+                  {reservation.status === 'draft' ? (
+                    <>
+                      <button
+                        className="edit-btn"
+                        onClick={() => handleEditDraft(reservation)}
+                        disabled={deletingDraft}
+                      >
+                        Continue Editing
+                      </button>
+                      <button
+                        className="delete-btn"
+                        onClick={() => handleDeleteDraft(reservation)}
+                        disabled={deletingDraft}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="view-btn"
+                      onClick={() => setSelectedReservation(reservation)}
+                    >
+                      View Details
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -327,8 +442,10 @@ export default function MyReservations({ apiToken }) {
         
         {paginatedReservations.length === 0 && !loading && (
           <div className="no-reservations">
-            {activeTab === 'all' 
-              ? "You haven't submitted any reservation requests yet." 
+            {activeTab === 'all'
+              ? "You haven't submitted any reservation requests yet."
+              : activeTab === 'drafts'
+              ? "You don't have any saved drafts."
               : `You don't have any ${activeTab} reservation requests.`}
           </div>
         )}

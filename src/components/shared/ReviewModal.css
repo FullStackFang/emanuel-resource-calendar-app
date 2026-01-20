@@ -164,6 +164,16 @@
   background: #ea580c !important;
 }
 
+/* Draft Button */
+.draft-btn {
+  background: #6366f1;
+  color: white;
+}
+
+.draft-btn:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
 /* Cancel/Close Button */
 .cancel-btn {
   background: white;

@@ -39,7 +39,8 @@
       "Bash(TZ='Asia/Tokyo' node:*)",
       "Bash(mongosh:*)",
       "Bash(awk:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(python3 -c:*)"
     ],
     "deny": []
   }

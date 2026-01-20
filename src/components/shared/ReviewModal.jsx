@@ -1,6 +1,7 @@
 // src/components/shared/ReviewModal.jsx
 import React, { useEffect, useCallback, useState } from 'react';
 import LoadingSpinner from './LoadingSpinner';
+import DraftSaveDialog from './DraftSaveDialog';
 import './ReviewModal.css';
 
 /**
@@ -64,7 +65,17 @@ export default function ReviewModal({
   isApproveConfirming = false,
   onCancelApprove = null,
   isRejectConfirming = false,
-  onCancelReject = null
+  onCancelReject = null,
+  // Draft-related props
+  isDraft = false,
+  onSaveDraft = null,
+  onSubmitDraft = null,
+  savingDraft = false,
+  showDraftDialog = false,
+  onDraftDialogSave = null,
+  onDraftDialogDiscard = null,
+  onDraftDialogCancel = null,
+  canSaveDraft = true
 }) {
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -233,8 +244,33 @@ export default function ReviewModal({
                 </div>
               )}
 
+              {/* Save Draft button - for new event creation (when onSaveDraft is provided) */}
+              {onSaveDraft && !isDraft && (
+                <button
+                  type="button"
+                  className="action-btn draft-btn"
+                  onClick={onSaveDraft}
+                  disabled={savingDraft || isSaving || !canSaveDraft}
+                  title={!canSaveDraft ? 'Event title is required to save as draft' : 'Save your progress as a draft'}
+                >
+                  {savingDraft ? 'Saving...' : '📝 Save Draft'}
+                </button>
+              )}
+
+              {/* Submit Draft button - when editing an existing draft */}
+              {isDraft && onSubmitDraft && (
+                <button
+                  type="button"
+                  className="action-btn approve-btn"
+                  onClick={onSubmitDraft}
+                  disabled={isSaving || savingDraft}
+                >
+                  {isSaving ? 'Submitting...' : '✓ Submit for Approval'}
+                </button>
+              )}
+
               {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
-              {mode === 'create' && onSave && (
+              {mode === 'create' && onSave && !isDraft && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -374,6 +410,18 @@ export default function ReviewModal({
             </div>
           )}
         </div>
+
+        {/* Draft Save Dialog - shown when closing with unsaved changes */}
+        {showDraftDialog && (
+          <DraftSaveDialog
+            isOpen={showDraftDialog}
+            onSaveDraft={onDraftDialogSave}
+            onDiscard={onDraftDialogDiscard}
+            onCancel={onDraftDialogCancel}
+            canSaveDraft={canSaveDraft}
+            saving={savingDraft}
+          />
+        )}
       </div>
     </div>
   );

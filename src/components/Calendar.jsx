@@ -278,6 +278,11 @@
     // Save/Create confirmation state (for single events - multi-day has its own confirmation)
     const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
 
+    // Draft state for reservation requests
+    const [draftId, setDraftId] = useState(null);
+    const [savingDraft, setSavingDraft] = useState(false);
+    const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -4638,12 +4643,176 @@
     /**
      * Handle closing the EventReviewModal
      */
-    const handleEventReviewModalClose = useCallback(() => {
-      setEventReviewModal({ isOpen: false, event: null, mode: 'event' });
+    const handleEventReviewModalClose = useCallback((force = false) => {
+      // Show draft save dialog if there are unsaved changes in create mode (not for edit mode)
+      if (!force && eventReviewModal.mode === 'create' && eventReviewModal.hasChanges && !draftId) {
+        setShowDraftSaveDialog(true);
+        return;
+      }
+      setEventReviewModal({ isOpen: false, event: null, mode: 'event', hasChanges: false });
       setPendingEventDeleteConfirmation(false); // Reset delete confirmation
       setPendingMultiDayConfirmation(null); // Reset multi-day confirmation
       setPendingSaveConfirmation(false); // Reset save confirmation
+      setDraftId(null); // Reset draft ID
+      setShowDraftSaveDialog(false);
+    }, [eventReviewModal.mode, eventReviewModal.hasChanges, draftId]);
+
+    /**
+     * Build draft payload from event data
+     */
+    const buildDraftPayload = useCallback((eventData) => {
+      // Helper function to convert time difference to minutes
+      const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
+        if (!eventTime || !bufferTime) return 0;
+        const eventDate = new Date(`1970-01-01T${eventTime}:00`);
+        const bufferDate = new Date(`1970-01-01T${bufferTime}:00`);
+        const diffMs = Math.abs(eventDate.getTime() - bufferDate.getTime());
+        return Math.floor(diffMs / (1000 * 60));
+      };
+
+      // Combine date and time if both exist
+      const startDateTime = eventData.startDate && eventData.startTime
+        ? `${eventData.startDate}T${eventData.startTime}`
+        : null;
+      const endDateTime = eventData.endDate && eventData.endTime
+        ? `${eventData.endDate}T${eventData.endTime}`
+        : null;
+
+      let setupTimeMinutes = eventData.setupTimeMinutes || 0;
+      let teardownTimeMinutes = eventData.teardownTimeMinutes || 0;
+
+      if (eventData.setupTime && eventData.startTime) {
+        setupTimeMinutes = calculateTimeBufferMinutes(eventData.startTime, eventData.setupTime);
+      }
+      if (eventData.teardownTime && eventData.endTime) {
+        teardownTimeMinutes = calculateTimeBufferMinutes(eventData.endTime, eventData.teardownTime);
+      }
+
+      return {
+        eventTitle: eventData.eventTitle || eventData.subject || '',
+        eventDescription: eventData.eventDescription || eventData.description || '',
+        startDateTime,
+        endDateTime,
+        attendeeCount: parseInt(eventData.attendeeCount) || 0,
+        requestedRooms: eventData.requestedRooms || eventData.locations || [],
+        requiredFeatures: eventData.requiredFeatures || [],
+        specialRequirements: eventData.specialRequirements || '',
+        department: eventData.department || '',
+        phone: eventData.phone || '',
+        setupTimeMinutes,
+        teardownTimeMinutes,
+        setupTime: eventData.setupTime || null,
+        teardownTime: eventData.teardownTime || null,
+        doorOpenTime: eventData.doorOpenTime || null,
+        doorCloseTime: eventData.doorCloseTime || null,
+        setupNotes: eventData.setupNotes || '',
+        doorNotes: eventData.doorNotes || '',
+        eventNotes: eventData.eventNotes || '',
+        isOnBehalfOf: eventData.isOnBehalfOf || false,
+        contactName: eventData.contactName || '',
+        contactEmail: eventData.contactEmail || '',
+        mecCategories: eventData.mecCategories || [],
+        services: eventData.services || {},
+        recurrence: eventData.recurrence || null,
+        virtualMeetingUrl: eventData.virtualMeetingUrl || null,
+        isOffsite: eventData.isOffsite || false,
+        offsiteName: eventData.offsiteName || '',
+        offsiteAddress: eventData.offsiteAddress || '',
+        offsiteLat: eventData.offsiteLat || null,
+        offsiteLon: eventData.offsiteLon || null
+      };
     }, []);
+
+    /**
+     * Save current form as draft
+     */
+    const handleSaveDraft = useCallback(async () => {
+      const eventData = eventReviewModal.event;
+      if (!eventData) {
+        showNotification('No form data to save', 'error');
+        return;
+      }
+
+      // Minimal validation - only eventTitle required
+      if (!eventData.eventTitle?.trim()) {
+        showNotification('Event title is required to save as draft', 'error');
+        return;
+      }
+
+      setSavingDraft(true);
+
+      try {
+        const payload = buildDraftPayload(eventData);
+
+        const endpoint = draftId
+          ? `${API_BASE_URL}/room-reservations/draft/${draftId}`
+          : `${API_BASE_URL}/room-reservations/draft`;
+
+        const method = draftId ? 'PUT' : 'POST';
+
+        const response = await fetch(endpoint, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to save draft');
+        }
+
+        const result = await response.json();
+        logger.log('Draft saved:', result);
+
+        // Update draft ID if this was a new draft
+        if (!draftId) {
+          setDraftId(result._id);
+        }
+
+        setEventReviewModal(prev => ({ ...prev, hasChanges: false }));
+        showNotification('Draft saved successfully', 'success');
+
+      } catch (error) {
+        logger.error('Error saving draft:', error);
+        showNotification(`Failed to save draft: ${error.message}`, 'error');
+      } finally {
+        setSavingDraft(false);
+      }
+    }, [eventReviewModal.event, draftId, apiToken, buildDraftPayload, showNotification]);
+
+    /**
+     * Handle draft dialog save
+     */
+    const handleDraftDialogSave = useCallback(async () => {
+      await handleSaveDraft();
+      setShowDraftSaveDialog(false);
+      handleEventReviewModalClose(true);
+    }, [handleSaveDraft, handleEventReviewModalClose]);
+
+    /**
+     * Handle draft dialog discard
+     */
+    const handleDraftDialogDiscard = useCallback(() => {
+      setShowDraftSaveDialog(false);
+      handleEventReviewModalClose(true);
+    }, [handleEventReviewModalClose]);
+
+    /**
+     * Handle draft dialog cancel (continue editing)
+     */
+    const handleDraftDialogCancel = useCallback(() => {
+      setShowDraftSaveDialog(false);
+    }, []);
+
+    /**
+     * Check if draft can be saved
+     */
+    const canSaveDraft = useCallback(() => {
+      return !!eventReviewModal.event?.eventTitle?.trim();
+    }, [eventReviewModal.event]);
 
     /**
      * Handle navigation to another event in the series (close and reopen modal)
@@ -5813,6 +5982,14 @@
           onCancelDelete={() => setPendingEventDeleteConfirmation(false)}
           isSaveConfirming={pendingSaveConfirmation}
           onCancelSave={() => setPendingSaveConfirmation(false)}
+          // Draft-related props - show for new event creation (not editing existing events)
+          onSaveDraft={!(eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleSaveDraft : null}
+          savingDraft={savingDraft}
+          showDraftDialog={showDraftSaveDialog}
+          onDraftDialogSave={handleDraftDialogSave}
+          onDraftDialogDiscard={handleDraftDialogDiscard}
+          onDraftDialogCancel={handleDraftDialogCancel}
+          canSaveDraft={canSaveDraft()}
         >
           {eventReviewModal.isOpen && eventReviewModal.event && (
             <RoomReservationReview

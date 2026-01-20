@@ -52,6 +52,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Form validity state (controlled by child form component)
   const [isFormValid, setIsFormValid] = useState(true);
 
+  // Draft-specific state
+  const [isDraft, setIsDraft] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [showDraftDialog, setShowDraftDialog] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+
   // Ref to hold form data getter function (set by child form component)
   const formDataGetterRef = useRef(null);
 
@@ -67,11 +73,21 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * @param {Object} item - The reservation or event to open
    * @param {Object} options - Optional settings
    * @param {string} options.editScope - For recurring events: 'thisEvent' or 'allEvents'
+   * @param {boolean} options.isDraft - Whether opening a draft for editing
    */
   const openModal = useCallback(async (item, options = {}) => {
     if (!item) return;
 
-    const { editScope: scope = null } = options;
+    const { editScope: scope = null, isDraft: openAsDraft = false } = options;
+
+    // Set draft state if opening a draft
+    if (openAsDraft || item.status === 'draft') {
+      setIsDraft(true);
+      setDraftId(item._id);
+    } else {
+      setIsDraft(false);
+      setDraftId(null);
+    }
 
     // Try to acquire soft hold if item is pending
     if (item.status === 'pending' && !item._isNewUnifiedEvent) {
@@ -115,8 +131,16 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   /**
    * Close modal and release any holds
+   * @param {boolean} force - If true, close without showing draft dialog
    */
-  const closeModal = useCallback(async () => {
+  const closeModal = useCallback(async (force = false) => {
+    // Show draft save dialog if there are unsaved changes (for new items, not drafts already being edited)
+    // Only prompt if not forcing close and has changes and not already a draft
+    if (!force && hasChanges && !isDraft && currentItem?._isNewUnifiedEvent) {
+      setShowDraftDialog(true);
+      return;
+    }
+
     // Only release hold if one was actually acquired (reviewHold state exists)
     if (reviewHold && currentItem) {
       await releaseReviewHold(currentItem._id);
@@ -130,7 +154,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingDeleteConfirmation(false); // Reset delete confirmation
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
-  }, [currentItem, reviewHold]);
+    setIsDraft(false); // Reset draft state
+    setDraftId(null);
+    setShowDraftDialog(false);
+  }, [currentItem, reviewHold, hasChanges, isDraft]);
 
   /**
    * Acquire soft hold when opening review modal
@@ -576,6 +603,227 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingSaveConfirmation(false);
   }, []);
 
+  /**
+   * Build draft payload from form data
+   */
+  const buildDraftPayload = useCallback((formData) => {
+    // Helper function to convert time difference to minutes
+    const calculateTimeBufferMinutes = (eventTime, bufferTime) => {
+      if (!eventTime || !bufferTime) return 0;
+      const eventDate = new Date(`1970-01-01T${eventTime}:00`);
+      const bufferDate = new Date(`1970-01-01T${bufferTime}:00`);
+      const diffMs = Math.abs(eventDate.getTime() - bufferDate.getTime());
+      return Math.floor(diffMs / (1000 * 60));
+    };
+
+    // Combine date and time if both exist
+    const startDateTime = formData.startDate && formData.startTime
+      ? `${formData.startDate}T${formData.startTime}`
+      : null;
+    const endDateTime = formData.endDate && formData.endTime
+      ? `${formData.endDate}T${formData.endTime}`
+      : null;
+
+    let setupTimeMinutes = formData.setupTimeMinutes || 0;
+    let teardownTimeMinutes = formData.teardownTimeMinutes || 0;
+
+    if (formData.setupTime && formData.startTime) {
+      setupTimeMinutes = calculateTimeBufferMinutes(formData.startTime, formData.setupTime);
+    }
+    if (formData.teardownTime && formData.endTime) {
+      teardownTimeMinutes = calculateTimeBufferMinutes(formData.endTime, formData.teardownTime);
+    }
+
+    return {
+      eventTitle: formData.eventTitle,
+      eventDescription: formData.eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount: parseInt(formData.attendeeCount) || 0,
+      requestedRooms: formData.requestedRooms || formData.locations || [],
+      requiredFeatures: formData.requiredFeatures || [],
+      specialRequirements: formData.specialRequirements || '',
+      department: formData.department || '',
+      phone: formData.phone || '',
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime: formData.setupTime || null,
+      teardownTime: formData.teardownTime || null,
+      doorOpenTime: formData.doorOpenTime || null,
+      doorCloseTime: formData.doorCloseTime || null,
+      setupNotes: formData.setupNotes || '',
+      doorNotes: formData.doorNotes || '',
+      eventNotes: formData.eventNotes || '',
+      isOnBehalfOf: formData.isOnBehalfOf || false,
+      contactName: formData.contactName || '',
+      contactEmail: formData.contactEmail || '',
+      mecCategories: formData.mecCategories || [],
+      services: formData.services || {},
+      recurrence: formData.recurrence || null,
+      virtualMeetingUrl: formData.virtualMeetingUrl || null,
+      isOffsite: formData.isOffsite || false,
+      offsiteName: formData.offsiteName || '',
+      offsiteAddress: formData.offsiteAddress || '',
+      offsiteLat: formData.offsiteLat || null,
+      offsiteLon: formData.offsiteLon || null
+    };
+  }, []);
+
+  /**
+   * Save form data as a draft
+   */
+  const handleSaveDraft = useCallback(async () => {
+    // Get form data from the form component
+    const formData = formDataGetterRef.current?.();
+    if (!formData) {
+      logger.error('handleSaveDraft: No form data getter available');
+      if (onError) onError('Unable to get form data');
+      return { success: false, error: 'No form data' };
+    }
+
+    // Minimal validation - only eventTitle required
+    if (!formData.eventTitle?.trim()) {
+      if (onError) onError('Event title is required to save as draft');
+      return { success: false, error: 'Event title required' };
+    }
+
+    setSavingDraft(true);
+
+    try {
+      const payload = buildDraftPayload(formData);
+
+      const endpoint = draftId
+        ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
+        : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
+
+      const method = draftId ? 'PUT' : 'POST';
+
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save draft');
+      }
+
+      const result = await response.json();
+      logger.log('Draft saved:', result);
+
+      // Update draft state
+      if (!draftId) {
+        setDraftId(result._id);
+      }
+      setIsDraft(true);
+      setHasChanges(false);
+      setShowDraftDialog(false);
+
+      if (onSuccess) onSuccess({ ...result, savedAsDraft: true });
+      return { success: true, data: result };
+
+    } catch (error) {
+      logger.error('Error saving draft:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [apiToken, draftId, buildDraftPayload, onSuccess, onError]);
+
+  /**
+   * Submit an existing draft for approval
+   */
+  const handleSubmitDraft = useCallback(async () => {
+    if (!draftId) {
+      if (onError) onError('No draft to submit');
+      return { success: false, error: 'No draft ID' };
+    }
+
+    // First save any pending changes
+    const formData = formDataGetterRef.current?.();
+    if (formData && hasChanges) {
+      const saveResult = await handleSaveDraft();
+      if (!saveResult.success) {
+        return saveResult;
+      }
+    }
+
+    setIsSaving(true);
+
+    try {
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}/submit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (errorData.validationErrors) {
+          throw new Error(`Incomplete draft: ${errorData.validationErrors.join(', ')}`);
+        }
+        if (errorData.conflicts) {
+          throw new Error('Scheduling conflict detected. Please adjust your times.');
+        }
+        throw new Error(errorData.error || 'Failed to submit draft');
+      }
+
+      const result = await response.json();
+      logger.log('Draft submitted:', result);
+
+      setHasChanges(false);
+      if (onSuccess) onSuccess({ ...result, draftSubmitted: true });
+      await closeModal(true);
+      return { success: true, data: result };
+
+    } catch (error) {
+      logger.error('Error submitting draft:', error);
+      if (onError) onError(error.message);
+      return { success: false, error: error.message };
+    } finally {
+      setIsSaving(false);
+    }
+  }, [draftId, apiToken, hasChanges, handleSaveDraft, closeModal, onSuccess, onError]);
+
+  /**
+   * Handlers for draft save dialog
+   */
+  const handleDraftDialogSave = useCallback(async () => {
+    const result = await handleSaveDraft();
+    if (result.success) {
+      // After saving draft, close the modal
+      await closeModal(true);
+    }
+  }, [handleSaveDraft, closeModal]);
+
+  const handleDraftDialogDiscard = useCallback(async () => {
+    setShowDraftDialog(false);
+    setHasChanges(false);
+    await closeModal(true);
+  }, [closeModal]);
+
+  const handleDraftDialogCancel = useCallback(() => {
+    setShowDraftDialog(false);
+  }, []);
+
+  /**
+   * Check if draft can be saved (needs eventTitle)
+   */
+  const canSaveDraft = useCallback(() => {
+    const formData = formDataGetterRef.current?.();
+    return !!formData?.eventTitle?.trim();
+  }, []);
+
   return {
     // State
     isOpen,
@@ -595,6 +843,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
 
+    // Draft-specific state
+    isDraft,
+    draftId,
+    showDraftDialog,
+    savingDraft,
+
     // Actions
     openModal,
     closeModal,
@@ -608,6 +862,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     cancelDeleteConfirmation,
     cancelApproveConfirmation,
     cancelRejectConfirmation,
-    cancelSaveConfirmation
+    cancelSaveConfirmation,
+
+    // Draft-specific actions
+    handleSaveDraft,
+    handleSubmitDraft,
+    handleDraftDialogSave,
+    handleDraftDialogDiscard,
+    handleDraftDialogCancel,
+    canSaveDraft
   };
 }

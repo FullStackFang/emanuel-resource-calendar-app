@@ -23,6 +23,7 @@ import FeatureManagement from './components/FeatureManagement';
 import EmailTestAdmin from './components/EmailTestAdmin';
 import AIChat from './components/AIChat';
 import ReviewModal from './components/shared/ReviewModal';
+import { useReviewModal } from './hooks/useReviewModal';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
@@ -52,6 +53,19 @@ function App() {
   const [reservationIsSaving, setReservationIsSaving] = useState(false);
   const [reservationSaveFunction, setReservationSaveFunction] = useState(null);
   const [reservationIsConfirming, setReservationIsConfirming] = useState(false);
+
+  // Draft modal state
+  const [showDraftModal, setShowDraftModal] = useState(false);
+  const [draftPrefillData, setDraftPrefillData] = useState(null);
+  const [draftHasChanges, setDraftHasChanges] = useState(false);
+  const [draftIsFormValid, setDraftIsFormValid] = useState(false);
+  const [draftIsSaving, setDraftIsSaving] = useState(false);
+  const [draftSaveFunction, setDraftSaveFunction] = useState(null);
+  const [draftIsConfirming, setDraftIsConfirming] = useState(false);
+  const [draftIsDraft, setDraftIsDraft] = useState(true);
+  const [draftId, setDraftId] = useState(null);
+  const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
+  const [savingDraftInProgress, setSavingDraftInProgress] = useState(false);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
@@ -113,6 +127,53 @@ function App() {
     window.addEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
     return () => window.removeEventListener('ai-chat-open-reservation-modal', handleOpenReservationModal);
   }, [selectedCalendarId, availableCalendars]);
+
+  // Listen for draft modal event (from MyReservations)
+  useEffect(() => {
+    const handleOpenDraftModal = (event) => {
+      const { draft } = event.detail;
+      if (!draft) return;
+
+      logger.debug('Opening draft modal with data:', draft);
+
+      // Transform draft data for the form
+      const prefillData = {
+        eventTitle: draft.eventTitle || '',
+        eventDescription: draft.eventDescription || '',
+        startDate: draft.startDateTime ? new Date(draft.startDateTime).toISOString().split('T')[0] : '',
+        endDate: draft.endDateTime ? new Date(draft.endDateTime).toISOString().split('T')[0] : '',
+        startTime: draft.startDateTime ? new Date(draft.startDateTime).toTimeString().slice(0, 5) : '',
+        endTime: draft.endDateTime ? new Date(draft.endDateTime).toTimeString().slice(0, 5) : '',
+        requestedRooms: draft.requestedRooms || draft.locations || [],
+        locations: draft.requestedRooms || draft.locations || [],
+        attendeeCount: draft.attendeeCount || '',
+        setupTime: draft.setupTime || '',
+        teardownTime: draft.teardownTime || '',
+        doorOpenTime: draft.doorOpenTime || '',
+        doorCloseTime: draft.doorCloseTime || '',
+        mecCategories: draft.mecCategories || [],
+        services: draft.services || {},
+        specialRequirements: draft.specialRequirements || '',
+        virtualMeetingUrl: draft.virtualMeetingUrl || '',
+        isOffsite: draft.isOffsite || false,
+        offsiteName: draft.offsiteName || '',
+        offsiteAddress: draft.offsiteAddress || '',
+        offsiteLat: draft.offsiteLat || null,
+        offsiteLon: draft.offsiteLon || null,
+        department: draft.roomReservationData?.department || '',
+        phone: draft.roomReservationData?.phone || '',
+        _id: draft._id
+      };
+
+      setDraftId(draft._id);
+      setDraftPrefillData(prefillData);
+      setDraftIsDraft(true);
+      setShowDraftModal(true);
+    };
+
+    window.addEventListener('open-draft-modal', handleOpenDraftModal);
+    return () => window.removeEventListener('open-draft-modal', handleOpenDraftModal);
+  }, []);
 
   // Memoized token acquisition function
   const acquireTokens = useCallback(async (account) => {
@@ -367,6 +428,210 @@ function App() {
                       setReservationIsConfirming(false);
                       // Trigger calendar refresh
                       window.dispatchEvent(new CustomEvent('ai-chat-calendar-refresh'));
+                    }}
+                  />
+                </ReviewModal>
+              </div>
+
+              {/* Draft Edit Modal - for editing drafts from MyReservations */}
+              <div style={{ zoom: 0.8 }}>
+                <ReviewModal
+                  isOpen={showDraftModal}
+                  title="Edit Draft"
+                  mode="create"
+                  onClose={() => {
+                    // Check for unsaved changes
+                    if (draftHasChanges) {
+                      setShowDraftSaveDialog(true);
+                      return;
+                    }
+                    setShowDraftModal(false);
+                    setDraftPrefillData(null);
+                    setDraftHasChanges(false);
+                    setDraftIsFormValid(false);
+                    setDraftSaveFunction(null);
+                    setDraftIsConfirming(false);
+                    setDraftId(null);
+                  }}
+                  // Draft-specific props
+                  isDraft={draftIsDraft}
+                  onSaveDraft={async () => {
+                    if (draftSaveFunction) {
+                      setSavingDraftInProgress(true);
+                      try {
+                        // Get form data and save as draft
+                        const formData = draftSaveFunction('getDraftData');
+                        if (!formData || !formData.eventTitle?.trim()) {
+                          alert('Event title is required to save as draft');
+                          return;
+                        }
+
+                        const endpoint = draftId
+                          ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
+                          : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
+
+                        const response = await fetch(endpoint, {
+                          method: draftId ? 'PUT' : 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(formData)
+                        });
+
+                        if (!response.ok) {
+                          throw new Error('Failed to save draft');
+                        }
+
+                        const result = await response.json();
+                        if (!draftId) {
+                          setDraftId(result._id);
+                        }
+                        setDraftHasChanges(false);
+                        logger.log('Draft saved:', result);
+                      } catch (error) {
+                        logger.error('Error saving draft:', error);
+                        alert('Failed to save draft: ' + error.message);
+                      } finally {
+                        setSavingDraftInProgress(false);
+                      }
+                    }
+                  }}
+                  onSubmitDraft={async () => {
+                    if (!draftId) {
+                      alert('No draft to submit');
+                      return;
+                    }
+
+                    setDraftIsSaving(true);
+                    try {
+                      const response = await fetch(
+                        `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}/submit`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          }
+                        }
+                      );
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        if (errorData.validationErrors) {
+                          throw new Error(`Incomplete draft: ${errorData.validationErrors.join(', ')}`);
+                        }
+                        throw new Error(errorData.error || 'Failed to submit draft');
+                      }
+
+                      const result = await response.json();
+                      logger.log('Draft submitted:', result);
+
+                      // Close modal and reset state
+                      setShowDraftModal(false);
+                      setDraftPrefillData(null);
+                      setDraftHasChanges(false);
+                      setDraftIsFormValid(false);
+                      setDraftSaveFunction(null);
+                      setDraftIsConfirming(false);
+                      setDraftId(null);
+
+                      // Refresh my reservations
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    } catch (error) {
+                      logger.error('Error submitting draft:', error);
+                      alert('Failed to submit draft: ' + error.message);
+                    } finally {
+                      setDraftIsSaving(false);
+                    }
+                  }}
+                  savingDraft={savingDraftInProgress}
+                  showDraftDialog={showDraftSaveDialog}
+                  onDraftDialogSave={async () => {
+                    if (draftSaveFunction) {
+                      setSavingDraftInProgress(true);
+                      try {
+                        const formData = draftSaveFunction('getDraftData');
+                        if (!formData || !formData.eventTitle?.trim()) {
+                          setShowDraftSaveDialog(false);
+                          setShowDraftModal(false);
+                          return;
+                        }
+
+                        const endpoint = draftId
+                          ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
+                          : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
+
+                        await fetch(endpoint, {
+                          method: draftId ? 'PUT' : 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(formData)
+                        });
+                      } catch (error) {
+                        logger.error('Error saving draft before close:', error);
+                      } finally {
+                        setSavingDraftInProgress(false);
+                      }
+                    }
+                    setShowDraftSaveDialog(false);
+                    setShowDraftModal(false);
+                    setDraftPrefillData(null);
+                    setDraftHasChanges(false);
+                    setDraftIsFormValid(false);
+                    setDraftSaveFunction(null);
+                    setDraftId(null);
+                  }}
+                  onDraftDialogDiscard={() => {
+                    setShowDraftSaveDialog(false);
+                    setShowDraftModal(false);
+                    setDraftPrefillData(null);
+                    setDraftHasChanges(false);
+                    setDraftIsFormValid(false);
+                    setDraftSaveFunction(null);
+                    setDraftId(null);
+                  }}
+                  onDraftDialogCancel={() => {
+                    setShowDraftSaveDialog(false);
+                  }}
+                  canSaveDraft={draftIsFormValid}
+                  hasChanges={draftHasChanges}
+                  isFormValid={draftIsFormValid}
+                  isSaving={draftIsSaving}
+                  showTabs={true}
+                >
+                  <UnifiedEventForm
+                    mode="create"
+                    apiToken={apiToken}
+                    prefillData={draftPrefillData}
+                    hideActionBar={true}
+                    onHasChangesChange={setDraftHasChanges}
+                    onFormValidChange={setDraftIsFormValid}
+                    onIsSavingChange={setDraftIsSaving}
+                    onSaveFunctionReady={(fn) => setDraftSaveFunction(() => fn)}
+                    onCancel={() => {
+                      if (draftHasChanges) {
+                        setShowDraftSaveDialog(true);
+                        return;
+                      }
+                      setShowDraftModal(false);
+                      setDraftPrefillData(null);
+                      setDraftHasChanges(false);
+                      setDraftIsFormValid(false);
+                      setDraftSaveFunction(null);
+                      setDraftId(null);
+                    }}
+                    onSuccess={() => {
+                      setShowDraftModal(false);
+                      setDraftPrefillData(null);
+                      setDraftHasChanges(false);
+                      setDraftIsFormValid(false);
+                      setDraftSaveFunction(null);
+                      setDraftId(null);
+                      // Refresh my reservations
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     }}
                   />
                 </ReviewModal>

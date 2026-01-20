@@ -1462,6 +1462,19 @@
   border-color: #9ca3af;
 }
 
+.action-btn.draft-btn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.action-btn.draft-btn:hover:not(:disabled) {
+  background: #fde68a;
+  border-color: #d97706;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(245, 158, 11, 0.3);
+}
+
 .action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

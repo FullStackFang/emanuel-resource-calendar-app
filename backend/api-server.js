@@ -306,6 +306,18 @@ async function createUnifiedEventIndexes() {
       }
     );
 
+    // TTL index for automatic draft cleanup (30 days)
+    // Only applies to events with status 'draft' - auto-deletes after 30 days
+    await unifiedEventsCollection.createIndex(
+      { draftCreatedAt: 1 },
+      {
+        name: "draft_auto_cleanup",
+        background: true,
+        expireAfterSeconds: 30 * 24 * 60 * 60, // 30 days
+        partialFilterExpression: { status: 'draft' }
+      }
+    );
+
     logger.log('Unified event indexes created successfully');
   } catch (error) {
     // Azure Cosmos DB limitation: Cannot modify unique indexes on non-empty collections
@@ -11483,6 +11495,453 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
 });
 
 /**
+ * Save a room reservation as draft (authenticated users)
+ * Minimal validation - only eventTitle required
+ * Does NOT check conflicts or notify admins
+ */
+app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      mecCategories,
+      services,
+      recurrence,
+      virtualMeetingUrl,
+      isOffsite,
+      offsiteName,
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon
+    } = req.body;
+
+    // Minimal validation for draft - only eventTitle required
+    if (!eventTitle || !eventTitle.trim()) {
+      return res.status(400).json({
+        error: 'Event title is required to save as draft'
+      });
+    }
+
+    // Create draft event record in unified events collection
+    const draft = {
+      // Event identification
+      eventId: `draft_${new ObjectId().toString()}`,
+      userId: userId,
+
+      // Event details
+      eventTitle: eventTitle.trim(),
+      eventDescription: eventDescription || '',
+      startDateTime: startDateTime ? new Date(startDateTime) : null,
+      endDateTime: endDateTime ? new Date(endDateTime) : null,
+      attendeeCount: attendeeCount || 0,
+
+      // Location data
+      locations: requestedRooms || [],
+      isOffsite: isOffsite || false,
+      offsiteName: offsiteName || '',
+      offsiteAddress: offsiteAddress || '',
+      offsiteLat: offsiteLat || null,
+      offsiteLon: offsiteLon || null,
+
+      // Time fields
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
+      setupTime: setupTime || null,
+      teardownTime: teardownTime || null,
+      doorOpenTime: doorOpenTime || null,
+      doorCloseTime: doorCloseTime || null,
+
+      // Notes
+      setupNotes: setupNotes || '',
+      doorNotes: doorNotes || '',
+      eventNotes: eventNotes || '',
+      specialRequirements: specialRequirements || '',
+
+      // Categories and services
+      mecCategories: mecCategories || [],
+      services: services || {},
+
+      // Recurrence and virtual meeting
+      recurrence: recurrence || null,
+      virtualMeetingUrl: virtualMeetingUrl || null,
+
+      // Requester info
+      requiredFeatures: requiredFeatures || [],
+
+      // Room reservation data structure (for compatibility)
+      roomReservationData: {
+        requestedBy: {
+          userId: userId,
+          name: req.user.name || userEmail,
+          email: userEmail
+        },
+        contactPerson: isOnBehalfOf ? {
+          name: contactName || '',
+          email: contactEmail || '',
+          isOnBehalfOf: true
+        } : null,
+        department: department || '',
+        phone: phone || '',
+        submittedAt: new Date()
+      },
+
+      // Draft-specific fields
+      status: 'draft',
+      draftCreatedAt: new Date(),
+      lastDraftSaved: new Date(),
+
+      // Standard fields
+      createdAt: new Date(),
+      lastModified: new Date(),
+      isDeleted: false
+    };
+
+    const result = await unifiedEventsCollection.insertOne(draft);
+    const createdDraft = await unifiedEventsCollection.findOne({ _id: result.insertedId });
+
+    logger.log('Draft reservation saved:', {
+      draftId: result.insertedId,
+      requester: userEmail,
+      eventTitle
+    });
+
+    res.status(201).json(createdDraft);
+  } catch (error) {
+    logger.error('Error saving draft reservation:', error);
+    res.status(500).json({ error: 'Failed to save draft reservation' });
+  }
+});
+
+/**
+ * Update an existing draft reservation
+ * Validates user owns the draft
+ */
+app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
+  try {
+    const draftId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Find the existing draft
+    const existingDraft = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(draftId),
+      status: 'draft'
+    });
+
+    if (!existingDraft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    // Validate ownership
+    if (existingDraft.roomReservationData?.requestedBy?.userId !== userId) {
+      return res.status(403).json({ error: 'You can only edit your own drafts' });
+    }
+
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      mecCategories,
+      services,
+      recurrence,
+      virtualMeetingUrl,
+      isOffsite,
+      offsiteName,
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon
+    } = req.body;
+
+    // Minimal validation - only eventTitle required
+    if (!eventTitle || !eventTitle.trim()) {
+      return res.status(400).json({
+        error: 'Event title is required to save as draft'
+      });
+    }
+
+    // Update draft
+    const updateData = {
+      eventTitle: eventTitle.trim(),
+      eventDescription: eventDescription || '',
+      startDateTime: startDateTime ? new Date(startDateTime) : null,
+      endDateTime: endDateTime ? new Date(endDateTime) : null,
+      attendeeCount: attendeeCount || 0,
+      locations: requestedRooms || [],
+      isOffsite: isOffsite || false,
+      offsiteName: offsiteName || '',
+      offsiteAddress: offsiteAddress || '',
+      offsiteLat: offsiteLat || null,
+      offsiteLon: offsiteLon || null,
+      setupTimeMinutes: setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || 0,
+      setupTime: setupTime || null,
+      teardownTime: teardownTime || null,
+      doorOpenTime: doorOpenTime || null,
+      doorCloseTime: doorCloseTime || null,
+      setupNotes: setupNotes || '',
+      doorNotes: doorNotes || '',
+      eventNotes: eventNotes || '',
+      specialRequirements: specialRequirements || '',
+      mecCategories: mecCategories || [],
+      services: services || {},
+      recurrence: recurrence || null,
+      virtualMeetingUrl: virtualMeetingUrl || null,
+      requiredFeatures: requiredFeatures || [],
+      'roomReservationData.contactPerson': isOnBehalfOf ? {
+        name: contactName || '',
+        email: contactEmail || '',
+        isOnBehalfOf: true
+      } : null,
+      'roomReservationData.department': department || '',
+      'roomReservationData.phone': phone || '',
+      lastDraftSaved: new Date(),
+      lastModified: new Date()
+    };
+
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(draftId) },
+      { $set: updateData }
+    );
+
+    const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+
+    logger.log('Draft reservation updated:', {
+      draftId,
+      requester: userEmail,
+      eventTitle
+    });
+
+    res.json(updatedDraft);
+  } catch (error) {
+    logger.error('Error updating draft reservation:', error);
+    res.status(500).json({ error: 'Failed to update draft reservation' });
+  }
+});
+
+/**
+ * Submit a draft for approval
+ * Full validation, conflict checking, and admin notification
+ */
+app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res) => {
+  try {
+    const draftId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Find the existing draft
+    const draft = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(draftId),
+      status: 'draft'
+    });
+
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    // Validate ownership
+    if (draft.roomReservationData?.requestedBy?.userId !== userId) {
+      return res.status(403).json({ error: 'You can only submit your own drafts' });
+    }
+
+    // Full validation for submission
+    const validationErrors = [];
+
+    if (!draft.eventTitle || !draft.eventTitle.trim()) {
+      validationErrors.push('Event title is required');
+    }
+    if (!draft.startDateTime) {
+      validationErrors.push('Start date and time are required');
+    }
+    if (!draft.endDateTime) {
+      validationErrors.push('End date and time are required');
+    }
+    if (!draft.locations || draft.locations.length === 0) {
+      validationErrors.push('At least one room must be selected');
+    }
+    if (!draft.mecCategories || draft.mecCategories.length === 0) {
+      validationErrors.push('At least one category must be selected');
+    }
+    if (!draft.setupTime) {
+      validationErrors.push('Setup time is required');
+    }
+    if (!draft.doorOpenTime) {
+      validationErrors.push('Door open time is required');
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        error: 'Draft is incomplete and cannot be submitted',
+        validationErrors
+      });
+    }
+
+    // Check for scheduling conflicts
+    const reservationForConflict = {
+      startDateTime: draft.startDateTime,
+      endDateTime: draft.endDateTime,
+      setupTimeMinutes: draft.setupTimeMinutes || 0,
+      teardownTimeMinutes: draft.teardownTimeMinutes || 0,
+      requestedRooms: draft.locations,
+      locations: draft.locations
+    };
+
+    const conflicts = await checkRoomConflicts(reservationForConflict, draftId);
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: 'Scheduling conflict detected',
+        conflicts
+      });
+    }
+
+    // Update draft to pending status
+    const updateData = {
+      status: 'pending',
+      'roomReservationData.submittedAt': new Date(),
+      lastModified: new Date()
+    };
+
+    // Remove draftCreatedAt to stop TTL (use $unset)
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(draftId) },
+      {
+        $set: updateData,
+        $unset: { draftCreatedAt: "" }
+      }
+    );
+
+    const submittedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+
+    // Send admin notification
+    try {
+      const reservationForEmail = {
+        _id: submittedReservation._id,
+        eventTitle: submittedReservation.eventTitle,
+        startDateTime: submittedReservation.startDateTime,
+        endDateTime: submittedReservation.endDateTime,
+        requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
+        requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
+        requestedRooms: submittedReservation.locations
+      };
+
+      // Send confirmation to requester
+      await emailService.sendSubmissionConfirmation(reservationForEmail);
+
+      // Send alert to admins
+      const adminEmails = await emailService.getAdminEmails(db);
+      if (adminEmails.length > 0) {
+        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
+      }
+
+      // Record in communication history
+      await emailService.recordEmailInHistory(
+        unifiedEventsCollection,
+        submittedReservation._id,
+        { correlationId: new ObjectId().toString() },
+        'submission_confirmation',
+        [userEmail],
+        `Reservation Request Submitted: ${submittedReservation.eventTitle}`
+      );
+    } catch (emailError) {
+      logger.error('Email notification failed (draft still submitted):', {
+        draftId,
+        error: emailError.message
+      });
+    }
+
+    logger.log('Draft reservation submitted:', {
+      draftId,
+      requester: userEmail,
+      eventTitle: draft.eventTitle
+    });
+
+    res.json(submittedReservation);
+  } catch (error) {
+    logger.error('Error submitting draft reservation:', error);
+    res.status(500).json({ error: 'Failed to submit draft reservation' });
+  }
+});
+
+/**
+ * Delete a draft reservation
+ */
+app.delete('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
+  try {
+    const draftId = req.params.id;
+    const userId = req.user.userId;
+
+    // Find the existing draft
+    const draft = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(draftId),
+      status: 'draft'
+    });
+
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+
+    // Validate ownership
+    if (draft.roomReservationData?.requestedBy?.userId !== userId) {
+      return res.status(403).json({ error: 'You can only delete your own drafts' });
+    }
+
+    await unifiedEventsCollection.deleteOne({ _id: new ObjectId(draftId) });
+
+    logger.log('Draft reservation deleted:', {
+      draftId,
+      requester: req.user.email
+    });
+
+    res.json({ success: true, message: 'Draft deleted successfully' });
+  } catch (error) {
+    logger.error('Error deleting draft reservation:', error);
+    res.status(500).json({ error: 'Failed to delete draft reservation' });
+  }
+});
+
+/**
  * Submit a room reservation request using a token (guest users)
  */
 app.post('/api/room-reservations/public/:token', async (req, res) => {
@@ -11744,6 +12203,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 /**
  * Get room reservations (filtered by permissions)
  * Now queries unified events collection (templeEvents__Events) instead of legacy roomReservationsCollection
+ * Includes draft support: users can see their own drafts, admins can see all drafts
  */
 app.get('/api/room-reservations', verifyToken, async (req, res) => {
   try {
@@ -11753,27 +12213,42 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(queryLimit) || 20;
 
-    // Build query for unified events with roomReservationData
-    const query = {
-      isDeleted: { $ne: true },
-      roomReservationData: { $exists: true, $ne: null }
-    };
-
     // Check if user can view all reservations or just their own
     const user = await usersCollection.findOne({ userId });
     const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
 
-    if (!canViewAll) {
-      // Filter to only show user's own reservations using the unified field path
-      query['roomReservationData.requestedBy.userId'] = userId;
-    }
+    // Build query for unified events with roomReservationData
+    let query = {
+      isDeleted: { $ne: true },
+      roomReservationData: { $exists: true, $ne: null }
+    };
 
-    if (status) {
+    // Handle status filtering including drafts
+    if (status === 'draft') {
+      // Drafts are only visible to owner (or admin)
+      if (!canViewAll) {
+        query['roomReservationData.requestedBy.userId'] = userId;
+      }
+      query.status = 'draft';
+    } else if (status) {
       // Handle both 'pending' and legacy 'room-reservation-request' statuses
       if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
       } else {
         query.status = status;
+      }
+
+      if (!canViewAll) {
+        query['roomReservationData.requestedBy.userId'] = userId;
+      }
+    } else {
+      // No status filter - show all including drafts (but drafts only for owner)
+      if (!canViewAll) {
+        // For non-admins: show their own reservations (all statuses including drafts)
+        query['roomReservationData.requestedBy.userId'] = userId;
+      } else {
+        // For admins: show all reservations including all drafts
+        // No additional filter needed
       }
     }
 
@@ -11812,7 +12287,10 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       setupTime: event.setupTime,
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
-      doorCloseTime: event.doorCloseTime
+      doorCloseTime: event.doorCloseTime,
+      // Draft-specific fields
+      draftCreatedAt: event.draftCreatedAt,
+      lastDraftSaved: event.lastDraftSaved
     }));
 
     const total = await unifiedEventsCollection.countDocuments(query);
