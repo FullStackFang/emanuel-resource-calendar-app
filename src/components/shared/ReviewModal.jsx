@@ -75,7 +75,21 @@ export default function ReviewModal({
   onDraftDialogSave = null,
   onDraftDialogDiscard = null,
   onDraftDialogCancel = null,
-  canSaveDraft = true
+  canSaveDraft = true,
+  // Edit request props (for requesters to request changes to approved events)
+  onRequestEdit = null,
+  canRequestEdit = false,
+  // Edit request mode props (when actively editing to create an edit request)
+  isEditRequestMode = false,
+  editRequestChangeReason = '',
+  onEditRequestChangeReasonChange = null,
+  onSubmitEditRequest = null,
+  onCancelEditRequest = null,
+  isSubmittingEditRequest = false,
+  isEditRequestConfirming = false,
+  onCancelEditRequestConfirm = null,
+  originalData = null,
+  detectedChanges = [] // Array of { field, label, oldValue, newValue }
 }) {
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -95,6 +109,7 @@ export default function ReviewModal({
   };
   // Tab state
   const [activeTab, setActiveTab] = useState('details');
+
   // Close on ESC key
   const handleEscKey = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -165,12 +180,61 @@ export default function ReviewModal({
           {/* Action Buttons */}
           {showActionButtons && (
             <div className="review-actions">
-              {/* Status badge for requesters (view-only mode) */}
-              {isRequesterOnly && itemStatus && (
-                <span className={`status-badge-action ${getStatusClass(itemStatus)}`}>
-                  Status: {formatStatus(itemStatus)}
-                </span>
-              )}
+              {/* Edit Request Mode Actions */}
+              {isEditRequestMode ? (
+                <>
+                  <span className="edit-request-mode-badge">
+                    ✏️ Edit Request Mode
+                  </span>
+                  <div className="confirm-button-group">
+                    <button
+                      type="button"
+                      className={`action-btn approve-btn ${isEditRequestConfirming ? 'confirming' : ''}`}
+                      onClick={onSubmitEditRequest}
+                      disabled={isSubmittingEditRequest || !hasChanges}
+                      title={!hasChanges ? 'Make changes to submit' : 'Submit edit request for admin review'}
+                    >
+                      {isSubmittingEditRequest ? 'Submitting...' : (isEditRequestConfirming ? '⚠️ Confirm Submit?' : '📝 Submit Edit Request')}
+                    </button>
+                    {isEditRequestConfirming && onCancelEditRequestConfirm && (
+                      <button
+                        type="button"
+                        className="confirm-cancel-x approve-cancel-x"
+                        onClick={onCancelEditRequestConfirm}
+                        title="Cancel submit"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="action-btn cancel-btn"
+                    onClick={onCancelEditRequest}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Status badge for requesters (view-only mode) */}
+                  {isRequesterOnly && itemStatus && !isEditRequestMode && (
+                    <span className={`status-badge-action ${getStatusClass(itemStatus)}`}>
+                      Status: {formatStatus(itemStatus)}
+                    </span>
+                  )}
+
+                  {/* Request Edit button - for users who can request changes to approved events */}
+                  {canRequestEdit && itemStatus === 'approved' && onRequestEdit && !isEditRequestMode && (
+                    <button
+                      type="button"
+                      className="action-btn request-edit-btn"
+                      onClick={onRequestEdit}
+                      title="Request changes to this approved event"
+                    >
+                      ✏️ Request Edit
+                    </button>
+                  )}
 
               {/* Approve button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
@@ -351,6 +415,8 @@ export default function ReviewModal({
               >
                 {isRequesterOnly ? 'Close' : (mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close')}
               </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -400,7 +466,7 @@ export default function ReviewModal({
         {/* Content Area */}
         <div style={{ flex: 1, position: 'relative' }}>
           {React.isValidElement(children)
-            ? React.cloneElement(children, { activeTab })
+            ? React.cloneElement(children, { activeTab, isEditRequestMode, originalData })
             : children}
 
           {/* Loading Overlay for Series Navigation */}
@@ -410,6 +476,13 @@ export default function ReviewModal({
             </div>
           )}
         </div>
+
+        {/* Edit Request Mode - show change count or prompt to make changes */}
+        {isEditRequestMode && detectedChanges.length === 0 && (
+          <div className="edit-request-no-changes">
+            Make at least one change to submit an edit request.
+          </div>
+        )}
 
         {/* Draft Save Dialog - shown when closing with unsaved changes */}
         {showDraftDialog && (

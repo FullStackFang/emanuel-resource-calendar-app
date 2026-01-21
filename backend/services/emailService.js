@@ -452,6 +452,109 @@ async function sendReviewStartedNotification(reservation) {
   });
 }
 
+// =============================================================================
+// EDIT REQUEST EMAIL FUNCTIONS
+// =============================================================================
+
+/**
+ * Send edit request submitted confirmation to requester
+ * @param {Object} editRequest - Edit request data
+ * @param {string} changeReason - Reason for the edit request
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = '') {
+  const reqData = editRequest.roomReservationData || {};
+  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
+                         editRequest.createdByEmail;
+
+  if (!recipientEmail) {
+    logger.warn('No requester email for edit request confirmation', {
+      editRequestId: editRequest._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const { subject, html } = await emailTemplates.generateEditRequestSubmittedConfirmation(editRequest, changeReason);
+
+  return sendEmail(recipientEmail, subject, html, {
+    editRequestId: editRequest._id?.toString()
+  });
+}
+
+/**
+ * Send edit request alert to admins
+ * @param {Object} editRequest - Edit request data
+ * @param {string} changeReason - Reason for the edit request
+ * @param {string} adminPanelUrl - Optional URL to admin panel
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPanelUrl = '') {
+  const adminEmails = await getAdminEmails();
+
+  if (adminEmails.length === 0) {
+    logger.warn('No admin emails configured for edit request alert', {
+      editRequestId: editRequest._id
+    });
+    return { success: false, error: 'No admin emails configured' };
+  }
+
+  const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest, changeReason, adminPanelUrl);
+
+  return sendEmail(adminEmails, subject, html, {
+    editRequestId: editRequest._id?.toString()
+  });
+}
+
+/**
+ * Send edit request approved notification to requester
+ * @param {Object} editRequest - Edit request data
+ * @param {string} adminNotes - Optional notes from admin
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendEditRequestApprovedNotification(editRequest, adminNotes = '') {
+  const reqData = editRequest.roomReservationData || {};
+  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
+                         editRequest.createdByEmail;
+
+  if (!recipientEmail) {
+    logger.warn('No requester email for edit request approval notification', {
+      editRequestId: editRequest._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const { subject, html } = await emailTemplates.generateEditRequestApprovedNotification(editRequest, adminNotes);
+
+  return sendEmail(recipientEmail, subject, html, {
+    editRequestId: editRequest._id?.toString()
+  });
+}
+
+/**
+ * Send edit request rejected notification to requester
+ * @param {Object} editRequest - Edit request data
+ * @param {string} rejectionReason - Reason for rejection
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendEditRequestRejectedNotification(editRequest, rejectionReason = '') {
+  const reqData = editRequest.roomReservationData || {};
+  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
+                         editRequest.createdByEmail;
+
+  if (!recipientEmail) {
+    logger.warn('No requester email for edit request rejection notification', {
+      editRequestId: editRequest._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const { subject, html } = await emailTemplates.generateEditRequestRejectedNotification(editRequest, rejectionReason);
+
+  return sendEmail(recipientEmail, subject, html, {
+    editRequestId: editRequest._id?.toString()
+  });
+}
+
 /**
  * Record email send in communication history
  * @param {Object} collection - MongoDB collection
@@ -513,5 +616,11 @@ module.exports = {
   sendRejectionNotification,
   sendResubmissionConfirmation,
   sendReviewStartedNotification,
-  recordEmailInHistory
+  recordEmailInHistory,
+
+  // Edit request notification helpers
+  sendEditRequestSubmittedConfirmation,
+  sendAdminEditRequestAlert,
+  sendEditRequestApprovedNotification,
+  sendEditRequestRejectedNotification
 };

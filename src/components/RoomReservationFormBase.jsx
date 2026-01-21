@@ -74,7 +74,11 @@ export default function RoomReservationFormBase({
   onFormValidChange = null,     // Callback when form validity changes
 
   // Pre-fetched data
-  prefetchedAvailability = null // Pre-fetched room availability data from parent
+  prefetchedAvailability = null, // Pre-fetched room availability data from parent
+
+  // Edit request mode props (Option C: inline diff style)
+  isEditRequestMode = false,    // When true, show inline diffs and allow editing
+  originalData = null           // Original form data for comparison (shows strikethrough when changed)
 }) {
   // Form state
   const [formData, setFormData] = useState({
@@ -915,7 +919,75 @@ export default function RoomReservationFormBase({
   };
 
   // Determine if fields should be disabled
-  const fieldsDisabled = readOnly || (!isAdmin && reservationStatus && reservationStatus !== 'pending');
+  // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
+  const fieldsDisabled = (readOnly && !isEditRequestMode) || (!isAdmin && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
+
+  // Helper to check if a field value has changed from the original (for edit request mode)
+  const hasFieldChanged = useCallback((fieldName) => {
+    if (!isEditRequestMode || !originalData) return false;
+    const originalValue = originalData[fieldName];
+    const currentValue = formData[fieldName];
+
+    // Handle arrays (like requestedRooms, categories)
+    if (Array.isArray(originalValue) && Array.isArray(currentValue)) {
+      return JSON.stringify(originalValue) !== JSON.stringify(currentValue);
+    }
+
+    // Handle empty strings vs undefined/null
+    const normalizedOriginal = originalValue ?? '';
+    const normalizedCurrent = currentValue ?? '';
+    return normalizedOriginal !== normalizedCurrent;
+  }, [isEditRequestMode, originalData, formData]);
+
+  // Helper to get the original value for display
+  const getOriginalValue = useCallback((fieldName) => {
+    if (!originalData) return null;
+    return originalData[fieldName];
+  }, [originalData]);
+
+  // Helper to format time values for display
+  const formatTimeForDisplay = (timeStr) => {
+    if (!timeStr) return '(empty)';
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  // Helper to check if categories have changed from original
+  const haveCategoriesChanged = useCallback(() => {
+    if (!isEditRequestMode || !originalData) return false;
+    const originalCategories = originalData.categories || [];
+    return JSON.stringify([...selectedCategories].sort()) !== JSON.stringify([...originalCategories].sort());
+  }, [isEditRequestMode, originalData, selectedCategories]);
+
+  // Helper to check if services have changed from original
+  const haveServicesChanged = useCallback(() => {
+    if (!isEditRequestMode || !originalData) return false;
+    const originalServices = originalData.services || {};
+    return JSON.stringify(selectedServices) !== JSON.stringify(originalServices);
+  }, [isEditRequestMode, originalData, selectedServices]);
+
+  // Helper to check if locations/rooms have changed from original
+  const haveLocationsChanged = useCallback(() => {
+    if (!isEditRequestMode || !originalData) return false;
+    const originalRooms = originalData.requestedRooms || originalData.locations || [];
+    const currentRooms = formData.requestedRooms || [];
+    return JSON.stringify([...currentRooms].sort()) !== JSON.stringify([...originalRooms].sort());
+  }, [isEditRequestMode, originalData, formData.requestedRooms]);
+
+  // Helper to get original categories for display
+  const getOriginalCategories = useCallback(() => {
+    if (!originalData) return [];
+    return originalData.categories || [];
+  }, [originalData]);
+
+  // Helper to get original locations for display
+  const getOriginalLocations = useCallback(() => {
+    if (!originalData) return [];
+    return originalData.requestedRooms || originalData.locations || [];
+  }, [originalData]);
 
   return (
     <div style={{ width: '100%' }}>
@@ -925,6 +997,16 @@ export default function RoomReservationFormBase({
           {/* Event Details - Left Side */}
           <section className="form-section event-details-compact">
             <h2>Event Details</h2>
+
+            {/* Edit Request Mode Banner */}
+            {isEditRequestMode && (
+              <div className="edit-request-mode-banner">
+                <span className="edit-request-mode-banner-icon">✏️</span>
+                <span className="edit-request-mode-banner-text">
+                  You are requesting changes to this approved event. Modified fields will show the original value with strikethrough.
+                </span>
+              </div>
+            )}
 
             {/* Edit Scope Indicator for Recurring Events */}
             {editScope === 'thisEvent' && (
@@ -941,8 +1023,15 @@ export default function RoomReservationFormBase({
             )}
 
             <div className="form-grid">
-              <div className={`form-group full-width required-field ${isFieldValid('eventTitle') ? 'field-valid' : ''}`}>
+              <div className={`form-group full-width required-field ${isFieldValid('eventTitle') ? 'field-valid' : ''} ${hasFieldChanged('eventTitle') ? 'field-changed' : ''}`}>
                 <label htmlFor="eventTitle">Event Title</label>
+                {/* Inline diff for edit request mode */}
+                {hasFieldChanged('eventTitle') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('eventTitle') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="text"
                   id="eventTitle"
@@ -951,11 +1040,19 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('eventTitle') ? 'input-changed' : ''}
                 />
               </div>
 
-              <div className="form-group full-width">
+              <div className={`form-group full-width ${hasFieldChanged('eventDescription') ? 'field-changed' : ''}`}>
                 <label htmlFor="eventDescription">Event Description</label>
+                {/* Inline diff for edit request mode */}
+                {hasFieldChanged('eventDescription') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{(getOriginalValue('eventDescription') || '(empty)').substring(0, 100)}{(getOriginalValue('eventDescription') || '').length > 100 ? '...' : ''}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <textarea
                   id="eventDescription"
                   name="eventDescription"
@@ -963,14 +1060,22 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   rows="3"
                   disabled={fieldsDisabled}
+                  className={hasFieldChanged('eventDescription') ? 'input-changed' : ''}
                 />
               </div>
             </div>
 
             {/* Expected Attendees + Add Services Row */}
             <div className="time-field-row">
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('attendeeCount') ? 'field-changed' : ''}`}>
                 <label htmlFor="attendeeCount">Expected Attendees</label>
+                {/* Inline diff for edit request mode */}
+                {hasFieldChanged('attendeeCount') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('attendeeCount') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="number"
                   id="attendeeCount"
@@ -981,6 +1086,7 @@ export default function RoomReservationFormBase({
                   placeholder="0"
                   disabled={fieldsDisabled}
                   style={{ width: '100%', maxWidth: 'none' }}
+                  className={hasFieldChanged('attendeeCount') ? 'input-changed' : ''}
                 />
               </div>
             </div>
@@ -1012,60 +1118,115 @@ export default function RoomReservationFormBase({
             </div>
 
             {/* Categories & Services Summaries - Stacked */}
-            {(selectedCategories.length > 0 || (Object.keys(selectedServices).length > 0 &&
+            {(selectedCategories.length > 0 || haveCategoriesChanged() || (Object.keys(selectedServices).length > 0 &&
              Object.values(selectedServices).some(v =>
                (Array.isArray(v) && v.length > 0) ||
                (typeof v === 'string' && v !== '') ||
                (typeof v === 'boolean')
-             ))) && (
+             )) || haveServicesChanged()) && (
               <div className="categories-services-summary-container">
-                {/* Category Summary */}
-                {selectedCategories.length > 0 && (
-                  <div className="category-summary-display">
+                {/* Category Summary with Diff - inline format like locations */}
+                {(selectedCategories.length > 0 || haveCategoriesChanged()) && (
+                  <div className={`category-summary-display ${haveCategoriesChanged() ? 'summary-changed' : ''}`}>
                     <div className="category-summary-content">
                       <span className="category-summary-icon">🏷️</span>
-                      <span className="category-summary-text">
-                        {selectedCategories.join(', ')}
-                      </span>
+                      {haveCategoriesChanged() ? (
+                        <div className="inline-diff">
+                          <span className="diff-label">Categories:</span>
+                          <span className="diff-old">{getOriginalCategories().join(', ') || '(none)'}</span>
+                          <span className="diff-arrow">→</span>
+                          <span className="diff-new">{selectedCategories.length > 0 ? selectedCategories.join(', ') : '(none)'}</span>
+                        </div>
+                      ) : (
+                        <span className="category-summary-text">
+                          {selectedCategories.join(', ')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="category-summary-actions">
+                      <button
+                        type="button"
+                        className="category-clear-btn"
+                        onClick={() => {
+                          setSelectedCategories([]);
+                          setHasChanges(true);
+                        }}
+                        disabled={fieldsDisabled}
+                      >
+                        Clear
+                      </button>
                     </div>
                   </div>
                 )}
 
-                {/* Services Summary */}
-                {Object.keys(selectedServices).length > 0 &&
+                {/* Services Summary with Diff - inline format like locations */}
+                {((Object.keys(selectedServices).length > 0 &&
                  Object.values(selectedServices).some(v =>
                    (Array.isArray(v) && v.length > 0) ||
                    (typeof v === 'string' && v !== '') ||
                    (typeof v === 'boolean')
-                 ) && (
-                  <div className="services-summary-display">
+                 )) || haveServicesChanged()) && (
+                  <div className={`services-summary-display ${haveServicesChanged() ? 'summary-changed' : ''}`}>
                     <div className="services-summary-content">
                       <span className="services-summary-icon">🛎️</span>
-                      <span className="services-summary-text">
-                        {(() => {
-                          const summaryParts = [];
-                          if (selectedServices.seatingArrangement) {
-                            summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
-                          }
-                          if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
-                            summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
-                          }
-                          if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
-                            const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
-                            summaryParts.push(`Beverages: ${beverageCount} selected`);
-                          }
-                          if (selectedServices.avEquipment?.length > 0) {
-                            summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
-                          }
-                          if (selectedServices.photographer === true || selectedServices.videographer === true) {
-                            const photoVideo = [];
-                            if (selectedServices.photographer === true) photoVideo.push('Photo');
-                            if (selectedServices.videographer === true) photoVideo.push('Video');
-                            summaryParts.push(photoVideo.join(' + '));
-                          }
-                          return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
-                        })()}
-                      </span>
+                      {haveServicesChanged() ? (
+                        <div className="inline-diff">
+                          <span className="diff-label">Services:</span>
+                          <span className="diff-old">Modified</span>
+                          <span className="diff-arrow">→</span>
+                          <span className="diff-new">
+                            {(() => {
+                              const summaryParts = [];
+                              if (selectedServices.seatingArrangement) {
+                                summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
+                              }
+                              if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
+                                summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
+                              }
+                              if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
+                                const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
+                                summaryParts.push(`Beverages: ${beverageCount}`);
+                              }
+                              if (selectedServices.avEquipment?.length > 0) {
+                                summaryParts.push(`A/V: ${selectedServices.avEquipment.length}`);
+                              }
+                              if (selectedServices.photographer === true || selectedServices.videographer === true) {
+                                const photoVideo = [];
+                                if (selectedServices.photographer === true) photoVideo.push('Photo');
+                                if (selectedServices.videographer === true) photoVideo.push('Video');
+                                summaryParts.push(photoVideo.join('+'));
+                              }
+                              return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Configured';
+                            })()}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="services-summary-text">
+                          {(() => {
+                            const summaryParts = [];
+                            if (selectedServices.seatingArrangement) {
+                              summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
+                            }
+                            if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
+                              summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
+                            }
+                            if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
+                              const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
+                              summaryParts.push(`Beverages: ${beverageCount} selected`);
+                            }
+                            if (selectedServices.avEquipment?.length > 0) {
+                              summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
+                            }
+                            if (selectedServices.photographer === true || selectedServices.videographer === true) {
+                              const photoVideo = [];
+                              if (selectedServices.photographer === true) photoVideo.push('Photo');
+                              if (selectedServices.videographer === true) photoVideo.push('Video');
+                              summaryParts.push(photoVideo.join(' + '));
+                            }
+                            return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
+                          })()}
+                        </span>
+                      )}
                     </div>
                     <div className="services-summary-actions">
                       <button
@@ -1211,8 +1372,14 @@ export default function RoomReservationFormBase({
 
             {/* Date Fields - Always visible */}
             <div className="time-field-row">
-              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
                 <label htmlFor="startDate">Event Date</label>
+                {hasFieldChanged('startDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="date"
                   id="startDate"
@@ -1221,11 +1388,18 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('startDate') ? 'input-changed' : ''}
                 />
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
                 <label htmlFor="endDate">End Date</label>
+                {hasFieldChanged('endDate') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="date"
                   id="endDate"
@@ -1235,6 +1409,7 @@ export default function RoomReservationFormBase({
                   min={formData.startDate}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('endDate') ? 'input-changed' : ''}
                 />
               </div>
             </div>
@@ -1282,8 +1457,14 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
-              <div className={`form-group required-field ${isFieldValid('setupTime') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('setupTime') ? 'field-valid' : ''} ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="setupTime">Setup Start Time</label>
+                {hasFieldChanged('setupTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('setupTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="setupTime"
@@ -1292,12 +1473,19 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('setupTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When setup can begin</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('doorOpenTime') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('doorOpenTime') ? 'field-valid' : ''} ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="doorOpenTime">Door Open Time</label>
+                {hasFieldChanged('doorOpenTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorOpenTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="doorOpenTime"
@@ -1305,13 +1493,20 @@ export default function RoomReservationFormBase({
                   value={formData.doorOpenTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
                   required
                 />
                 <div className="help-text">When attendees can start entering</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('startTime') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('startTime') ? 'field-valid' : ''} ${hasFieldChanged('startTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="startTime">Event Start Time</label>
+                {hasFieldChanged('startTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('startTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="startTime"
@@ -1320,12 +1515,19 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event begins</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('endTime') ? 'field-valid' : ''}`}>
+              <div className={`form-group required-field ${isFieldValid('endTime') ? 'field-valid' : ''} ${hasFieldChanged('endTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="endTime">Event End Time</label>
+                {hasFieldChanged('endTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('endTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="endTime"
@@ -1334,6 +1536,7 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
                   required
+                  className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When the event ends</div>
               </div>
@@ -1352,8 +1555,14 @@ export default function RoomReservationFormBase({
                 <div className="help-text">when doors will be locked at end of event</div>
               </div>
 
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="teardownTime">Teardown End Time</label>
+                {hasFieldChanged('teardownTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('teardownTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="teardownTime"
@@ -1361,6 +1570,7 @@ export default function RoomReservationFormBase({
                   value={formData.teardownTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled}
+                  className={hasFieldChanged('teardownTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When cleanup must be completed</div>
               </div>
@@ -1383,8 +1593,28 @@ export default function RoomReservationFormBase({
           </section>
 
           {/* Resource Details - Right Side */}
-          <section className="form-section">
+          <section className={`form-section ${haveLocationsChanged() ? 'section-changed' : ''}`}>
             <h2>Resource Details</h2>
+
+            {/* Inline diff for locations */}
+            {haveLocationsChanged() && (
+              <div className="inline-diff-section">
+                <div className="inline-diff">
+                  <span className="diff-label">Locations:</span>
+                  <span className="diff-old">
+                    {getOriginalLocations().length > 0
+                      ? getOriginalLocations().map(roomId => rooms.find(r => r._id === roomId)?.name || roomId).join(', ')
+                      : '(none)'}
+                  </span>
+                  <span className="diff-arrow">→</span>
+                  <span className="diff-new">
+                    {formData.requestedRooms.length > 0
+                      ? formData.requestedRooms.map(roomId => rooms.find(r => r._id === roomId)?.name || roomId).join(', ')
+                      : '(none)'}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {(formData.setupTime || formData.requestedRooms.length > 0 || virtualMeetingUrl || formData.isOffsite) && (
               <div className="event-summary-pill">

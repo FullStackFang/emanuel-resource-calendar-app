@@ -102,21 +102,33 @@
 /* Action Buttons Container */
 .review-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
+  height: 36px;
+}
+
+.review-actions > * {
+  flex-shrink: 0;
 }
 
 /* Action Buttons Base Styles */
 .action-btn {
-  padding: 10px 20px !important;
+  padding: 0 16px !important;
   border: none;
   border-radius: 6px;
-  font-size: 1rem !important;
+  font-size: 0.875rem !important;
   font-weight: 500 !important;
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
-  line-height: 1.5 !important;
+  line-height: 36px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
 }
 
 .action-btn:disabled {
@@ -174,24 +186,44 @@
   background: #4f46e5;
 }
 
+/* Request Edit Button - solid style like other action buttons */
+/* More specific selector to override DayEventPanel.css styles */
+.review-actions .request-edit-btn {
+  background: #0ea5e9 !important;
+  color: white !important;
+  border: none !important;
+  padding: 0 16px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  line-height: 36px !important;
+  border-radius: 6px !important;
+  font-size: 0.875rem !important;
+  margin-top: 0 !important;
+}
+
+.review-actions .request-edit-btn:hover:not(:disabled) {
+  background: #0284c7 !important;
+}
+
 /* Cancel/Close Button */
 .cancel-btn {
-  background: white;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: #6b7280 !important;
+  color: white !important;
+  border: none !important;
 }
 
 .cancel-btn:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: #4b5563 !important;
 }
 
 /* Inline Confirmation Button Group */
 .confirm-button-group {
   display: inline-flex;
-  align-items: stretch;
+  align-items: center;
   gap: 4px;
   position: relative;
+  height: 36px;
+  vertical-align: middle;
 }
 
 .confirm-cancel-x {
@@ -265,11 +297,13 @@
 /* Status Badge in Action Bar (for requesters/view-only mode) */
 .status-badge-action {
   padding: 8px 16px;
-  border-radius: 16px;
-  font-size: 0.95rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 .status-badge-action.status-pending {
@@ -290,6 +324,38 @@
 .status-badge-action.status-cancelled {
   background: #e5e7eb;
   color: #6b7280;
+}
+
+/* Edit Request Mode Badge */
+.edit-request-mode-badge {
+  padding: 8px 16px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  color: #0369a1;
+  border: 1px solid #7dd3fc;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+/* Edit Request Mode - No changes message */
+.edit-request-no-changes {
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 6px;
+  margin: 16px 20px;
+  padding: 12px 16px;
+  color: #92400e;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 /* Modal Content Adjustments - Override child component styles when inside modal */

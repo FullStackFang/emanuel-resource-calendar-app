@@ -715,6 +715,40 @@
   border-color: #d1d5db;
 }
 
+/* Edit Request Button */
+.my-reservations .edit-request-btn {
+  background: #4299e1;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.my-reservations .edit-request-btn:hover {
+  background: #3182ce;
+}
+
+/* Resubmit Button */
+.my-reservations .resubmit-btn {
+  background: #ed8936;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.my-reservations .resubmit-btn:hover {
+  background: #dd6b20;
+}
+
 /* ============================================
    RESPONSIVE
    ============================================ */

@@ -8,6 +8,7 @@ import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
 import ReviewModal from './shared/ReviewModal';
+import EditRequestComparison from './EditRequestComparison';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -58,6 +59,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Review modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState(null);
+
+  // Edit request state
+  const [editRequests, setEditRequests] = useState([]);
+  const [editRequestsLoading, setEditRequestsLoading] = useState(false);
+  const [selectedEditRequest, setSelectedEditRequest] = useState(null);
+  const [showEditRequestModal, setShowEditRequestModal] = useState(false);
+  const [approvingEditRequest, setApprovingEditRequest] = useState(false);
+  const [rejectingEditRequest, setRejectingEditRequest] = useState(false);
+  const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
 
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -209,6 +219,65 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setLoading(false);
     }
   };
+
+  // Load edit requests (for admin review)
+  const loadEditRequests = async () => {
+    try {
+      setEditRequestsLoading(true);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/edit-requests?status=all`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load edit requests');
+      }
+
+      const data = await response.json();
+
+      // Transform edit requests for display
+      const transformedEditRequests = (data.editRequests || []).map(req => ({
+        _id: req._id,
+        eventId: req.eventId,
+        originalEventId: req.originalEventId,
+        eventTitle: req.eventTitle,
+        eventDescription: req.eventDescription,
+        startDateTime: req.startDateTime,
+        endDateTime: req.endDateTime,
+        requestedRooms: req.requestedRooms || [],
+        locations: req.locations || [],
+        locationDisplayNames: req.locationDisplayNames,
+        requesterName: req.roomReservationData?.requestedBy?.name || req.createdByName || '',
+        requesterEmail: req.roomReservationData?.requestedBy?.email || req.createdByEmail || '',
+        status: req.status,
+        submittedAt: req.roomReservationData?.submittedAt || req.createdAt,
+        changeReason: req.editRequestData?.changeReason || '',
+        proposedChanges: req.editRequestData?.proposedChanges || [],
+        originalSnapshot: req.editRequestData?.originalSnapshot || {},
+        reviewNotes: req.roomReservationData?.reviewNotes || '',
+        _isEditRequest: true,
+        _fullData: req // Keep full data for approval
+      }));
+
+      logger.info('Loaded edit requests:', { count: transformedEditRequests.length });
+      setEditRequests(transformedEditRequests);
+
+    } catch (err) {
+      logger.error('Error loading edit requests:', err);
+      // Don't set error state - edit requests are optional
+    } finally {
+      setEditRequestsLoading(false);
+    }
+  };
+
+  // Load edit requests when tab changes to edit-requests
+  useEffect(() => {
+    if (activeTab === 'edit-requests' && apiToken) {
+      loadEditRequests();
+    }
+  }, [activeTab, apiToken]);
 
   // Acquire soft hold when opening review modal
   const acquireReviewHold = async (reservationId, isNewUnifiedEvent = false) => {
@@ -429,6 +498,121 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setConflicts([]);
     setForceApprove(false);
   };
+
+  // =========================================================================
+  // EDIT REQUEST HANDLERS
+  // =========================================================================
+
+  // Open edit request review modal
+  const openEditRequestModal = (editRequest) => {
+    setSelectedEditRequest(editRequest);
+    setShowEditRequestModal(true);
+    setEditRequestRejectionReason('');
+  };
+
+  // Close edit request review modal
+  const closeEditRequestModal = () => {
+    setShowEditRequestModal(false);
+    setSelectedEditRequest(null);
+    setEditRequestRejectionReason('');
+  };
+
+  // Approve edit request
+  const handleApproveEditRequest = async (notes = '') => {
+    if (!selectedEditRequest) return;
+
+    try {
+      setApprovingEditRequest(true);
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/approve-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            notes,
+            graphToken // Pass Graph token for calendar update
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve edit request');
+      }
+
+      logger.info('Edit request approved:', selectedEditRequest._id);
+
+      // Refresh edit requests
+      await loadEditRequests();
+
+      // Close modal
+      closeEditRequestModal();
+
+      // Show success message
+      alert('Edit request approved. Changes have been applied to the original event.');
+
+    } catch (error) {
+      logger.error('Error approving edit request:', error);
+      alert(`Failed to approve edit request: ${error.message}`);
+    } finally {
+      setApprovingEditRequest(false);
+    }
+  };
+
+  // Reject edit request
+  const handleRejectEditRequest = async () => {
+    if (!selectedEditRequest) return;
+
+    if (!editRequestRejectionReason.trim()) {
+      alert('Please provide a reason for rejecting the edit request.');
+      return;
+    }
+
+    try {
+      setRejectingEditRequest(true);
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/reject-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({
+            reason: editRequestRejectionReason.trim()
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reject edit request');
+      }
+
+      logger.info('Edit request rejected:', selectedEditRequest._id);
+
+      // Refresh edit requests
+      await loadEditRequests();
+
+      // Close modal
+      closeEditRequestModal();
+
+    } catch (error) {
+      logger.error('Error rejecting edit request:', error);
+      alert(`Failed to reject edit request: ${error.message}`);
+    } finally {
+      setRejectingEditRequest(false);
+    }
+  };
+
+  // =========================================================================
+  // END EDIT REQUEST HANDLERS
+  // =========================================================================
 
   // Handle locked event click from SchedulingAssistant
   const handleLockedEventClick = async (reservationId) => {
@@ -921,25 +1105,121 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             Rejected
             <span className="count">({allReservations.filter(r => r.status === 'rejected').length})</span>
           </button>
+          <button
+            className={`event-type-tab edit-requests-tab ${activeTab === 'edit-requests' ? 'active' : ''}`}
+            onClick={() => handleTabChange('edit-requests')}
+          >
+            Edit Requests
+            <span className="count">({editRequests.filter(r => r.status === 'pending').length})</span>
+          </button>
         </div>
       </div>
       
-      {/* Reservations Table */}
-      <div className="reservations-table-container">
-        <table className="reservations-table">
-          <thead>
-            <tr>
-              <th>Submitted</th>
-              <th>Event Details</th>
-              <th>Requester</th>
-              <th>Date & Time</th>
-              <th>Rooms</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedReservations.map(reservation => (
+      {/* Edit Requests Table - shown when edit-requests tab is active */}
+      {activeTab === 'edit-requests' && (
+        <div className="reservations-table-container">
+          {editRequestsLoading ? (
+            <LoadingSpinner message="Loading edit requests..." />
+          ) : (
+            <>
+              <table className="reservations-table edit-requests-table">
+                <thead>
+                  <tr>
+                    <th>Submitted</th>
+                    <th>Event Details</th>
+                    <th>Requester</th>
+                    <th>Proposed Changes</th>
+                    <th>Reason</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editRequests.map(editRequest => (
+                    <tr key={editRequest._id} className={editRequest.status === 'pending' ? 'pending-row' : ''}>
+                      <td className="submitted-date">
+                        {new Date(editRequest.submittedAt).toLocaleDateString()}
+                      </td>
+                      <td className="event-details">
+                        <strong>{editRequest.eventTitle}</strong>
+                        <div className="original-event-link" title={`Original: ${editRequest.originalEventId}`}>
+                          Edit Request
+                        </div>
+                      </td>
+                      <td className="requester-info">
+                        <div>{editRequest.requesterName}</div>
+                        <div className="email">{editRequest.requesterEmail}</div>
+                      </td>
+                      <td className="proposed-changes">
+                        {editRequest.proposedChanges && editRequest.proposedChanges.length > 0 ? (
+                          <ul className="changes-list">
+                            {editRequest.proposedChanges.slice(0, 3).map((change, idx) => (
+                              <li key={idx}>{change.field}</li>
+                            ))}
+                            {editRequest.proposedChanges.length > 3 && (
+                              <li className="more-changes">+{editRequest.proposedChanges.length - 3} more</li>
+                            )}
+                          </ul>
+                        ) : (
+                          <span className="no-changes">General update</span>
+                        )}
+                      </td>
+                      <td className="change-reason">
+                        <div className="reason-text" title={editRequest.changeReason}>
+                          {editRequest.changeReason?.length > 50
+                            ? editRequest.changeReason.substring(0, 50) + '...'
+                            : editRequest.changeReason || 'No reason provided'}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`status-badge ${getStatusBadgeClass(editRequest.status)}`}>
+                          {editRequest.status}
+                        </span>
+                        {editRequest.reviewNotes && editRequest.status === 'rejected' && (
+                          <div className="rejection-reason" title={editRequest.reviewNotes}>
+                            {editRequest.reviewNotes}
+                          </div>
+                        )}
+                      </td>
+                      <td className="actions">
+                        <button
+                          className="view-btn"
+                          onClick={() => openEditRequestModal(editRequest)}
+                        >
+                          {editRequest.status === 'pending' ? 'Review' : 'Details'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {editRequests.length === 0 && (
+                <div className="no-reservations">
+                  No edit requests found.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Reservations Table - shown for all other tabs */}
+      {activeTab !== 'edit-requests' && (
+        <div className="reservations-table-container">
+          <table className="reservations-table">
+            <thead>
+              <tr>
+                <th>Submitted</th>
+                <th>Event Details</th>
+                <th>Requester</th>
+                <th>Date & Time</th>
+                <th>Rooms</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedReservations.map(reservation => (
               <tr key={reservation._id}>
                 <td className="submitted-date">
                   {new Date(reservation.submittedAt).toLocaleDateString()}
@@ -1036,15 +1316,16 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         
         {paginatedReservations.length === 0 && !loading && (
           <div className="no-reservations">
-            {activeTab === 'all' 
-              ? 'No reservation requests found.' 
+            {activeTab === 'all'
+              ? 'No reservation requests found.'
               : `No ${activeTab} reservation requests found.`}
           </div>
         )}
-      </div>
-      
-      {/* Pagination */}
-      {totalPages > 1 && (
+        </div>
+      )}
+
+      {/* Pagination - only show for non-edit-requests tabs */}
+      {activeTab !== 'edit-requests' && totalPages > 1 && (
         <div className="pagination">
           <button
             disabled={page === 1}
@@ -1062,7 +1343,21 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         </div>
       )}
 
-      {/* Review Modal (using ReviewModal component) */}
+      {/* Edit Request Review Modal */}
+      {showEditRequestModal && selectedEditRequest && (
+        <EditRequestComparison
+          editRequest={selectedEditRequest}
+          onClose={closeEditRequestModal}
+          onApprove={handleApproveEditRequest}
+          onReject={handleRejectEditRequest}
+          rejectionReason={editRequestRejectionReason}
+          onRejectionReasonChange={setEditRequestRejectionReason}
+          isApproving={approvingEditRequest}
+          isRejecting={rejectingEditRequest}
+        />
+      )}
+
+      {/* Review Modal (using ReviewModal component) - for regular reservations */}
       {showReviewModal && selectedReservation && (
         <ReviewModal
           isOpen={showReviewModal}

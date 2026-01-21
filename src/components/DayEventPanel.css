@@ -175,6 +175,29 @@
   font-weight: 500;
 }
 
+/* Request Edit Button */
+.request-edit-btn {
+  margin-top: 10px;
+  padding: 6px 12px;
+  background-color: #f0f9ff;
+  border: 1px solid #0284c7;
+  border-radius: 4px;
+  color: #0284c7;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.request-edit-btn:hover {
+  background-color: #0284c7;
+  color: white;
+}
+
+.request-edit-btn:active {
+  transform: scale(0.98);
+}
+
 .virtual-meeting-badge {
   background: #eff6ff;
   color: #1e40af;

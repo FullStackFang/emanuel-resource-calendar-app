@@ -27,7 +27,12 @@ const TEMPLATE_IDS = {
   APPROVAL: 'approval',
   REJECTION: 'rejection',
   RESUBMISSION: 'resubmission',
-  REVIEW_STARTED: 'review-started'
+  REVIEW_STARTED: 'review-started',
+  // Edit Request templates
+  EDIT_REQUEST_SUBMITTED: 'edit-request-submitted',
+  ADMIN_EDIT_REQUEST_ALERT: 'admin-edit-request-alert',
+  EDIT_REQUEST_APPROVED: 'edit-request-approved',
+  EDIT_REQUEST_REJECTED: 'edit-request-rejected'
 };
 
 /**
@@ -317,6 +322,232 @@ const DEFAULT_TEMPLATES = {
   Thank you for your patience.
 </p>`,
     variables: ['eventTitle', 'requesterName']
+  },
+
+  // =========================================================================
+  // EDIT REQUEST TEMPLATES
+  // =========================================================================
+
+  [TEMPLATE_IDS.EDIT_REQUEST_SUBMITTED]: {
+    id: TEMPLATE_IDS.EDIT_REQUEST_SUBMITTED,
+    name: 'Edit Request Submitted',
+    description: 'Sent to requester when they submit an edit request for an existing event',
+    subject: 'Edit Request Received: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">EDIT REQUEST</span>
+  Edit Request Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Your request to edit the event <strong>{{eventTitle}}</strong> has been received and is now pending review.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Requested Changes</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">New Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#changeReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Your Reason for Changes:</h4>
+  <p style="margin: 0; color: #4a5568;">{{changeReason}}</p>
+</div>
+{{/changeReason}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What happens next?</strong><br>
+  Our team will review your edit request. The original event will remain unchanged until your request is approved.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  If you have any questions, please contact our office.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'changeReason']
+  },
+
+  [TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT]: {
+    id: TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT,
+    name: 'Admin Edit Request Alert',
+    description: 'Sent to admins when an edit request is submitted',
+    subject: '[ACTION REQUIRED] Edit Request: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">ACTION REQUIRED</span>
+  Edit Request Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  An edit request has been submitted for an existing approved event and requires your review.
+</p>
+
+<div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Edit Request Summary</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Requester:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{requesterName}} ({{requesterEmail}})</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">New Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Submitted:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{submittedAt}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#changeReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason for Changes:</h4>
+  <p style="margin: 0; color: #4a5568;">{{changeReason}}</p>
+</div>
+{{/changeReason}}
+
+{{#adminPanelUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #4299e1; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    Review Edit Request
+  </a>
+</p>
+{{/adminPanelUrl}}
+
+<p style="color: #718096; font-size: 14px;">
+  Please review this edit request at your earliest convenience.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'requesterEmail', 'startTime', 'endTime', 'locations', 'submittedAt', 'changeReason', 'adminPanelUrl']
+  },
+
+  [TEMPLATE_IDS.EDIT_REQUEST_APPROVED]: {
+    id: TEMPLATE_IDS.EDIT_REQUEST_APPROVED,
+    name: 'Edit Request Approved',
+    description: 'Sent to requester when their edit request is approved',
+    subject: 'Edit Request Approved: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #276749;">
+  <span style="background-color: #c6f6d5; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">APPROVED</span>
+  Your Edit Request Has Been Approved
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Great news! Your request to edit the event <strong>{{eventTitle}}</strong> has been approved. The changes have been applied to the calendar.
+</p>
+
+<div style="background-color: #f0fff4; border-left: 4px solid #48bb78; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Updated Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#adminNotes}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from Admin:</h4>
+  <p style="margin: 0; color: #4a5568;">{{adminNotes}}</p>
+</div>
+{{/adminNotes}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  If you need to make any further changes, please submit a new edit request.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for using Temple Emanuel's reservation system.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes']
+  },
+
+  [TEMPLATE_IDS.EDIT_REQUEST_REJECTED]: {
+    id: TEMPLATE_IDS.EDIT_REQUEST_REJECTED,
+    name: 'Edit Request Rejected',
+    description: 'Sent to requester when their edit request is not approved',
+    subject: 'Edit Request Update: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">NOT APPROVED</span>
+  Edit Request Update
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  We regret to inform you that your request to edit the event <strong>{{eventTitle}}</strong> could not be approved at this time. The original event remains unchanged.
+</p>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Edit Request Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Requested Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#rejectionReason}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Reason:</h4>
+  <p style="margin: 0; color: #4a5568;">{{rejectionReason}}</p>
+</div>
+{{/rejectionReason}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What can you do?</strong><br>
+  If you would like to discuss this decision or submit a revised edit request, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your understanding.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
   }
 };
 
@@ -682,6 +913,51 @@ async function generateReviewStartedNotification(reservation) {
   return generateFromTemplate(TEMPLATE_IDS.REVIEW_STARTED, variables);
 }
 
+// =============================================================================
+// EDIT REQUEST GENERATOR FUNCTIONS
+// =============================================================================
+
+/**
+ * Generate edit request submitted confirmation email
+ */
+async function generateEditRequestSubmittedConfirmation(editRequest, changeReason = '') {
+  const variables = extractVariables(editRequest, {
+    changeReason: changeReason ? escapeHtml(changeReason) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_SUBMITTED, variables);
+}
+
+/**
+ * Generate admin edit request alert email
+ */
+async function generateAdminEditRequestAlert(editRequest, changeReason = '', adminPanelUrl = '') {
+  const variables = extractVariables(editRequest, {
+    changeReason: changeReason ? escapeHtml(changeReason) : '',
+    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.ADMIN_EDIT_REQUEST_ALERT, variables);
+}
+
+/**
+ * Generate edit request approved notification email
+ */
+async function generateEditRequestApprovedNotification(editRequest, adminNotes = '') {
+  const variables = extractVariables(editRequest, {
+    adminNotes: adminNotes ? escapeHtml(adminNotes) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_APPROVED, variables);
+}
+
+/**
+ * Generate edit request rejected notification email
+ */
+async function generateEditRequestRejectedNotification(editRequest, rejectionReason = '') {
+  const variables = extractVariables(editRequest, {
+    rejectionReason: rejectionReason ? escapeHtml(rejectionReason) : ''
+  });
+  return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_REJECTED, variables);
+}
+
 /**
  * Preview a template with sample data
  */
@@ -743,5 +1019,11 @@ module.exports = {
   generateRejectionNotification,
   generateResubmissionConfirmation,
   generateReviewStartedNotification,
-  generateFromTemplate
+  generateFromTemplate,
+
+  // Edit request generator functions
+  generateEditRequestSubmittedConfirmation,
+  generateAdminEditRequestAlert,
+  generateEditRequestApprovedNotification,
+  generateEditRequestRejectedNotification
 };

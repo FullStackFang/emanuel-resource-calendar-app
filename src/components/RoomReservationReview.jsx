@@ -46,8 +46,12 @@ export default function RoomReservationReview({
   activeTab = 'details',
   editScope = null, // For recurring events: 'thisEvent' | 'allEvents' | null
   onFormValidChange = null, // Callback when form validity changes
-  readOnly = false // Read-only mode for viewers
+  readOnly = false, // Read-only mode for viewers
+  isEditRequestMode = false, // Edit request mode - allows editing even when normally readOnly
+  originalData = null // Original form data for comparison in edit request mode (Option C inline diff)
 }) {
+  // In edit request mode, override readOnly to allow editing
+  const effectiveReadOnly = readOnly && !isEditRequestMode;
   // Review-specific state
   const [isSaving, setIsSaving] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -513,7 +517,7 @@ export default function RoomReservationReview({
           onDataChange={handleDataChange}
           onHasChangesChange={onHasChangesChange}
           onIsNavigatingChange={setIsNavigating}
-          readOnly={readOnly}
+          readOnly={effectiveReadOnly}
           isAdmin={isAdmin}
           reservationStatus={reservation?.status}
           currentReservationId={reservation?._id}
@@ -528,6 +532,8 @@ export default function RoomReservationReview({
           onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
           onValidateRef={(getter) => { validateRef.current = getter; }}
           onFormValidChange={onFormValidChange}
+          isEditRequestMode={isEditRequestMode}
+          originalData={originalData}
           renderAdditionalContent={() => (
             <>
               {/* Tab: Attachments */}

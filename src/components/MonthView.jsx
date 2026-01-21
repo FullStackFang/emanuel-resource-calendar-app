@@ -39,11 +39,13 @@ const MonthView = memo(({
   hasPhysicalLocation,
   isVirtualLocation,
   updateUserProfilePreferences,
-  showRegistrationTimes
+  showRegistrationTimes,
+  // Request edit handler (passed from Calendar.jsx)
+  onRequestEdit
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showSetupTeardown, setShowSetupTeardown] = useState(false);
-  
+
   // USE TIMEZONE CONTEXT INSTEAD OF PROP
   const { userTimezone } = useTimezone();
   
@@ -359,6 +361,7 @@ const MonthView = memo(({
           onEventClick={handleEventClick}
           onEventEdit={handleEventClick} // Reuse existing click handler for edit
           onEventDelete={handleEventClick} // Reuse existing click handler for delete
+          onRequestEdit={onRequestEdit} // Handler for edit request button (from Calendar.jsx)
           formatEventTime={formatEventTimeForPanel} // Use timezone-aware formatter with correct signature
           getCategoryColor={getCategoryColor}
           getLocationColor={getLocationColor}

@@ -1756,14 +1756,16 @@
   text-overflow: ellipsis;
 }
 
-.services-summary-actions {
+.services-summary-actions,
+.category-summary-actions {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
 }
 
 .services-edit-btn,
-.services-clear-btn {
+.services-clear-btn,
+.category-clear-btn {
   padding: 4px 10px;
   border-radius: 4px;
   font-size: 12px;
@@ -1783,31 +1785,36 @@
 }
 
 .services-edit-btn:disabled,
-.services-clear-btn:disabled {
+.services-clear-btn:disabled,
+.category-clear-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.services-clear-btn {
+.services-clear-btn,
+.category-clear-btn {
   background: white;
   border: 1px solid #d1d5db;
   color: #6b7280;
 }
 
-.services-clear-btn:hover:not(:disabled) {
+.services-clear-btn:hover:not(:disabled),
+.category-clear-btn:hover:not(:disabled) {
   background: #fee2e2;
   border-color: #ef4444;
   color: #dc2626;
 }
 
-/* Responsive adjustments for services */
+/* Responsive adjustments for services and categories */
 @media (max-width: 768px) {
-  .services-summary-display {
+  .services-summary-display,
+  .category-summary-display {
     flex-direction: column;
     gap: 8px;
   }
 
-  .services-summary-actions {
+  .services-summary-actions,
+  .category-summary-actions {
     align-self: flex-end;
   }
 }
@@ -1957,5 +1964,234 @@
 
   .offsite-display-address {
     font-size: 0.9rem;
+  }
+}
+
+/* ============================================
+   EDIT REQUEST MODE - INLINE DIFF STYLES (Option C)
+   Shows original values with strikethrough when fields change
+   ============================================ */
+
+/* Container for form groups with changes */
+.form-group.field-changed {
+  position: relative;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-radius: 6px;
+  padding: 10px;
+  margin: -10px;
+  margin-bottom: 6px;
+  border-left: 3px solid #22c55e;
+}
+
+/* Inline diff display - shows old value with strikethrough */
+.inline-diff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+/* Old value with strikethrough (red) */
+.inline-diff .diff-old {
+  color: #dc2626;
+  text-decoration: line-through;
+  background: #fee2e2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Arrow separator */
+.inline-diff .diff-arrow {
+  color: #6b7280;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+/* Input field styling when changed */
+.input-changed,
+input.input-changed,
+textarea.input-changed,
+select.input-changed {
+  border-color: #22c55e !important;
+  background-color: #f0fdf4 !important;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2) !important;
+}
+
+/* Focus state for changed inputs */
+.input-changed:focus,
+input.input-changed:focus,
+textarea.input-changed:focus,
+select.input-changed:focus {
+  border-color: #16a34a !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3) !important;
+  outline: none !important;
+}
+
+/* Edit Request Mode Banner - shown at top of form when in edit request mode */
+.edit-request-mode-banner {
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-request-mode-banner-icon {
+  font-size: 1.25rem;
+}
+
+.edit-request-mode-banner-text {
+  color: #1e40af;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.edit-request-mode-banner-hint {
+  color: #3b82f6;
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+/* Change reason section - appears at bottom when changes exist */
+.change-reason-section-inline {
+  background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.change-reason-section-inline label {
+  display: block;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.change-reason-section-inline .required {
+  color: #dc2626;
+}
+
+.change-reason-section-inline textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.change-reason-section-inline textarea:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2);
+}
+
+/* Changes count indicator */
+.changes-count-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #dcfce7;
+  color: #166534;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+.changes-count-indicator.no-changes {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Section-level change indicator (for locations section) */
+.form-section.section-changed {
+  border-left: 3px solid #22c55e;
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.5) 0%, rgba(220, 252, 231, 0.5) 100%);
+}
+
+/* Inline diff section container (for multi-value fields like locations) */
+.inline-diff-section {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+/* Label for diff display */
+.inline-diff .diff-label {
+  font-weight: 600;
+  color: #374151;
+  margin-right: 8px;
+}
+
+/* New value styling (green) */
+.inline-diff .diff-new {
+  color: #16a34a;
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* Summary display when changed (for categories/services) */
+.category-summary-display.summary-changed,
+.services-summary-display.summary-changed {
+  border-color: #22c55e;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-left: 3px solid #22c55e;
+}
+
+/* Inline diff inside summary displays */
+.category-summary-content .inline-diff,
+.services-summary-content .inline-diff {
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+/* Allow diff-old and diff-new to wrap in summaries */
+.category-summary-content .diff-old,
+.services-summary-content .diff-old,
+.category-summary-content .diff-new,
+.services-summary-content .diff-new {
+  max-width: none;
+  white-space: normal;
+}
+
+/* Responsive adjustments for inline diff */
+@media (max-width: 768px) {
+  .inline-diff {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .inline-diff .diff-old {
+    max-width: 100%;
+  }
+
+  .inline-diff .diff-arrow {
+    transform: rotate(90deg);
+  }
+
+  .inline-diff-section .inline-diff {
+    flex-direction: column;
   }
 }

@@ -1188,3 +1188,86 @@
   color: #111827;
   font-weight: 600;
 }
+
+/* ============================================
+   EDIT REQUESTS STYLES
+   ============================================ */
+
+/* Edit Requests Tab */
+.event-type-tab.edit-requests-tab {
+  background: #ebf8ff;
+  border-color: #4299e1;
+}
+
+.event-type-tab.edit-requests-tab.active {
+  background: #4299e1;
+  color: white;
+}
+
+.event-type-tab.edit-requests-tab .count {
+  background: #bee3f8;
+  color: #2b6cb0;
+}
+
+.event-type-tab.edit-requests-tab.active .count {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+/* Edit Requests Table */
+.edit-requests-table .pending-row {
+  background-color: #fffaf0;
+}
+
+.edit-requests-table .original-event-link {
+  font-size: 0.75rem;
+  color: #4299e1;
+  margin-top: 4px;
+}
+
+.edit-requests-table .proposed-changes {
+  max-width: 180px;
+}
+
+.edit-requests-table .changes-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.edit-requests-table .changes-list li {
+  font-size: 0.8rem;
+  color: #dd6b20;
+  padding: 2px 0;
+}
+
+.edit-requests-table .changes-list li::before {
+  content: "•";
+  margin-right: 6px;
+}
+
+.edit-requests-table .more-changes {
+  font-style: italic;
+  color: #718096;
+}
+
+.edit-requests-table .no-changes {
+  color: #718096;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.edit-requests-table .change-reason {
+  max-width: 200px;
+}
+
+.edit-requests-table .reason-text {
+  font-size: 0.8rem;
+  color: #4a5568;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

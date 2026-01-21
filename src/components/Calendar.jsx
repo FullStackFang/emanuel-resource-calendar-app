@@ -283,6 +283,13 @@
     const [savingDraft, setSavingDraft] = useState(false);
     const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
 
+    // Edit request mode state (for inline editing to create edit requests)
+    const [isEditRequestMode, setIsEditRequestMode] = useState(false);
+    const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
+    const [originalEventData, setOriginalEventData] = useState(null);
+    const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
+    const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
+
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
       isOpen: false,
@@ -309,6 +316,10 @@
       onSuccess: () => {
         // Reload events after successful approval/rejection
         loadEvents(true);
+        // Reset edit request mode
+        setIsEditRequestMode(false);
+        setEditRequestChangeReason('');
+        setOriginalEventData(null);
       },
       onError: (error) => {
         logger.error('Review modal error:', error);
@@ -333,6 +344,15 @@
         return () => clearTimeout(timer);
       }
     }, [eventReviewModal.isOpen, eventReviewModal.event?._id, eventReviewModal.event?.eventId]);
+
+    // Reset edit request mode when review modal closes
+    useEffect(() => {
+      if (!reviewModal.isOpen && isEditRequestMode) {
+        setIsEditRequestMode(false);
+        setEditRequestChangeReason('');
+        setOriginalEventData(null);
+      }
+    }, [reviewModal.isOpen, isEditRequestMode]);
 
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
@@ -4676,6 +4696,187 @@
     }, [eventReviewModal.mode, eventReviewModal.hasChanges, draftId]);
 
     /**
+     * Handle enabling edit request mode for approved events
+     * This allows requesters to edit the form inline and submit changes for approval
+     */
+    const handleRequestEdit = useCallback(() => {
+      // Store the original data before enabling edit mode
+      const currentData = reviewModal.editableData;
+      if (currentData) {
+        setOriginalEventData(JSON.parse(JSON.stringify(currentData))); // Deep clone
+      }
+      setIsEditRequestMode(true);
+      setEditRequestChangeReason('');
+    }, [reviewModal.editableData]);
+
+    /**
+     * Handle canceling edit request mode
+     */
+    const handleCancelEditRequest = useCallback(() => {
+      setIsEditRequestMode(false);
+      setEditRequestChangeReason('');
+      setOriginalEventData(null);
+      // Revert to original data
+      if (originalEventData && reviewModal.editableData) {
+        reviewModal.updateData(originalEventData);
+      }
+    }, [originalEventData, reviewModal]);
+
+    /**
+     * Compute detected changes between original and current data
+     */
+    const computeDetectedChanges = useCallback(() => {
+      if (!originalEventData || !reviewModal.editableData || !isEditRequestMode) {
+        return [];
+      }
+
+      const changes = [];
+      const fieldConfig = [
+        { key: 'eventTitle', label: 'Event Title' },
+        { key: 'eventDescription', label: 'Description' },
+        { key: 'startDate', label: 'Start Date' },
+        { key: 'startTime', label: 'Start Time' },
+        { key: 'endDate', label: 'End Date' },
+        { key: 'endTime', label: 'End Time' },
+        { key: 'attendeeCount', label: 'Attendee Count' },
+        { key: 'specialRequirements', label: 'Special Requirements' },
+        { key: 'setupTime', label: 'Setup Time' },
+        { key: 'teardownTime', label: 'Teardown Time' },
+        { key: 'doorOpenTime', label: 'Door Open Time' },
+        { key: 'doorCloseTime', label: 'Door Close Time' },
+      ];
+
+      const current = reviewModal.editableData;
+      const original = originalEventData;
+
+      for (const { key, label } of fieldConfig) {
+        const oldVal = original[key] || '';
+        const newVal = current[key] || '';
+        if (String(oldVal) !== String(newVal)) {
+          changes.push({
+            field: key,
+            label,
+            oldValue: String(oldVal),
+            newValue: String(newVal)
+          });
+        }
+      }
+
+      // Handle arrays (locations, categories)
+      const originalLocations = (original.requestedRooms || original.locations || []).join(', ');
+      const currentLocations = (current.requestedRooms || current.locations || []).join(', ');
+      if (originalLocations !== currentLocations) {
+        changes.push({
+          field: 'locations',
+          label: 'Locations',
+          oldValue: originalLocations || '(none)',
+          newValue: currentLocations || '(none)'
+        });
+      }
+
+      const originalCategories = (original.categories || original.mecCategories || []).join(', ');
+      const currentCategories = (current.categories || current.mecCategories || []).join(', ');
+      if (originalCategories !== currentCategories) {
+        changes.push({
+          field: 'categories',
+          label: 'Categories',
+          oldValue: originalCategories || '(none)',
+          newValue: currentCategories || '(none)'
+        });
+      }
+
+      return changes;
+    }, [originalEventData, reviewModal.editableData, isEditRequestMode]);
+
+    /**
+     * Handle submitting the edit request
+     * Uses two-step inline confirmation
+     */
+    const handleSubmitEditRequest = useCallback(async () => {
+      if (!reviewModal.currentItem) {
+        return;
+      }
+
+      const detectedChanges = computeDetectedChanges();
+      if (detectedChanges.length === 0) {
+        showNotification('No changes detected. Please modify some fields before submitting.', 'error');
+        return;
+      }
+
+      // Two-step confirmation: First click shows confirmation, second click submits
+      if (!pendingEditRequestConfirmation) {
+        setPendingEditRequestConfirmation(true);
+        return;
+      }
+
+      // Second click: User confirmed, proceed with submission
+      setPendingEditRequestConfirmation(false);
+      setIsSubmittingEditRequest(true);
+
+      try {
+        const eventId = reviewModal.currentItem._id || reviewModal.currentItem.eventId;
+        const currentData = reviewModal.editableData;
+
+        // Build the edit request payload
+        const requestBody = {
+          eventTitle: currentData.eventTitle,
+          eventDescription: currentData.eventDescription,
+          startDateTime: currentData.startDate && currentData.startTime
+            ? `${currentData.startDate}T${currentData.startTime}`
+            : null,
+          endDateTime: currentData.endDate && currentData.endTime
+            ? `${currentData.endDate}T${currentData.endTime}`
+            : null,
+          attendeeCount: parseInt(currentData.attendeeCount) || 0,
+          locationIds: currentData.requestedRooms || currentData.locations || [],
+          specialRequirements: currentData.specialRequirements,
+          setupTime: currentData.setupTime,
+          teardownTime: currentData.teardownTime,
+          doorOpenTime: currentData.doorOpenTime,
+          doorCloseTime: currentData.doorCloseTime,
+          categories: currentData.categories || currentData.mecCategories || [],
+          services: currentData.services || {}
+        };
+
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to submit edit request');
+        }
+
+        showNotification('Edit request submitted successfully! An admin will review your changes.', 'success');
+
+        // Reset edit request mode and close modal
+        setIsEditRequestMode(false);
+        setEditRequestChangeReason('');
+        setOriginalEventData(null);
+        setPendingEditRequestConfirmation(false);
+        reviewModal.closeModal();
+
+      } catch (err) {
+        logger.error('Error submitting edit request:', err);
+        showNotification(err.message || 'Failed to submit edit request', 'error');
+      } finally {
+        setIsSubmittingEditRequest(false);
+      }
+    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation]);
+
+    /**
+     * Cancel edit request confirmation
+     */
+    const cancelEditRequestConfirmation = useCallback(() => {
+      setPendingEditRequestConfirmation(false);
+    }, []);
+
+    /**
      * Build draft payload from event data
      */
     const buildDraftPayload = useCallback((eventData) => {
@@ -5582,6 +5783,7 @@
                           hasPhysicalLocation={hasPhysicalLocation}
                           isVirtualLocation={isVirtualLocation}
                           showRegistrationTimes={showRegistrationTimes}
+                          onRequestEdit={handleRequestEdit}
                         />
                       </div>
                     </div>
@@ -5919,7 +6121,6 @@
           onDelete={reviewModal.handleDelete}
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
-          hasChanges={reviewModal.hasChanges}
           isFormValid={reviewModal.isFormValid}
           isSaving={reviewModal.isSaving}
           isDeleting={reviewModal.isDeleting}
@@ -5943,6 +6144,20 @@
           onCancelReject={reviewModal.cancelRejectConfirmation}
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
+          onRequestEdit={handleRequestEdit}
+          canRequestEdit={effectivePermissions.submitReservation && !isEditRequestMode}
+          // Edit request mode props
+          isEditRequestMode={isEditRequestMode}
+          editRequestChangeReason={editRequestChangeReason}
+          onEditRequestChangeReasonChange={setEditRequestChangeReason}
+          onSubmitEditRequest={handleSubmitEditRequest}
+          onCancelEditRequest={handleCancelEditRequest}
+          isSubmittingEditRequest={isSubmittingEditRequest}
+          isEditRequestConfirming={pendingEditRequestConfirmation}
+          onCancelEditRequestConfirm={cancelEditRequestConfirmation}
+          originalData={originalEventData}
+          detectedChanges={computeDetectedChanges()}
+          hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -5955,7 +6170,7 @@
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={reviewModal.setIsFormValid}
-              readOnly={!canEditEvents && !canApproveReservations}
+              readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode}
               isAdmin={effectivePermissions.isAdmin}
               editScope={reviewModal.editScope}
             />

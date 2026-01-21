@@ -11,6 +11,7 @@ const DayEventPanel = memo(({
   onEventClick,
   onEventEdit,
   onEventDelete,
+  onRequestEdit,
   formatEventTime,
   getCategoryColor,
   getLocationColor,
@@ -20,7 +21,7 @@ const DayEventPanel = memo(({
   const { userTimezone } = useTimezone();
 
   // Get permissions for role simulation
-  const { canEditEvents, canDeleteEvents } = usePermissions();
+  const { canEditEvents, canDeleteEvents, canSubmitReservation } = usePermissions();
 
   // ALL HOOKS MUST BE AT THE TOP - BEFORE ANY EARLY RETURNS
 
@@ -197,6 +198,20 @@ const DayEventPanel = memo(({
                     }}>
                       PENDING
                     </div>
+                  )}
+
+                  {/* Request Edit button for approved events - visible to requesters and above */}
+                  {event.status === 'approved' && canSubmitReservation && onRequestEdit && (
+                    <button
+                      className="request-edit-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRequestEdit(event);
+                      }}
+                      title="Request changes to this event"
+                    >
+                      Request Edit
+                    </button>
                   )}
                 </div>
               );

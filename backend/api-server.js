@@ -16410,6 +16410,933 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
   }
 });
 
+// ============================================================================
+// EDIT REQUEST ENDPOINTS
+// These endpoints handle edit requests for approved events
+// Users can request edits, admins can approve/reject, and changes are applied
+// ============================================================================
+
+/**
+ * Create an edit request for an approved event (Authenticated - Event Owner Only)
+ * POST /api/events/:id/request-edit
+ * Creates a new edit request document linked to the original event
+ */
+app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const originalEventId = req.params.id;
+
+    const {
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      attendeeCount,
+      requestedRooms,
+      specialRequirements,
+      department,
+      phone,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      isOffsite,
+      offsiteName,
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon,
+      categories,
+      services,
+      changeReason // Optional: explanation for the edit request
+    } = req.body;
+
+    // Get the original event
+    let originalEvent;
+    try {
+      originalEvent = await unifiedEventsCollection.findOne({ _id: new ObjectId(originalEventId) });
+    } catch (e) {
+      // Try by eventId string
+      originalEvent = await unifiedEventsCollection.findOne({ eventId: originalEventId });
+    }
+
+    if (!originalEvent) {
+      return res.status(404).json({ error: 'Original event not found' });
+    }
+
+    // Check if the event is approved (can only request edits on approved events)
+    if (originalEvent.status !== 'approved') {
+      return res.status(400).json({
+        error: 'Edit requests can only be submitted for approved events',
+        currentStatus: originalEvent.status
+      });
+    }
+
+    // Check if user is the event owner
+    const isOwner = originalEvent.createdBy === userId ||
+                    originalEvent.createdByEmail === userEmail ||
+                    originalEvent.roomReservationData?.requestedBy?.userId === userId ||
+                    originalEvent.roomReservationData?.requestedBy?.email === userEmail;
+
+    if (!isOwner) {
+      return res.status(403).json({
+        error: 'Only the original event owner can request edits'
+      });
+    }
+
+    // Check if there's already a pending edit request for this event
+    const existingEditRequest = await unifiedEventsCollection.findOne({
+      requestType: 'edit-request',
+      originalEventId: originalEvent.eventId,
+      status: 'pending'
+    });
+
+    if (existingEditRequest) {
+      return res.status(400).json({
+        error: 'There is already a pending edit request for this event',
+        existingRequestId: existingEditRequest._id
+      });
+    }
+
+    // Get room names and location IDs for event data
+    let roomNames = [];
+    let locationObjectIds = [];
+
+    if (!isOffsite && requestedRooms && requestedRooms.length > 0) {
+      try {
+        const roomQuery = requestedRooms.map(id => {
+          try {
+            if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+              return new ObjectId(id);
+            }
+            return id;
+          } catch (err) {
+            return id;
+          }
+        });
+
+        const rooms = await locationsCollection.find({
+          _id: { $in: roomQuery },
+          isReservable: true
+        }).toArray();
+
+        roomNames = rooms.map(r => r.displayName || r.name || 'Unknown Room');
+        locationObjectIds = rooms.map(r => r._id);
+      } catch (err) {
+        logger.error('Error looking up locations for edit request:', err);
+        roomNames = requestedRooms.map(id => `Room ${id}`);
+      }
+    }
+
+    // Build location display name
+    const locationDisplayName = isOffsite
+      ? `${offsiteName} (Offsite) - ${offsiteAddress}`
+      : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
+
+    // Generate unique event ID for the edit request
+    const editRequestEventId = `evt-edit-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Calculate proposed changes (diff from original)
+    const proposedChanges = [];
+    const fieldsToCompare = [
+      { key: 'eventTitle', label: 'Event Title', originalKey: 'eventTitle' },
+      { key: 'startDateTime', label: 'Start Date/Time', originalKey: 'startDateTime' },
+      { key: 'endDateTime', label: 'End Date/Time', originalKey: 'endDateTime' },
+      { key: 'attendeeCount', label: 'Attendee Count', originalKey: 'attendeeCount' },
+      { key: 'eventDescription', label: 'Description', originalKey: 'eventDescription' }
+    ];
+
+    for (const field of fieldsToCompare) {
+      const newValue = req.body[field.key];
+      const oldValue = originalEvent[field.originalKey];
+      if (newValue !== undefined && newValue !== oldValue) {
+        proposedChanges.push({
+          field: field.label,
+          fieldKey: field.key,
+          oldValue: oldValue || '',
+          newValue: newValue
+        });
+      }
+    }
+
+    // Create the edit request document
+    const editRequestDoc = {
+      eventId: editRequestEventId,
+      userId,
+      source: 'Edit Request',
+      status: 'pending',
+      isDeleted: false,
+      requestType: 'edit-request',
+      originalEventId: originalEvent.eventId,
+      originalEvent_id: originalEvent._id,
+
+      // Minimal graphData structure (proposed values)
+      graphData: {
+        subject: eventTitle || originalEvent.eventTitle,
+        start: {
+          dateTime: startDateTime || originalEvent.startDateTime,
+          timeZone: 'America/New_York'
+        },
+        end: {
+          dateTime: endDateTime || originalEvent.endDateTime,
+          timeZone: 'America/New_York'
+        },
+        location: isOffsite
+          ? buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon)
+          : { displayName: locationDisplayName },
+        bodyPreview: eventDescription || originalEvent.eventDescription || '',
+        categories: categories || originalEvent.categories || [],
+        isAllDay: false,
+        importance: 'normal',
+        showAs: 'busy',
+        sensitivity: 'normal'
+      },
+
+      // Standard internal enrichments
+      internalData: {
+        mecCategories: [],
+        setupMinutes: setupTimeMinutes || originalEvent.setupTimeMinutes || 0,
+        teardownMinutes: teardownTimeMinutes || originalEvent.teardownTimeMinutes || 0,
+        internalNotes: eventNotes || originalEvent.eventNotes || ''
+      },
+
+      // Room reservation metadata
+      roomReservationData: {
+        requestedBy: {
+          userId,
+          name: originalEvent.roomReservationData?.requestedBy?.name || userEmail,
+          email: originalEvent.roomReservationData?.requestedBy?.email || userEmail,
+          department: department || originalEvent.roomReservationData?.requestedBy?.department || '',
+          phone: phone || originalEvent.roomReservationData?.requestedBy?.phone || ''
+        },
+        contactPerson: isOnBehalfOf ? {
+          name: contactName,
+          email: contactEmail,
+          isOnBehalfOf: true
+        } : (originalEvent.roomReservationData?.contactPerson || null),
+        submittedAt: new Date(),
+        changeKey: generateChangeKey({
+          eventTitle,
+          startDateTime,
+          endDateTime,
+          requestedRooms,
+          attendeeCount
+        }),
+        currentRevision: 1,
+        reviewingBy: null,
+        reviewedBy: null,
+        reviewNotes: ''
+      },
+
+      // Edit request specific metadata
+      editRequestData: {
+        requestedBy: {
+          userId,
+          name: originalEvent.roomReservationData?.requestedBy?.name || userEmail,
+          email: userEmail,
+          requestedAt: new Date()
+        },
+        changeReason: changeReason?.trim() || '',
+        proposedChanges,
+        originalSnapshot: {
+          eventTitle: originalEvent.eventTitle,
+          eventDescription: originalEvent.eventDescription,
+          startDateTime: originalEvent.startDateTime,
+          endDateTime: originalEvent.endDateTime,
+          attendeeCount: originalEvent.attendeeCount,
+          locations: originalEvent.locations,
+          locationDisplayNames: originalEvent.locationDisplayNames,
+          categories: originalEvent.categories,
+          services: originalEvent.services
+        }
+      },
+
+      // Top-level application fields (proposed values)
+      eventTitle: eventTitle || originalEvent.eventTitle,
+      eventDescription: eventDescription || originalEvent.eventDescription || '',
+      startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : originalEvent.startDateTime,
+      endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : originalEvent.endDateTime,
+      startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : originalEvent.startDate,
+      startTime: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : originalEvent.startTime,
+      endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : originalEvent.endDate,
+      endTime: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : originalEvent.endTime,
+      setupTime: setupTime || originalEvent.setupTime || '',
+      teardownTime: teardownTime || originalEvent.teardownTime || '',
+      doorOpenTime: doorOpenTime || originalEvent.doorOpenTime || '',
+      doorCloseTime: doorCloseTime || originalEvent.doorCloseTime || '',
+      setupTimeMinutes: setupTimeMinutes || originalEvent.setupTimeMinutes || 0,
+      teardownTimeMinutes: teardownTimeMinutes || originalEvent.teardownTimeMinutes || 0,
+      setupNotes: setupNotes || originalEvent.setupNotes || '',
+      doorNotes: doorNotes || originalEvent.doorNotes || '',
+      eventNotes: eventNotes || originalEvent.eventNotes || '',
+      location: locationDisplayName,
+      locationDisplayNames: locationDisplayName,
+      locations: locationObjectIds.length > 0 ? locationObjectIds : originalEvent.locations,
+      requestedRooms: requestedRooms || originalEvent.requestedRooms,
+      attendeeCount: parseInt(attendeeCount) || originalEvent.attendeeCount || 0,
+      specialRequirements: specialRequirements || originalEvent.specialRequirements || '',
+      isOffsite: isOffsite !== undefined ? isOffsite : originalEvent.isOffsite || false,
+      offsiteName: isOffsite ? offsiteName : (originalEvent.offsiteName || ''),
+      offsiteAddress: isOffsite ? offsiteAddress : (originalEvent.offsiteAddress || ''),
+      offsiteLat: isOffsite ? (offsiteLat || null) : (originalEvent.offsiteLat || null),
+      offsiteLon: isOffsite ? (offsiteLon || null) : (originalEvent.offsiteLon || null),
+      categories: categories || originalEvent.categories || [],
+      services: services || originalEvent.services || {},
+
+      createdAt: new Date(),
+      createdBy: userId,
+      createdByEmail: userEmail,
+      createdByName: originalEvent.roomReservationData?.requestedBy?.name || userEmail,
+      createdSource: 'edit-request',
+      lastModifiedDateTime: new Date()
+    };
+
+    // Insert the edit request
+    const result = await unifiedEventsCollection.insertOne(editRequestDoc);
+
+    // Create audit log entry
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequestEventId,
+      reservationId: result.insertedId,
+      action: 'edit-request-created',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: proposedChanges,
+      metadata: {
+        originalEventId: originalEvent.eventId,
+        changeReason: changeReason?.trim() || ''
+      }
+    });
+
+    logger.info('Edit request created:', {
+      editRequestId: result.insertedId,
+      editRequestEventId,
+      originalEventId: originalEvent.eventId,
+      requestedBy: userEmail,
+      changesCount: proposedChanges.length
+    });
+
+    // Send confirmation email to requester (non-blocking)
+    try {
+      const editRequestForEmail = {
+        ...editRequestDoc,
+        _id: result.insertedId,
+        requesterName: editRequestDoc.roomReservationData.requestedBy.name,
+        requesterEmail: editRequestDoc.roomReservationData.requestedBy.email,
+        startTime: editRequestDoc.startDateTime,
+        endTime: editRequestDoc.endDateTime,
+        locationDisplayNames: locationDisplayName
+      };
+
+      const emailResult = await emailService.sendEditRequestSubmittedConfirmation(
+        editRequestForEmail,
+        changeReason?.trim() || ''
+      );
+      logger.info('Edit request confirmation email sent', { correlationId: emailResult.correlationId });
+    } catch (emailError) {
+      logger.error('Edit request confirmation email failed:', emailError.message);
+    }
+
+    // Send alert to admins (non-blocking)
+    try {
+      const editRequestForEmail = {
+        ...editRequestDoc,
+        _id: result.insertedId,
+        requesterName: editRequestDoc.roomReservationData.requestedBy.name,
+        requesterEmail: editRequestDoc.roomReservationData.requestedBy.email,
+        startTime: editRequestDoc.startDateTime,
+        endTime: editRequestDoc.endDateTime,
+        locationDisplayNames: locationDisplayName
+      };
+
+      const emailResult = await emailService.sendAdminEditRequestAlert(
+        editRequestForEmail,
+        changeReason?.trim() || ''
+      );
+      logger.info('Admin edit request alert email sent', { correlationId: emailResult.correlationId });
+    } catch (emailError) {
+      logger.error('Admin edit request alert email failed:', emailError.message);
+    }
+
+    res.status(201).json({
+      success: true,
+      editRequestId: result.insertedId,
+      eventId: editRequestEventId,
+      message: 'Edit request submitted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error creating edit request:', error);
+    res.status(500).json({ error: 'Failed to create edit request' });
+  }
+});
+
+/**
+ * Get pending edit requests for an event (Authenticated)
+ * GET /api/events/:id/edit-requests
+ * Returns all pending edit requests for a specific event
+ */
+app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
+  try {
+    const originalEventId = req.params.id;
+
+    // Get the original event first
+    let originalEvent;
+    try {
+      originalEvent = await unifiedEventsCollection.findOne({ _id: new ObjectId(originalEventId) });
+    } catch (e) {
+      originalEvent = await unifiedEventsCollection.findOne({ eventId: originalEventId });
+    }
+
+    if (!originalEvent) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Find all edit requests for this event
+    const editRequests = await unifiedEventsCollection.find({
+      requestType: 'edit-request',
+      originalEventId: originalEvent.eventId,
+      isDeleted: { $ne: true }
+    }).sort({ createdAt: -1 }).toArray();
+
+    res.json({
+      editRequests,
+      originalEvent: {
+        eventId: originalEvent.eventId,
+        eventTitle: originalEvent.eventTitle,
+        status: originalEvent.status
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error fetching edit requests:', error);
+    res.status(500).json({ error: 'Failed to fetch edit requests' });
+  }
+});
+
+/**
+ * Get all edit requests (Admin only)
+ * GET /api/admin/edit-requests
+ * Lists all edit requests with optional status filtering
+ */
+app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { status = 'pending', limit = 100, skip = 0 } = req.query;
+
+    // Build query
+    const query = {
+      requestType: 'edit-request',
+      isDeleted: { $ne: true }
+    };
+
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    // Fetch edit requests
+    const editRequests = await unifiedEventsCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit))
+      .toArray();
+
+    // Get total count
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
+
+    res.json({
+      editRequests,
+      totalCount,
+      limit: parseInt(limit),
+      skip: parseInt(skip)
+    });
+
+  } catch (error) {
+    logger.error('Error fetching admin edit requests:', error);
+    res.status(500).json({ error: 'Failed to fetch edit requests' });
+  }
+});
+
+/**
+ * Approve an edit request (Admin only)
+ * PUT /api/admin/events/:id/approve-edit
+ * Applies the proposed changes to the original event
+ */
+app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const editRequestId = req.params.id;
+    const { notes, graphToken } = req.body;
+
+    // Get the edit request
+    const editRequest = await unifiedEventsCollection.findOne({ _id: new ObjectId(editRequestId) });
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    // Verify it's an edit request
+    if (editRequest.requestType !== 'edit-request') {
+      return res.status(400).json({ error: 'This is not an edit request' });
+    }
+
+    // Verify status is pending
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Edit request is not pending',
+        currentStatus: editRequest.status
+      });
+    }
+
+    // Get the original event
+    const originalEvent = await unifiedEventsCollection.findOne({
+      eventId: editRequest.originalEventId
+    });
+
+    if (!originalEvent) {
+      // Original event was deleted - mark edit request as cancelled
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(editRequestId) },
+        {
+          $set: {
+            status: 'cancelled',
+            'roomReservationData.reviewNotes': 'Original event no longer exists',
+            lastModifiedDateTime: new Date()
+          }
+        }
+      );
+      return res.status(400).json({ error: 'Original event no longer exists' });
+    }
+
+    // Check for concurrent modification - compare changeKeys
+    const originalSnapshot = editRequest.editRequestData?.originalSnapshot;
+    if (originalSnapshot) {
+      const fieldsChanged = [];
+      if (originalSnapshot.eventTitle !== originalEvent.eventTitle) fieldsChanged.push('eventTitle');
+      if (originalSnapshot.startDateTime !== originalEvent.startDateTime) fieldsChanged.push('startDateTime');
+      if (originalSnapshot.endDateTime !== originalEvent.endDateTime) fieldsChanged.push('endDateTime');
+
+      if (fieldsChanged.length > 0) {
+        logger.warn('Original event modified since edit request was created:', { fieldsChanged });
+        // Allow admin to force approve anyway
+      }
+    }
+
+    // Apply proposed changes to the original event
+    const updateFields = {
+      eventTitle: editRequest.eventTitle,
+      eventDescription: editRequest.eventDescription,
+      startDateTime: editRequest.startDateTime,
+      endDateTime: editRequest.endDateTime,
+      startDate: editRequest.startDate,
+      startTime: editRequest.startTime,
+      endDate: editRequest.endDate,
+      endTime: editRequest.endTime,
+      setupTime: editRequest.setupTime,
+      teardownTime: editRequest.teardownTime,
+      doorOpenTime: editRequest.doorOpenTime,
+      doorCloseTime: editRequest.doorCloseTime,
+      setupTimeMinutes: editRequest.setupTimeMinutes,
+      teardownTimeMinutes: editRequest.teardownTimeMinutes,
+      setupNotes: editRequest.setupNotes,
+      doorNotes: editRequest.doorNotes,
+      eventNotes: editRequest.eventNotes,
+      location: editRequest.location,
+      locationDisplayNames: editRequest.locationDisplayNames,
+      locations: editRequest.locations,
+      requestedRooms: editRequest.requestedRooms,
+      attendeeCount: editRequest.attendeeCount,
+      specialRequirements: editRequest.specialRequirements,
+      isOffsite: editRequest.isOffsite,
+      offsiteName: editRequest.offsiteName,
+      offsiteAddress: editRequest.offsiteAddress,
+      offsiteLat: editRequest.offsiteLat,
+      offsiteLon: editRequest.offsiteLon,
+      categories: editRequest.categories,
+      services: editRequest.services,
+      'graphData.subject': editRequest.eventTitle,
+      'graphData.start.dateTime': editRequest.startDateTime,
+      'graphData.end.dateTime': editRequest.endDateTime,
+      'graphData.location': editRequest.graphData?.location,
+      'graphData.bodyPreview': editRequest.eventDescription,
+      'graphData.categories': editRequest.categories,
+      lastModifiedDateTime: new Date()
+    };
+
+    // Update the original event
+    await unifiedEventsCollection.updateOne(
+      { _id: originalEvent._id },
+      { $set: updateFields }
+    );
+
+    // If the original event has a Graph event ID, update it in Graph API
+    const graphEventId = originalEvent.graphData?.id;
+    if (graphEventId && graphToken) {
+      try {
+        const graphUpdate = {
+          subject: editRequest.eventTitle,
+          start: {
+            dateTime: editRequest.startDateTime,
+            timeZone: 'America/New_York'
+          },
+          end: {
+            dateTime: editRequest.endDateTime,
+            timeZone: 'America/New_York'
+          },
+          location: editRequest.graphData?.location,
+          categories: editRequest.categories
+        };
+
+        if (editRequest.eventDescription) {
+          graphUpdate.body = {
+            contentType: 'HTML',
+            content: editRequest.eventDescription
+          };
+        }
+
+        const graphResponse = await fetch(`https://graph.microsoft.com/v1.0/me/events/${graphEventId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(graphUpdate)
+        });
+
+        if (!graphResponse.ok) {
+          const errorText = await graphResponse.text();
+          logger.error('Failed to update Graph event:', { status: graphResponse.status, error: errorText });
+        } else {
+          logger.info('Graph event updated successfully:', { graphEventId });
+        }
+      } catch (graphError) {
+        logger.error('Error updating Graph event:', graphError.message);
+      }
+    }
+
+    // Mark the edit request as approved
+    const newChangeKey = generateChangeKey({
+      ...editRequest,
+      status: 'approved'
+    });
+
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(editRequestId) },
+      {
+        $set: {
+          status: 'approved',
+          'roomReservationData.reviewedBy': {
+            userId,
+            name: user?.displayName || userEmail,
+            reviewedAt: new Date()
+          },
+          'roomReservationData.reviewNotes': notes || '',
+          'roomReservationData.changeKey': newChangeKey,
+          lastModifiedDateTime: new Date()
+        }
+      }
+    );
+
+    // Create audit log entries for both documents
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequest.eventId,
+      reservationId: new ObjectId(editRequestId),
+      action: 'edit-request-approved',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: editRequest.editRequestData?.proposedChanges || [],
+      metadata: {
+        originalEventId: originalEvent.eventId,
+        approvalNotes: notes || ''
+      }
+    });
+
+    await eventAuditHistoryCollection.insertOne({
+      eventId: originalEvent.eventId,
+      reservationId: originalEvent._id,
+      action: 'updated-via-edit-request',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: editRequest.editRequestData?.proposedChanges || [],
+      metadata: {
+        editRequestId: editRequest.eventId,
+        approvalNotes: notes || ''
+      }
+    });
+
+    logger.info('Edit request approved and changes applied:', {
+      editRequestId,
+      originalEventId: originalEvent.eventId,
+      approvedBy: userEmail
+    });
+
+    // Send approval notification email (non-blocking)
+    try {
+      const editRequestForEmail = {
+        ...editRequest,
+        requesterName: editRequest.roomReservationData?.requestedBy?.name,
+        requesterEmail: editRequest.roomReservationData?.requestedBy?.email,
+        startTime: editRequest.startDateTime,
+        endTime: editRequest.endDateTime,
+        locationDisplayNames: editRequest.locationDisplayNames
+      };
+
+      const emailResult = await emailService.sendEditRequestApprovedNotification(
+        editRequestForEmail,
+        notes || ''
+      );
+      logger.info('Edit request approval email sent', { correlationId: emailResult.correlationId });
+    } catch (emailError) {
+      logger.error('Edit request approval email failed:', emailError.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Edit request approved and changes applied',
+      originalEventId: originalEvent.eventId
+    });
+
+  } catch (error) {
+    logger.error('Error approving edit request:', error);
+    res.status(500).json({ error: 'Failed to approve edit request' });
+  }
+});
+
+/**
+ * Reject an edit request (Admin only)
+ * PUT /api/admin/events/:id/reject-edit
+ * Rejects the edit request without modifying the original event
+ */
+app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const editRequestId = req.params.id;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Rejection reason is required' });
+    }
+
+    // Get the edit request
+    const editRequest = await unifiedEventsCollection.findOne({ _id: new ObjectId(editRequestId) });
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    // Verify it's an edit request
+    if (editRequest.requestType !== 'edit-request') {
+      return res.status(400).json({ error: 'This is not an edit request' });
+    }
+
+    // Verify status is pending
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Edit request is not pending',
+        currentStatus: editRequest.status
+      });
+    }
+
+    // Mark the edit request as rejected
+    const newChangeKey = generateChangeKey({
+      ...editRequest,
+      status: 'rejected'
+    });
+
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(editRequestId) },
+      {
+        $set: {
+          status: 'rejected',
+          'roomReservationData.reviewedBy': {
+            userId,
+            name: user?.displayName || userEmail,
+            reviewedAt: new Date()
+          },
+          'roomReservationData.reviewNotes': reason.trim(),
+          'roomReservationData.changeKey': newChangeKey,
+          lastModifiedDateTime: new Date()
+        }
+      }
+    );
+
+    // Create audit log entry
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequest.eventId,
+      reservationId: new ObjectId(editRequestId),
+      action: 'edit-request-rejected',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: [{ field: 'status', oldValue: 'pending', newValue: 'rejected' }],
+      metadata: {
+        originalEventId: editRequest.originalEventId,
+        rejectionReason: reason.trim()
+      }
+    });
+
+    logger.info('Edit request rejected:', {
+      editRequestId,
+      originalEventId: editRequest.originalEventId,
+      rejectedBy: userEmail,
+      reason: reason.trim()
+    });
+
+    // Send rejection notification email (non-blocking)
+    try {
+      const editRequestForEmail = {
+        ...editRequest,
+        requesterName: editRequest.roomReservationData?.requestedBy?.name,
+        requesterEmail: editRequest.roomReservationData?.requestedBy?.email,
+        startTime: editRequest.startDateTime,
+        endTime: editRequest.endDateTime,
+        locationDisplayNames: editRequest.locationDisplayNames
+      };
+
+      const emailResult = await emailService.sendEditRequestRejectedNotification(
+        editRequestForEmail,
+        reason.trim()
+      );
+      logger.info('Edit request rejection email sent', { correlationId: emailResult.correlationId });
+    } catch (emailError) {
+      logger.error('Edit request rejection email failed:', emailError.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Edit request rejected'
+    });
+
+  } catch (error) {
+    logger.error('Error rejecting edit request:', error);
+    res.status(500).json({ error: 'Failed to reject edit request' });
+  }
+});
+
+/**
+ * Cancel own edit request (User)
+ * PUT /api/events/edit-requests/:id/cancel
+ * Allows the requester to cancel their own pending edit request
+ */
+app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const editRequestId = req.params.id;
+
+    // Get the edit request
+    const editRequest = await unifiedEventsCollection.findOne({ _id: new ObjectId(editRequestId) });
+    if (!editRequest) {
+      return res.status(404).json({ error: 'Edit request not found' });
+    }
+
+    // Verify it's an edit request
+    if (editRequest.requestType !== 'edit-request') {
+      return res.status(400).json({ error: 'This is not an edit request' });
+    }
+
+    // Verify status is pending
+    if (editRequest.status !== 'pending') {
+      return res.status(400).json({
+        error: 'Edit request is not pending',
+        currentStatus: editRequest.status
+      });
+    }
+
+    // Verify the user is the owner
+    const isOwner = editRequest.createdBy === userId ||
+                    editRequest.createdByEmail === userEmail ||
+                    editRequest.editRequestData?.requestedBy?.userId === userId ||
+                    editRequest.editRequestData?.requestedBy?.email === userEmail;
+
+    if (!isOwner) {
+      return res.status(403).json({ error: 'Only the requester can cancel their edit request' });
+    }
+
+    // Mark the edit request as cancelled
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(editRequestId) },
+      {
+        $set: {
+          status: 'cancelled',
+          'roomReservationData.reviewNotes': 'Cancelled by requester',
+          lastModifiedDateTime: new Date()
+        }
+      }
+    );
+
+    // Create audit log entry
+    await eventAuditHistoryCollection.insertOne({
+      eventId: editRequest.eventId,
+      reservationId: new ObjectId(editRequestId),
+      action: 'edit-request-cancelled',
+      performedBy: userId,
+      performedByEmail: userEmail,
+      timestamp: new Date(),
+      changes: [{ field: 'status', oldValue: 'pending', newValue: 'cancelled' }]
+    });
+
+    logger.info('Edit request cancelled by user:', {
+      editRequestId,
+      originalEventId: editRequest.originalEventId,
+      cancelledBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      message: 'Edit request cancelled'
+    });
+
+  } catch (error) {
+    logger.error('Error cancelling edit request:', error);
+    res.status(500).json({ error: 'Failed to cancel edit request' });
+  }
+});
+
+// ============================================================================
+// END EDIT REQUEST ENDPOINTS
+// ============================================================================
+
 /**
  * Update an event (Admin only)
  * PUT /api/admin/events/:id

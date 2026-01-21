@@ -7,6 +7,7 @@ import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import LoadingSpinner from './shared/LoadingSpinner';
 import CommunicationHistory from './CommunicationHistory';
+import EditRequestForm from './EditRequestForm';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
@@ -21,6 +22,10 @@ export default function MyReservations({ apiToken }) {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [deletingDraft, setDeletingDraft] = useState(false);
+
+  // Edit request state
+  const [editRequestReservation, setEditRequestReservation] = useState(null);
+  const [showEditRequestForm, setShowEditRequestForm] = useState(false);
   
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -178,6 +183,26 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setDeletingDraft(false);
     }
+  };
+
+  // Open edit request form for approved reservations
+  const handleRequestEdit = (reservation) => {
+    setEditRequestReservation(reservation);
+    setShowEditRequestForm(true);
+    setSelectedReservation(null); // Close the details modal
+  };
+
+  // Handle edit request form close
+  const handleEditRequestClose = () => {
+    setShowEditRequestForm(false);
+    setEditRequestReservation(null);
+  };
+
+  // Handle edit request submission success
+  const handleEditRequestSuccess = () => {
+    setShowEditRequestForm(false);
+    setEditRequestReservation(null);
+    loadMyReservations(); // Refresh the list
   };
 
   // Calculate days until draft auto-deletes
@@ -580,6 +605,15 @@ export default function MyReservations({ apiToken }) {
                   {cancelling ? 'Cancelling...' : 'Cancel Request'}
                 </button>
               )}
+              {selectedReservation.status === 'approved' && (
+                <button
+                  className="edit-request-btn"
+                  onClick={() => handleRequestEdit(selectedReservation)}
+                  title="Request changes to this approved reservation"
+                >
+                  Request Edit
+                </button>
+              )}
               {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
                 <button
                   className="resubmit-btn"
@@ -602,6 +636,16 @@ export default function MyReservations({ apiToken }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Request Form Modal */}
+      {showEditRequestForm && editRequestReservation && (
+        <EditRequestForm
+          reservation={editRequestReservation}
+          apiToken={apiToken}
+          onClose={handleEditRequestClose}
+          onSuccess={handleEditRequestSuccess}
+        />
       )}
     </div>
   );
