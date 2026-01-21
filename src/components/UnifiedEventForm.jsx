@@ -81,6 +81,10 @@ export default function UnifiedEventForm({
   const timeErrorsRef = useRef(null);
   const validateRef = useRef(null);
 
+  // Refs to store save functions (prevents useEffect dependency loop)
+  const handleSubmitRef = useRef(null);
+  const handleSaveChangesRef = useRef(null);
+
   const navigate = useNavigate();
   const location = useLocation();
   const { accounts } = useMsal();
@@ -216,17 +220,20 @@ export default function UnifiedEventForm({
   }, [mode, isPublic, accounts, hasAutoFilled]);
 
   // Notify parent when hasChanges or isSaving changes
+  // Note: callbacks intentionally excluded from deps to prevent render loop
   useEffect(() => {
     if (onHasChangesChange) {
       onHasChangesChange(hasChanges);
     }
-  }, [hasChanges, onHasChangesChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasChanges]);
 
   useEffect(() => {
     if (onIsSavingChange) {
       onIsSavingChange(isSaving);
     }
-  }, [isSaving, onIsSavingChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSaving]);
 
   // Initialize form data from reservation or event based on mode
   useEffect(() => {
@@ -531,13 +538,23 @@ export default function UnifiedEventForm({
     }
   }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave]);
 
+  // Keep refs in sync with save functions (prevents stale closures without causing useEffect loops)
+  handleSubmitRef.current = handleSubmit;
+  handleSaveChangesRef.current = handleSaveChanges;
+
   // Expose save function to parent (use handleSubmit for create mode, handleSaveChanges for others)
+  // Uses refs to access latest functions without dependency on the functions themselves
+  // This prevents render loops caused by unstable callback props (onSuccess, etc.)
   useEffect(() => {
     if (onSaveFunctionReady) {
-      const saveFunction = mode === 'create' ? handleSubmit : handleSaveChanges;
+      // Create a wrapper that always calls the latest function from the ref
+      const saveFunction = mode === 'create'
+        ? (...args) => handleSubmitRef.current?.(...args)
+        : (...args) => handleSaveChangesRef.current?.(...args);
       onSaveFunctionReady(saveFunction);
     }
-  }, [onSaveFunctionReady, handleSaveChanges, handleSubmit, mode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   // Approve handler
   const handleApprove = () => {

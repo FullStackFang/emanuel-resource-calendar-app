@@ -119,7 +119,6 @@ export default function RoomReservationFormBase({
   // Track if we used prefetched data (to skip initial fetch)
   const usedPrefetchedData = useRef(!!prefetchedAvailability);
   const [availabilityLoading, setAvailabilityLoading] = useState(false); // Day availability loading for SchedulingAssistant
-  const [assistantRooms, setAssistantRooms] = useState([]);
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -250,6 +249,14 @@ export default function RoomReservationFormBase({
   // Ref to track current assistantRooms for stale closure protection
   const assistantRoomsRef = useRef([]);
 
+  // Compute assistant rooms from selected room IDs - useMemo prevents unnecessary re-renders
+  // MUST be defined before any useEffects that depend on it
+  const assistantRooms = useMemo(() => {
+    return rooms.filter(room =>
+      formData.requestedRooms.includes(room._id)
+    );
+  }, [formData.requestedRooms, rooms]);
+
   // Expose formData, timeErrors, and validation function to parent
   // Include recurrencePattern, selectedCategories, and services in the returned data so they're available for saving
   useEffect(() => {
@@ -271,26 +278,32 @@ export default function RoomReservationFormBase({
   }, [onValidateRef]);
 
   // Notify parent when hasChanges state changes
+  // Note: callback intentionally excluded from deps to prevent render loop
   useEffect(() => {
     console.log('[hasChanges useEffect] hasChanges =', hasChanges, ', callback exists:', !!onHasChangesChange);
     if (onHasChangesChange) {
       onHasChangesChange(hasChanges);
     }
-  }, [hasChanges, onHasChangesChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasChanges]);
 
   // Notify parent when navigation loading state changes
+  // Note: callback intentionally excluded from deps to prevent render loop
   useEffect(() => {
     if (onIsNavigatingChange) {
       onIsNavigatingChange(!!loadingEventId);
     }
-  }, [loadingEventId, onIsNavigatingChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingEventId]);
 
   // Notify parent when availability changes
+  // Note: callback intentionally excluded from deps to prevent render loop
   useEffect(() => {
     if (onAvailabilityChange) {
       onAvailabilityChange(availability);
     }
-  }, [availability, onAvailabilityChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability]);
 
   // Clear loading state when event changes (navigation completed)
   useEffect(() => {
@@ -619,14 +632,6 @@ export default function RoomReservationFormBase({
     }
   }, [assistantRooms, formData.startDate]);
 
-  // Update assistant rooms when selected rooms change
-  useEffect(() => {
-    const selectedRoomObjects = rooms.filter(room =>
-      formData.requestedRooms.includes(room._id)
-    );
-    setAssistantRooms(selectedRoomObjects);
-  }, [formData.requestedRooms, rooms]);
-
   // Cleanup: abort any in-flight availability requests on unmount
   useEffect(() => {
     return () => {
@@ -748,11 +753,14 @@ export default function RoomReservationFormBase({
   }, [isFieldValid, timeErrors, selectedCategories]);
 
   // Notify parent when form validity changes
+  // Note: onFormValidChange intentionally excluded from deps to prevent render loop
+  // (parent creates new callback reference each render)
   useEffect(() => {
     if (onFormValidChange) {
       onFormValidChange(isFormValid);
     }
-  }, [isFormValid, onFormValidChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFormValid]);
 
   // Helper function to notify parent of data changes
   // Uses refs to always get latest categories/services (prevents stale closure issues)
@@ -810,7 +818,7 @@ export default function RoomReservationFormBase({
   };
 
   const handleRemoveAssistantRoom = (room) => {
-    setAssistantRooms(prev => prev.filter(r => r._id !== room._id));
+    // Update formData.requestedRooms - assistantRooms is derived from this via useMemo
     setFormData(prev => ({
       ...prev,
       requestedRooms: prev.requestedRooms.filter(id => id !== room._id)

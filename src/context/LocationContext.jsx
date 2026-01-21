@@ -1,5 +1,5 @@
 // src/context/LocationContext.jsx
-import React, { createContext, useContext, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useCallback, useMemo, useEffect } from 'react';
 import { useLocationsQuery } from '../hooks/useLocationsQuery';
 import { logger } from '../utils/logger';
 
@@ -157,21 +157,26 @@ export const LocationProvider = ({ children, apiToken }) => {
   const refreshRooms = refreshLocations;
   const loadRooms = loadLocations;
 
-  // Computed properties
-  const reservableRooms = locations.filter(loc => loc.isReservable === true);
+  // Computed properties - memoized to prevent new reference on every render
+  const reservableRooms = useMemo(() =>
+    locations.filter(loc => loc.isReservable === true),
+    [locations]
+  );
 
-  // Debug logging for room availability
-  if (locations.length > 0 && reservableRooms.length === 0) {
-    logger.warn('LocationContext: No reservable rooms found!', {
-      totalLocations: locations.length,
-      sample: locations.slice(0, 3).map(l => ({ name: l.name, isReservable: l.isReservable }))
-    });
-  } else if (reservableRooms.length > 0) {
-    logger.debug('LocationContext: Reservable rooms available:', {
-      total: reservableRooms.length,
-      rooms: reservableRooms.map(r => r.name)
-    });
-  }
+  // Debug logging for room availability - in useEffect to prevent log spam on every render
+  useEffect(() => {
+    if (locations.length > 0 && reservableRooms.length === 0) {
+      logger.warn('LocationContext: No reservable rooms found!', {
+        totalLocations: locations.length,
+        sample: locations.slice(0, 3).map(l => ({ name: l.name, isReservable: l.isReservable }))
+      });
+    } else if (reservableRooms.length > 0) {
+      logger.debug('LocationContext: Reservable rooms available:', {
+        total: reservableRooms.length,
+        rooms: reservableRooms.map(r => r.name)
+      });
+    }
+  }, [locations.length, reservableRooms.length]);
 
   // Context value with both new location API and legacy room API for compatibility
   const contextValue = {
