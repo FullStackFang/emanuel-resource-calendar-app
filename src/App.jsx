@@ -168,10 +168,11 @@ function App() {
       const prefillData = {
         eventTitle: draft.eventTitle || '',
         eventDescription: draft.eventDescription || '',
-        startDate: startParsed.date,
-        endDate: endParsed.date,
-        startTime: startParsed.time,
-        endTime: endParsed.time,
+        // Use separate fields first (for partial draft support), fall back to parsed startDateTime/endDateTime
+        startDate: draft.startDate || startParsed.date,
+        endDate: draft.endDate || endParsed.date,
+        startTime: draft.startTime || startParsed.time,
+        endTime: draft.endTime || endParsed.time,
         requestedRooms: draft.requestedRooms || draft.locations || [],
         locations: draft.requestedRooms || draft.locations || [],
         attendeeCount: draft.attendeeCount || '',
@@ -539,6 +540,11 @@ function App() {
                         endDateTime: formData.endDate && formData.endTime
                           ? `${formData.endDate}T${formData.endTime}`
                           : null,
+                        // Separate date/time fields for partial draft support
+                        startDate: formData.startDate || null,
+                        startTime: formData.startTime || null,
+                        endDate: formData.endDate || null,
+                        endTime: formData.endTime || null,
                         attendeeCount: parseInt(formData.attendeeCount) || 0,
                         requestedRooms: formData.requestedRooms || formData.locations || [],
                         specialRequirements: formData.specialRequirements || '',

@@ -11509,6 +11509,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       eventDescription,
       startDateTime,
       endDateTime,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
       attendeeCount,
       requestedRooms,
       requiredFeatures,
@@ -11574,6 +11578,11 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       teardownTime: teardownTime || null,
       doorOpenTime: doorOpenTime || null,
       doorCloseTime: doorCloseTime || null,
+      // Separate date/time fields for partial draft support
+      startDate: startDate || null,
+      startTime: startTime || null,
+      endDate: endDate || null,
+      endTime: endTime || null,
 
       // Notes
       setupNotes: setupNotes || '',
@@ -11666,6 +11675,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       eventDescription,
       startDateTime,
       endDateTime,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
       attendeeCount,
       requestedRooms,
       requiredFeatures,
@@ -11709,6 +11722,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       eventDescription: eventDescription || '',
       startDateTime: startDateTime ? new Date(startDateTime) : null,
       endDateTime: endDateTime ? new Date(endDateTime) : null,
+      // Separate date/time fields for partial draft support
+      startDate: startDate || null,
+      startTime: startTime || null,
+      endDate: endDate || null,
+      endTime: endTime || null,
       attendeeCount: attendeeCount || 0,
       locations: requestedRooms || [],
       isOffsite: isOffsite || false,
@@ -12290,6 +12308,11 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
       doorCloseTime: event.doorCloseTime,
+      // Separate date/time fields for draft partial support
+      startDate: event.startDate || null,
+      startTime: event.startTime || null,
+      endDate: event.endDate || null,
+      endTime: event.endTime || null,
       // Categories and services (for draft editing)
       categories: event.categories || [],
       services: event.services || {},
@@ -12367,6 +12390,11 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
       doorCloseTime: event.doorCloseTime,
+      // Separate date/time fields for draft partial support
+      startDate: event.startDate || null,
+      startTime: event.startTime || null,
+      endDate: event.endDate || null,
+      endTime: event.endTime || null,
       // Categories and services (for draft editing)
       categories: event.categories || [],
       services: event.services || {}
