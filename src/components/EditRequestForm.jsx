@@ -127,6 +127,7 @@ export default function EditRequestForm({
 
   // Handle room selection
   const handleRoomChange = (selectedRooms) => {
+    logger.debug('EditRequestForm: Room selection changed', { selectedRooms });
     setFormData(prev => ({
       ...prev,
       requestedRooms: selectedRooms
@@ -149,6 +150,17 @@ export default function EditRequestForm({
       services
     }));
     setShowServicesModal(false);
+  };
+
+  // Check if a room meets capacity criteria
+  const checkRoomCapacity = (room) => {
+    if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
+      return {
+        meetsCapacity: false,
+        issue: `Capacity too small (needs ${formData.attendeeCount}, has ${room.capacity})`
+      };
+    }
+    return { meetsCapacity: true, issue: null };
   };
 
   // Submit edit request
@@ -208,6 +220,11 @@ export default function EditRequestForm({
         services: formData.services,
         changeReason: changeReason.trim()
       };
+
+      logger.debug('EditRequestForm: Submitting edit request', {
+        requestedRooms: requestBody.requestedRooms,
+        formDataRooms: formData.requestedRooms
+      });
 
       // Use _id or eventId for the request
       const eventId = eventData._id || eventData.eventId;
@@ -486,9 +503,9 @@ export default function EditRequestForm({
                   <label>Rooms</label>
                   <LocationListSelect
                     selectedRooms={formData.requestedRooms}
-                    onChange={handleRoomChange}
+                    onRoomSelectionChange={handleRoomChange}
                     rooms={rooms}
-                    mode="multiple"
+                    checkRoomCapacity={checkRoomCapacity}
                   />
                 </div>
               )}

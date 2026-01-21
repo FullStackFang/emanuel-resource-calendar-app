@@ -5198,7 +5198,7 @@
             ? `${currentData.endDate}T${currentData.endTime}`
             : null,
           attendeeCount: parseInt(currentData.attendeeCount) || 0,
-          locationIds: currentData.requestedRooms || currentData.locations || [],
+          requestedRooms: currentData.requestedRooms || currentData.locations || [],
           specialRequirements: currentData.specialRequirements,
           setupTime: currentData.setupTime,
           teardownTime: currentData.teardownTime,

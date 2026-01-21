@@ -16435,7 +16435,8 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       startDateTime,
       endDateTime,
       attendeeCount,
-      requestedRooms,
+      requestedRooms: requestedRoomsParam,
+      locationIds, // Alias for requestedRooms (used by some frontend components)
       specialRequirements,
       department,
       phone,
@@ -16460,6 +16461,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       services,
       changeReason // Optional: explanation for the edit request
     } = req.body;
+
+    // Support both requestedRooms and locationIds (alias)
+    const requestedRooms = requestedRoomsParam || locationIds;
 
     // Get the original event
     let originalEvent;
@@ -16586,10 +16590,29 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     // Handle requestedRooms/locations comparison
     const newRooms = requestedRooms || [];
     const oldRooms = originalEvent.requestedRooms || originalEvent.locations || [];
-    const roomsChanged = JSON.stringify(newRooms.sort()) !== JSON.stringify(oldRooms.map(r => r.toString()).sort());
+
+    // Normalize both to string format for accurate comparison
+    const normalizedNewRooms = newRooms.map(id => id?.toString?.() || String(id)).sort();
+    const normalizedOldRooms = oldRooms.map(id => id?.toString?.() || String(id)).sort();
+    const roomsChanged = JSON.stringify(normalizedNewRooms) !== JSON.stringify(normalizedOldRooms);
+
+    // Debug logging for room comparison
+    logger.debug('Edit request room comparison:', {
+      requestedRooms,
+      newRooms,
+      oldRooms,
+      normalizedNewRooms,
+      normalizedOldRooms,
+      roomsChanged
+    });
+
     if (requestedRooms !== undefined && roomsChanged) {
-      proposedChanges.requestedRooms = requestedRooms;
-      proposedChanges.locations = locationObjectIds.length > 0 ? locationObjectIds : requestedRooms;
+      // Normalize to ObjectId format for consistency
+      const normalizedLocationIds = locationObjectIds.length > 0
+        ? locationObjectIds
+        : requestedRooms.map(id => new ObjectId(id));
+      proposedChanges.requestedRooms = normalizedLocationIds;
+      proposedChanges.locations = normalizedLocationIds;
       proposedChanges.locationDisplayNames = locationDisplayName;
       originalValues.requestedRooms = oldRooms;
       originalValues.locations = originalEvent.locations;
@@ -17029,6 +17052,14 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
       }
       if (field === 'categories') {
         updateFields['graphData.categories'] = value;
+      }
+      // Normalize location IDs to ObjectId format
+      if (field === 'locations' || field === 'requestedRooms') {
+        const normalizedLocations = value.map(id =>
+          typeof id === 'string' ? new ObjectId(id) : id
+        );
+        updateFields.locations = normalizedLocations;
+        updateFields.requestedRooms = normalizedLocations;
       }
       if (field === 'locationDisplayNames') {
         updateFields['graphData.location.displayName'] = value;
