@@ -289,6 +289,19 @@
     const [originalEventData, setOriginalEventData] = useState(null);
     const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
     const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
+    // Existing edit request state (for viewing pending edit requests)
+    const [existingEditRequest, setExistingEditRequest] = useState(null);
+    const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
+    const [loadingEditRequest, setLoadingEditRequest] = useState(false);
+    // Edit request approval/rejection state (for admins)
+    const [isApprovingEditRequest, setIsApprovingEditRequest] = useState(false);
+    const [isRejectingEditRequest, setIsRejectingEditRequest] = useState(false);
+    const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
+    const [isEditRequestApproveConfirming, setIsEditRequestApproveConfirming] = useState(false);
+    const [isEditRequestRejectConfirming, setIsEditRequestRejectConfirming] = useState(false);
+    // Cancel edit request state (for requesters)
+    const [isCancelingEditRequest, setIsCancelingEditRequest] = useState(false);
+    const [isCancelEditRequestConfirming, setIsCancelEditRequestConfirming] = useState(false);
 
     // Timeline modal state for location view
     const [timelineModal, setTimelineModal] = useState({
@@ -4723,6 +4736,363 @@
     }, [originalEventData, reviewModal]);
 
     /**
+     * Get existing edit request from event's embedded pendingEditRequest field
+     * Falls back to API call if needed (for backward compatibility)
+     */
+    const fetchExistingEditRequest = useCallback(async (event) => {
+      if (!event) return null;
+
+      setLoadingEditRequest(true);
+      try {
+        // EMBEDDED MODEL: Check for pendingEditRequest directly on the event
+        if (event.pendingEditRequest && event.pendingEditRequest.status === 'pending') {
+          const pendingReq = event.pendingEditRequest;
+          // Transform to the format expected by the frontend
+          return {
+            _id: event._id,
+            eventId: event.eventId,
+            editRequestId: pendingReq.id,
+            status: pendingReq.status,
+            requestedBy: pendingReq.requestedBy,
+            changeReason: pendingReq.changeReason,
+            proposedChanges: pendingReq.proposedChanges,
+            originalValues: pendingReq.originalValues,
+            reviewedBy: pendingReq.reviewedBy,
+            reviewedAt: pendingReq.reviewedAt,
+            reviewNotes: pendingReq.reviewNotes,
+            // Merge proposed changes with original values for form display
+            eventTitle: pendingReq.proposedChanges?.eventTitle || event.eventTitle,
+            eventDescription: pendingReq.proposedChanges?.eventDescription || event.eventDescription,
+            startDateTime: pendingReq.proposedChanges?.startDateTime || event.startDateTime,
+            endDateTime: pendingReq.proposedChanges?.endDateTime || event.endDateTime,
+            startDate: pendingReq.proposedChanges?.startDateTime?.split('T')[0] || event.startDate,
+            startTime: pendingReq.proposedChanges?.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
+            endDate: pendingReq.proposedChanges?.endDateTime?.split('T')[0] || event.endDate,
+            endTime: pendingReq.proposedChanges?.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
+            attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? event.attendeeCount,
+            locations: pendingReq.proposedChanges?.locations || event.locations,
+            locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || event.locationDisplayNames,
+            requestedRooms: pendingReq.proposedChanges?.requestedRooms || event.requestedRooms,
+            categories: pendingReq.proposedChanges?.categories || event.categories,
+            services: pendingReq.proposedChanges?.services || event.services,
+            setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? event.setupTimeMinutes,
+            teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? event.teardownTimeMinutes,
+            setupTime: pendingReq.proposedChanges?.setupTime || event.setupTime,
+            teardownTime: pendingReq.proposedChanges?.teardownTime || event.teardownTime,
+            doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || event.doorOpenTime,
+            doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || event.doorCloseTime,
+            setupNotes: pendingReq.proposedChanges?.setupNotes ?? event.setupNotes,
+            doorNotes: pendingReq.proposedChanges?.doorNotes ?? event.doorNotes,
+            eventNotes: pendingReq.proposedChanges?.eventNotes ?? event.eventNotes,
+            specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? event.specialRequirements,
+            isOffsite: pendingReq.proposedChanges?.isOffsite ?? event.isOffsite,
+            offsiteName: pendingReq.proposedChanges?.offsiteName || event.offsiteName,
+            offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || event.offsiteAddress,
+            createdAt: pendingReq.requestedBy?.requestedAt
+          };
+        }
+
+        // Fallback: API call for events that may have been loaded without full data
+        const eventId = event._id || event.eventId;
+        if (!eventId || !apiToken) return null;
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/${eventId}/edit-requests`,
+          {
+            headers: {
+              'Authorization': `Bearer ${apiToken}`
+            }
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          // Return the first pending edit request (there should only be one)
+          const pendingRequest = data.editRequests?.find(r => r.status === 'pending');
+          return pendingRequest || null;
+        }
+        return null;
+      } catch (err) {
+        logger.error('Error fetching edit requests:', err);
+        return null;
+      } finally {
+        setLoadingEditRequest(false);
+      }
+    }, [apiToken]);
+
+    /**
+     * Effect to check for existing edit requests when modal opens with approved event
+     */
+    useEffect(() => {
+      const checkForEditRequest = async () => {
+        if (reviewModal.isOpen && reviewModal.currentItem?.status === 'approved') {
+          // Pass the entire event object to check embedded pendingEditRequest first
+          const editRequest = await fetchExistingEditRequest(reviewModal.currentItem);
+          setExistingEditRequest(editRequest);
+        } else if (!reviewModal.isOpen) {
+          // Reset when modal closes
+          setExistingEditRequest(null);
+          setIsViewingEditRequest(false);
+        }
+      };
+
+      checkForEditRequest();
+    }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
+
+    /**
+     * Handle viewing an existing edit request
+     */
+    const handleViewEditRequest = useCallback(() => {
+      if (existingEditRequest) {
+        // Store the original event data
+        const currentData = reviewModal.editableData;
+        if (currentData) {
+          setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+        }
+        // Load the edit request data into the form
+        reviewModal.updateData(existingEditRequest);
+        setIsViewingEditRequest(true);
+      }
+    }, [existingEditRequest, reviewModal]);
+
+    /**
+     * Handle toggling back to the original published event
+     */
+    const handleViewOriginalEvent = useCallback(() => {
+      if (originalEventData) {
+        reviewModal.updateData(originalEventData);
+        setIsViewingEditRequest(false);
+      }
+    }, [originalEventData, reviewModal]);
+
+    /**
+     * Handle approving an edit request (Admin only)
+     */
+    const handleApproveEditRequest = useCallback(async () => {
+      // First click shows confirmation
+      if (!isEditRequestApproveConfirming) {
+        setIsEditRequestApproveConfirming(true);
+        return;
+      }
+
+      // Second click confirms
+      const currentItem = reviewModal.currentItem;
+      if (!currentItem || !existingEditRequest) {
+        logger.error('No edit request to approve');
+        return;
+      }
+
+      try {
+        setIsApprovingEditRequest(true);
+        const eventId = currentItem._id || currentItem.eventId;
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-edit`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`
+            },
+            body: JSON.stringify({
+              notes: '',
+              graphToken
+            })
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to approve edit request');
+        }
+
+        logger.info('Edit request approved:', eventId);
+
+        // Reset state
+        setIsEditRequestApproveConfirming(false);
+        setIsViewingEditRequest(false);
+        setExistingEditRequest(null);
+        setOriginalEventData(null);
+
+        // Close the modal
+        reviewModal.closeModal();
+
+        // Refresh events to show updated data
+        if (refreshEvents) {
+          refreshEvents();
+        }
+
+        showNotification('Edit request approved. Changes have been applied.', 'success');
+
+      } catch (error) {
+        logger.error('Error approving edit request:', error);
+        showNotification(`Failed to approve edit request: ${error.message}`, 'error');
+      } finally {
+        setIsApprovingEditRequest(false);
+        setIsEditRequestApproveConfirming(false);
+      }
+    }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, refreshEvents, showNotification]);
+
+    /**
+     * Handle rejecting an edit request (Admin only)
+     */
+    const handleRejectEditRequest = useCallback(async () => {
+      // First click shows confirmation
+      if (!isEditRequestRejectConfirming) {
+        setIsEditRequestRejectConfirming(true);
+        return;
+      }
+
+      // Second click needs reason
+      if (!editRequestRejectionReason.trim()) {
+        showNotification('Please provide a reason for rejecting the edit request.', 'error');
+        return;
+      }
+
+      const currentItem = reviewModal.currentItem;
+      if (!currentItem || !existingEditRequest) {
+        logger.error('No edit request to reject');
+        return;
+      }
+
+      try {
+        setIsRejectingEditRequest(true);
+        const eventId = currentItem._id || currentItem.eventId;
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`
+            },
+            body: JSON.stringify({
+              reason: editRequestRejectionReason.trim()
+            })
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to reject edit request');
+        }
+
+        logger.info('Edit request rejected:', eventId);
+
+        // Reset state
+        setIsEditRequestRejectConfirming(false);
+        setEditRequestRejectionReason('');
+        setIsViewingEditRequest(false);
+        setExistingEditRequest(null);
+        setOriginalEventData(null);
+
+        // Close the modal
+        reviewModal.closeModal();
+
+        // Refresh events
+        if (refreshEvents) {
+          refreshEvents();
+        }
+
+        showNotification('Edit request rejected.', 'success');
+
+      } catch (error) {
+        logger.error('Error rejecting edit request:', error);
+        showNotification(`Failed to reject edit request: ${error.message}`, 'error');
+      } finally {
+        setIsRejectingEditRequest(false);
+        setIsEditRequestRejectConfirming(false);
+      }
+    }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, refreshEvents, showNotification]);
+
+    /**
+     * Cancel edit request approval confirmation
+     */
+    const cancelEditRequestApproveConfirmation = useCallback(() => {
+      setIsEditRequestApproveConfirming(false);
+    }, []);
+
+    /**
+     * Cancel edit request rejection confirmation
+     */
+    const cancelEditRequestRejectConfirmation = useCallback(() => {
+      setIsEditRequestRejectConfirming(false);
+      setEditRequestRejectionReason('');
+    }, []);
+
+    /**
+     * Handle canceling own pending edit request (Requester only)
+     */
+    const handleCancelPendingEditRequest = useCallback(async () => {
+      // First click shows confirmation
+      if (!isCancelEditRequestConfirming) {
+        setIsCancelEditRequestConfirming(true);
+        return;
+      }
+
+      // Second click confirms
+      const currentItem = reviewModal.currentItem;
+      if (!currentItem || !existingEditRequest) {
+        logger.error('No edit request to cancel');
+        return;
+      }
+
+      try {
+        setIsCancelingEditRequest(true);
+        const eventId = currentItem._id || currentItem.eventId;
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/events/edit-requests/${eventId}/cancel`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`
+            }
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to cancel edit request');
+        }
+
+        logger.info('Edit request canceled:', eventId);
+
+        // Reset state
+        setIsCancelEditRequestConfirming(false);
+        setIsViewingEditRequest(false);
+        setExistingEditRequest(null);
+        setOriginalEventData(null);
+
+        // Close the modal
+        reviewModal.closeModal();
+
+        // Refresh events
+        if (refreshEvents) {
+          refreshEvents();
+        }
+
+        showNotification('Edit request canceled.', 'success');
+
+      } catch (error) {
+        logger.error('Error canceling edit request:', error);
+        showNotification(`Failed to cancel edit request: ${error.message}`, 'error');
+      } finally {
+        setIsCancelingEditRequest(false);
+        setIsCancelEditRequestConfirming(false);
+      }
+    }, [isCancelEditRequestConfirming, reviewModal, existingEditRequest, apiToken, refreshEvents, showNotification]);
+
+    /**
+     * Cancel cancel edit request confirmation
+     */
+    const cancelCancelEditRequestConfirmation = useCallback(() => {
+      setIsCancelEditRequestConfirming(false);
+    }, []);
+
+    /**
      * Compute detected changes between original and current data
      */
     const computeDetectedChanges = useCallback(() => {
@@ -4861,13 +5231,18 @@
         setPendingEditRequestConfirmation(false);
         reviewModal.closeModal();
 
+        // Refresh events to show the pending edit indicator
+        if (refreshEvents) {
+          refreshEvents();
+        }
+
       } catch (err) {
         logger.error('Error submitting edit request:', err);
         showNotification(err.message || 'Failed to submit edit request', 'error');
       } finally {
         setIsSubmittingEditRequest(false);
       }
-    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation]);
+    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents]);
 
     /**
      * Cancel edit request confirmation
@@ -6145,8 +6520,14 @@
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}
-          canRequestEdit={effectivePermissions.submitReservation && !isEditRequestMode}
-          // Edit request mode props
+          canRequestEdit={effectivePermissions.submitReservation && !isEditRequestMode && !isViewingEditRequest}
+          // Existing edit request props (for viewing pending edit requests)
+          existingEditRequest={existingEditRequest}
+          isViewingEditRequest={isViewingEditRequest}
+          loadingEditRequest={loadingEditRequest}
+          onViewEditRequest={handleViewEditRequest}
+          onViewOriginalEvent={handleViewOriginalEvent}
+          // Edit request mode props (for creating new edit requests)
           isEditRequestMode={isEditRequestMode}
           editRequestChangeReason={editRequestChangeReason}
           onEditRequestChangeReasonChange={setEditRequestChangeReason}
@@ -6158,6 +6539,22 @@
           originalData={originalEventData}
           detectedChanges={computeDetectedChanges()}
           hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
+          // Edit request approval/rejection props (for admins)
+          onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
+          onRejectEditRequest={canApproveReservations ? handleRejectEditRequest : null}
+          isApprovingEditRequest={isApprovingEditRequest}
+          isRejectingEditRequest={isRejectingEditRequest}
+          editRequestRejectionReason={editRequestRejectionReason}
+          onEditRequestRejectionReasonChange={setEditRequestRejectionReason}
+          isEditRequestApproveConfirming={isEditRequestApproveConfirming}
+          isEditRequestRejectConfirming={isEditRequestRejectConfirming}
+          onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
+          onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
+          // Edit request cancellation props (for requesters)
+          onCancelPendingEditRequest={handleCancelPendingEditRequest}
+          isCancelingEditRequest={isCancelingEditRequest}
+          isCancelEditRequestConfirming={isCancelEditRequestConfirming}
+          onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview

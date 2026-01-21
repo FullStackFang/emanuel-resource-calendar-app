@@ -106,6 +106,7 @@ const DayEventPanel = memo(({
             {sortEventsByStartTime(dayEvents)
               .map(event => {
                 const isPending = event.status === 'pending';
+                const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
                 // Get primary category for color
                 const eventCategories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
                 const primaryCategory = eventCategories[0] || 'Uncategorized';
@@ -116,7 +117,7 @@ const DayEventPanel = memo(({
                 return (
                 <div
                   key={`${event.id}-${userTimezone}`} // Include timezone in key to force re-render
-                  className={`panel-event-item ${isPending ? 'pending-event' : ''}`}
+                  className={`panel-event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
                   onClick={(e) => onEventClick && onEventClick(event, e)}
                   style={{
                     position: 'relative',
@@ -200,8 +201,25 @@ const DayEventPanel = memo(({
                     </div>
                   )}
 
+                  {/* Pending Edit Request indicator badge */}
+                  {hasPendingEditRequest && (
+                    <div style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: '#7c3aed',
+                      backgroundColor: '#ede9fe',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      marginTop: '6px',
+                      display: 'inline-block'
+                    }}>
+                      EDIT PENDING
+                    </div>
+                  )}
+
                   {/* Request Edit button for approved events - visible to requesters and above */}
-                  {event.status === 'approved' && canSubmitReservation && onRequestEdit && (
+                  {/* Hide if there's already a pending edit request */}
+                  {event.status === 'approved' && canSubmitReservation && onRequestEdit && !hasPendingEditRequest && (
                     <button
                       className="request-edit-btn"
                       onClick={(e) => {

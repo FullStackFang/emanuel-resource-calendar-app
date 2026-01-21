@@ -208,6 +208,25 @@
   border: 1px solid #bfdbfe;
 }
 
+/* Pending Edit Request indicator styling */
+.panel-event-item.has-pending-edit {
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  border: 1px dashed #a78bfa !important;
+  border-left: 4px dashed #8b5cf6 !important;
+}
+
+.panel-event-item.has-pending-edit::before {
+  content: '✏️';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 11px;
+  background: #ede9fe;
+  border-radius: 4px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
 /* Scrollbar styling */
 .panel-content::-webkit-scrollbar {
   width: 6px;

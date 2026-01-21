@@ -78,6 +78,7 @@ export default function RoomReservationFormBase({
 
   // Edit request mode props (Option C: inline diff style)
   isEditRequestMode = false,    // When true, show inline diffs and allow editing
+  isViewingEditRequest = false, // When true, show inline diffs but keep form read-only
   originalData = null           // Original form data for comparison (shows strikethrough when changed)
 }) {
   // Form state
@@ -920,11 +921,15 @@ export default function RoomReservationFormBase({
 
   // Determine if fields should be disabled
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
-  const fieldsDisabled = (readOnly && !isEditRequestMode) || (!isAdmin && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
+  // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
+  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
 
-  // Helper to check if a field value has changed from the original (for edit request mode)
+  // Whether to show diff highlighting (both edit request mode and viewing edit request)
+  const showDiffMode = isEditRequestMode || isViewingEditRequest;
+
+  // Helper to check if a field value has changed from the original (for edit request mode or viewing)
   const hasFieldChanged = useCallback((fieldName) => {
-    if (!isEditRequestMode || !originalData) return false;
+    if (!showDiffMode || !originalData) return false;
     const originalValue = originalData[fieldName];
     const currentValue = formData[fieldName];
 
@@ -937,7 +942,7 @@ export default function RoomReservationFormBase({
     const normalizedOriginal = originalValue ?? '';
     const normalizedCurrent = currentValue ?? '';
     return normalizedOriginal !== normalizedCurrent;
-  }, [isEditRequestMode, originalData, formData]);
+  }, [showDiffMode, originalData, formData]);
 
   // Helper to get the original value for display
   const getOriginalValue = useCallback((fieldName) => {
@@ -957,25 +962,25 @@ export default function RoomReservationFormBase({
 
   // Helper to check if categories have changed from original
   const haveCategoriesChanged = useCallback(() => {
-    if (!isEditRequestMode || !originalData) return false;
+    if (!showDiffMode || !originalData) return false;
     const originalCategories = originalData.categories || [];
     return JSON.stringify([...selectedCategories].sort()) !== JSON.stringify([...originalCategories].sort());
-  }, [isEditRequestMode, originalData, selectedCategories]);
+  }, [showDiffMode, originalData, selectedCategories]);
 
   // Helper to check if services have changed from original
   const haveServicesChanged = useCallback(() => {
-    if (!isEditRequestMode || !originalData) return false;
+    if (!showDiffMode || !originalData) return false;
     const originalServices = originalData.services || {};
     return JSON.stringify(selectedServices) !== JSON.stringify(originalServices);
-  }, [isEditRequestMode, originalData, selectedServices]);
+  }, [showDiffMode, originalData, selectedServices]);
 
   // Helper to check if locations/rooms have changed from original
   const haveLocationsChanged = useCallback(() => {
-    if (!isEditRequestMode || !originalData) return false;
+    if (!showDiffMode || !originalData) return false;
     const originalRooms = originalData.requestedRooms || originalData.locations || [];
     const currentRooms = formData.requestedRooms || [];
     return JSON.stringify([...currentRooms].sort()) !== JSON.stringify([...originalRooms].sort());
-  }, [isEditRequestMode, originalData, formData.requestedRooms]);
+  }, [showDiffMode, originalData, formData.requestedRooms]);
 
   // Helper to get original categories for display
   const getOriginalCategories = useCallback(() => {
@@ -1004,6 +1009,16 @@ export default function RoomReservationFormBase({
                 <span className="edit-request-mode-banner-icon">✏️</span>
                 <span className="edit-request-mode-banner-text">
                   You are requesting changes to this approved event. Modified fields will show the original value with strikethrough.
+                </span>
+              </div>
+            )}
+
+            {/* Viewing Edit Request Banner */}
+            {isViewingEditRequest && (
+              <div className="edit-request-mode-banner viewing-mode">
+                <span className="edit-request-mode-banner-icon">📋</span>
+                <span className="edit-request-mode-banner-text">
+                  Viewing pending edit request. Changed fields show the original value with strikethrough.
                 </span>
               </div>
             )}

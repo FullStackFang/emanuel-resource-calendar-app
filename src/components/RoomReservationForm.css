@@ -2062,6 +2062,16 @@ select.input-changed:focus {
   margin-left: auto;
 }
 
+/* Viewing mode variant - amber/yellow to distinguish from edit mode */
+.edit-request-mode-banner.viewing-mode {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #f59e0b;
+}
+
+.edit-request-mode-banner.viewing-mode .edit-request-mode-banner-text {
+  color: #92400e;
+}
+
 /* Change reason section - appears at bottom when changes exist */
 .change-reason-section-inline {
   background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);

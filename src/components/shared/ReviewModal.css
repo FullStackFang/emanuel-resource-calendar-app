@@ -358,6 +358,54 @@
   text-align: center;
 }
 
+/* Viewing Edit Request Badge */
+.edit-request-view-badge {
+  padding: 8px 16px;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border: 1px solid #fbbf24;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* View Edit Request Button */
+.review-actions .view-edit-request-btn {
+  background: #f59e0b !important;
+  color: white !important;
+  border: none !important;
+  padding: 0 16px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  line-height: 36px !important;
+  border-radius: 6px !important;
+  font-size: 0.875rem !important;
+}
+
+.review-actions .view-edit-request-btn:hover:not(:disabled) {
+  background: #d97706 !important;
+}
+
+/* Toggle View Button */
+.review-actions .toggle-view-btn {
+  background: #6366f1 !important;
+  color: white !important;
+  border: none !important;
+  padding: 0 16px !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  line-height: 36px !important;
+  border-radius: 6px !important;
+  font-size: 0.875rem !important;
+}
+
+.review-actions .toggle-view-btn:hover:not(:disabled) {
+  background: #4f46e5 !important;
+}
+
 /* Modal Content Adjustments - Override child component styles when inside modal */
 @media (min-width: 1px) {
   .review-modal .room-reservation-form,

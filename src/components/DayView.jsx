@@ -280,27 +280,38 @@ const DayView = memo(({
                       const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
                       // Check if event is pending approval
                       const isPending = event.status === 'pending';
+                      // Check for pending edit request
+                      const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
                       const bgAlpha = isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
 
-                      const transparentColor = hexToRgba(eventColor, bgAlpha);
+                      const transparentColor = hasPendingEditRequest
+                        ? 'rgba(139, 92, 246, 0.15)' // Purple tint for pending edits
+                        : hexToRgba(eventColor, bgAlpha);
 
                       return (
                         <div
                           key={event.eventId}
-                          className={`event-item ${isPending ? 'pending-event' : ''}`}
+                          className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
                           style={{
+                            position: 'relative',
                             backgroundColor: transparentColor,
-                            borderLeft: `3px ${isPending ? 'dashed' : 'solid'} ${eventColor}`,
+                            borderLeft: `3px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${hasPendingEditRequest ? '#8b5cf6' : eventColor}`,
                             padding: '8px 10px',
                             margin: '2px 0',
                             cursor: 'pointer',
                             borderRadius: '8px',
                             color: '#333',
                             opacity: isPending ? 0.85 : 1,
-                            ...(isShowingRegistrationTime && !isPending && {
+                            ...(isShowingRegistrationTime && !isPending && !hasPendingEditRequest && {
                               border: `1px dashed ${eventColor}`,
                               borderLeftWidth: '3px',
                               borderLeftStyle: 'solid'
+                            }),
+                            ...(hasPendingEditRequest && {
+                              border: `1px dashed #a78bfa`,
+                              borderLeftWidth: '3px',
+                              borderLeftStyle: 'dashed',
+                              borderLeftColor: '#8b5cf6'
                             })
                           }}
                           onClick={(e) => handleEventClick(event, e)}
@@ -348,6 +359,23 @@ const DayView = memo(({
                               display: 'inline-block'
                             }}>
                               PENDING
+                            </div>
+                          )}
+                          {/* Pending Edit Request indicator */}
+                          {hasPendingEditRequest && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '4px',
+                              right: '4px',
+                              fontSize: '10px',
+                              lineHeight: 1,
+                              backgroundColor: '#ede9fe',
+                              borderRadius: '3px',
+                              padding: '2px 3px'
+                            }}
+                            title="Has pending edit request"
+                            >
+                              ✏️
                             </div>
                           )}
                         </div>

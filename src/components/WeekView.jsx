@@ -269,27 +269,37 @@ const WeekView = memo(({
                         const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
                         // Check if event is pending approval
                         const isPending = event.status === 'pending';
+                        // Check for pending edit request
+                        const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
                         const bgAlpha = isPending ? 0.12 : (isShowingRegistrationTime ? 0.1 : 0.15);
-                        const transparentColor = hexToRgba(eventColor, bgAlpha);
+                        const transparentColor = hasPendingEditRequest
+                          ? 'rgba(139, 92, 246, 0.12)' // Purple tint for pending edits
+                          : hexToRgba(eventColor, bgAlpha);
 
                         return (
                           <div
                             key={event.eventId}
-                            className={`event-item ${isPending ? 'pending-event' : ''}`}
+                            className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
                             style={{
                               position: 'relative',
                               backgroundColor: transparentColor,
-                              borderLeft: `2px ${isPending ? 'dashed' : 'solid'} ${eventColor}`,
+                              borderLeft: `2px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${hasPendingEditRequest ? '#8b5cf6' : eventColor}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
                               margin: '1px 0',
                               cursor: 'pointer',
                               borderRadius: viewType === 'month' ? '6px' : '7px',
                               color: '#333',
                               opacity: isPending ? 0.85 : 1,
-                              ...(isShowingRegistrationTime && !isPending && {
+                              ...(isShowingRegistrationTime && !isPending && !hasPendingEditRequest && {
                                 border: `1px dashed ${eventColor}`,
                                 borderLeftWidth: '2px',
                                 borderLeftStyle: 'solid'
+                              }),
+                              ...(hasPendingEditRequest && {
+                                border: `1px dashed #a78bfa`,
+                                borderLeftWidth: '2px',
+                                borderLeftStyle: 'dashed',
+                                borderLeftColor: '#8b5cf6'
                               })
                             }}
                             onClick={(e) => handleEventClick(event, e)}
@@ -351,6 +361,23 @@ const WeekView = memo(({
                                 display: 'inline-block'
                               }}>
                                 PENDING
+                              </div>
+                            )}
+                            {/* Pending Edit Request indicator */}
+                            {hasPendingEditRequest && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '1px',
+                                right: '2px',
+                                fontSize: '9px',
+                                lineHeight: 1,
+                                backgroundColor: '#ede9fe',
+                                borderRadius: '3px',
+                                padding: '1px 2px'
+                              }}
+                              title="Has pending edit request"
+                              >
+                                ✏️
                               </div>
                             )}
                           </div>

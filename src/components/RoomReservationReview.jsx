@@ -48,10 +48,12 @@ export default function RoomReservationReview({
   onFormValidChange = null, // Callback when form validity changes
   readOnly = false, // Read-only mode for viewers
   isEditRequestMode = false, // Edit request mode - allows editing even when normally readOnly
+  isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
   originalData = null // Original form data for comparison in edit request mode (Option C inline diff)
 }) {
   // In edit request mode, override readOnly to allow editing
-  const effectiveReadOnly = readOnly && !isEditRequestMode;
+  // In viewing edit request mode, force readOnly
+  const effectiveReadOnly = isViewingEditRequest || (readOnly && !isEditRequestMode);
   // Review-specific state
   const [isSaving, setIsSaving] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -533,6 +535,7 @@ export default function RoomReservationReview({
           onValidateRef={(getter) => { validateRef.current = getter; }}
           onFormValidChange={onFormValidChange}
           isEditRequestMode={isEditRequestMode}
+          isViewingEditRequest={isViewingEditRequest}
           originalData={originalData}
           renderAdditionalContent={() => (
             <>

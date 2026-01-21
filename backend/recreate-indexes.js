@@ -126,6 +126,32 @@ async function recreateIndexes() {
     );
     console.log('   ✅ Created: userId_sourceCalendars');
 
+    // Index 7: Pending edit requests (for admin dashboard queries)
+    await collection.createIndex(
+      {
+        'pendingEditRequest.status': 1
+      },
+      {
+        name: "pendingEditRequest_status",
+        sparse: true,  // Only index documents with pendingEditRequest
+        background: true
+      }
+    );
+    console.log('   ✅ Created: pendingEditRequest_status');
+
+    // Index 8: Status field for filtering by event status
+    await collection.createIndex(
+      {
+        status: 1,
+        isDeleted: 1
+      },
+      {
+        name: "status_isDeleted",
+        background: true
+      }
+    );
+    console.log('   ✅ Created: status_isDeleted');
+
     console.log('\n' + '='.repeat(60));
     console.log('✅ Index Recreation Complete!');
     console.log('='.repeat(60) + '\n');

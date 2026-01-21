@@ -79,6 +79,12 @@ export default function ReviewModal({
   // Edit request props (for requesters to request changes to approved events)
   onRequestEdit = null,
   canRequestEdit = false,
+  // Existing edit request props (for viewing pending edit requests)
+  existingEditRequest = null,
+  isViewingEditRequest = false,
+  loadingEditRequest = false,
+  onViewEditRequest = null,
+  onViewOriginalEvent = null,
   // Edit request mode props (when actively editing to create an edit request)
   isEditRequestMode = false,
   editRequestChangeReason = '',
@@ -89,7 +95,23 @@ export default function ReviewModal({
   isEditRequestConfirming = false,
   onCancelEditRequestConfirm = null,
   originalData = null,
-  detectedChanges = [] // Array of { field, label, oldValue, newValue }
+  detectedChanges = [], // Array of { field, label, oldValue, newValue }
+  // Edit request approval/rejection props (for admins reviewing edit requests)
+  onApproveEditRequest = null,
+  onRejectEditRequest = null,
+  isApprovingEditRequest = false,
+  isRejectingEditRequest = false,
+  editRequestRejectionReason = '',
+  onEditRequestRejectionReasonChange = null,
+  isEditRequestApproveConfirming = false,
+  isEditRequestRejectConfirming = false,
+  onCancelEditRequestApprove = null,
+  onCancelEditRequestReject = null,
+  // Cancel edit request props (for requesters canceling their own edit request)
+  onCancelPendingEditRequest = null,
+  isCancelingEditRequest = false,
+  isCancelEditRequestConfirming = false,
+  onCancelCancelEditRequest = null
 }) {
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -218,21 +240,139 @@ export default function ReviewModal({
               ) : (
                 <>
                   {/* Status badge for requesters (view-only mode) */}
-                  {isRequesterOnly && itemStatus && !isEditRequestMode && (
+                  {isRequesterOnly && itemStatus && !isEditRequestMode && !isViewingEditRequest && (
                     <span className={`status-badge-action ${getStatusClass(itemStatus)}`}>
                       Status: {formatStatus(itemStatus)}
                     </span>
                   )}
 
-                  {/* Request Edit button - for users who can request changes to approved events */}
-                  {canRequestEdit && itemStatus === 'approved' && onRequestEdit && !isEditRequestMode && (
+                  {/* Viewing Edit Request badge and toggle */}
+                  {isViewingEditRequest && (
+                    <>
+                      <span className="edit-request-view-badge">
+                        📋 Viewing Edit Request
+                      </span>
+                      <button
+                        type="button"
+                        className="action-btn toggle-view-btn"
+                        onClick={onViewOriginalEvent}
+                        title="Switch to view the original published event"
+                      >
+                        🔄 View Original
+                      </button>
+
+                      {/* Approve/Reject buttons for admins viewing edit requests */}
+                      {!isRequesterOnly && onApproveEditRequest && (
+                        <div className="confirm-button-group">
+                          <button
+                            type="button"
+                            className={`action-btn approve-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
+                            onClick={onApproveEditRequest}
+                            disabled={isApprovingEditRequest}
+                          >
+                            {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? '⚠️ Confirm Approve?' : '✓ Approve Edit')}
+                          </button>
+                          {isEditRequestApproveConfirming && onCancelEditRequestApprove && (
+                            <button
+                              type="button"
+                              className="confirm-cancel-x approve-cancel-x"
+                              onClick={onCancelEditRequestApprove}
+                              title="Cancel approve"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {!isRequesterOnly && onRejectEditRequest && (
+                        <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {isEditRequestRejectConfirming && (
+                            <input
+                              type="text"
+                              placeholder="Rejection reason (required)"
+                              value={editRequestRejectionReason}
+                              onChange={(e) => onEditRequestRejectionReasonChange && onEditRequestRejectionReasonChange(e.target.value)}
+                              style={{
+                                padding: '6px 10px',
+                                borderRadius: '4px',
+                                border: '1px solid #ef4444',
+                                fontSize: '13px',
+                                width: '200px'
+                              }}
+                              autoFocus
+                            />
+                          )}
+                          <button
+                            type="button"
+                            className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
+                            onClick={onRejectEditRequest}
+                            disabled={isRejectingEditRequest}
+                          >
+                            {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? '⚠️ Confirm Reject?' : '✗ Reject Edit')}
+                          </button>
+                          {isEditRequestRejectConfirming && onCancelEditRequestReject && (
+                            <button
+                              type="button"
+                              className="confirm-cancel-x reject-cancel-x"
+                              onClick={onCancelEditRequestReject}
+                              title="Cancel reject"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Cancel Edit Request button for requesters */}
+                      {isRequesterOnly && onCancelPendingEditRequest && (
+                        <div className="confirm-button-group">
+                          <button
+                            type="button"
+                            className={`action-btn reject-btn ${isCancelEditRequestConfirming ? 'confirming' : ''}`}
+                            onClick={onCancelPendingEditRequest}
+                            disabled={isCancelingEditRequest}
+                          >
+                            {isCancelingEditRequest ? 'Canceling...' : (isCancelEditRequestConfirming ? '⚠️ Confirm Cancel?' : '🚫 Cancel Edit Request')}
+                          </button>
+                          {isCancelEditRequestConfirming && onCancelCancelEditRequest && (
+                            <button
+                              type="button"
+                              className="confirm-cancel-x reject-cancel-x"
+                              onClick={onCancelCancelEditRequest}
+                              title="Don't cancel"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* View Edit Request button - when a pending edit request exists */}
+                  {existingEditRequest && !isViewingEditRequest && !isEditRequestMode && itemStatus === 'approved' && onViewEditRequest && (
+                    <button
+                      type="button"
+                      className="action-btn view-edit-request-btn"
+                      onClick={onViewEditRequest}
+                      disabled={loadingEditRequest}
+                      title="View your pending edit request"
+                    >
+                      {loadingEditRequest ? 'Loading...' : '📋 View Edit Request'}
+                    </button>
+                  )}
+
+                  {/* Request Edit button - only shown when NO existing edit request */}
+                  {canRequestEdit && !existingEditRequest && itemStatus === 'approved' && onRequestEdit && !isEditRequestMode && !isViewingEditRequest && (
                     <button
                       type="button"
                       className="action-btn request-edit-btn"
                       onClick={onRequestEdit}
+                      disabled={loadingEditRequest}
                       title="Request changes to this approved event"
                     >
-                      ✏️ Request Edit
+                      {loadingEditRequest ? 'Checking...' : '✏️ Request Edit'}
                     </button>
                   )}
 
@@ -359,7 +499,8 @@ export default function ReviewModal({
               )}
 
               {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
-              {!isRequesterOnly && onSave && (mode === 'edit' || (mode === 'review' && isPending)) && (
+              {/* Hide when viewing an edit request */}
+              {!isRequesterOnly && onSave && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -384,7 +525,8 @@ export default function ReviewModal({
               )}
 
               {/* Delete button - only in edit mode (NOT create mode, not for requesters) */}
-              {!isRequesterOnly && mode === 'edit' && onDelete && (
+              {/* Hide when viewing an edit request */}
+              {!isRequesterOnly && mode === 'edit' && onDelete && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
@@ -466,7 +608,7 @@ export default function ReviewModal({
         {/* Content Area */}
         <div style={{ flex: 1, position: 'relative' }}>
           {React.isValidElement(children)
-            ? React.cloneElement(children, { activeTab, isEditRequestMode, originalData })
+            ? React.cloneElement(children, { activeTab, isEditRequestMode, isViewingEditRequest, originalData })
             : children}
 
           {/* Loading Overlay for Series Navigation */}
