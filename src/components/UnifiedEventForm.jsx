@@ -70,6 +70,12 @@ export default function UnifiedEventForm({
   const [activeHistoryTab, setActiveHistoryTab] = useState('attachments');
   const [initialData, setInitialData] = useState({});
 
+  // Resubmit mode state
+  const [isResubmitMode, setIsResubmitMode] = useState(false);
+  const [resubmitReservationId, setResubmitReservationId] = useState(null);
+  const [resubmitOriginalReservation, setResubmitOriginalReservation] = useState(null);
+  const [userMessage, setUserMessage] = useState('');
+
   // Refs to access base component's state
   const formDataRef = useRef(null);
   const timeErrorsRef = useRef(null);
@@ -79,38 +85,118 @@ export default function UnifiedEventForm({
   const location = useLocation();
   const { accounts } = useMsal();
 
-  // Handle prefill data from AI chat (either via prop or navigation state)
+  // Handle resubmit mode from navigation state
   useEffect(() => {
+    if (mode === 'create' && location.state?.mode === 'resubmit') {
+      const { reservationId, originalReservation } = location.state;
+      if (reservationId && originalReservation) {
+        logger.debug('Entering resubmit mode with reservation:', reservationId);
+        setIsResubmitMode(true);
+        setResubmitReservationId(reservationId);
+        setResubmitOriginalReservation(originalReservation);
+
+        // Initialize form with original reservation data
+        const startDateTime = new Date(originalReservation.startDateTime);
+        const endDateTime = new Date(originalReservation.endDateTime);
+
+        const mappedData = {
+          requesterName: originalReservation.roomReservationData?.requestedBy?.name || originalReservation.requesterName || '',
+          requesterEmail: originalReservation.roomReservationData?.requestedBy?.email || originalReservation.requesterEmail || '',
+          eventTitle: originalReservation.eventTitle || '',
+          eventDescription: originalReservation.eventDescription || '',
+          startDate: originalReservation.startDate || startDateTime.toISOString().split('T')[0],
+          startTime: originalReservation.startTime || startDateTime.toTimeString().slice(0, 5),
+          endDate: originalReservation.endDate || endDateTime.toISOString().split('T')[0],
+          endTime: originalReservation.endTime || endDateTime.toTimeString().slice(0, 5),
+          attendeeCount: originalReservation.attendeeCount?.toString() || '',
+          requestedRooms: originalReservation.requestedRooms || [],
+          specialRequirements: originalReservation.specialRequirements || '',
+          department: originalReservation.roomReservationData?.requestedBy?.department || originalReservation.department || '',
+          phone: originalReservation.roomReservationData?.requestedBy?.phone || originalReservation.phone || '',
+          contactEmail: originalReservation.roomReservationData?.contactPerson?.email || originalReservation.contactEmail || '',
+          contactName: originalReservation.roomReservationData?.contactPerson?.name || originalReservation.contactName || '',
+          isOnBehalfOf: originalReservation.roomReservationData?.contactPerson?.isOnBehalfOf || originalReservation.isOnBehalfOf || false,
+          setupTimeMinutes: originalReservation.setupTimeMinutes || 0,
+          teardownTimeMinutes: originalReservation.teardownTimeMinutes || 0,
+          setupTime: originalReservation.setupTime || '',
+          teardownTime: originalReservation.teardownTime || '',
+          doorOpenTime: originalReservation.doorOpenTime || '',
+          doorCloseTime: originalReservation.doorCloseTime || ''
+        };
+
+        setInitialData(mappedData);
+        setHasAutoFilled(true);
+        logger.debug('Applied resubmit prefill data to form');
+      }
+    }
+  }, [mode, location.state]);
+
+  // Handle prefill data from AI chat or draft modal (either via prop or navigation state)
+  useEffect(() => {
+    // Skip if we're in resubmit mode (resubmit data takes precedence)
+    if (isResubmitMode) return;
+
     const prefill = prefillData || location.state?.prefillData;
     if (mode === 'create' && prefill) {
-      logger.debug('Received prefill data from AI chat:', prefill);
+      logger.debug('Received prefill data:', prefill);
 
-      // Map AI chat form data to the form's expected field names
+      // Map prefill data to the form's expected field names
+      // Supports both AI chat format (eventStartTime) and draft format (startTime)
       const mappedData = {
         eventTitle: prefill.eventTitle || '',
         eventDescription: prefill.eventDescription || '',
-        categories: prefill.category ? [prefill.category] : [],
+        // Support 'categories' (correct field), 'mecCategories' (deprecated), and 'category' (AI chat single)
+        categories: prefill.categories || prefill.mecCategories || (prefill.category ? [prefill.category] : []),
         startDate: prefill.startDate || prefill.date || '',
         endDate: prefill.endDate || prefill.date || '',
-        startTime: prefill.eventStartTime || '',
-        endTime: prefill.eventEndTime || '',
+        // Support both startTime (drafts) and eventStartTime (AI chat)
+        startTime: prefill.startTime || prefill.eventStartTime || '',
+        endTime: prefill.endTime || prefill.eventEndTime || '',
         setupTime: prefill.setupTime || '',
         doorOpenTime: prefill.doorOpenTime || '',
         doorCloseTime: prefill.doorCloseTime || '',
         teardownTime: prefill.teardownTime || '',
-        requestedRooms: prefill.locationId ? [prefill.locationId] : [],
+        // Support both requestedRooms (drafts) and locationId (AI chat)
+        requestedRooms: prefill.requestedRooms || prefill.locations || (prefill.locationId ? [prefill.locationId] : []),
         attendeeCount: prefill.attendeeCount || '',
+        specialRequirements: prefill.specialRequirements || '',
+        services: prefill.services || {},
+        // Offsite location fields
+        isOffsite: prefill.isOffsite || false,
+        offsiteName: prefill.offsiteName || '',
+        offsiteAddress: prefill.offsiteAddress || '',
+        offsiteLat: prefill.offsiteLat || null,
+        offsiteLon: prefill.offsiteLon || null,
+        virtualMeetingUrl: prefill.virtualMeetingUrl || '',
+        department: prefill.department || '',
+        phone: prefill.phone || '',
         // Include calendar info so the event shows up in calendar view
         calendarId: prefill.calendarId || null,
         calendarOwner: prefill.calendarOwner || null
       };
 
-      setInitialData(prev => ({ ...prev, ...mappedData }));
+      console.log('📋 UnifiedEventForm prefill - received prefill:', prefill);
+      console.log('📋 UnifiedEventForm prefill - prefill.categories:', prefill.categories);
+      console.log('📋 UnifiedEventForm prefill - prefill.services:', prefill.services);
+      console.log('📋 UnifiedEventForm prefill - mappedData:', mappedData);
+      console.log('📋 UnifiedEventForm prefill - mappedData.categories:', mappedData.categories);
+      console.log('📋 UnifiedEventForm prefill - mappedData.services:', mappedData.services);
+
+      console.log('📋 UnifiedEventForm prefill - BEFORE setInitialData, current initialData:', initialData);
+      setInitialData(prev => {
+        const newData = { ...prev, ...mappedData };
+        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, prev:', prev);
+        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData:', newData);
+        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData.categories:', newData.categories);
+        return newData;
+      });
       setHasAutoFilled(true);
-      setHasChanges(true); // Mark as changed since form is pre-filled
-      logger.debug('Applied AI chat prefill data to form');
+      // Don't set hasChanges here - loading prefill data is not a "change"
+      // Setting it true here causes issues: App.jsx resets draftHasChanges to false,
+      // but internal hasChanges stays true, so real changes don't trigger the useEffect
+      logger.debug('Applied prefill data to form:', mappedData);
     }
-  }, [mode, prefillData, location.state]);
+  }, [mode, prefillData, location.state, isResubmitMode]);
 
   // Auto-fill user email/name in create mode (authenticated users only)
   useEffect(() => {
@@ -180,7 +266,7 @@ export default function UnifiedEventForm({
         doorNotes: reservation.doorNotes || '',
         eventNotes: reservation.eventNotes || '',
         attendeeCount: reservation.attendeeCount || '',
-        requestedRooms: reservation.requestedRooms || [],
+        requestedRooms: reservation.requestedRooms || reservation.locations || [],
         specialRequirements: reservation.specialRequirements || '',
         setupTimeMinutes: reservation.setupTimeMinutes || 0,
         teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
@@ -192,7 +278,10 @@ export default function UnifiedEventForm({
         // Offsite location fields
         isOffsite: reservation.isOffsite || false,
         offsiteName: reservation.offsiteName || '',
-        offsiteAddress: reservation.offsiteAddress || ''
+        offsiteAddress: reservation.offsiteAddress || '',
+        // Categories and services (categories is the correct field, mecCategories is deprecated)
+        categories: reservation.categories || reservation.mecCategories || reservation.internalData?.categories || reservation.internalData?.mecCategories || [],
+        services: reservation.services || reservation.internalData?.services || {}
       });
 
       setOriginalChangeKey(reservation.changeKey);
@@ -231,14 +320,17 @@ export default function UnifiedEventForm({
         // Offsite location fields
         isOffsite: event.isOffsite || false,
         offsiteName: event.offsiteName || '',
-        offsiteAddress: event.offsiteAddress || ''
+        offsiteAddress: event.offsiteAddress || '',
+        // Categories and services (categories is the correct field, mecCategories is deprecated)
+        categories: event.categories || event.mecCategories || event.internalData?.categories || event.internalData?.mecCategories || event.internalEnrichment?.categories || [],
+        services: event.services || event.internalData?.services || event.internalEnrichment?.services || {}
       });
 
       setOriginalChangeKey(event.changeKey);
     }
   }, [mode, reservation, event]);
 
-  // Handle new booking submission (create mode)
+  // Handle new booking submission (create mode) or resubmit
   const handleSubmit = useCallback(async (e) => {
     if (e) e.preventDefault();
 
@@ -253,6 +345,12 @@ export default function UnifiedEventForm({
 
     if (!validateTimes()) {
       setSubmitError('Please fix the time validation errors before submitting');
+      return;
+    }
+
+    // For resubmit mode, require userMessage
+    if (isResubmitMode && !userMessage.trim()) {
+      setSubmitError('Please provide a response message explaining your changes');
       return;
     }
 
@@ -280,6 +378,46 @@ export default function UnifiedEventForm({
       delete payload.endTime;
       delete payload.reviewNotes;
 
+      // Handle resubmit mode differently
+      if (isResubmitMode && resubmitReservationId) {
+        payload.userMessage = userMessage;
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/room-reservations/${resubmitReservationId}/resubmit`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiToken}`
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to resubmit reservation');
+        }
+
+        const result = await response.json();
+        logger.log('Room reservation resubmitted successfully:', result);
+
+        setSuccess(true);
+
+        // Call onSuccess callback if provided (for modal flow)
+        if (onSuccess) {
+          onSuccess(result);
+        }
+
+        // Redirect after success
+        setTimeout(() => {
+          navigate('/my-reservations');
+        }, 3000);
+
+        return;
+      }
+
+      // Normal create mode
       const endpoint = isPublic
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/public/${token}`
         : `${APP_CONFIG.API_BASE_URL}/events/request`;
@@ -320,7 +458,7 @@ export default function UnifiedEventForm({
         onIsSavingChange(false);
       }
     }
-  }, [formDataRef, validateRef, isPublic, token, apiToken, onSuccess, onIsSavingChange, submitting]);
+  }, [formDataRef, validateRef, isPublic, token, apiToken, onSuccess, onIsSavingChange, submitting, isResubmitMode, resubmitReservationId, userMessage, navigate]);
 
   // Save changes (reservation mode)
   const handleSaveChanges = useCallback(async () => {
@@ -482,15 +620,15 @@ export default function UnifiedEventForm({
 
   const actions = mode === 'create' ? [
     {
-      label: 'Submit Request',
+      label: isResubmitMode ? `Resubmit (v${revisionNumber})` : 'Submit Request',
       onClick: handleSubmit,
       className: 'submit-btn',
       icon: '✓',
-      disabled: submitting || currentFormData.requestedRooms?.length === 0 || currentTimeErrors.length > 0
+      disabled: submitting || currentFormData.requestedRooms?.length === 0 || currentTimeErrors.length > 0 || (isResubmitMode && !userMessage.trim())
     },
     {
       label: 'Cancel',
-      onClick: onCancel || (() => navigate('/')),
+      onClick: onCancel || (() => navigate(isResubmitMode ? '/my-reservations' : '/')),
       className: 'cancel-btn',
       disabled: submitting
     }
@@ -547,19 +685,48 @@ export default function UnifiedEventForm({
 
   // Determine title based on mode
   const formTitle = mode === 'create'
-    ? 'Space Booking Request'
+    ? (isResubmitMode ? 'Resubmit Reservation' : 'Space Booking Request')
     : mode === 'reservation'
       ? (currentFormData.eventTitle
           ? `"${currentFormData.eventTitle}" Details`
           : (reservation?.status === 'pending' ? 'Review Reservation Request' : 'View Reservation Details'))
       : (readOnly ? 'View Event' : 'Edit Event');
 
+  // Helper to get rejection reason
+  const getRejectionReason = () => {
+    if (!resubmitOriginalReservation?.communicationHistory) {
+      return resubmitOriginalReservation?.rejectionReason || 'No reason provided';
+    }
+    const rejectionEntry = resubmitOriginalReservation.communicationHistory
+      .filter(entry => entry.type === 'rejection')
+      .pop();
+    return rejectionEntry?.message || resubmitOriginalReservation?.rejectionReason || 'No reason provided';
+  };
+
+  const revisionNumber = (resubmitOriginalReservation?.currentRevision || 1) + 1;
+
   // Success screen for create mode
   if (mode === 'create' && success) {
+    // Resubmit success screen
+    if (isResubmitMode) {
+      return (
+        <div className="room-reservation-form">
+          <div className="success-message">
+            <h2>Reservation Resubmitted</h2>
+            <p>Your updated room reservation request has been resubmitted successfully.</p>
+            <p>This is now revision {revisionNumber} of your original request.</p>
+            <p>You will receive a confirmation email once it has been reviewed.</p>
+            <p>Redirecting to your reservations...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Normal create success screen
     return (
       <div className="room-reservation-form">
         <div className="success-message">
-          <h2>✅ Reservation Request Submitted!</h2>
+          <h2>Reservation Request Submitted</h2>
           <p>Your space booking request has been submitted successfully.</p>
           <p>You will receive a confirmation email once it has been reviewed.</p>
 
@@ -608,7 +775,96 @@ export default function UnifiedEventForm({
     >
       {submitError && (
         <div className="error-message" style={{ margin: '10px' }}>
-          ❌ {submitError}
+          {submitError}
+        </div>
+      )}
+
+      {/* Resubmit mode: Show rejection reason and response field */}
+      {isResubmitMode && resubmitOriginalReservation && (
+        <div style={{ margin: '0 20px 20px' }}>
+          {/* Revision info */}
+          <div style={{
+            display: 'flex',
+            gap: '15px',
+            alignItems: 'center',
+            marginBottom: '15px',
+            fontSize: '14px',
+            color: '#666'
+          }}>
+            <span style={{
+              background: '#e3f2fd',
+              padding: '4px 12px',
+              borderRadius: '12px',
+              fontWeight: '500',
+              color: '#1976d2'
+            }}>
+              Revision {revisionNumber}
+            </span>
+            <span>
+              Originally submitted: {new Date(resubmitOriginalReservation.submittedAt).toLocaleDateString()}
+            </span>
+          </div>
+
+          {/* Rejection reason display */}
+          <div style={{
+            background: '#fff3e0',
+            border: '1px solid #ffb74d',
+            borderRadius: '8px',
+            padding: '15px',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ margin: '0 0 10px', color: '#e65100', fontSize: '16px' }}>
+              Previous Rejection Reason
+            </h3>
+            <div style={{
+              background: '#fff',
+              padding: '12px',
+              borderRadius: '4px',
+              border: '1px solid #ffe0b2',
+              color: '#333'
+            }}>
+              {getRejectionReason()}
+            </div>
+            <p style={{ margin: '10px 0 0', fontSize: '13px', color: '#f57c00' }}>
+              Please address the concerns above in your updated submission.
+            </p>
+          </div>
+
+          {/* Response message input */}
+          <div style={{ marginBottom: '20px' }}>
+            <label
+              htmlFor="userMessage"
+              style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#333'
+              }}
+            >
+              Your Response *
+            </label>
+            <textarea
+              id="userMessage"
+              value={userMessage}
+              onChange={(e) => setUserMessage(e.target.value)}
+              rows="4"
+              required
+              placeholder="Please explain what changes you've made and how you've addressed the rejection feedback..."
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ccc',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                boxSizing: 'border-box'
+              }}
+            />
+            <p style={{ margin: '5px 0 0', fontSize: '13px', color: '#666' }}>
+              Explain what you've changed and how you've addressed the admin's concerns
+            </p>
+          </div>
         </div>
       )}
 

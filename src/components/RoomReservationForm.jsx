@@ -70,7 +70,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
           teardownTime: editingDraft.teardownTime || '',
           doorOpenTime: editingDraft.doorOpenTime || '',
           doorCloseTime: editingDraft.doorCloseTime || '',
-          mecCategories: editingDraft.mecCategories || [],
+          categories: editingDraft.categories || editingDraft.mecCategories || [],  // categories is the correct field, mecCategories is deprecated
           services: editingDraft.services || {},
           specialRequirements: editingDraft.specialRequirements || '',
           virtualMeetingUrl: editingDraft.virtualMeetingUrl || '',
@@ -167,7 +167,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       isOnBehalfOf: formData.isOnBehalfOf || false,
       contactName: formData.contactName || '',
       contactEmail: formData.contactEmail || '',
-      mecCategories: formData.mecCategories || [],
+      mecCategories: formData.categories || formData.mecCategories || [],  // Read from 'categories' (mecCategories is deprecated)
       services: formData.services || {},
       recurrence: formData.recurrence || null,
       virtualMeetingUrl: formData.virtualMeetingUrl || null,

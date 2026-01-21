@@ -657,7 +657,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       isOnBehalfOf: formData.isOnBehalfOf || false,
       contactName: formData.contactName || '',
       contactEmail: formData.contactEmail || '',
-      mecCategories: formData.mecCategories || [],
+      mecCategories: formData.categories || formData.mecCategories || [],  // Read from 'categories' (mecCategories is deprecated)
       services: formData.services || {},
       recurrence: formData.recurrence || null,
       virtualMeetingUrl: formData.virtualMeetingUrl || null,

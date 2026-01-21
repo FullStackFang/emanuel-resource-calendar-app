@@ -1812,6 +1812,56 @@
   }
 }
 
+/* Categories & Services Summary Container - stacks summaries together */
+.categories-services-summary-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.categories-services-summary-container .services-summary-display,
+.categories-services-summary-container .category-summary-display {
+  margin-bottom: 0;
+}
+
+/* Category Summary Display (when categories are selected) */
+.category-summary-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eff6ff;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.category-summary-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.category-summary-icon {
+  font-size: 1rem;
+  color: #2563eb;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.category-summary-text {
+  color: #1e40af;
+  font-weight: 500;
+  font-size: 13px;
+  line-height: 1.5;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Offsite Location Display - Full Size (replaces Scheduling Assistant) */
 .offsite-location-display {
   background: white;

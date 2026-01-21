@@ -179,7 +179,7 @@ export default function RoomReservationReview({
       offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
       offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
       offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
-      categories: reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
+      categories: reservation.categories || reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
       services: reservation.services || {},
       // Flag to tell FormBase that data is pre-processed
       _isPreProcessed: true

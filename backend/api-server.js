@@ -11527,7 +11527,8 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       isOnBehalfOf,
       contactName,
       contactEmail,
-      mecCategories,
+      categories,
+      mecCategories,  // Deprecated, kept for backward compatibility
       services,
       recurrence,
       virtualMeetingUrl,
@@ -11580,8 +11581,8 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       eventNotes: eventNotes || '',
       specialRequirements: specialRequirements || '',
 
-      // Categories and services
-      mecCategories: mecCategories || [],
+      // Categories and services (mecCategories is deprecated, use categories)
+      categories: categories || mecCategories || [],  // categories is correct field, mecCategories is deprecated
       services: services || {},
 
       // Recurrence and virtual meeting
@@ -11683,7 +11684,8 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       isOnBehalfOf,
       contactName,
       contactEmail,
-      mecCategories,
+      categories,
+      mecCategories,  // Deprecated, kept for backward compatibility
       services,
       recurrence,
       virtualMeetingUrl,
@@ -11724,7 +11726,7 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
       specialRequirements: specialRequirements || '',
-      mecCategories: mecCategories || [],
+      categories: categories || mecCategories || [],  // categories is correct field, mecCategories is deprecated
       services: services || {},
       recurrence: recurrence || null,
       virtualMeetingUrl: virtualMeetingUrl || null,
@@ -11800,7 +11802,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     if (!draft.locations || draft.locations.length === 0) {
       validationErrors.push('At least one room must be selected');
     }
-    if (!draft.mecCategories || draft.mecCategories.length === 0) {
+    if (!draft.categories || draft.categories.length === 0) {
       validationErrors.push('At least one category must be selected');
     }
     if (!draft.setupTime) {
@@ -12288,6 +12290,9 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
       doorCloseTime: event.doorCloseTime,
+      // Categories and services (for draft editing)
+      categories: event.categories || [],
+      services: event.services || {},
       // Draft-specific fields
       draftCreatedAt: event.draftCreatedAt,
       lastDraftSaved: event.lastDraftSaved
@@ -12361,7 +12366,10 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       setupTime: event.setupTime,
       teardownTime: event.teardownTime,
       doorOpenTime: event.doorOpenTime,
-      doorCloseTime: event.doorCloseTime
+      doorCloseTime: event.doorCloseTime,
+      // Categories and services (for draft editing)
+      categories: event.categories || [],
+      services: event.services || {}
     };
 
     res.json(reservation);
@@ -14084,7 +14092,8 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
       'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
       'contactName', 'contactEmail', 'reviewNotes',
       'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
-      'setupNotes', 'doorNotes', 'eventNotes'
+      'setupNotes', 'doorNotes', 'eventNotes',
+      'categories', 'services'  // Categories sync with Outlook, services are internal
     ];
 
     // Build update document
@@ -16782,6 +16791,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
       }
 
+      // Sync categories - keep local graphData.categories in sync with what was sent to Graph
+      if (updates.categories !== undefined) {
+        updateOperations['graphData.categories'] = updates.categories;
+      }
+
       // Sync recurrence (only when editing entire series)
       if (editScope === 'allEvents' && updates.recurrence) {
         updateOperations['graphData.recurrence'] = updates.recurrence;
@@ -16821,6 +16835,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // Sync isAllDay
       if (updates.isAllDayEvent !== undefined) {
         updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
+      }
+
+      // Sync categories - important for when approve endpoint creates Graph event
+      if (updates.categories !== undefined) {
+        updateOperations['graphData.categories'] = updates.categories;
       }
     }
 

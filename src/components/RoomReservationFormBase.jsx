@@ -138,19 +138,39 @@ export default function RoomReservationFormBase({
     initialData?.recurrence || initialData?.graphData?.recurrence || null
   ); // { pattern, range }
 
-  // Category state - check categories first (from graphData), then mecCategories (CSV imports)
+  // Category state - check categories first (correct field), mecCategories is deprecated
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(
-    initialData?.categories || initialData?.mecCategories || initialData?.internalData?.mecCategories || []
+    initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || []
   );
 
+  // Refs to track latest values (prevents stale closure issues in callbacks)
+  const selectedCategoriesRef = useRef(selectedCategories);
+  const selectedServicesRef = useRef({});
+
   // Sync selectedCategories when initialData changes (e.g., when loading an existing event)
+  // Use JSON.stringify for more reliable dependency tracking
+  const categoriesKey = JSON.stringify(initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || []);
   useEffect(() => {
-    const newCategories = initialData?.categories || initialData?.mecCategories || initialData?.internalData?.mecCategories || [];
+    console.log('🏷️ RoomReservationFormBase - categories sync useEffect triggered');
+    console.log('🏷️ RoomReservationFormBase - initialData:', initialData);
+    console.log('🏷️ RoomReservationFormBase - initialData?.categories:', initialData?.categories);
+    console.log('🏷️ RoomReservationFormBase - categoriesKey:', categoriesKey);
+    const newCategories = initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || [];
+    console.log('🏷️ RoomReservationFormBase - newCategories to set:', newCategories);
     if (newCategories.length > 0) {
+      console.log('🏷️ RoomReservationFormBase - Setting selectedCategories to:', newCategories);
       setSelectedCategories(newCategories);
+      selectedCategoriesRef.current = newCategories;
+    } else {
+      console.log('🏷️ RoomReservationFormBase - newCategories is empty, NOT updating selectedCategories');
     }
-  }, [initialData?.categories, initialData?.mecCategories, initialData?.internalData?.mecCategories]);
+  }, [categoriesKey]);
+
+  // Keep refs in sync with state (prevents stale closures)
+  useEffect(() => {
+    selectedCategoriesRef.current = selectedCategories;
+  }, [selectedCategories]);
 
   // Sync form fields when initialData changes (e.g., from AI chat prefill)
   // This handles the case where initialData is set after component mounts
@@ -193,14 +213,27 @@ export default function RoomReservationFormBase({
   );
 
   // Sync selectedServices when initialData changes (e.g., when loading an existing event)
+  // Use JSON.stringify for more reliable dependency tracking
+  const servicesKey = JSON.stringify(initialData?.services || {});
   useEffect(() => {
+    console.log('🛎️ RoomReservationFormBase - services sync useEffect triggered');
+    console.log('🛎️ RoomReservationFormBase - initialData:', initialData);
+    console.log('🛎️ RoomReservationFormBase - initialData?.services:', initialData?.services);
+    console.log('🛎️ RoomReservationFormBase - servicesKey:', servicesKey);
     const newServices = initialData?.services;
-    console.log('🔧 [RoomReservationFormBase] services useEffect - initialData?.services:', newServices);
     if (newServices && Object.keys(newServices).length > 0) {
-      console.log('🔧 [RoomReservationFormBase] Setting selectedServices to:', newServices);
+      console.log('🛎️ RoomReservationFormBase - Setting selectedServices to:', newServices);
       setSelectedServices(newServices);
+      selectedServicesRef.current = newServices;
+    } else {
+      console.log('🛎️ RoomReservationFormBase - newServices is empty/undefined, NOT updating selectedServices');
     }
-  }, [initialData?.services]);
+  }, [servicesKey]);
+
+  // Keep services ref in sync with state (prevents stale closures)
+  useEffect(() => {
+    selectedServicesRef.current = selectedServices;
+  }, [selectedServices]);
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -221,7 +254,7 @@ export default function RoomReservationFormBase({
   // Include recurrencePattern, selectedCategories, and services in the returned data so they're available for saving
   useEffect(() => {
     if (onFormDataRef) {
-      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern, mecCategories: selectedCategories, services: selectedServices }));
+      onFormDataRef(() => ({ ...formData, recurrence: recurrencePattern, categories: selectedCategories, services: selectedServices }));  // Use 'categories' (mecCategories is deprecated)
     }
   }, [formData, recurrencePattern, selectedCategories, selectedServices, onFormDataRef]);
 
@@ -722,16 +755,16 @@ export default function RoomReservationFormBase({
   }, [isFormValid, onFormValidChange]);
 
   // Helper function to notify parent of data changes
-  // Always includes current categories and services to prevent them from being overwritten
+  // Uses refs to always get latest categories/services (prevents stale closure issues)
   const notifyDataChange = useCallback((updatedData) => {
     if (onDataChange) {
       onDataChange({
         ...updatedData,
-        categories: selectedCategories,
-        services: selectedServices
+        categories: selectedCategoriesRef.current,  // Use 'categories' (mecCategories is deprecated)
+        services: selectedServicesRef.current
       });
     }
-  }, [onDataChange, selectedCategories, selectedServices]);
+  }, [onDataChange]); // Removed state dependencies - using refs instead
 
   // Event handlers
   const handleInputChange = (e) => {
@@ -942,8 +975,22 @@ export default function RoomReservationFormBase({
                   style={{ width: '100%', maxWidth: 'none' }}
                 />
               </div>
+            </div>
+
+            {/* Categories & Services Buttons Row - Side by Side */}
+            <div className="time-field-row">
+              <div className={`form-group required-field ${selectedCategories.length > 0 ? 'field-valid' : ''}`}>
+                <button
+                  type="button"
+                  className={`all-day-toggle ${selectedCategories.length > 0 ? 'active' : ''}`}
+                  onClick={() => setShowCategoryModal(true)}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  🏷️ Edit Categories *
+                </button>
+              </div>
               <div className="form-group">
-                <label>&nbsp;</label>
                 <button
                   type="button"
                   className={`all-day-toggle ${Object.keys(selectedServices).length > 0 ? 'active' : ''}`}
@@ -953,83 +1000,88 @@ export default function RoomReservationFormBase({
                 >
                   {Object.keys(selectedServices).length > 0 ? '🛎️ Edit Services' : '🛎️ Add Services'}
                 </button>
-                <div className="services-hint">E.g., Catering, Seating, Audio Visual, etc.</div>
               </div>
             </div>
 
-            {/* Services Summary - Show when services are selected */}
-            {Object.keys(selectedServices).length > 0 &&
+            {/* Categories & Services Summaries - Stacked */}
+            {(selectedCategories.length > 0 || (Object.keys(selectedServices).length > 0 &&
              Object.values(selectedServices).some(v =>
                (Array.isArray(v) && v.length > 0) ||
                (typeof v === 'string' && v !== '') ||
                (typeof v === 'boolean')
-             ) && (
-              <div className="services-summary-display">
-                <div className="services-summary-content">
-                  <span className="services-summary-icon">🛎️</span>
-                  <span className="services-summary-text">
-                    {(() => {
-                      const summaryParts = [];
-                      if (selectedServices.seatingArrangement) {
-                        summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
-                      }
-                      if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
-                        summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
-                      }
-                      if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
-                        const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
-                        summaryParts.push(`Beverages: ${beverageCount} selected`);
-                      }
-                      if (selectedServices.avEquipment?.length > 0) {
-                        summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
-                      }
-                      if (selectedServices.photographer === true || selectedServices.videographer === true) {
-                        const photoVideo = [];
-                        if (selectedServices.photographer === true) photoVideo.push('Photo');
-                        if (selectedServices.videographer === true) photoVideo.push('Video');
-                        summaryParts.push(photoVideo.join(' + '));
-                      }
-                      return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
-                    })()}
-                  </span>
-                </div>
-                <div className="services-summary-actions">
-                  <button
-                    type="button"
-                    className="services-clear-btn"
-                    onClick={() => {
-                      setSelectedServices({});
-                      setHasChanges(true);
-                    }}
-                    disabled={fieldsDisabled}
-                  >
-                    Clear
-                  </button>
-                </div>
+             ))) && (
+              <div className="categories-services-summary-container">
+                {/* Category Summary */}
+                {selectedCategories.length > 0 && (
+                  <div className="category-summary-display">
+                    <div className="category-summary-content">
+                      <span className="category-summary-icon">🏷️</span>
+                      <span className="category-summary-text">
+                        {selectedCategories.join(', ')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Services Summary */}
+                {Object.keys(selectedServices).length > 0 &&
+                 Object.values(selectedServices).some(v =>
+                   (Array.isArray(v) && v.length > 0) ||
+                   (typeof v === 'string' && v !== '') ||
+                   (typeof v === 'boolean')
+                 ) && (
+                  <div className="services-summary-display">
+                    <div className="services-summary-content">
+                      <span className="services-summary-icon">🛎️</span>
+                      <span className="services-summary-text">
+                        {(() => {
+                          const summaryParts = [];
+                          if (selectedServices.seatingArrangement) {
+                            summaryParts.push(`Seating: ${selectedServices.seatingArrangement}`);
+                          }
+                          if (selectedServices.cateringApproach && selectedServices.cateringApproach !== 'No catering needed') {
+                            summaryParts.push(`Catering: ${selectedServices.cateringApproach}`);
+                          }
+                          if ((selectedServices.nonAlcoholicBeverages?.length > 0) || (selectedServices.alcoholicBeverages?.length > 0)) {
+                            const beverageCount = (selectedServices.nonAlcoholicBeverages?.length || 0) + (selectedServices.alcoholicBeverages?.length || 0);
+                            summaryParts.push(`Beverages: ${beverageCount} selected`);
+                          }
+                          if (selectedServices.avEquipment?.length > 0) {
+                            summaryParts.push(`A/V: ${selectedServices.avEquipment.length} items`);
+                          }
+                          if (selectedServices.photographer === true || selectedServices.videographer === true) {
+                            const photoVideo = [];
+                            if (selectedServices.photographer === true) photoVideo.push('Photo');
+                            if (selectedServices.videographer === true) photoVideo.push('Video');
+                            summaryParts.push(photoVideo.join(' + '));
+                          }
+                          return summaryParts.length > 0 ? summaryParts.join(' • ') : 'Services configured';
+                        })()}
+                      </span>
+                    </div>
+                    <div className="services-summary-actions">
+                      <button
+                        type="button"
+                        className="services-clear-btn"
+                        onClick={() => {
+                          setSelectedServices({});
+                          setHasChanges(true);
+                        }}
+                        disabled={fieldsDisabled}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Manage Categories + Make Recurring Buttons Row */}
-            <div className="time-field-row">
-              <div className={`form-group required-field ${selectedCategories.length > 0 ? 'field-valid' : ''}`}>
-                {/* Manage Categories Button - Always show, mandatory field */}
-                <button
-                  type="button"
-                  className={`all-day-toggle ${selectedCategories.length > 0 ? 'active' : ''}`}
-                  onClick={() => setShowCategoryModal(true)}
-                  disabled={fieldsDisabled}
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  🏷️ Manage Categories *
-                </button>
-              </div>
-
-              <div className="form-group">
-                {/* Make Recurring Button - Show for:
-                    1. New events (no eventId) when not editing single occurrence
-                    2. Existing events when editing entire series (editScope === 'allEvents') */}
-                {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-                  editScope === 'allEvents') && (
+            {/* Make Recurring Button Row */}
+            {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
+              editScope === 'allEvents') && (
+              <div className="time-field-row">
+                <div className="form-group">
                   <button
                     type="button"
                     className={`all-day-toggle ${recurrencePattern || initialData.graphData?.recurrence ? 'active' : ''}`}
@@ -1039,9 +1091,10 @@ export default function RoomReservationFormBase({
                   >
                     {(recurrencePattern || initialData.graphData?.recurrence) ? '↻ Edit Recurrence' : '↻ Make Recurring'}
                   </button>
-                )}
+                </div>
+                <div className="form-group"></div>
               </div>
-            </div>
+            )}
 
             {/* Ad Hoc Calendar Picker - Show when toggled on */}
             {showAdHocPicker && (
@@ -1143,18 +1196,6 @@ export default function RoomReservationFormBase({
                         </>
                       );
                     })()}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Category Summary - Show when categories are selected */}
-            {selectedCategories.length > 0 && (
-              <div className="category-summary-display">
-                <div className="category-summary-content">
-                  <span className="category-summary-icon">🏷️</span>
-                  <span className="category-summary-text">
-                    {selectedCategories.join(', ')}
                   </span>
                 </div>
               </div>
@@ -1726,16 +1767,23 @@ export default function RoomReservationFormBase({
         isOpen={showCategoryModal}
         onClose={() => setShowCategoryModal(false)}
         onSave={(categories) => {
+          console.log('🏷️ CategorySelectorModal onSave - categories:', categories);
           setSelectedCategories(categories);
+          selectedCategoriesRef.current = categories; // Update ref immediately
           setHasChanges(true);
-          // Notify parent component of category change (syncs with Outlook)
-          // Must pass categories explicitly since state hasn't updated yet
+          // Notify parent component of category change
+          // Use 'categories' field (mecCategories is deprecated)
           if (onDataChange) {
-            onDataChange({
+            const dataToSend = {
               ...formData,
-              categories,
-              services: selectedServices
-            });
+              categories: categories,
+              services: selectedServicesRef.current
+            };
+            console.log('🏷️ CategorySelectorModal - calling onDataChange with:', dataToSend);
+            console.log('🏷️ CategorySelectorModal - categories in data:', dataToSend.categories);
+            onDataChange(dataToSend);
+          } else {
+            console.log('🏷️ CategorySelectorModal - onDataChange is null/undefined!');
           }
         }}
         initialCategories={selectedCategories}
@@ -1747,13 +1795,14 @@ export default function RoomReservationFormBase({
         onClose={() => setShowServicesModal(false)}
         onSave={(services) => {
           setSelectedServices(services);
+          selectedServicesRef.current = services; // Update ref immediately
           setHasChanges(true);
-          // Notify parent component of services change (internal use only)
-          // Must pass services explicitly since state hasn't updated yet
+          // Notify parent component of services change
+          // Use 'categories' field (mecCategories is deprecated)
           if (onDataChange) {
             onDataChange({
               ...formData,
-              categories: selectedCategories,
+              categories: selectedCategoriesRef.current,
               services
             });
           }

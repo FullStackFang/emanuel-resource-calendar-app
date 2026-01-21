@@ -134,11 +134,12 @@ export default function MyReservations({ apiToken }) {
   };
 
   const handleResubmitReservation = (reservation) => {
-    // Navigate to resubmission form with reservation data
-    navigate('/room-reservation/resubmit', {
+    // Navigate to unified booking form with resubmit mode
+    navigate('/booking', {
       state: {
         reservationId: reservation._id,
-        originalReservation: reservation
+        originalReservation: reservation,
+        mode: 'resubmit'
       }
     });
   };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -13,9 +13,7 @@ import UserAdmin from './components/UserAdmin';
 import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import CategoryManagement from './components/CategoryManagement';
 import CalendarConfigAdmin from './components/CalendarConfigAdmin';
-import RoomReservationForm from './components/RoomReservationForm';
 import UnifiedEventForm from './components/UnifiedEventForm';
-import ResubmissionForm from './components/ResubmissionForm';
 import MyReservations from './components/MyReservations';
 import LocationReview from './components/LocationReview';
 import ReservationRequests from './components/ReservationRequests';
@@ -59,6 +57,7 @@ function App() {
   const [draftPrefillData, setDraftPrefillData] = useState(null);
   const [draftFormData, setDraftFormData] = useState(null); // Track current form data
   const [draftHasChanges, setDraftHasChanges] = useState(false);
+  const draftInitializedRef = useRef(false); // Track if initial reset has happened
   const [draftIsFormValid, setDraftIsFormValid] = useState(false);
   const [draftIsSaving, setDraftIsSaving] = useState(false);
   const [draftSaveFunction, setDraftSaveFunction] = useState(null);
@@ -138,13 +137,41 @@ function App() {
       logger.debug('Opening draft modal with data:', draft);
 
       // Transform draft data for the form
+      // Helper to parse datetime - handles both UTC (with Z) and local formats
+      const parseDateTime = (dateTimeStr) => {
+        if (!dateTimeStr) return { date: '', time: '' };
+
+        // If it contains 'Z' (UTC indicator), parse as Date and convert to local timezone
+        if (dateTimeStr.includes('Z')) {
+          const d = new Date(dateTimeStr);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          return {
+            date: `${year}-${month}-${day}`,
+            time: `${hours}:${minutes}`
+          };
+        }
+
+        // Otherwise parse directly from string (already local format)
+        return {
+          date: dateTimeStr.split('T')[0] || '',
+          time: dateTimeStr.split('T')[1]?.slice(0, 5) || ''
+        };
+      };
+
+      const startParsed = parseDateTime(draft.startDateTime);
+      const endParsed = parseDateTime(draft.endDateTime);
+
       const prefillData = {
         eventTitle: draft.eventTitle || '',
         eventDescription: draft.eventDescription || '',
-        startDate: draft.startDateTime ? new Date(draft.startDateTime).toISOString().split('T')[0] : '',
-        endDate: draft.endDateTime ? new Date(draft.endDateTime).toISOString().split('T')[0] : '',
-        startTime: draft.startDateTime ? new Date(draft.startDateTime).toTimeString().slice(0, 5) : '',
-        endTime: draft.endDateTime ? new Date(draft.endDateTime).toTimeString().slice(0, 5) : '',
+        startDate: startParsed.date,
+        endDate: endParsed.date,
+        startTime: startParsed.time,
+        endTime: endParsed.time,
         requestedRooms: draft.requestedRooms || draft.locations || [],
         locations: draft.requestedRooms || draft.locations || [],
         attendeeCount: draft.attendeeCount || '',
@@ -152,7 +179,7 @@ function App() {
         teardownTime: draft.teardownTime || '',
         doorOpenTime: draft.doorOpenTime || '',
         doorCloseTime: draft.doorCloseTime || '',
-        mecCategories: draft.mecCategories || [],
+        categories: draft.categories || draft.mecCategories || [],  // categories is the correct field, mecCategories is deprecated
         services: draft.services || {},
         specialRequirements: draft.specialRequirements || '',
         virtualMeetingUrl: draft.virtualMeetingUrl || '',
@@ -165,6 +192,14 @@ function App() {
         phone: draft.roomReservationData?.phone || '',
         _id: draft._id
       };
+
+      console.log('📂 Opening draft - raw draft data:', draft);
+      console.log('📂 Opening draft - draft.categories:', draft.categories);
+      console.log('📂 Opening draft - draft.mecCategories:', draft.mecCategories);
+      console.log('📂 Opening draft - draft.services:', draft.services);
+      console.log('📂 Opening draft - prefillData:', prefillData);
+      console.log('📂 Opening draft - prefillData.categories:', prefillData.categories);
+      console.log('📂 Opening draft - prefillData.services:', prefillData.services);
 
       setDraftId(draft._id);
       setDraftPrefillData(prefillData);
@@ -179,13 +214,22 @@ function App() {
   }, []);
 
   // Reset hasChanges after draft modal form initializes (prevents false "unsaved changes" on load)
+  // Only do this ONCE per modal open session to avoid race conditions with user changes
   useEffect(() => {
-    if (showDraftModal && draftPrefillData) {
+    if (showDraftModal && draftPrefillData && !draftInitializedRef.current) {
       // Small delay to allow form to initialize with prefill data, then reset hasChanges
       const timer = setTimeout(() => {
-        setDraftHasChanges(false);
+        // Only reset if we haven't already initialized (prevents race condition)
+        if (!draftInitializedRef.current) {
+          setDraftHasChanges(false);
+          draftInitializedRef.current = true;
+        }
       }, 150);
       return () => clearTimeout(timer);
+    }
+    // Reset the ref when modal closes
+    if (!showDraftModal) {
+      draftInitializedRef.current = false;
     }
   }, [showDraftModal, draftPrefillData]);
 
@@ -353,14 +397,10 @@ function App() {
                 <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
                 <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 
-                {/* NEW: Unified Event Form Routes (Parallel Production) */}
+                {/* Unified Event Form Routes */}
                 <Route path="/booking" element={<UnifiedEventForm mode="create" apiToken={apiToken} />} />
                 <Route path="/booking/public/:token" element={<UnifiedEventForm mode="create" isPublic={true} />} />
 
-                {/* OLD: Legacy room reservation routes (kept as fallback) */}
-                <Route path="/room-reservation" element={<RoomReservationForm apiToken={apiToken} />} />
-                <Route path="/room-reservation/public/:token" element={<RoomReservationForm isPublic={true} />} />
-                <Route path="/room-reservation/resubmit" element={<ResubmissionForm apiToken={apiToken} />} />
                 <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
                 <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
@@ -466,11 +506,14 @@ function App() {
                     setDraftSaveFunction(null);
                     setDraftIsConfirming(false);
                     setDraftId(null);
+                    draftInitializedRef.current = false;
                   }}
                   // Draft-specific props
                   isDraft={draftIsDraft}
                   onSaveDraft={async () => {
-                    const formData = draftFormData || draftPrefillData;
+                    // Merge prefillData with formData to preserve all fields
+                    // draftFormData may only have changed fields, so we need prefillData as base
+                    const formData = { ...draftPrefillData, ...draftFormData };
                     if (!formData || !formData.eventTitle?.trim()) {
                       alert('Event title is required to save as draft');
                       return;
@@ -478,6 +521,14 @@ function App() {
 
                     setSavingDraftInProgress(true);
                     try {
+                      // Debug: log what we're saving
+                      console.log('🔍 Draft save - draftPrefillData:', draftPrefillData);
+                      console.log('🔍 Draft save - draftFormData:', draftFormData);
+                      console.log('🔍 Draft save - draftFormData?.categories:', draftFormData?.categories);
+                      console.log('🔍 Draft save - merged formData:', formData);
+                      console.log('🔍 Draft save - formData.categories:', formData.categories);
+                      console.log('🔍 Draft save - formData.mecCategories:', formData.mecCategories);
+
                       // Build draft payload
                       const payload = {
                         eventTitle: formData.eventTitle || '',
@@ -497,7 +548,7 @@ function App() {
                         teardownTime: formData.teardownTime || null,
                         doorOpenTime: formData.doorOpenTime || null,
                         doorCloseTime: formData.doorCloseTime || null,
-                        mecCategories: formData.mecCategories || [],
+                        categories: formData.categories || formData.mecCategories || [],  // categories is the correct field
                         services: formData.services || {},
                         virtualMeetingUrl: formData.virtualMeetingUrl || null,
                         isOffsite: formData.isOffsite || false,
@@ -509,6 +560,12 @@ function App() {
                         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
                         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
 
+                      console.log('🔍 Draft save - sending payload:', payload);
+                      console.log('🔍 Draft save - payload.categories:', payload.categories);
+                      console.log('🔍 Draft save - payload.services:', payload.services);
+                      console.log('🔍 Draft save - endpoint:', endpoint);
+                      console.log('🔍 Draft save - method:', draftId ? 'PUT' : 'POST');
+
                       const response = await fetch(endpoint, {
                         method: draftId ? 'PUT' : 'POST',
                         headers: {
@@ -518,11 +575,16 @@ function App() {
                         body: JSON.stringify(payload)
                       });
 
+                      console.log('🔍 Draft save - response status:', response.status);
+
                       if (!response.ok) {
-                        throw new Error('Failed to save draft');
+                        const errorText = await response.text();
+                        console.error('🔍 Draft save - error response:', errorText);
+                        throw new Error('Failed to save draft: ' + errorText);
                       }
 
                       const result = await response.json();
+                      console.log('🔍 Draft save - success result:', result);
                       if (!draftId) {
                         setDraftId(result._id);
                       }
@@ -576,6 +638,7 @@ function App() {
                       setDraftSaveFunction(null);
                       setDraftIsConfirming(false);
                       setDraftId(null);
+                      draftInitializedRef.current = false;
 
                       // Refresh my reservations
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
@@ -589,7 +652,8 @@ function App() {
                   savingDraft={savingDraftInProgress}
                   showDraftDialog={showDraftSaveDialog}
                   onDraftDialogSave={async () => {
-                    const formData = draftFormData || draftPrefillData;
+                    // Merge prefillData with formData to preserve all fields
+                    const formData = { ...draftPrefillData, ...draftFormData };
                     if (!formData || !formData.eventTitle?.trim()) {
                       // Can't save without title, just close
                       setShowDraftSaveDialog(false);
@@ -598,6 +662,7 @@ function App() {
                       setDraftPrefillData(null);
                       setDraftHasChanges(false);
                       setDraftId(null);
+                      draftInitializedRef.current = false;
                       return;
                     }
 
@@ -615,8 +680,17 @@ function App() {
                         attendeeCount: parseInt(formData.attendeeCount) || 0,
                         requestedRooms: formData.requestedRooms || formData.locations || [],
                         specialRequirements: formData.specialRequirements || '',
-                        mecCategories: formData.mecCategories || [],
-                        services: formData.services || {}
+                        categories: formData.categories || formData.mecCategories || [],  // categories is the correct field
+                        services: formData.services || {},
+                        // Include additional fields that might be in prefillData
+                        setupTime: formData.setupTime || null,
+                        teardownTime: formData.teardownTime || null,
+                        doorOpenTime: formData.doorOpenTime || null,
+                        doorCloseTime: formData.doorCloseTime || null,
+                        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+                        isOffsite: formData.isOffsite || false,
+                        offsiteName: formData.offsiteName || '',
+                        offsiteAddress: formData.offsiteAddress || ''
                       };
 
                       const endpoint = draftId
@@ -648,6 +722,7 @@ function App() {
                     setDraftIsFormValid(false);
                     setDraftSaveFunction(null);
                     setDraftId(null);
+                    draftInitializedRef.current = false;
                   }}
                   onDraftDialogDiscard={() => {
                     setShowDraftSaveDialog(false);
@@ -658,6 +733,7 @@ function App() {
                     setDraftIsFormValid(false);
                     setDraftSaveFunction(null);
                     setDraftId(null);
+                    draftInitializedRef.current = false;
                   }}
                   onDraftDialogCancel={() => {
                     setShowDraftSaveDialog(false);
@@ -669,6 +745,7 @@ function App() {
                   showTabs={true}
                 >
                   <UnifiedEventForm
+                    key={draftId || 'new-draft'}  // Force remount when draft changes to ensure fresh state
                     mode="create"
                     apiToken={apiToken}
                     prefillData={draftPrefillData}
@@ -678,10 +755,18 @@ function App() {
                     onIsSavingChange={setDraftIsSaving}
                     onSaveFunctionReady={(fn) => setDraftSaveFunction(() => fn)}
                     onDataChange={(updatedData) => {
-                      setDraftFormData(prev => ({
-                        ...(prev || draftPrefillData || {}),
-                        ...updatedData
-                      }));
+                      console.log('🔄 Draft onDataChange received:', updatedData);
+                      console.log('🔄 Draft onDataChange - categories:', updatedData?.categories);
+                      console.log('🔄 Draft onDataChange - services:', updatedData?.services);
+                      setDraftFormData(prev => {
+                        const merged = {
+                          ...(prev || draftPrefillData || {}),
+                          ...updatedData
+                        };
+                        console.log('🔄 Draft onDataChange - merged result:', merged);
+                        console.log('🔄 Draft onDataChange - merged.categories:', merged?.categories);
+                        return merged;
+                      });
                     }}
                     onCancel={() => {
                       if (draftHasChanges) {
@@ -695,6 +780,7 @@ function App() {
                       setDraftIsFormValid(false);
                       setDraftSaveFunction(null);
                       setDraftId(null);
+                      draftInitializedRef.current = false;
                     }}
                     onSuccess={() => {
                       setShowDraftModal(false);
@@ -704,6 +790,7 @@ function App() {
                       setDraftIsFormValid(false);
                       setDraftSaveFunction(null);
                       setDraftId(null);
+                      draftInitializedRef.current = false;
                       // Refresh my reservations
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     }}

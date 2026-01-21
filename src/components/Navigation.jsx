@@ -162,15 +162,6 @@ export default function Navigation({ apiToken }) {
                 </li>
                 <li>
                   <NavLink
-                    to="/room-reservation"
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    📋 Legacy Form
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
                     to="/admin/reservation-requests"
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}
