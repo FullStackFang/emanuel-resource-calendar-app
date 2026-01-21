@@ -662,3 +662,35 @@
   background: white;
   filter: none;
 }
+
+/* Concurrent Events Styling */
+.event-block.allows-concurrent {
+  border-style: dashed !important;
+  border-width: 2px !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
+  position: relative;
+}
+
+.event-block.allows-concurrent::before {
+  content: '🔄';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.event-block.allows-concurrent .event-title {
+  padding-right: 18px;
+}
+
+/* Concurrent events should NOT show conflict styling even if overlapping */
+.event-block.allows-concurrent.conflict {
+  /* Override conflict styling for concurrent-allowed events */
+  box-shadow: none;
+}
+
+/* Non-conflicting overlay indicator for concurrent-allowed events */
+.event-block.allows-concurrent:not(.conflict) {
+  opacity: 0.95;
+}

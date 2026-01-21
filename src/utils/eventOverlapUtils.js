@@ -253,3 +253,31 @@ export const getOverlapType = (event, allEvents) => {
   if (hasSetupOverlap || hasTeardownOverlap) return 'setup-teardown';
   return 'none';
 };
+
+/**
+ * Check if two events are in conflict (considering isAllowedConcurrent flag)
+ * An overlap is only considered a conflict if BOTH events have isAllowedConcurrent: false
+ *
+ * @param {Object} event1 - First event object (must have start, end, and optionally isAllowedConcurrent)
+ * @param {Object} event2 - Second event object (must have start, end, and optionally isAllowedConcurrent)
+ * @returns {boolean} - True if events are in conflict (overlap AND both disallow concurrent)
+ */
+export const areEventsConflicting = (event1, event2) => {
+  // Get bounds for both events (includes setup/teardown times)
+  const bounds1 = getEventBounds(event1);
+  const bounds2 = getEventBounds(event2);
+
+  // Check if events overlap in time
+  const overlaps = doEventsOverlap(bounds1.start, bounds1.end, bounds2.start, bounds2.end);
+
+  if (!overlaps) {
+    return false;
+  }
+
+  // Events overlap - but only a conflict if BOTH disallow concurrent scheduling
+  // If either event allows concurrent, they can coexist without conflict
+  const event1AllowsConcurrent = event1.isAllowedConcurrent ?? false;
+  const event2AllowsConcurrent = event2.isAllowedConcurrent ?? false;
+
+  return !event1AllowsConcurrent && !event2AllowsConcurrent;
+};

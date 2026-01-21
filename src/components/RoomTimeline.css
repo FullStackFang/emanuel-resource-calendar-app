@@ -211,3 +211,20 @@
     font-size: 0.55rem;
   }
 }
+
+/* Concurrent Events Styling */
+.timeline-block.allows-concurrent {
+  border-style: dashed !important;
+  border-width: 2px !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.timeline-block.allows-concurrent .block-title {
+  display: flex;
+  align-items: center;
+}
+
+/* Legend item for concurrent events */
+.legend-color[style*="dashed"] {
+  background: #e0e7ff;
+}

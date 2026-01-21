@@ -87,7 +87,8 @@ export default function RoomTimeline({ room, conflicts, requestedWindow }) {
       subtitle: `by ${reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}`,
       time: `${formatTime(originalStart)} - ${formatTime(originalEnd)}`,
       color: '#dc2626',
-      status: reservation.status
+      status: reservation.status,
+      isAllowedConcurrent: reservation.isAllowedConcurrent ?? false
     });
     
     // Setup time for reservation
@@ -129,7 +130,8 @@ export default function RoomTimeline({ room, conflicts, requestedWindow }) {
       title: event.subject,
       subtitle: `by ${event.organizer}`,
       time: `${formatTime(event.start)} - ${formatTime(event.end)}`,
-      color: '#ea580c'
+      color: '#ea580c',
+      isAllowedConcurrent: event.isAllowedConcurrent ?? false
     });
   });
   
@@ -172,6 +174,10 @@ export default function RoomTimeline({ room, conflicts, requestedWindow }) {
             <span className="legend-color" style={{ backgroundColor: '#7dd3fc' }}></span>
             Buffer Times
           </span>
+          <span className="legend-item">
+            <span className="legend-color" style={{ backgroundColor: '#e0e7ff', border: '2px dashed #6366f1' }}></span>
+            Allows Concurrent
+          </span>
         </div>
       </div>
       
@@ -193,16 +199,22 @@ export default function RoomTimeline({ room, conflicts, requestedWindow }) {
           {timelineBlocks.map(block => (
             <div
               key={block.id}
-              className={`timeline-block ${block.type}`}
+              className={`timeline-block ${block.type}${block.isAllowedConcurrent ? ' allows-concurrent' : ''}`}
               style={{
                 left: `${block.left}%`,
                 width: `${Math.max(block.width, 1)}%`, // Minimum 1% width for visibility
-                backgroundColor: block.color
+                backgroundColor: block.color,
+                borderStyle: block.isAllowedConcurrent ? 'dashed' : 'solid',
+                borderWidth: block.isAllowedConcurrent ? '2px' : '1px',
+                borderColor: block.isAllowedConcurrent ? 'rgba(0,0,0,0.3)' : 'transparent'
               }}
-              title={`${block.title}\n${block.time}${block.subtitle ? `\n${block.subtitle}` : ''}`}
+              title={`${block.title}\n${block.time}${block.subtitle ? `\n${block.subtitle}` : ''}${block.isAllowedConcurrent ? '\n(Allows concurrent events)' : ''}`}
             >
               <div className="block-content">
-                <div className="block-title">{block.title}</div>
+                <div className="block-title">
+                  {block.isAllowedConcurrent && <span style={{ marginRight: '4px' }}>🔄</span>}
+                  {block.title}
+                </div>
                 {block.subtitle && <div className="block-subtitle">{block.subtitle}</div>}
                 <div className="block-time">{block.time}</div>
               </div>

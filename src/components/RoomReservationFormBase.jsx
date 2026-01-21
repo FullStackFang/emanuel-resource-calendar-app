@@ -116,6 +116,8 @@ export default function RoomReservationFormBase({
     offsiteAddress: '',
     offsiteLat: null,
     offsiteLon: null,
+    // Allow concurrent scheduling (admin-only field)
+    isAllowedConcurrent: false,
     ...initialData
   });
 
@@ -1812,6 +1814,36 @@ export default function RoomReservationFormBase({
                     placeholder="Add any notes or provide a reason for rejection..."
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Concurrent Events Setting (Admin only) */}
+            {isAdmin && (
+              <div className="concurrent-events-section" style={{ marginBottom: '20px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                <label className="concurrent-checkbox-label" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    name="isAllowedConcurrent"
+                    checked={formData.isAllowedConcurrent || false}
+                    onChange={handleInputChange}
+                    disabled={fieldsDisabled}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 500, color: '#0369a1' }}>Allow concurrent events</span>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                      Enable for events like Shabbat Services that can host nested events (e.g., B&apos;nei Mitzvahs) at the same time without triggering conflict warnings.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {/* Read-only Concurrent Events Indicator (Non-admins) */}
+            {!isAdmin && formData.isAllowedConcurrent && (
+              <div className="concurrent-events-badge" style={{ marginBottom: '20px', padding: '8px 12px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px dashed #0ea5e9', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '1.1rem' }}>🔄</span>
+                <span style={{ fontSize: '0.9rem', color: '#0369a1' }}>This event allows concurrent scheduling</span>
               </div>
             )}
 

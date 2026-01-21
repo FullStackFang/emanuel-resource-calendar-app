@@ -187,6 +187,8 @@ export default function RoomReservationReview({
       offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
       categories: reservation.categories || reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
       services: reservation.services || {},
+      // Allow concurrent scheduling flag (admin-controlled)
+      isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
       // Flag to tell FormBase that data is pre-processed
       _isPreProcessed: true
     };

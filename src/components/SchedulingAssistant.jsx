@@ -161,6 +161,7 @@ export default function SchedulingAssistant({
             organizer: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail,
             status: reservation.status,
             isConflict: false, // Will be calculated later
+            isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
             ...position
           });
 
@@ -200,6 +201,7 @@ export default function SchedulingAssistant({
             endTime,
             organizer: event.organizer?.emailAddress?.name || 'Unknown',
             isConflict: false, // Will be calculated later
+            isAllowedConcurrent: event.isAllowedConcurrent ?? false,
             ...position
           });
 
@@ -291,16 +293,23 @@ export default function SchedulingAssistant({
     });
 
     // Check each event against all other events in the same room
+    // An overlap is only a conflict if BOTH events have isAllowedConcurrent: false
     blocks.forEach(block => {
       const roomBlocks = blocksByRoom[block.room._id] || [];
       const hasConflict = roomBlocks.some(otherBlock => {
         if (otherBlock.id === block.id) return false;
-        return block.startTime < otherBlock.endTime && block.endTime > otherBlock.startTime;
+        // Check for time overlap
+        const overlaps = block.startTime < otherBlock.endTime && block.endTime > otherBlock.startTime;
+        if (!overlaps) return false;
+        // Only a conflict if BOTH disallow concurrent scheduling
+        // If either allows concurrent, they can coexist
+        return !block.isAllowedConcurrent && !otherBlock.isAllowedConcurrent;
       });
       block.isConflict = hasConflict;
     });
 
     // Recalculate stats - count only conflicts with user's event
+    // Consider isAllowedConcurrent when counting conflicts
     selectedRooms.forEach(room => {
       const roomBlocks = blocksByRoom[room._id] || [];
 
@@ -308,12 +317,15 @@ export default function SchedulingAssistant({
       const userEvent = roomBlocks.find(b => b.isUserEvent);
 
       if (userEvent) {
-        // Count only events that conflict with the user's event
-        const conflictsWithUserEvent = roomBlocks.filter(b =>
-          !b.isUserEvent && // Don't count the user event itself
-          b.startTime < userEvent.endTime &&
-          b.endTime > userEvent.startTime
-        );
+        // Count only events that truly conflict with the user's event
+        // An overlap is only a conflict if BOTH events have isAllowedConcurrent: false
+        const conflictsWithUserEvent = roomBlocks.filter(b => {
+          if (b.isUserEvent) return false; // Don't count the user event itself
+          const overlaps = b.startTime < userEvent.endTime && b.endTime > userEvent.startTime;
+          if (!overlaps) return false;
+          // Only a conflict if BOTH disallow concurrent scheduling
+          return !userEvent.isAllowedConcurrent && !b.isAllowedConcurrent;
+        });
 
         if (stats[room._id]) {
           stats[room._id].conflictCount = conflictsWithUserEvent.length;
@@ -999,12 +1011,14 @@ export default function SchedulingAssistant({
       backgroundColor = block.color;
       filter = 'none';
     } else if (isLocked) {
-      // Locked event styling - greyed out with nav button
+      // Locked event styling - greyed out, or light green if allows concurrent
       opacity = 0.75;
       cursor = 'not-allowed';
       boxShadow = 'none';
-      backgroundColor = '#999999'; // Grey color
-      filter = 'grayscale(100%)';
+      // Muted green for events that allow concurrent scheduling (e.g., Shabbat Services)
+      // Grey for regular locked events
+      backgroundColor = block.isAllowedConcurrent ? '#4aba6d' : '#999999'; // Muted green vs grey
+      filter = block.isAllowedConcurrent ? 'none' : 'grayscale(100%)';
     } else {
       // Current reservation styling - normal/vibrant (unless disabled)
       opacity = hasConflict ? 0.95 : 0.8;
@@ -1019,6 +1033,7 @@ export default function SchedulingAssistant({
     const conflictIndicator = hasConflict ? '⚠️ ' : '';
     const currentEventLabel = isCurrentReservation ? '✏️ ' : '';
     const lockedIcon = isLocked ? '🔒 ' : '';
+    const concurrentIcon = block.isAllowedConcurrent ? '🔄 ' : '';
 
     // Build title/tooltip based on event type and lock status
     let title;
@@ -1026,10 +1041,11 @@ export default function SchedulingAssistant({
       title = `✏️ ${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\n👆 Drag to reschedule${hasConflict ? '\n⚠️ Time conflicts with other events' : '\n✓ No conflicts at this time'}`;
     } else if (isLocked) {
       // Different message for reservations (with nav button) vs calendar events (no nav button)
+      const concurrentNote = block.isAllowedConcurrent ? '\n🔄 Allows concurrent events (no conflict)' : '';
       if (block.type === 'reservation') {
-        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n→ Click the arrow button to open this reservation\n(This event is locked - you can only drag your own reservation)`;
+        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\n→ Click the arrow button to open this reservation\n(This event is locked - you can only drag your own reservation)`;
       } else {
-        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nThis calendar event is locked - you can only drag your own reservation.`;
+        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\nThis calendar event is locked - you can only drag your own reservation.`;
       }
     } else {
       title = `${currentEventLabel}${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n👆 Drag to reschedule your event${hasConflict ? '\n⚠️ Overlaps with other events' : '\n✓ No conflicts'}`;
@@ -1060,7 +1076,7 @@ export default function SchedulingAssistant({
       >
         <div className="event-block-content">
           <div className="event-block-header">
-            <span className="event-icon">{lockedIcon}{currentEventLabel}{conflictIndicator}{eventIcon}</span>
+            <span className="event-icon">{lockedIcon}{concurrentIcon}{currentEventLabel}{conflictIndicator}{eventIcon}</span>
             <span className="event-title">{block.title}</span>
             {/* Navigation button for locked reservations */}
             {isLocked && block.type === 'reservation' && onLockedEventClick && (

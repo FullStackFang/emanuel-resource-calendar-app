@@ -905,6 +905,14 @@ function EventForm({
         />
       </div>
 
+      {/* Concurrent Events Indicator (Read-only) */}
+      {event?.isAllowedConcurrent && (
+        <div className="concurrent-events-badge" style={{ marginBottom: '12px', padding: '8px 12px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px dashed #0ea5e9', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '1.1rem' }}>🔄</span>
+          <span style={{ fontSize: '0.9rem', color: '#0369a1' }}>This event allows concurrent scheduling</span>
+        </div>
+      )}
+
       {/* Event Types - Multi-tab interface */}
       <div className="event-type-tabs">
         <div

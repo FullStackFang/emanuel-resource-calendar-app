@@ -1511,8 +1511,19 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     const conflicts = await roomReservationsCollection.find(query).toArray();
 
+    // Get incoming event's concurrent permission (defaults to false)
+    const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
+
+    // Filter conflicts - only a real conflict if BOTH events disallow concurrent
+    // If either event allows concurrent scheduling, they can coexist
+    const actualConflicts = conflicts.filter(conflict => {
+      const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
+      // Only a conflict if BOTH disallow concurrent
+      return !requestAllowsConcurrent && !conflictAllowsConcurrent;
+    });
+
     // Return detailed conflict information
-    return conflicts.map(conflict => ({
+    return actualConflicts.map(conflict => ({
       id: conflict._id.toString(),
       eventTitle: conflict.eventTitle,
       startDateTime: conflict.startDateTime,
@@ -1520,7 +1531,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       rooms: conflict.requestedRooms,
       status: conflict.status,
       setupTimeMinutes: conflict.setupTimeMinutes || 0,
-      teardownTimeMinutes: conflict.teardownTimeMinutes || 0
+      teardownTimeMinutes: conflict.teardownTimeMinutes || 0,
+      isAllowedConcurrent: conflict.isAllowedConcurrent ?? false
     }));
   } catch (error) {
     logger.error('Error checking room conflicts:', error);
@@ -11187,7 +11199,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           effectiveStart,
           effectiveEnd,
           setupTimeMinutes: res.setupTimeMinutes || 0,
-          teardownTimeMinutes: res.teardownTimeMinutes || 0
+          teardownTimeMinutes: res.teardownTimeMinutes || 0,
+          isAllowedConcurrent: res.isAllowedConcurrent ?? false
         };
       });
 
@@ -11233,7 +11246,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           effectiveEnd,
           setupTimeMinutes: event.setupTimeMinutes || 0,
           teardownTimeMinutes: event.teardownTimeMinutes || 0,
-          location: event.location
+          location: event.location,
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false
         };
       });
 
@@ -17784,6 +17798,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Remove sensitive/temporary fields and immutable MongoDB fields that shouldn't be saved
     // Also remove graphData to avoid conflicts (we'll sync it manually below)
+    // Remove start/end objects to avoid MongoDB conflict with start.dateTime/end.dateTime updates
     const {
       graphToken: _graphToken,
       _id: _mongoId,
@@ -17799,11 +17814,35 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       editScope: _editScope,
       occurrenceDate: _occurrenceDate,
       seriesMasterId: _seriesMasterId,
+      start: _start,  // Remove to avoid conflict with start.dateTime
+      end: _end,      // Remove to avoid conflict with end.dateTime
       ...safeUpdates
     } = updates;
 
     // Build update operations with field syncing (same as creation flow)
     const updateOperations = { ...safeUpdates };
+
+    // IMPORTANT: Calculate startDateTime/endDateTime from separate date/time fields if provided
+    // The form sends startDate + startTime separately, but we need the combined ISO string
+    const timezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
+
+    if (updates.startDate && updates.startTime) {
+      // Combine date and time into ISO datetime string
+      const combinedStart = `${updates.startDate}T${updates.startTime}:00`;
+      updateOperations.startDateTime = combinedStart;
+      updateOperations['start.dateTime'] = combinedStart;
+      updateOperations['start.timeZone'] = timezone;
+      logger.info('Calculated startDateTime from separate fields:', { startDate: updates.startDate, startTime: updates.startTime, result: combinedStart });
+    }
+
+    if (updates.endDate && updates.endTime) {
+      // Combine date and time into ISO datetime string
+      const combinedEnd = `${updates.endDate}T${updates.endTime}:00`;
+      updateOperations.endDateTime = combinedEnd;
+      updateOperations['end.dateTime'] = combinedEnd;
+      updateOperations['end.timeZone'] = timezone;
+      logger.info('Calculated endDateTime from separate fields:', { endDate: updates.endDate, endTime: updates.endTime, result: combinedEnd });
+    }
 
     // Sync graphData fields with top-level fields
     // This ensures eventTitle ↔ graphData.subject stay synchronized
@@ -17816,20 +17855,18 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         updateOperations['graphData.subject'] = updates.eventTitle;
       }
 
-      // Sync start datetime
-      if (updates.startDateTime !== undefined) {
-        updateOperations['graphData.start.dateTime'] = updates.startDateTime;
-      }
-      if (updates.startTimeZone !== undefined) {
-        updateOperations['graphData.start.timeZone'] = updates.startTimeZone;
+      // Sync start datetime (use calculated value if available, otherwise from updates)
+      const effectiveStartDateTime = updateOperations.startDateTime || updates.startDateTime;
+      if (effectiveStartDateTime !== undefined) {
+        updateOperations['graphData.start.dateTime'] = effectiveStartDateTime;
+        updateOperations['graphData.start.timeZone'] = timezone;
       }
 
-      // Sync end datetime
-      if (updates.endDateTime !== undefined) {
-        updateOperations['graphData.end.dateTime'] = updates.endDateTime;
-      }
-      if (updates.endTimeZone !== undefined) {
-        updateOperations['graphData.end.timeZone'] = updates.endTimeZone;
+      // Sync end datetime (use calculated value if available, otherwise from updates)
+      const effectiveEndDateTime = updateOperations.endDateTime || updates.endDateTime;
+      if (effectiveEndDateTime !== undefined) {
+        updateOperations['graphData.end.dateTime'] = effectiveEndDateTime;
+        updateOperations['graphData.end.timeZone'] = timezone;
       }
 
       // Sync body/description
@@ -17865,16 +17902,18 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         updateOperations['graphData.subject'] = updates.eventTitle;
       }
 
-      // Sync start datetime
-      if (updates.startDateTime !== undefined) {
-        updateOperations['graphData.start.dateTime'] = updates.startDateTime;
-        updateOperations['graphData.start.timeZone'] = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
+      // Sync start datetime (use calculated value if available, otherwise from updates)
+      const effectiveStartDateTimePending = updateOperations.startDateTime || updates.startDateTime;
+      if (effectiveStartDateTimePending !== undefined) {
+        updateOperations['graphData.start.dateTime'] = effectiveStartDateTimePending;
+        updateOperations['graphData.start.timeZone'] = timezone;
       }
 
-      // Sync end datetime
-      if (updates.endDateTime !== undefined) {
-        updateOperations['graphData.end.dateTime'] = updates.endDateTime;
-        updateOperations['graphData.end.timeZone'] = updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York';
+      // Sync end datetime (use calculated value if available, otherwise from updates)
+      const effectiveEndDateTimePending = updateOperations.endDateTime || updates.endDateTime;
+      if (effectiveEndDateTimePending !== undefined) {
+        updateOperations['graphData.end.dateTime'] = effectiveEndDateTimePending;
+        updateOperations['graphData.end.timeZone'] = timezone;
       }
 
       // Sync body/description
