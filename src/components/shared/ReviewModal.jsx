@@ -244,16 +244,16 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Save Draft button - for new event creation (when onSaveDraft is provided) */}
-              {onSaveDraft && !isDraft && (
+              {/* Save Draft button - for new drafts or updating existing drafts */}
+              {onSaveDraft && (
                 <button
                   type="button"
                   className="action-btn draft-btn"
                   onClick={onSaveDraft}
                   disabled={savingDraft || isSaving || !canSaveDraft}
-                  title={!canSaveDraft ? 'Event title is required to save as draft' : 'Save your progress as a draft'}
+                  title={!canSaveDraft ? (!hasChanges ? 'No changes to save' : 'Event title is required to save as draft') : 'Save your progress as a draft'}
                 >
-                  {savingDraft ? 'Saving...' : '📝 Save Draft'}
+                  {savingDraft ? 'Saving...' : 'Save Draft'}
                 </button>
               )}
 
@@ -265,7 +265,7 @@ export default function ReviewModal({
                   onClick={onSubmitDraft}
                   disabled={isSaving || savingDraft}
                 >
-                  {isSaving ? 'Submitting...' : '✓ Submit for Approval'}
+                  {isSaving ? 'Submitting...' : 'Submit for Approval'}
                 </button>
               )}
 

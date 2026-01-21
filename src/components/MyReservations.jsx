@@ -326,25 +326,24 @@ export default function MyReservations({ apiToken }) {
             {paginatedReservations.map(reservation => (
               <tr key={reservation._id} className={reservation.status === 'draft' ? 'draft-row' : ''}>
                 <td className="submitted-date">
-                  {reservation.status === 'draft' ? (
-                    <>
-                      <span className="draft-label">Last saved</span>
-                      {new Date(reservation.lastDraftSaved || reservation.submittedAt).toLocaleDateString()}
-                    </>
-                  ) : (
-                    new Date(reservation.submittedAt).toLocaleDateString()
-                  )}
+                  <span className="meta-label">
+                    {reservation.status === 'draft' ? 'Saved' : 'Submitted'}
+                  </span>
+                  {new Date(reservation.status === 'draft'
+                    ? (reservation.lastDraftSaved || reservation.submittedAt)
+                    : reservation.submittedAt
+                  ).toLocaleDateString()}
                 </td>
                 <td className="event-details">
-                  <strong>{reservation.eventTitle}</strong>
+                  <strong>{reservation.eventTitle || 'Untitled'}</strong>
                   {reservation.roomReservationData?.contactPerson?.isOnBehalfOf && reservation.roomReservationData?.contactPerson?.name && (
-                    <div className="delegation-status">📋 On behalf of {reservation.roomReservationData.contactPerson.name}</div>
+                    <div className="delegation-status">On behalf of {reservation.roomReservationData.contactPerson.name}</div>
                   )}
                   {reservation.eventDescription && (
                     <div className="event-desc">{reservation.eventDescription}</div>
                   )}
                   {reservation.attendeeCount > 0 && (
-                    <div className="attendee-count">👥 {reservation.attendeeCount} attendees</div>
+                    <div className="attendee-count">{reservation.attendeeCount} attendees</div>
                   )}
                 </td>
                 <td className="datetime">
@@ -380,7 +379,7 @@ export default function MyReservations({ apiToken }) {
                       );
                     })
                   ) : (
-                    <span className="not-set">Not selected</span>
+                    <span className="not-set">None</span>
                   )}
                 </td>
                 <td>
@@ -388,23 +387,23 @@ export default function MyReservations({ apiToken }) {
                     {reservation.status}
                   </span>
                   {reservation.status === 'draft' && reservation.draftCreatedAt && (
-                    <div className="draft-warning">
-                      Auto-deletes in {getDaysUntilDelete(reservation.draftCreatedAt)} days
+                    <div className="status-meta">
+                      Expires in {getDaysUntilDelete(reservation.draftCreatedAt)}d
                     </div>
                   )}
                   {reservation.rejectionReason && (
-                    <div className="rejection-reason" title={reservation.rejectionReason}>
-                      ❌ {reservation.rejectionReason}
+                    <div className="status-meta error" title={reservation.rejectionReason}>
+                      {reservation.rejectionReason}
                     </div>
                   )}
                   {reservation.cancelReason && (
-                    <div className="cancel-reason" title={reservation.cancelReason}>
-                      🚫 {reservation.cancelReason}
+                    <div className="status-meta" title={reservation.cancelReason}>
+                      {reservation.cancelReason}
                     </div>
                   )}
                   {reservation.actionDate && reservation.status !== 'pending' && reservation.status !== 'draft' && (
-                    <div className="action-date">
-                      {reservation.status === 'approved' ? '✅' : reservation.status === 'rejected' ? '❌' : '🚫'} {new Date(reservation.actionDate).toLocaleDateString()}
+                    <div className="status-meta">
+                      {new Date(reservation.actionDate).toLocaleDateString()}
                     </div>
                   )}
                 </td>
@@ -416,7 +415,7 @@ export default function MyReservations({ apiToken }) {
                         onClick={() => handleEditDraft(reservation)}
                         disabled={deletingDraft}
                       >
-                        Continue Editing
+                        Continue
                       </button>
                       <button
                         className="delete-btn"
@@ -431,7 +430,7 @@ export default function MyReservations({ apiToken }) {
                       className="view-btn"
                       onClick={() => setSelectedReservation(reservation)}
                     >
-                      View Details
+                      View
                     </button>
                   )}
                 </td>
@@ -489,7 +488,7 @@ export default function MyReservations({ apiToken }) {
                   <label>Submitted for:</label>
                   <div>
                     {selectedReservation.contactName} ({selectedReservation.contactEmail})
-                    <div className="delegation-note">📧 Updates will be sent to this contact</div>
+                    <div className="delegation-note">Updates will be sent to this contact</div>
                   </div>
                 </div>
               )}
@@ -586,7 +585,7 @@ export default function MyReservations({ apiToken }) {
                   onClick={() => handleResubmitReservation(selectedReservation)}
                   title="Edit and resubmit this reservation"
                 >
-                  🔄 Resubmit Request
+                  Resubmit
                 </button>
               )}
               <button

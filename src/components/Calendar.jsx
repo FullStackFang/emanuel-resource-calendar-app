@@ -316,6 +316,24 @@
       }
     });
 
+    // Reset hasChanges after event review modal form initializes
+    // This prevents false "unsaved changes" prompts when opening and immediately closing
+    useEffect(() => {
+      if (eventReviewModal.isOpen && eventReviewModal.event) {
+        // Small delay to allow form to initialize, then reset hasChanges
+        const timer = setTimeout(() => {
+          setEventReviewModal(prev => {
+            // Only reset if still open and hasChanges was set during initialization
+            if (prev.isOpen && prev.hasChanges) {
+              return { ...prev, hasChanges: false };
+            }
+            return prev;
+          });
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }, [eventReviewModal.isOpen, eventReviewModal.event?._id, eventReviewModal.event?.eventId]);
+
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
     //---------------------------------------------------------------------------
@@ -4808,11 +4826,11 @@
     }, []);
 
     /**
-     * Check if draft can be saved
+     * Check if draft can be saved (requires title AND changes)
      */
     const canSaveDraft = useCallback(() => {
-      return !!eventReviewModal.event?.eventTitle?.trim();
-    }, [eventReviewModal.event]);
+      return !!eventReviewModal.event?.eventTitle?.trim() && eventReviewModal.hasChanges;
+    }, [eventReviewModal.event, eventReviewModal.hasChanges]);
 
     /**
      * Handle navigation to another event in the series (close and reopen modal)

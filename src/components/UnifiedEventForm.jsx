@@ -42,6 +42,7 @@ export default function UnifiedEventForm({
   onSaveFunctionReady,
   onFormValidChange,
   onLockedEventClick,
+  onDataChange, // Forward form data changes to parent (for draft tracking)
   // Event-specific props
   event,
   categories,
@@ -615,6 +616,10 @@ export default function UnifiedEventForm({
         initialData={initialData}
         onDataChange={(updatedData) => {
           setHasChanges(true);
+          // Forward form data to parent for draft tracking
+          if (onDataChange) {
+            onDataChange(updatedData);
+          }
         }}
         onHasChangesChange={setHasChanges}
         onFormValidChange={(valid) => {

@@ -1,129 +1,143 @@
 /* src/components/MyReservations.css */
 
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
 .my-reservations {
-  padding: 16px;
+  padding: 24px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .my-reservations h1 {
-  color: #333;
-  margin-bottom: 20px;
+  color: #1f2937;
+  margin-bottom: 24px;
   font-size: 1.5rem;
+  font-weight: 600;
 }
 
-/* Messages */
-.error-message {
-  background: #fee;
-  border: 1px solid #fcc;
-  color: #c33;
-  padding: 15px;
+/* ============================================
+   MESSAGES
+   ============================================ */
+
+.my-reservations .error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 20px;
-  font-weight: 500;
-}
-
-.loading {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-}
-
-/* Access denied message */
-.access-denied {
-  text-align: center;
-  padding: 60px 20px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  margin: 40px auto;
-  max-width: 500px;
-}
-
-.access-denied h2 {
-  color: #6c757d;
-  margin-bottom: 12px;
-  font-size: 1.25rem;
-}
-
-.access-denied p {
-  color: #888;
   font-size: 0.9rem;
 }
 
-/* Tab Navigation - Pill Style */
-.tabs-container {
+.my-reservations .loading {
+  text-align: center;
+  padding: 60px;
+  color: #6b7280;
+}
+
+.my-reservations .access-denied {
+  text-align: center;
+  padding: 60px 20px;
+  background: #f9fafb;
+  border-radius: 12px;
+  margin: 40px auto;
+  max-width: 400px;
+}
+
+.my-reservations .access-denied h2 {
+  color: #6b7280;
+  margin-bottom: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.my-reservations .access-denied p {
+  color: #9ca3af;
+  font-size: 0.9rem;
+}
+
+/* ============================================
+   TAB NAVIGATION
+   ============================================ */
+
+.my-reservations .tabs-container {
   margin-bottom: 20px;
 }
 
-.tabs {
+.my-reservations .tabs {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   align-items: center;
 }
 
-.tab {
-  padding: 6px 12px;
+.my-reservations .tab {
+  padding: 8px 16px;
   border: none;
-  background: #e8f0fe;
-  border-radius: 16px;
+  background: #f3f4f6;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  color: #1a73e8;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
+  color: #4b5563;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.tab:hover {
+.my-reservations .tab:hover {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+.my-reservations .tab.active {
   background: #1a73e8;
   color: white;
 }
 
-.tab.active {
-  background: #1a73e8;
-  color: white;
+.my-reservations .tab .count {
+  font-size: 0.75rem;
+  opacity: 0.8;
 }
 
-.tab .count {
-  margin-left: 6px;
-  font-size: 0.85rem;
-  color: inherit;
-  opacity: 0.7;
-}
+/* ============================================
+   TABLE CONTAINER
+   ============================================ */
 
-/* Reservations Table - scoped to my-reservations */
 .my-reservations .reservations-table-container {
   background: white;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: auto;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  height: 600px;
-  position: relative;
-  transition: all 0.3s ease;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  min-height: 400px;
+  max-height: 600px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .my-reservations .reservations-table {
   width: 100%;
   border-collapse: collapse;
-  height: 100%;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .my-reservations .reservations-table thead {
   display: block;
   background: #f9fafb;
+  flex-shrink: 0;
 }
 
 .my-reservations .reservations-table tbody {
   display: block;
   flex: 1;
   overflow-y: auto;
-  min-height: 500px;
 }
 
 .my-reservations .reservations-table thead tr,
@@ -131,563 +145,602 @@
   display: table;
   width: 100%;
   table-layout: fixed;
-  min-width: 1000px;
+  min-width: 900px;
 }
+
+/* ============================================
+   TABLE HEADER
+   ============================================ */
 
 .my-reservations .reservations-table th {
-  background: #f9fafb;
-  padding: 12px;
+  padding: 12px 16px;
   text-align: left;
   font-weight: 600;
-  color: #374151;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid #e5e7eb;
-  white-space: nowrap;
 }
 
-/* Specific column widths for user view - 6 columns total */
-.my-reservations .reservations-table th:nth-child(1), /* Submitted */
-.my-reservations .reservations-table td:nth-child(1) {
-  min-width: 110px;
-}
+/* Column widths */
+.my-reservations .reservations-table th:nth-child(1),
+.my-reservations .reservations-table td:nth-child(1) { width: 100px; }
 
-.my-reservations .reservations-table th:nth-child(2), /* Event Details */
-.my-reservations .reservations-table td:nth-child(2) {
-  min-width: 280px;
-  white-space: normal;
-}
+.my-reservations .reservations-table th:nth-child(2),
+.my-reservations .reservations-table td:nth-child(2) { width: 280px; }
 
-.my-reservations .reservations-table th:nth-child(3), /* Date & Time */
-.my-reservations .reservations-table td:nth-child(3) {
-  min-width: 200px;
-  white-space: normal;
-}
+.my-reservations .reservations-table th:nth-child(3),
+.my-reservations .reservations-table td:nth-child(3) { width: 180px; }
 
-.my-reservations .reservations-table th:nth-child(4), /* Rooms */
-.my-reservations .reservations-table td:nth-child(4) {
-  min-width: 150px;
-}
+.my-reservations .reservations-table th:nth-child(4),
+.my-reservations .reservations-table td:nth-child(4) { width: 140px; }
 
-.my-reservations .reservations-table th:nth-child(5), /* Status */
-.my-reservations .reservations-table td:nth-child(5) {
-  min-width: 130px;
-}
+.my-reservations .reservations-table th:nth-child(5),
+.my-reservations .reservations-table td:nth-child(5) { width: 120px; }
 
-.my-reservations .reservations-table th:nth-child(6), /* Actions */
-.my-reservations .reservations-table td:nth-child(6) {
-  min-width: 130px;
-}
+.my-reservations .reservations-table th:nth-child(6),
+.my-reservations .reservations-table td:nth-child(6) { width: 180px; }
+
+/* ============================================
+   TABLE ROWS & CELLS
+   ============================================ */
 
 .my-reservations .reservations-table td {
-  padding: 12px;
+  padding: 16px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
+  font-size: 0.875rem;
+  color: #374151;
 }
 
-.my-reservations .reservations-table tr:hover {
+.my-reservations .reservations-table tbody tr {
+  transition: background 0.1s ease;
+}
+
+.my-reservations .reservations-table tbody tr:hover {
   background: #f9fafb;
 }
 
-/* Table Cell Styles */
-.submitted-date {
-  font-size: 0.9rem;
+/* Draft rows - subtle differentiation */
+.my-reservations .reservations-table tbody tr.draft-row {
+  background: #fafafa;
+}
+
+.my-reservations .reservations-table tbody tr.draft-row:hover {
+  background: #f5f5f5;
+}
+
+/* ============================================
+   DATE COLUMN
+   ============================================ */
+
+.my-reservations .submitted-date {
   color: #6b7280;
-  white-space: nowrap;
+  font-size: 0.8rem;
 }
 
-.event-details strong {
+.my-reservations .submitted-date .meta-label {
   display: block;
-  color: #111827;
-  margin-bottom: 4px;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.event-desc {
-  font-size: 0.85rem;
+/* ============================================
+   EVENT DETAILS COLUMN
+   ============================================ */
+
+.my-reservations .event-details strong {
+  display: block;
+  color: #1f2937;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.my-reservations .event-desc {
+  font-size: 0.8rem;
   color: #6b7280;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   margin-top: 4px;
 }
 
-.attendee-count {
-  font-size: 0.85rem;
-  color: #0078d4;
-  margin-top: 4px;
-}
-
-.delegation-status {
-  background: #dbeafe;
-  color: #1e40af;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  margin-top: 4px;
-  display: inline-block;
-}
-
-.delegation-note {
-  background: #eff6ff;
-  color: #1e40af;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-size: 0.8rem;
-  margin-top: 4px;
-  font-style: italic;
-}
-
-.datetime {
-  font-size: 0.9rem;
-}
-
-.datetime .date {
-  font-weight: 500;
-  color: #111827;
-}
-
-.datetime .time-range {
-  color: #6b7280;
-  font-size: 0.85rem;
-  margin-top: 2px;
-}
-
-.datetime .to {
-  color: #9ca3af;
-  font-size: 0.8rem;
-  margin: 2px 0;
-}
-
-.rooms {
-  max-width: 120px;
-}
-
-.room-badge {
-  background: #e5e7eb;
-  color: #374151;
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  margin: 2px 0;
-  display: inline-block;
-}
-
-/* Status and Priority Badges */
-.status-badge,
-.priority-badge {
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  text-transform: capitalize;
-  display: inline-block;
-}
-
-.status-pending {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.status-approved {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.status-rejected {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.status-cancelled {
-  background: #e5e7eb;
-  color: #6b7280;
-}
-
-.status-draft {
-  background: #f5f5f5;
-  color: #666;
-  border: 1px dashed #999;
-}
-
-/* Draft-specific styles */
-.draft-row {
-  background: #fafafa;
-}
-
-.draft-row:hover {
-  background: #f5f5f5;
-}
-
-.draft-label {
-  display: block;
-  font-size: 0.7rem;
-  color: #999;
-  font-style: italic;
-}
-
-.draft-warning {
+.my-reservations .attendee-count {
   font-size: 0.75rem;
-  color: #999;
-  font-style: italic;
-  margin-top: 4px;
+  color: #6b7280;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.draft-count {
-  color: #666;
-  font-style: italic;
+.my-reservations .delegation-status {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  margin-top: 6px;
+  display: inline-block;
 }
 
-.not-set {
+/* ============================================
+   DATE & TIME COLUMN
+   ============================================ */
+
+.my-reservations .datetime {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.my-reservations .datetime .date {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.my-reservations .datetime .time-range {
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.my-reservations .datetime .to {
+  color: #9ca3af;
+  font-size: 0.7rem;
+  margin: 2px 0;
+}
+
+.my-reservations .not-set {
   color: #9ca3af;
   font-style: italic;
-  font-size: 0.85rem;
-}
-
-/* Edit and Delete buttons for drafts */
-.edit-btn {
-  background: #3b82f6;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  margin-right: 8px;
-  transition: all 0.2s;
-}
-
-.edit-btn:hover:not(:disabled) {
-  background: #2563eb;
-}
-
-.delete-btn {
-  background: white;
-  color: #dc2626;
-  border: 1px solid #fca5a5;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.2s;
-}
-
-.delete-btn:hover:not(:disabled) {
-  background: #fef2f2;
-  border-color: #f87171;
-}
-
-.edit-btn:disabled,
-.delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
-}
-
-.priority-low {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
-.rejection-reason,
-.cancel-reason {
   font-size: 0.8rem;
-  margin-top: 4px;
-  max-width: 150px;
+}
+
+/* ============================================
+   ROOMS COLUMN
+   ============================================ */
+
+.my-reservations .rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.my-reservations .room-badge {
+  background: #f3f4f6;
+  color: #374151;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rejection-reason {
+/* ============================================
+   STATUS BADGES
+   ============================================ */
+
+.my-reservations .status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.my-reservations .status-pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.my-reservations .status-approved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.my-reservations .status-rejected {
+  background: #fee2e2;
   color: #dc2626;
 }
 
-.cancel-reason {
+.my-reservations .status-cancelled {
+  background: #f3f4f6;
   color: #6b7280;
 }
 
-.action-date {
-  font-size: 0.75rem;
-  color: #9ca3af;
-  margin-top: 2px;
+.my-reservations .status-draft {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
 }
 
-/* Actions */
-.actions {
+/* Status metadata */
+.my-reservations .status-meta {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.my-reservations .status-meta.warning {
+  color: #d97706;
+}
+
+.my-reservations .status-meta.error {
+  color: #dc2626;
+}
+
+/* Legacy support for existing classes */
+.my-reservations .draft-warning {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+
+.my-reservations .rejection-reason,
+.my-reservations .cancel-reason {
+  font-size: 0.7rem;
+  margin-top: 6px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.my-reservations .rejection-reason {
+  color: #dc2626;
+}
+
+.my-reservations .cancel-reason {
+  color: #6b7280;
+}
+
+.my-reservations .action-date {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+/* ============================================
+   ACTION BUTTONS
+   ============================================ */
+
+.my-reservations .actions {
   display: flex;
   align-items: center;
-  gap: 6px;
-  white-space: nowrap;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
-.view-btn,
-.cancel-btn,
-.resubmit-btn {
-  padding: 6px 12px;
+/* Base button styles */
+.my-reservations .view-btn,
+.my-reservations .edit-btn,
+.my-reservations .delete-btn,
+.my-reservations .cancel-btn,
+.my-reservations .resubmit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 16px;
   border: none;
-  border-radius: 4px;
-  font-size: 0.85rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
   white-space: nowrap;
+  min-width: 70px;
 }
 
-.view-btn {
-  background: #0078d4;
+/* Primary action (View, Continue Editing) */
+.my-reservations .view-btn,
+.my-reservations .edit-btn {
+  background: #1a73e8;
   color: white;
 }
 
-.view-btn:hover {
-  background: #106ebe;
+.my-reservations .view-btn:hover:not(:disabled),
+.my-reservations .edit-btn:hover:not(:disabled) {
+  background: #1557b0;
 }
 
-.cancel-btn {
-  background: #ef4444;
-  color: white;
+/* Danger action (Delete, Cancel) */
+.my-reservations .delete-btn {
+  background: white;
+  color: #dc2626;
+  border: 1px solid #fecaca;
 }
 
-.cancel-btn:hover {
+.my-reservations .delete-btn:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+.my-reservations .cancel-btn {
   background: #dc2626;
-}
-
-.resubmit-btn {
-  background: #28a745;
   color: white;
 }
 
-.resubmit-btn:hover {
-  background: #218838;
+.my-reservations .cancel-btn:hover:not(:disabled) {
+  background: #b91c1c;
 }
 
-/* No Reservations */
-.no-reservations {
+/* Success action (Resubmit) */
+.my-reservations .resubmit-btn {
+  background: #16a34a;
+  color: white;
+}
+
+.my-reservations .resubmit-btn:hover:not(:disabled) {
+  background: #15803d;
+}
+
+/* Disabled state */
+.my-reservations .view-btn:disabled,
+.my-reservations .edit-btn:disabled,
+.my-reservations .delete-btn:disabled,
+.my-reservations .cancel-btn:disabled,
+.my-reservations .resubmit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   EMPTY STATE
+   ============================================ */
+
+.my-reservations .no-reservations {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
-  color: #6b7280;
-  font-size: 1.1rem;
-  font-style: italic;
-  padding: 20px;
+  color: #9ca3af;
+  font-size: 0.9rem;
+  padding: 40px 20px;
 }
 
-/* Pagination */
-.pagination {
+/* ============================================
+   PAGINATION
+   ============================================ */
+
+.my-reservations .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   margin-top: 20px;
-  padding: 20px;
+  padding: 16px;
 }
 
-.pagination button {
+.my-reservations .pagination button {
   padding: 8px 16px;
-  border: 1px solid #d1d5db;
+  border: 1px solid #e5e7eb;
   background: white;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.95rem;
-  transition: all 0.2s;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  transition: all 0.15s ease;
 }
 
-.pagination button:hover:not(:disabled) {
+.my-reservations .pagination button:hover:not(:disabled) {
   background: #f9fafb;
-  border-color: #9ca3af;
+  border-color: #d1d5db;
 }
 
-.pagination button:disabled {
+.my-reservations .pagination button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.page-info {
+.my-reservations .page-info {
   color: #6b7280;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
 }
 
-/* Details/Cancel Modal */
-.details-modal-overlay {
+/* ============================================
+   DETAILS MODAL
+   ============================================ */
+
+.my-reservations .details-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   padding: 20px;
+  backdrop-filter: blur(2px);
 }
 
-.details-modal {
+.my-reservations .details-modal {
   background: white;
-  border-radius: 8px;
-  padding: 30px;
-  max-width: 800px;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 600px;
   width: 100%;
-  max-height: 90vh;
+  max-height: 85vh;
   overflow-y: auto;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
 }
 
-.details-modal h2 {
-  margin: 0 0 25px 0;
-  color: #333;
+.my-reservations .details-modal h2 {
+  margin: 0 0 20px 0;
+  color: #1f2937;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
-.reservation-details {
+.my-reservations .reservation-details {
   background: #f9fafb;
-  padding: 20px;
-  border-radius: 6px;
+  padding: 16px;
+  border-radius: 8px;
   margin-bottom: 20px;
 }
 
-.detail-row {
+.my-reservations .detail-row {
   display: flex;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
+  font-size: 0.875rem;
 }
 
-.detail-row:last-child {
+.my-reservations .detail-row:last-child {
   margin-bottom: 0;
 }
 
-.detail-row label {
+.my-reservations .detail-row label {
   font-weight: 600;
-  color: #374151;
-  min-width: 140px;
-  margin-right: 15px;
+  color: #6b7280;
+  min-width: 120px;
+  margin-right: 12px;
+  flex-shrink: 0;
 }
 
-.detail-row div {
-  color: #111827;
+.my-reservations .detail-row div {
+  color: #1f2937;
   flex: 1;
 }
 
-.rejection-text {
+.my-reservations .rejection-text {
   color: #dc2626;
-  font-weight: 500;
 }
 
-.cancel-text {
+.my-reservations .cancel-text {
   color: #6b7280;
   font-style: italic;
 }
 
-.cancel-section {
+.my-reservations .delegation-note {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+/* Cancel section */
+.my-reservations .cancel-section {
   margin-bottom: 20px;
 }
 
-.cancel-section label {
+.my-reservations .cancel-section label {
   display: block;
   font-weight: 500;
   color: #374151;
   margin-bottom: 8px;
+  font-size: 0.875rem;
 }
 
-.cancel-section textarea {
+.my-reservations .cancel-section textarea {
   width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 1rem;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.875rem;
   resize: vertical;
   min-height: 80px;
+  font-family: inherit;
 }
 
-.cancel-section textarea:focus {
+.my-reservations .cancel-section textarea:focus {
   outline: none;
-  border-color: #0078d4;
-  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
 }
 
-/* Modal Actions */
-.modal-actions {
+/* Modal actions */
+.my-reservations .modal-actions {
   display: flex;
-  gap: 15px;
+  gap: 12px;
   justify-content: flex-end;
-  padding-top: 20px;
-  margin-top: 20px;
+  padding-top: 16px;
   border-top: 1px solid #e5e7eb;
 }
 
-.confirm-cancel-btn,
-.close-btn {
+.my-reservations .confirm-cancel-btn,
+.my-reservations .close-btn {
   padding: 10px 20px;
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
 }
 
-.confirm-cancel-btn {
-  background: #ef4444;
+.my-reservations .confirm-cancel-btn {
+  background: #dc2626;
   color: white;
 }
 
-.confirm-cancel-btn:hover:not(:disabled) {
-  background: #dc2626;
+.my-reservations .confirm-cancel-btn:hover:not(:disabled) {
+  background: #b91c1c;
 }
 
-.confirm-cancel-btn:disabled {
+.my-reservations .confirm-cancel-btn:disabled {
   background: #d1d5db;
   cursor: not-allowed;
 }
 
-.close-btn {
+.my-reservations .close-btn {
   background: white;
   color: #374151;
-  border: 1px solid #d1d5db;
+  border: 1px solid #e5e7eb;
 }
 
-.close-btn:hover:not(:disabled) {
+.my-reservations .close-btn:hover:not(:disabled) {
   background: #f9fafb;
-  border-color: #9ca3af;
+  border-color: #d1d5db;
 }
 
-/* Responsive Design */
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+
 @media (max-width: 1100px) {
   .my-reservations .reservations-table-container {
     overflow-x: auto;
   }
-
-  .my-reservations .reservations-table {
-    min-width: 1000px;
-  }
 }
 
 @media (max-width: 768px) {
+  .my-reservations {
+    padding: 16px;
+  }
+
   .my-reservations .tabs {
-    gap: 8px;
+    gap: 6px;
   }
 
   .my-reservations .tab {
-    padding: 6px 10px;
-    font-size: 0.85rem;
+    padding: 6px 12px;
+    font-size: 0.8rem;
   }
 
   .my-reservations .reservations-table-container {
-    height: 500px;
-  }
-
-  .my-reservations .reservations-table tbody {
-    min-height: 400px;
+    max-height: 500px;
   }
 
   .my-reservations .modal-actions {
