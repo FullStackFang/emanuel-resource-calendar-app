@@ -14,6 +14,7 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
+const errorLoggingService = require('./services/errorLoggingService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
@@ -55,6 +56,13 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 app.use(express.json());
+
+// Request ID middleware - adds unique ID to each request for tracking
+app.use((req, res, next) => {
+  req.requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
 
 // Configure multer for file uploads (memory storage for CSV files)
 const upload = multer({
@@ -1636,6 +1644,9 @@ async function connectToDatabase() {
     // Initialize email service with database connection
     emailService.setDbConnection(db);
     emailTemplates.setDbConnection(db);
+
+    // Initialize error logging service with database connection
+    errorLoggingService.setDbConnection(db);
 
     // Create indexes for new unified collections
     await createUnifiedEventIndexes();
@@ -18979,6 +18990,407 @@ app.delete('/api/ai/chat', verifyToken, (req, res) => {
 
 // ============================================================================
 // END AI CHAT ENDPOINTS
+// ============================================================================
+
+// ============================================================================
+// ERROR LOGGING AND REPORTING ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/report-issue - Submit user issue report
+ * Authenticated endpoint for logged-in users to report issues
+ */
+app.post('/api/report-issue', verifyToken, async (req, res) => {
+  try {
+    const { description, category, browserContext, currentUrl, recentErrors } = req.body;
+
+    if (!description || description.trim().length === 0) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+
+    // Build user context from token
+    const userContext = {
+      userId: req.user.oid || req.user.userId,
+      email: req.user.preferred_username || req.user.email,
+      name: req.user.name || req.user.displayName,
+      isAdmin: false // Will be checked below
+    };
+
+    // Check if user is admin
+    if (usersCollection) {
+      const userDoc = await usersCollection.findOne({ userId: userContext.userId });
+      userContext.isAdmin = userDoc?.isAdmin || false;
+    }
+
+    // Log the user report
+    const reportDoc = await errorLoggingService.logUserReport({
+      description: description.trim(),
+      source: 'frontend',
+      userDescription: description.trim(),
+      category: category || 'general',
+      browserContext,
+      currentUrl,
+      recentErrors: Array.isArray(recentErrors) ? recentErrors.join('\n---\n') : recentErrors
+    }, userContext);
+
+    if (!reportDoc) {
+      return res.status(500).json({ error: 'Failed to log report' });
+    }
+
+    // Check if we should send notification to admins
+    const settings = await errorLoggingService.getErrorSettings();
+    const shouldNotify = await errorLoggingService.shouldNotifyAdmin(reportDoc, settings);
+
+    if (shouldNotify) {
+      const adminPanelUrl = `${webAppURL}/admin/error-logs`;
+      const notifyResult = await emailService.sendErrorNotification(reportDoc, db, adminPanelUrl);
+      if (notifyResult.success) {
+        await errorLoggingService.markNotificationSent(reportDoc._id, reportDoc.fingerprint);
+      }
+    }
+
+    // Send acknowledgment to user
+    if (userContext.email) {
+      await emailService.sendUserReportAcknowledgment(reportDoc, userContext);
+    }
+
+    res.status(201).json({
+      success: true,
+      correlationId: reportDoc.correlationId,
+      message: 'Issue report submitted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error submitting issue report:', error);
+    res.status(500).json({ error: 'Failed to submit issue report' });
+  }
+});
+
+/**
+ * POST /api/log-error - Log frontend error
+ * Authenticated endpoint for frontend to report caught errors
+ */
+app.post('/api/log-error', verifyToken, async (req, res) => {
+  try {
+    const { message, stack, componentStack, errorType, browserContext, currentUrl, severity } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Error message is required' });
+    }
+
+    // Build user context from token
+    const userContext = {
+      userId: req.user.oid || req.user.userId,
+      email: req.user.preferred_username || req.user.email,
+      name: req.user.name || req.user.displayName
+    };
+
+    // Log the error
+    const errorDoc = await errorLoggingService.logError({
+      type: 'error',
+      severity: severity || 'high',
+      source: 'frontend',
+      message,
+      stack,
+      componentStack,
+      errorType: errorType || 'frontend_error',
+      endpoint: currentUrl
+    }, {
+      userContext,
+      browserContext,
+      requestId: req.requestId
+    });
+
+    if (!errorDoc) {
+      return res.status(500).json({ error: 'Failed to log error' });
+    }
+
+    // Check if we should notify admins (for critical errors)
+    if (!errorDoc.deduplicated) {
+      const settings = await errorLoggingService.getErrorSettings();
+      const shouldNotify = await errorLoggingService.shouldNotifyAdmin(errorDoc, settings);
+
+      if (shouldNotify) {
+        const adminPanelUrl = `${webAppURL}/admin/error-logs`;
+        const notifyResult = await emailService.sendErrorNotification(errorDoc, db, adminPanelUrl);
+        if (notifyResult.success) {
+          await errorLoggingService.markNotificationSent(errorDoc._id, errorDoc.fingerprint);
+        }
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      correlationId: errorDoc.correlationId
+    });
+
+  } catch (error) {
+    logger.error('Error logging frontend error:', error);
+    res.status(500).json({ error: 'Failed to log error' });
+  }
+});
+
+/**
+ * GET /api/admin/error-logs - List error logs with filters
+ * Admin-only endpoint
+ */
+app.get('/api/admin/error-logs', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { type, severity, source, reviewed, startDate, endDate, search, page = 1, limit = 50 } = req.query;
+
+    const filters = {};
+    if (type) filters.type = type;
+    if (severity) filters.severity = severity.split(',');
+    if (source) filters.source = source;
+    if (reviewed !== undefined) filters.reviewed = reviewed === 'true';
+    if (startDate) filters.startDate = startDate;
+    if (endDate) filters.endDate = endDate;
+    if (search) filters.search = search;
+
+    const pagination = {
+      page: parseInt(page),
+      limit: Math.min(parseInt(limit), 100)
+    };
+
+    const { errors, total } = await errorLoggingService.getErrors(filters, pagination);
+
+    res.json({
+      errors,
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+      totalPages: Math.ceil(total / pagination.limit)
+    });
+
+  } catch (error) {
+    logger.error('Error fetching error logs:', error);
+    res.status(500).json({ error: 'Failed to fetch error logs' });
+  }
+});
+
+/**
+ * GET /api/admin/error-logs/stats - Get error statistics
+ * Admin-only endpoint
+ */
+app.get('/api/admin/error-logs/stats', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const stats = await errorLoggingService.getErrorStats();
+    res.json(stats);
+
+  } catch (error) {
+    logger.error('Error fetching error stats:', error);
+    res.status(500).json({ error: 'Failed to fetch error statistics' });
+  }
+});
+
+/**
+ * GET /api/admin/error-logs/:id - Get error details
+ * Admin-only endpoint
+ */
+app.get('/api/admin/error-logs/:id', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const errorDoc = await errorLoggingService.getErrorById(req.params.id);
+    if (!errorDoc) {
+      return res.status(404).json({ error: 'Error log not found' });
+    }
+
+    res.json(errorDoc);
+
+  } catch (error) {
+    logger.error('Error fetching error details:', error);
+    res.status(500).json({ error: 'Failed to fetch error details' });
+  }
+});
+
+/**
+ * PUT /api/admin/error-logs/:id/review - Mark error as reviewed
+ * Admin-only endpoint
+ */
+app.put('/api/admin/error-logs/:id/review', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { reviewed, resolution, notes } = req.body;
+
+    const reviewer = {
+      userId: userId,
+      email: req.user.preferred_username || req.user.email,
+      name: req.user.name || req.user.displayName
+    };
+
+    const updatedDoc = await errorLoggingService.updateErrorReview(
+      req.params.id,
+      { reviewed, resolution, notes },
+      reviewer
+    );
+
+    if (!updatedDoc) {
+      return res.status(404).json({ error: 'Error log not found' });
+    }
+
+    res.json(updatedDoc);
+
+  } catch (error) {
+    logger.error('Error updating error review:', error);
+    res.status(500).json({ error: 'Failed to update error review' });
+  }
+});
+
+/**
+ * GET /api/admin/error-settings - Get error notification settings
+ * Admin-only endpoint
+ */
+app.get('/api/admin/error-settings', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const settings = await errorLoggingService.getErrorSettings();
+    res.json(settings);
+
+  } catch (error) {
+    logger.error('Error fetching error settings:', error);
+    res.status(500).json({ error: 'Failed to fetch error settings' });
+  }
+});
+
+/**
+ * PUT /api/admin/error-settings - Update error notification settings
+ * Admin-only endpoint
+ */
+app.put('/api/admin/error-settings', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { notificationsEnabled, notifyOnSeverity, emailCooldownMinutes, dailyEmailLimit, retentionDays } = req.body;
+
+    const updatedSettings = await errorLoggingService.updateErrorSettings({
+      notificationsEnabled,
+      notifyOnSeverity,
+      emailCooldownMinutes,
+      dailyEmailLimit,
+      retentionDays
+    });
+
+    res.json(updatedSettings);
+
+  } catch (error) {
+    logger.error('Error updating error settings:', error);
+    res.status(500).json({ error: 'Failed to update error settings' });
+  }
+});
+
+// ============================================================================
+// ERROR LOGGING MIDDLEWARE (must be after all routes)
+// ============================================================================
+
+/**
+ * Error logging middleware - logs unhandled errors to database
+ * This catches errors thrown by route handlers
+ */
+app.use(async (err, req, res, next) => {
+  // Build user context if available
+  let userContext = null;
+  if (req.user) {
+    userContext = {
+      userId: req.user.oid || req.user.userId,
+      email: req.user.preferred_username || req.user.email,
+      name: req.user.name || req.user.displayName
+    };
+  }
+
+  // Log the error
+  const errorDoc = await errorLoggingService.logError({
+    type: 'error',
+    severity: errorLoggingService.determineSeverity(err.statusCode || 500, err.name),
+    source: 'api',
+    message: err.message || 'Internal server error',
+    stack: err.stack,
+    endpoint: `${req.method} ${req.path}`,
+    statusCode: err.statusCode || 500
+  }, {
+    userContext,
+    requestId: req.requestId,
+    requestContext: {
+      method: req.method,
+      path: req.path,
+      query: req.query,
+      body: req.body
+    }
+  });
+
+  // Check if we should notify admins
+  if (errorDoc && !errorDoc.deduplicated) {
+    const settings = await errorLoggingService.getErrorSettings();
+    const shouldNotify = await errorLoggingService.shouldNotifyAdmin(errorDoc, settings);
+
+    if (shouldNotify) {
+      const adminPanelUrl = `${webAppURL}/admin/error-logs`;
+      const notifyResult = await emailService.sendErrorNotification(errorDoc, db, adminPanelUrl);
+      if (notifyResult.success) {
+        await errorLoggingService.markNotificationSent(errorDoc._id, errorDoc.fingerprint);
+      }
+    }
+  }
+
+  // Send error response
+  const statusCode = err.statusCode || 500;
+  res.status(statusCode).json({
+    error: err.message || 'Internal server error',
+    requestId: req.requestId,
+    correlationId: errorDoc?.correlationId
+  });
+});
+
+// ============================================================================
+// END ERROR LOGGING ENDPOINTS
 // ============================================================================
 
 process.on('SIGINT', async () => {

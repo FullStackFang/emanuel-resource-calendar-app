@@ -555,6 +555,68 @@ async function sendEditRequestRejectedNotification(editRequest, rejectionReason 
   });
 }
 
+// =============================================================================
+// ERROR NOTIFICATION EMAIL FUNCTIONS
+// =============================================================================
+
+/**
+ * Send error notification email to admins
+ * @param {Object} errorDoc - Error document from errorLoggingService
+ * @param {Object} db - MongoDB database connection
+ * @param {string} adminPanelUrl - Optional URL to admin error panel
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendErrorNotification(errorDoc, db, adminPanelUrl = '') {
+  // Get admin emails
+  const adminEmails = await getAdminEmails(db);
+
+  if (!adminEmails || adminEmails.length === 0) {
+    logger.warn('No admin emails configured for error notification', {
+      correlationId: errorDoc.correlationId
+    });
+    return { success: false, error: 'No admin recipients' };
+  }
+
+  try {
+    const { subject, html } = await emailTemplates.generateErrorNotification(errorDoc, adminPanelUrl);
+
+    return sendEmail(adminEmails, subject, html, {
+      correlationId: errorDoc.correlationId
+    });
+  } catch (error) {
+    logger.error('Failed to send error notification:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send acknowledgment email to user who submitted an issue report
+ * @param {Object} reportDoc - User report document
+ * @param {Object} userContext - User context with email
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendUserReportAcknowledgment(reportDoc, userContext = {}) {
+  const recipientEmail = userContext.email;
+
+  if (!recipientEmail || !validateEmail(recipientEmail)) {
+    logger.warn('No valid email for user report acknowledgment', {
+      correlationId: reportDoc.correlationId
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  try {
+    const { subject, html } = await emailTemplates.generateUserReportAcknowledgment(reportDoc, userContext);
+
+    return sendEmail(recipientEmail, subject, html, {
+      correlationId: reportDoc.correlationId
+    });
+  } catch (error) {
+    logger.error('Failed to send user report acknowledgment:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 /**
  * Record email send in communication history
  * @param {Object} collection - MongoDB collection
@@ -622,5 +684,9 @@ module.exports = {
   sendEditRequestSubmittedConfirmation,
   sendAdminEditRequestAlert,
   sendEditRequestApprovedNotification,
-  sendEditRequestRejectedNotification
+  sendEditRequestRejectedNotification,
+
+  // Error notification helpers
+  sendErrorNotification,
+  sendUserReportAcknowledgment
 };

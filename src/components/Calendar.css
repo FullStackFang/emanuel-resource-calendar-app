@@ -953,3 +953,17 @@
   width: 0;
   flex-shrink: 0;
 }
+
+/* Nested Events Styling for Week/Day Views */
+.event-item.nested-event {
+  position: relative;
+}
+
+.event-item.parent-event {
+  border-left-width: 3px !important;
+  border-left-color: #4aba6d !important;
+}
+
+.event-item.parent-event:hover {
+  background-color: rgba(74, 186, 109, 0.15) !important;
+}

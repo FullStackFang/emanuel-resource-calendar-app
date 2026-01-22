@@ -256,12 +256,28 @@
   .day-event-panel {
     width: 250px;
   }
-  
+
   .panel-header {
     padding: 16px;
   }
-  
+
   .panel-content {
     padding: 16px;
   }
+}
+
+/* Nested Events Styling */
+.panel-event-item.nested-event {
+  position: relative;
+  border-left-color: #9ca3af !important;
+}
+
+.panel-event-item.parent-event {
+  border-left-width: 4px !important;
+  border-left-color: #4aba6d !important;
+}
+
+.panel-event-item.parent-event .event-time {
+  color: #166534;
+  font-weight: 600;
 }

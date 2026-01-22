@@ -19,8 +19,10 @@ import LocationReview from './components/LocationReview';
 import ReservationRequests from './components/ReservationRequests';
 import FeatureManagement from './components/FeatureManagement';
 import EmailTestAdmin from './components/EmailTestAdmin';
+import ErrorLogAdmin from './components/ErrorLogAdmin';
 import AIChat from './components/AIChat';
 import ReviewModal from './components/shared/ReviewModal';
+import ErrorReportModal from './components/shared/ErrorReportModal';
 import { useReviewModal } from './hooks/useReviewModal';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navigation from './components/Navigation';
@@ -66,6 +68,24 @@ function App() {
   const [draftId, setDraftId] = useState(null);
   const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
   const [savingDraftInProgress, setSavingDraftInProgress] = useState(false);
+
+  // Error reporting modal state
+  const [pendingError, setPendingError] = useState(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+
+  // Expose API token and error modal setter globally for error handlers
+  useEffect(() => {
+    window.__apiToken = apiToken;
+    window.__showErrorModal = (errorInfo) => {
+      setPendingError(errorInfo);
+      setShowErrorModal(true);
+    };
+
+    return () => {
+      window.__apiToken = null;
+      window.__showErrorModal = null;
+    };
+  }, [apiToken]);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
@@ -407,6 +427,7 @@ function App() {
                 <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                 <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
+                <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
 
@@ -817,6 +838,17 @@ function App() {
             </div>
           )}
         </main>
+
+        {/* Global Error Report Modal */}
+        <ErrorReportModal
+          isOpen={showErrorModal}
+          onClose={() => {
+            setShowErrorModal(false);
+            setPendingError(null);
+          }}
+          error={pendingError}
+          apiToken={apiToken}
+        />
       </div>
         </RoleSimulationProvider>
       </Router>

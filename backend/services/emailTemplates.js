@@ -32,7 +32,10 @@ const TEMPLATE_IDS = {
   EDIT_REQUEST_SUBMITTED: 'edit-request-submitted',
   ADMIN_EDIT_REQUEST_ALERT: 'admin-edit-request-alert',
   EDIT_REQUEST_APPROVED: 'edit-request-approved',
-  EDIT_REQUEST_REJECTED: 'edit-request-rejected'
+  EDIT_REQUEST_REJECTED: 'edit-request-rejected',
+  // Error notification templates
+  ERROR_NOTIFICATION: 'error-notification',
+  USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
 };
 
 /**
@@ -548,6 +551,141 @@ const DEFAULT_TEMPLATES = {
   Thank you for your understanding.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+  },
+
+  // =========================================================================
+  // ERROR NOTIFICATION TEMPLATES
+  // =========================================================================
+
+  [TEMPLATE_IDS.ERROR_NOTIFICATION]: {
+    id: TEMPLATE_IDS.ERROR_NOTIFICATION,
+    name: 'Error Notification',
+    description: 'Sent to admins when a critical error occurs',
+    subject: '[{{severity}}] System Error: {{message}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px; text-transform: uppercase;">{{severity}}</span>
+  System Error Detected
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  An error has been detected in the Temple Emanuel Resource Calendar application that requires your attention.
+</p>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Error Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Severity:</td>
+      <td style="padding: 8px 0; color: #c53030; font-weight: 600; text-transform: uppercase;">{{severity}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Source:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{source}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Message:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{message}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Timestamp:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{timestamp}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Correlation ID:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-family: monospace;">{{correlationId}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#endpoint}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Request Info</h4>
+  <p style="margin: 0; color: #4a5568; font-family: monospace;">{{endpoint}}</p>
+</div>
+{{/endpoint}}
+
+{{#userEmail}}
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">User Context</h4>
+  <p style="margin: 0; color: #4a5568;">User: {{userEmail}}</p>
+</div>
+{{/userEmail}}
+
+{{#stack}}
+<div style="background-color: #f7fafc; padding: 15px 20px; margin: 20px 0; border-radius: 4px;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Stack Trace</h4>
+  <pre style="margin: 0; color: #4a5568; font-size: 12px; font-family: monospace; white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">{{stack}}</pre>
+</div>
+{{/stack}}
+
+{{#adminPanelUrl}}
+<p style="text-align: center; margin: 30px 0;">
+  <a href="{{adminPanelUrl}}" style="display: inline-block; background-color: #c53030; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+    View Error Details
+  </a>
+</p>
+{{/adminPanelUrl}}
+
+<p style="color: #718096; font-size: 14px;">
+  This error has been logged and can be reviewed in the admin dashboard.
+</p>`,
+    variables: ['severity', 'source', 'message', 'timestamp', 'correlationId', 'endpoint', 'userEmail', 'stack', 'adminPanelUrl']
+  },
+
+  [TEMPLATE_IDS.USER_REPORT_ACKNOWLEDGMENT]: {
+    id: TEMPLATE_IDS.USER_REPORT_ACKNOWLEDGMENT,
+    name: 'User Report Acknowledgment',
+    description: 'Sent to user when they submit an issue report',
+    subject: 'Issue Report Received - {{correlationId}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">RECEIVED</span>
+  Your Issue Report Has Been Received
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{userName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Thank you for reporting an issue with the Temple Emanuel Resource Calendar. Your feedback helps us improve the application.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Report Summary</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Reference:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-family: monospace;">{{correlationId}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Submitted:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{timestamp}}</td>
+    </tr>
+    {{#category}}
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Category:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{category}}</td>
+    </tr>
+    {{/category}}
+  </table>
+</div>
+
+{{#userDescription}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Your Description:</h4>
+  <p style="margin: 0; color: #4a5568;">{{userDescription}}</p>
+</div>
+{{/userDescription}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  <strong>What happens next?</strong><br>
+  Our technical team has been notified and will review your report. If we need additional information, we will contact you.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Please keep your reference number (<strong>{{correlationId}}</strong>) for future correspondence about this issue.
+</p>`,
+    variables: ['userName', 'correlationId', 'timestamp', 'category', 'userDescription']
   }
 };
 
@@ -958,6 +1096,46 @@ async function generateEditRequestRejectedNotification(editRequest, rejectionRea
   return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_REJECTED, variables);
 }
 
+// =============================================================================
+// ERROR NOTIFICATION GENERATOR FUNCTIONS
+// =============================================================================
+
+/**
+ * Generate error notification email for admins
+ * @param {Object} errorData - Error document from errorLoggingService
+ * @param {string} adminPanelUrl - URL to error details in admin panel
+ */
+async function generateErrorNotification(errorData, adminPanelUrl = '') {
+  const variables = {
+    severity: errorData.severity ? errorData.severity.toUpperCase() : 'HIGH',
+    source: errorData.source || 'backend',
+    message: escapeHtml(errorData.message || 'Unknown error'),
+    timestamp: formatDateTime(errorData.createdAt || new Date()),
+    correlationId: errorData.correlationId || 'N/A',
+    endpoint: errorData.endpoint ? escapeHtml(errorData.endpoint) : '',
+    userEmail: errorData.userContext?.email ? escapeHtml(errorData.userContext.email) : '',
+    stack: errorData.stack ? escapeHtml(errorData.stack.substring(0, 2000)) : '',
+    adminPanelUrl: adminPanelUrl ? escapeHtml(adminPanelUrl) : ''
+  };
+  return generateFromTemplate(TEMPLATE_IDS.ERROR_NOTIFICATION, variables);
+}
+
+/**
+ * Generate user report acknowledgment email
+ * @param {Object} reportData - User report document
+ * @param {Object} userContext - User context
+ */
+async function generateUserReportAcknowledgment(reportData, userContext = {}) {
+  const variables = {
+    userName: escapeHtml(userContext.name || userContext.email || 'User'),
+    correlationId: reportData.correlationId || 'N/A',
+    timestamp: formatDateTime(reportData.createdAt || new Date()),
+    category: reportData.userSelectedCategory ? escapeHtml(reportData.userSelectedCategory) : '',
+    userDescription: reportData.userDescription ? escapeHtml(reportData.userDescription) : ''
+  };
+  return generateFromTemplate(TEMPLATE_IDS.USER_REPORT_ACKNOWLEDGMENT, variables);
+}
+
 /**
  * Preview a template with sample data
  */
@@ -1025,5 +1203,9 @@ module.exports = {
   generateEditRequestSubmittedConfirmation,
   generateAdminEditRequestAlert,
   generateEditRequestApprovedNotification,
-  generateEditRequestRejectedNotification
+  generateEditRequestRejectedNotification,
+
+  // Error notification generator functions
+  generateErrorNotification,
+  generateUserReportAcknowledgment
 };

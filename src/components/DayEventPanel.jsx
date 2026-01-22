@@ -103,26 +103,54 @@ const DayEventPanel = memo(({
           </div>
         ) : (
           <div className="events-list">
-            {sortEventsByStartTime(dayEvents)
-              .map(event => {
+            {(() => {
+              const sortedEvents = sortEventsByStartTime(dayEvents);
+
+              // Calculate overlap counts for each event
+              const getOverlapInfo = (event, allEvents) => {
+                const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+                const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+
+                const overlapping = allEvents.filter(other => {
+                  if (other.eventId === event.eventId || other.id === event.id) return false;
+                  const otherStart = new Date(other.start?.dateTime || other.startDateTime);
+                  const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
+                  return eventStart < otherEnd && eventEnd > otherStart;
+                });
+
+                const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
+                const isParentEvent = event.isAllowedConcurrent ?? false;
+
+                return {
+                  overlapCount: overlapping.length,
+                  hasParentEvent,
+                  isParentEvent
+                };
+              };
+
+              return sortedEvents.map((event) => {
+                const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                 const isPending = event.status === 'pending';
                 const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
                 // Get primary category for color
                 const eventCategories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
                 const primaryCategory = eventCategories[0] || 'Uncategorized';
-                const borderColor = groupBy === 'categories'
-                  ? getCategoryColor(primaryCategory)
-                  : getLocationColor(event.location?.displayName || 'Unspecified');
+                const borderColor = isParentEvent
+                  ? '#4aba6d'
+                  : (groupBy === 'categories'
+                    ? getCategoryColor(primaryCategory)
+                    : getLocationColor(event.location?.displayName || 'Unspecified'));
 
                 return (
                 <div
                   key={`${event.id}-${userTimezone}`} // Include timezone in key to force re-render
-                  className={`panel-event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
+                  className={`panel-event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
                   onClick={(e) => onEventClick && onEventClick(event, e)}
                   style={{
                     position: 'relative',
                     borderLeft: `4px ${isPending ? 'dashed' : 'solid'} ${borderColor}`,
-                    opacity: isPending ? 0.85 : 1
+                    opacity: isPending ? 0.85 : 1,
+                    backgroundColor: isParentEvent ? 'rgba(74, 186, 109, 0.08)' : undefined
                   }}
                 >
                   {(event.seriesMasterId || event.graphData?.seriesMasterId ||
@@ -139,12 +167,30 @@ const DayEventPanel = memo(({
                       ↻
                     </div>
                   )}
+                  {/* Overlap badge */}
+                  {overlapCount > 0 && (
+                    <div style={{
+                      display: 'inline-block',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      color: hasParentEvent ? '#166534' : '#9a3412',
+                      backgroundColor: hasParentEvent ? '#dcfce7' : '#ffedd5',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}
+                    title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
+                    >
+                      {hasParentEvent ? `+${overlapCount} nested` : `⚠️ ${overlapCount + 1} overlapping`}
+                    </div>
+                  )}
                   <div className="event-time">
+                    {isParentEvent && <span style={{ marginRight: '4px' }}>🔄</span>}
                     {formatEventTimeWithContext(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
                     {' - '}
                     {formatEventTimeWithContext(event.end.dateTime, event.subject, event.end?.timeZone || event.graphData?.end?.timeZone)}
                   </div>
-                  
+
                   <div className="event-subject">{event.subject}</div>
                   
                   {event.location?.displayName && (
@@ -233,7 +279,8 @@ const DayEventPanel = memo(({
                   )}
                 </div>
               );
-              })}
+              });
+            })()}
           </div>
         )}
       </div>

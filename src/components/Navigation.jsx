@@ -205,6 +205,15 @@ export default function Navigation({ apiToken }) {
                     Email Management
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/admin/error-logs"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Error Logs
+                  </NavLink>
+                </li>
               </ul>
             )}
           </li>

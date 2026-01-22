@@ -210,9 +210,32 @@ const DayView = memo(({
                 // Sort events by start time
                 const sortedEvents = sortEventsByStartTime(groupEvents);
 
+                // Calculate overlap counts for each event
+                const getOverlapInfo = (event, allEvents) => {
+                  const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+                  const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+
+                  const overlapping = allEvents.filter(other => {
+                    if (other.eventId === event.eventId) return false;
+                    const otherStart = new Date(other.start?.dateTime || other.startDateTime);
+                    const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
+                    return eventStart < otherEnd && eventEnd > otherStart;
+                  });
+
+                  const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
+                  const isParentEvent = event.isAllowedConcurrent ?? false;
+
+                  return {
+                    overlapCount: overlapping.length,
+                    hasParentEvent,
+                    isParentEvent
+                  };
+                };
+
                 return (
                   <div className="event-container">
                     {sortedEvents.map((event) => {
+                      const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                       // Determine which times to use (registration vs actual event times)
                       let startDateTime, endDateTime;
                       if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
@@ -291,11 +314,11 @@ const DayView = memo(({
                       return (
                         <div
                           key={event.eventId}
-                          className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
+                          className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
                           style={{
                             position: 'relative',
-                            backgroundColor: transparentColor,
-                            borderLeft: `3px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${hasPendingEditRequest ? '#8b5cf6' : eventColor}`,
+                            backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
+                            borderLeft: `3px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                             padding: '8px 10px',
                             margin: '2px 0',
                             cursor: 'pointer',
@@ -316,8 +339,42 @@ const DayView = memo(({
                           }}
                           onClick={(e) => handleEventClick(event, e)}
                         >
-                          <div style={{ lineHeight: '1.3' }}>
-                            <div style={{ 
+                          {/* Overlap badge */}
+                          {overlapCount > 0 && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '4px',
+                              left: '4px',
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: hasParentEvent ? '#166534' : '#9a3412',
+                              backgroundColor: hasParentEvent ? '#dcfce7' : '#ffedd5',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              lineHeight: 1,
+                              zIndex: 5
+                            }}
+                            title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
+                            >
+                              {hasParentEvent ? `+${overlapCount}` : `⚠️${overlapCount + 1}`}
+                            </div>
+                          )}
+                          {/* Parent event indicator */}
+                          {isParentEvent && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '4px',
+                              left: overlapCount > 0 ? '45px' : '4px',
+                              fontSize: '11px',
+                              lineHeight: 1
+                            }}
+                            title="Allows concurrent events"
+                            >
+                              🔄
+                            </div>
+                          )}
+                          <div style={{ lineHeight: '1.3', marginTop: overlapCount > 0 || isParentEvent ? '14px' : '0' }}>
+                            <div style={{
                               fontSize: '11px',
                               color: '#666',
                               fontWeight: '500',

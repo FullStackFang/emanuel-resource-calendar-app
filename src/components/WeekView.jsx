@@ -199,9 +199,32 @@ const WeekView = memo(({
                   // Sort events by start time
                   const sortedEvents = sortEventsByStartTime(dayEvents);
 
+                  // Calculate overlap counts for each event
+                  const getOverlapInfo = (event, allEvents) => {
+                    const eventStart = new Date(event.start?.dateTime || event.startDateTime);
+                    const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
+
+                    const overlapping = allEvents.filter(other => {
+                      if (other.eventId === event.eventId) return false;
+                      const otherStart = new Date(other.start?.dateTime || other.startDateTime);
+                      const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
+                      return eventStart < otherEnd && eventEnd > otherStart;
+                    });
+
+                    const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
+                    const isParentEvent = event.isAllowedConcurrent ?? false;
+
+                    return {
+                      overlapCount: overlapping.length,
+                      hasParentEvent,
+                      isParentEvent
+                    };
+                  };
+
                   return (
                     <div className="event-container">
                       {sortedEvents.map((event) => {
+                        const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                         // Determine which times to use (registration vs actual event times)
                         let startDateTime, endDateTime;
                         if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart && event.registrationEnd) {
@@ -279,11 +302,11 @@ const WeekView = memo(({
                         return (
                           <div
                             key={event.eventId}
-                            className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''}`}
+                            className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
                             style={{
                               position: 'relative',
-                              backgroundColor: transparentColor,
-                              borderLeft: `2px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${hasPendingEditRequest ? '#8b5cf6' : eventColor}`,
+                              backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.12) : transparentColor,
+                              borderLeft: `2px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
                               margin: '1px 0',
                               cursor: 'pointer',
@@ -318,8 +341,42 @@ const WeekView = memo(({
                                 ↻
                               </div>
                             )}
-                            <div style={{ lineHeight: '1.2' }}>
-                              <div style={{ 
+                            {/* Overlap badge - shows when multiple events at same time */}
+                            {overlapCount > 0 && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: '2px',
+                                fontSize: '8px',
+                                fontWeight: '600',
+                                color: hasParentEvent ? '#166534' : '#9a3412',
+                                backgroundColor: hasParentEvent ? '#dcfce7' : '#ffedd5',
+                                padding: '1px 4px',
+                                borderRadius: '4px',
+                                lineHeight: 1,
+                                zIndex: 5
+                              }}
+                              title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
+                              >
+                                {hasParentEvent ? `+${overlapCount}` : `⚠️${overlapCount + 1}`}
+                              </div>
+                            )}
+                            {/* Parent event indicator */}
+                            {isParentEvent && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: overlapCount > 0 ? '32px' : '2px',
+                                fontSize: '9px',
+                                lineHeight: 1
+                              }}
+                              title="Allows concurrent events"
+                              >
+                                🔄
+                              </div>
+                            )}
+                            <div style={{ lineHeight: '1.2', marginTop: overlapCount > 0 || isParentEvent ? '10px' : '0' }}>
+                              <div style={{
                                 fontSize: viewType === 'month' ? '8px' : '9px',
                                 color: '#666',
                                 fontWeight: '500',
@@ -329,7 +386,7 @@ const WeekView = memo(({
                               }}>
                                 {timeDisplay}
                               </div>
-                              <div style={{ 
+                              <div style={{
                                 fontSize: viewType === 'month' ? '9px' : '10px',
                                 fontWeight: '600',
                                 marginTop: '1px',

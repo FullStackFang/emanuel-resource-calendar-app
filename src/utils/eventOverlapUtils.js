@@ -281,3 +281,82 @@ export const areEventsConflicting = (event1, event2) => {
 
   return !event1AllowsConcurrent && !event2AllowsConcurrent;
 };
+
+/**
+ * Group events for nested display based on overlap and isAllowedConcurrent
+ * Events that overlap with a concurrent-allowed event become its "children"
+ *
+ * @param {Array} events - Array of events (already sorted by start time)
+ * @returns {Array} - Array of event groups: { parent: event|null, children: [events], standalone: boolean }
+ */
+export const groupEventsForNestedDisplay = (events) => {
+  if (!events || events.length === 0) return [];
+
+  const result = [];
+  const processed = new Set();
+
+  // Helper to check if two events overlap in time
+  const eventsOverlap = (e1, e2) => {
+    const start1 = new Date(e1.start?.dateTime || e1.startDateTime);
+    const end1 = new Date(e1.end?.dateTime || e1.endDateTime);
+    const start2 = new Date(e2.start?.dateTime || e2.startDateTime);
+    const end2 = new Date(e2.end?.dateTime || e2.endDateTime);
+    return start1 < end2 && end1 > start2;
+  };
+
+  // First pass: find all concurrent-allowed events and their nested children
+  events.forEach((event, index) => {
+    if (processed.has(event.eventId || event.id)) return;
+
+    const isParent = event.isAllowedConcurrent ?? false;
+
+    if (isParent) {
+      // This is a parent event - find all events that overlap with it
+      const children = [];
+
+      events.forEach((otherEvent, otherIndex) => {
+        if (otherIndex === index) return;
+        if (processed.has(otherEvent.eventId || otherEvent.id)) return;
+
+        if (eventsOverlap(event, otherEvent)) {
+          // This event overlaps with the parent
+          children.push(otherEvent);
+          processed.add(otherEvent.eventId || otherEvent.id);
+        }
+      });
+
+      processed.add(event.eventId || event.id);
+      result.push({
+        parent: event,
+        children: children,
+        standalone: false
+      });
+    }
+  });
+
+  // Second pass: add remaining standalone events
+  events.forEach((event) => {
+    if (processed.has(event.eventId || event.id)) return;
+
+    processed.add(event.eventId || event.id);
+    result.push({
+      parent: null,
+      children: [],
+      standalone: true,
+      event: event
+    });
+  });
+
+  // Sort result by the earliest start time in each group
+  result.sort((a, b) => {
+    const aStart = a.parent
+      ? new Date(a.parent.start?.dateTime || a.parent.startDateTime)
+      : new Date(a.event.start?.dateTime || a.event.startDateTime);
+    const bStart = b.parent
+      ? new Date(b.parent.start?.dateTime || b.parent.startDateTime)
+      : new Date(b.event.start?.dateTime || b.event.startDateTime);
+    return aStart - bStart;
+  });
+
+  return result;
+};
