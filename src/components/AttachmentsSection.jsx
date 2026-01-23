@@ -1,5 +1,6 @@
 // src/components/AttachmentsSection.jsx
 import React, { useState, useEffect } from 'react';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import './AttachmentsSection.css';
 
@@ -13,6 +14,7 @@ export default function AttachmentsSection({
   apiToken,
   readOnly = false
 }) {
+  const { showError, showWarning } = useNotification();
   const [attachments, setAttachments] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
@@ -58,7 +60,7 @@ export default function AttachmentsSection({
 
   const uploadFiles = async (files) => {
     if (!resourceId || !apiToken) {
-      alert(`Please save the ${resourceType} first before uploading files`);
+      showWarning(`Please save the ${resourceType} first before uploading files`);
       return;
     }
 
@@ -95,11 +97,11 @@ export default function AttachmentsSection({
           setAttachments(prev => [...prev, data.attachment]);
         } else {
           const errorData = await response.json();
-          alert(`Failed to upload ${file.name}: ${errorData.error}`);
+          showError(new Error(errorData.error), { context: 'AttachmentsSection.uploadFiles', userMessage: `Failed to upload ${file.name}` });
         }
       } catch (error) {
         console.error('Upload error:', error);
-        alert(`Failed to upload ${file.name}`);
+        showError(error, { context: 'AttachmentsSection.uploadFiles', userMessage: `Failed to upload ${file.name}` });
       } finally {
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
       }
@@ -145,11 +147,11 @@ export default function AttachmentsSection({
         setAttachments(prev => prev.filter(att => att.id !== attachmentId));
       } else {
         const errorData = await response.json();
-        alert(`Failed to delete ${fileName}: ${errorData.error}`);
+        showError(new Error(errorData.error), { context: 'AttachmentsSection.deleteAttachment', userMessage: `Failed to delete ${fileName}` });
       }
     } catch (error) {
       console.error('Failed to delete attachment:', error);
-      alert(`Failed to delete ${fileName}`);
+      showError(error, { context: 'AttachmentsSection.deleteAttachment', userMessage: `Failed to delete ${fileName}` });
     }
   };
 
@@ -197,7 +199,7 @@ export default function AttachmentsSection({
       setShowPreviewModal(true);
     } catch (error) {
       console.error('Preview failed:', error);
-      alert('Failed to load file preview. Please try downloading the file instead.');
+      showError(error, { context: 'AttachmentsSection.handlePreview', userMessage: 'Failed to load file preview. Please try downloading the file instead.' });
     }
   };
 
@@ -233,7 +235,7 @@ export default function AttachmentsSection({
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Failed to download file');
+      showError(error, { context: 'AttachmentsSection.handleDownload', userMessage: 'Failed to download file' });
     }
   };
 

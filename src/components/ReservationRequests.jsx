@@ -1,6 +1,7 @@
 // src/components/ReservationRequests.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -15,6 +16,7 @@ import './ReservationRequests.css';
 export default function ReservationRequests({ apiToken, graphToken }) {
   // Permission check for Approver/Admin role
   const { canApproveReservations, isAdmin } = usePermissions();
+  const { showError, showSuccess, showWarning } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -500,11 +502,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       closeEditRequestModal();
 
       // Show success message
-      alert('Edit request approved. Changes have been applied to the original event.');
+      showSuccess('Edit request approved. Changes have been applied to the original event.');
 
     } catch (error) {
       logger.error('Error approving edit request:', error);
-      alert(`Failed to approve edit request: ${error.message}`);
+      showError(error, { context: 'ReservationRequests.approveEditRequest', userMessage: 'Failed to approve edit request' });
     } finally {
       setApprovingEditRequest(false);
     }
@@ -515,7 +517,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     if (!selectedEditRequest) return;
 
     if (!editRequestRejectionReason.trim()) {
-      alert('Please provide a reason for rejecting the edit request.');
+      showWarning('Please provide a reason for rejecting the edit request.');
       return;
     }
 
@@ -551,7 +553,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
-      alert(`Failed to reject edit request: ${error.message}`);
+      showError(error, { context: 'ReservationRequests.rejectEditRequest', userMessage: 'Failed to reject edit request' });
     } finally {
       setRejectingEditRequest(false);
     }
@@ -570,7 +572,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     if (!targetReservation) {
       logger.error('[ReservationRequests] Could not find reservation with ID:', reservationId);
-      alert('Could not find the selected reservation. It may have been deleted.');
+      showWarning('Could not find the selected reservation. It may have been deleted.');
       return;
     }
 
@@ -825,7 +827,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   
   const handleReject = async (reservation) => {
     if (!actionNotes.trim()) {
-      alert('Please provide a reason for rejection');
+      showWarning('Please provide a reason for rejection');
       return;
     }
     

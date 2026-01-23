@@ -1,5 +1,6 @@
 // src/components/OffsiteLocationModal.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNotification } from '../context/NotificationContext';
 import './RecurrencePatternModal.css'; // Reuse same modal styling
 import './OffsiteLocationModal.css'; // Autocomplete styles
 
@@ -16,6 +17,7 @@ export default function OffsiteLocationModal({
   initialLat = null,
   initialLon = null
 }) {
+  const { showWarning } = useNotification();
   const [name, setName] = useState(initialName);
   const [address, setAddress] = useState(initialAddress);
   const [lat, setLat] = useState(initialLat);
@@ -133,7 +135,7 @@ export default function OffsiteLocationModal({
 
   const handleSave = () => {
     if (!name.trim() || !address.trim()) {
-      alert('Both Offsite Location Name and Address are required');
+      showWarning('Both Offsite Location Name and Address are required');
       return;
     }
     // Pass coordinates along with name and address

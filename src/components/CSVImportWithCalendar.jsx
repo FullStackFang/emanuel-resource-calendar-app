@@ -1,5 +1,6 @@
 // Enhanced CSV Import Component with Calendar Selection and Sync
 import React, { useState, useRef, useEffect } from 'react';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import LoadingSpinner from './shared/LoadingSpinner';
@@ -27,6 +28,7 @@ const FIELD_MAPPINGS_PRESET = {
 };
 
 export default function CSVImportWithCalendar({ apiToken, graphToken }) {
+  const { showError, showWarning } = useNotification();
   const API_BASE_URL = APP_CONFIG.API_BASE_URL;
   const fileInputRef = useRef(null);
 
@@ -135,12 +137,12 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
     const fileName = file.name.toLowerCase();
     if (!fileName.endsWith('.csv')) {
-      alert('Please select a CSV file');
+      showWarning('Please select a CSV file');
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      alert('File size must be less than 10MB');
+      showWarning('File size must be less than 10MB');
       return;
     }
 
@@ -183,7 +185,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
     } catch (error) {
       logger.error('CSV analysis failed:', error);
-      alert('Failed to analyze CSV file: ' + error.message);
+      showError(error, { context: 'CSVImportWithCalendar.analyzeFile', userMessage: 'Failed to analyze CSV file' });
     } finally {
       setAnalyzing(false);
     }
@@ -227,7 +229,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       setStepsCompleted(prev => new Set([...prev, 'calendar']));
       setCurrentStep('mapping');
     } else {
-      alert('Please select a target calendar or disable calendar sync');
+      showWarning('Please select a target calendar or disable calendar sync');
     }
   };
 
@@ -249,7 +251,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
     const missingRequired = requiredFields.filter(field => !mappedFields.includes(field));
 
     if (missingRequired.length > 0) {
-      alert(`Please map required fields: ${missingRequired.join(', ')}`);
+      showWarning(`Please map required fields: ${missingRequired.join(', ')}`);
       return;
     }
 
@@ -297,7 +299,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
     } catch (error) {
       logger.error('Preview generation failed:', error);
-      alert('Failed to generate preview: ' + error.message);
+      showError(error, { context: 'CSVImportWithCalendar.generatePreview', userMessage: 'Failed to generate preview' });
     } finally {
       setPreviewing(false);
     }

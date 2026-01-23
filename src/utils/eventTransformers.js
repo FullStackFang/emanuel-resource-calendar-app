@@ -93,9 +93,9 @@ export function transformEventToFlatStructure(event) {
       const endDT = new Date(endDateTime);
 
       if (!isNaN(startDT.getTime()) && !isNaN(endDT.getTime())) {
-        startDate = startDT.toISOString().split('T')[0];
+        startDate = `${startDT.getFullYear()}-${String(startDT.getMonth() + 1).padStart(2, '0')}-${String(startDT.getDate()).padStart(2, '0')}`;
         startTime = startDT.toTimeString().slice(0, 5);
-        endDate = endDT.toISOString().split('T')[0];
+        endDate = `${endDT.getFullYear()}-${String(endDT.getMonth() + 1).padStart(2, '0')}-${String(endDT.getDate()).padStart(2, '0')}`;
         endTime = endDT.toTimeString().slice(0, 5);
       }
     } catch (err) {

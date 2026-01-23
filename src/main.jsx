@@ -1,12 +1,52 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
 import { msalConfig } from './config/authConfig';
 import ErrorBoundary from './components/shared/ErrorBoundary';
+import { NotificationProvider, useNotification } from './context/NotificationContext';
+import ToastNotification from './components/shared/ToastNotification';
+import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import './index.css'; // optional
+
+/**
+ * CriticalErrorHandler - Manages ErrorReportModal for critical errors
+ * Registers callback with NotificationContext to receive critical errors
+ */
+function CriticalErrorHandler() {
+  const { setCriticalErrorCallback } = useNotification();
+  const [criticalError, setCriticalError] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    // Register callback to receive critical errors
+    setCriticalErrorCallback((errorInfo) => {
+      setCriticalError(errorInfo);
+      setIsModalOpen(true);
+    });
+
+    // Cleanup on unmount
+    return () => {
+      setCriticalErrorCallback(null);
+    };
+  }, [setCriticalErrorCallback]);
+
+  const handleClose = () => {
+    setIsModalOpen(false);
+    setCriticalError(null);
+  };
+
+  return (
+    <ErrorReportModal
+      isOpen={isModalOpen}
+      onClose={handleClose}
+      error={criticalError}
+      apiToken={window.__apiToken}
+    />
+  );
+}
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -26,9 +66,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   // Uncomment Strictmode for Production
   //<React.StrictMode>
     <ErrorBoundary>
-      <MsalProvider instance={msalInstance}>
-        <App />
-      </MsalProvider>
+      <NotificationProvider>
+        <MsalProvider instance={msalInstance}>
+          <App />
+        </MsalProvider>
+        <ToastNotification />
+        <CriticalErrorHandler />
+      </NotificationProvider>
     </ErrorBoundary>
   //</React.StrictMode>
 );

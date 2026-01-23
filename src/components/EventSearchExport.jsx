@@ -1,5 +1,6 @@
 // src/components/EventSearchExport.jsx
 import React, { useState } from 'react';
+import { useNotification } from '../context/NotificationContext';
 import { jsPDF } from 'jspdf';
 
 const EventSearchExport = ({
@@ -15,6 +16,7 @@ const EventSearchExport = ({
   calendarOwner = null, // Calendar owner email for unified backend filtering
   timezone = 'UTC' // Display timezone passed from parent
 }) => {
+  const { showError } = useNotification();
   const [sortBy, setSortBy] = useState('date'); // Default sort by date
   const [isExporting, setIsExporting] = useState(false);
   
@@ -141,7 +143,7 @@ const EventSearchExport = ({
       });
     } catch (error) {
       console.error('Error fetching internal events:', error);
-      alert('Failed to fetch internal events. Please try again.');
+      showError(error, { context: 'EventSearchExport.fetchAllMatchingEvents', userMessage: 'Failed to fetch internal events. Please try again.' });
       return null;
     }
   };
@@ -232,7 +234,7 @@ const EventSearchExport = ({
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting to JSON:', error);
-      alert('Failed to export to JSON. Please try again.');
+      showError(error, { context: 'EventSearchExport.exportToJson', userMessage: 'Failed to export to JSON. Please try again.' });
     } finally {
       setIsExporting(false);
     }
@@ -324,7 +326,7 @@ const EventSearchExport = ({
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting to CSV:', error);
-      alert('Failed to export to CSV. Please try again.');
+      showError(error, { context: 'EventSearchExport.exportToCsv', userMessage: 'Failed to export to CSV. Please try again.' });
     } finally {
       setIsExporting(false);
     }
@@ -713,7 +715,7 @@ const EventSearchExport = ({
       
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('There was an error generating the PDF. Please try again.');
+      showError(error, { context: 'EventSearchExport.exportToPdf', userMessage: 'There was an error generating the PDF. Please try again.' });
     } finally {
       setIsExporting(false);
     }

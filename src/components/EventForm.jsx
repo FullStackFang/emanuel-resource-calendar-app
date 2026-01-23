@@ -5,6 +5,7 @@ import SingleSelect from './SingleSelect';
 import EventPreviewModal from './EventPreviewModal';
 import EventAuditHistory from './EventAuditHistory';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import { extractTextFromHtml } from '../utils/textUtils';
 import APP_CONFIG from '../config/config';
 import './EventForm.css';
@@ -106,6 +107,7 @@ function EventForm({
   savingEvent = false,
   apiToken = null // For audit history
 }) {
+  const { showError, showWarning } = useNotification();
   // Add this time zone mapping
   const timeZoneOptions = [
     { value: 'America/New_York', label: 'Eastern Time (ET)' },
@@ -609,20 +611,20 @@ function EventForm({
     
     // Validate form
     if (!formData.subject || !formData.startDate || !formData.endDate) {
-      alert('Please fill out all required fields');
+      showWarning('Please fill out all required fields');
       return;
     }
     
     // Validate setup/teardown times
     const validationError = validateSetupTeardown();
     if (validationError) {
-      alert(validationError);
+      showWarning(validationError);
       return;
     }
 
     // Validate offsite fields - both name and address required when isOffsite is true
     if (isOffsite && (!offsiteName.trim() || !offsiteAddress.trim())) {
-      alert('Offsite Name and Offsite Address are required for offsite events');
+      showWarning('Offsite Name and Offsite Address are required for offsite events');
       return;
     }
 
@@ -728,7 +730,7 @@ function EventForm({
 
   const uploadFiles = async (files) => {
     if (!event?.id || !apiToken) {
-      alert('Please save the event first before uploading files');
+      showWarning('Please save the event first before uploading files');
       return;
     }
 
@@ -752,11 +754,11 @@ function EventForm({
           setAttachments(prev => [...prev, data.attachment]);
         } else {
           const errorData = await response.json();
-          alert(`Failed to upload ${file.name}: ${errorData.error}`);
+          showError(new Error(errorData.error), { context: 'EventForm.uploadFiles', userMessage: `Failed to upload ${file.name}` });
         }
       } catch (error) {
         console.error('Upload error:', error);
-        alert(`Failed to upload ${file.name}`);
+        showError(error, { context: 'EventForm.uploadFiles', userMessage: `Failed to upload ${file.name}` });
       } finally {
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
       }
@@ -842,7 +844,7 @@ function EventForm({
       setShowPreviewModal(true);
     } catch (error) {
       console.error('Preview failed:', error);
-      alert('Failed to load file preview. Please try downloading the file instead.');
+      showError(error, { context: 'EventForm.handlePreview', userMessage: 'Failed to load file preview. Please try downloading the file instead.' });
     }
   };
 
@@ -879,7 +881,7 @@ function EventForm({
       document.body.removeChild(a);
     } catch (error) {
       console.error('Download failed:', error);
-      alert('Failed to download file. Please try again.');
+      showError(error, { context: 'EventForm.handleDownload', userMessage: 'Failed to download file. Please try again.' });
     }
   };
 

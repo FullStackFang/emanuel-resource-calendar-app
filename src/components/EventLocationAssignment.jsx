@@ -1,11 +1,13 @@
 // src/components/EventLocationAssignment.jsx
 import React, { useState, useEffect } from 'react';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './EventLocationAssignment.css';
 
 const EventLocationAssignment = ({ apiToken }) => {
+  const { showError, showSuccess, showWarning } = useNotification();
   const [unassignedStrings, setUnassignedStrings] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +99,7 @@ const EventLocationAssignment = ({ apiToken }) => {
       logger.log(`Assigned "${locationString}" to ${result.locationName}, updated ${result.eventsUpdated} events`);
 
       // Show success message
-      alert(`✅ Assigned "${locationString}" to ${result.locationName}\n${result.eventsUpdated} events updated`);
+      showSuccess(`Assigned "${locationString}" to ${result.locationName}. ${result.eventsUpdated} events updated`);
 
       // Refresh the list
       await fetchUnassignedStrings();
@@ -110,7 +112,7 @@ const EventLocationAssignment = ({ apiToken }) => {
       });
     } catch (err) {
       logger.error('Error assigning location:', err);
-      alert(`❌ Error: ${err.message}`);
+      showError(err, { context: 'EventLocationAssignment.assignLocationString' });
     } finally {
       setAssigningString(null);
     }
@@ -284,7 +286,7 @@ const EventLocationAssignment = ({ apiToken }) => {
                     const locationId = selectedLocations[item.normalizedString];
 
                     if (!locationId) {
-                      alert('Please select a location first');
+                      showWarning('Please select a location first');
                       return;
                     }
 

@@ -29,12 +29,14 @@ import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
+import { useNotification } from './context/NotificationContext';
 import APP_CONFIG from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
 import './App.css';
 
 function App() {
+  const { showError, showWarning } = useNotification();
   const [graphToken, setGraphToken] = useState(null);
   const [apiToken, setApiToken] = useState(null);
   const [signedOut, setSignedOut] = useState(false);
@@ -537,7 +539,7 @@ function App() {
                     // draftFormData may only have changed fields, so we need prefillData as base
                     const formData = { ...draftPrefillData, ...draftFormData };
                     if (!formData || !formData.eventTitle?.trim()) {
-                      alert('Event title is required to save as draft');
+                      showWarning('Event title is required to save as draft');
                       return;
                     }
 
@@ -622,14 +624,14 @@ function App() {
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     } catch (error) {
                       logger.error('Error saving draft:', error);
-                      alert('Failed to save draft: ' + error.message);
+                      showError(error, { context: 'App.onSaveDraft', userMessage: 'Failed to save draft' });
                     } finally {
                       setSavingDraftInProgress(false);
                     }
                   }}
                   onSubmitDraft={async () => {
                     if (!draftId) {
-                      alert('No draft to submit');
+                      showWarning('No draft to submit');
                       return;
                     }
 
@@ -671,7 +673,7 @@ function App() {
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     } catch (error) {
                       logger.error('Error submitting draft:', error);
-                      alert('Failed to submit draft: ' + error.message);
+                      showError(error, { context: 'App.onSubmitDraft', userMessage: 'Failed to submit draft' });
                     } finally {
                       setDraftIsSaving(false);
                     }
@@ -849,6 +851,7 @@ function App() {
           error={pendingError}
           apiToken={apiToken}
         />
+
       </div>
         </RoleSimulationProvider>
       </Router>

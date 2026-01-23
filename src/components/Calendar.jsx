@@ -38,6 +38,7 @@
   } from '../services/graphService';
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
+  import { useNotification } from '../context/NotificationContext';
   import { usePermissions } from '../hooks/usePermissions';
   import { useQueryClient } from '@tanstack/react-query';
   import { useBaseCategoriesQuery, useOutlookCategoriesQuery, OUTLOOK_CATEGORIES_QUERY_KEY } from '../hooks/useCategoriesQuery';
@@ -187,6 +188,7 @@
     const { userTimezone, setUserTimezone } = useTimezone();
     const { rooms } = useRooms();
     const { generalLocations, loading: locationsLoading } = useLocations();
+    const { showError, showSuccess, showWarning, showNotification } = useNotification();
     const hasUserManuallyChangedTimezone = useRef(false);
     const [currentUser, setCurrentUser] = useState(null);
 
@@ -257,7 +259,6 @@
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState('add'); // 'add', 'edit', 'view', 'delete'
     const [currentEvent, setCurrentEvent] = useState(null);
-    const [, setNotification] = useState({ show: false, message: '', type: 'info' });
 
     // Event creation ReviewModal state
     const [eventReviewModal, setEventReviewModal] = useState({
@@ -336,7 +337,7 @@
       },
       onError: (error) => {
         logger.error('Review modal error:', error);
-        alert(error);
+        showError(error, { context: 'Calendar.reviewModal' });
       }
     });
 
@@ -435,7 +436,7 @@
       if (!file) return;
       
       if (!file.name.endsWith('.json')) {
-        alert('Please select a JSON file');
+        showWarning('Please select a JSON file');
         return;
       }
       
@@ -575,7 +576,7 @@
         
       } catch (error) {
         logger.error('Error uploading demo data:', error);
-        alert(`Error loading demo data: ${error.message}`);
+        showError(error, { context: 'Calendar.handleDemoDataUpload', userMessage: 'Error loading demo data' });
       } finally {
         setIsUploadingDemo(false);
         event.target.value = '';
@@ -599,7 +600,7 @@
         }
       } else {
         // Switching from API to demo mode - need to upload data first
-        alert('Please upload JSON data to enable demo mode');
+        showWarning('Please upload JSON data to enable demo mode');
       }
     };
     
@@ -1577,12 +1578,12 @@
      */
     const handleManualSync = useCallback(async () => {
       if (!allEvents || allEvents.length === 0) {
-        alert('No events to sync. Please load events first.');
+        showWarning('No events to sync. Please load events first.');
         return;
       }
 
       if (!apiToken) {
-        alert('Authentication required for sync.');
+        showWarning('Authentication required for sync.');
         return;
       }
 
@@ -1630,12 +1631,12 @@
 
         const result = await response.json();
         logger.debug('Manual sync completed successfully', result);
-        
-        alert(`Successfully synced ${result.enrichedCount || result.totalProcessed || allEvents.length} events to database. Created: ${result.createdCount}, Updated: ${result.updatedCount}`);
-        
+
+        showSuccess(`Successfully synced ${result.enrichedCount || result.totalProcessed || allEvents.length} events to database. Created: ${result.createdCount}, Updated: ${result.updatedCount}`);
+
       } catch (error) {
         logger.error('Manual sync failed:', error);
-        alert(`Sync failed: ${error.message}`);
+        showError(error, { context: 'Calendar.handleManualSync', userMessage: 'Sync failed' });
       } finally {
         setLoading(false);
       }
@@ -1889,12 +1890,6 @@
     //---------------------------------------------------------------------------
     // UTILITY/HELPER FUNCTIONS
     //---------------------------------------------------------------------------
-    const showNotification = (message, type = 'error') => {
-      setNotification({ show: true, message, type });
-      logger.debug(`[Notification] ${type}: ${message}`);
-      // Auto-hide after 3 seconds
-      setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 3000);
-    };
 
     /**
      * Retry loading events after creation to ensure the new event appears
@@ -3584,11 +3579,11 @@
             await reviewModal.openModal(event);
           } catch (error) {
             logger.error('Error opening review modal:', error);
-            alert('Failed to open review modal: ' + error.message);
+            showError(error, { context: 'Calendar.handleEventClick', userMessage: 'Failed to open review modal' });
           }
         })();
       }
-    }, [reviewModal, isRecurringEvent]);
+    }, [reviewModal, isRecurringEvent, showError]);
 
     /**
      * Handle scope selection from recurring scope dialog
@@ -3607,9 +3602,9 @@
         await reviewModal.openModal(event, { editScope: scope });
       } catch (error) {
         logger.error('Error opening review modal:', error);
-        alert('Failed to open review modal: ' + error.message);
+        showError(error, { context: 'Calendar.handleRecurringScopeSelected', userMessage: 'Failed to open review modal' });
       }
-    }, [recurringScopeDialog.pendingEvent, reviewModal]);
+    }, [recurringScopeDialog.pendingEvent, reviewModal, showError]);
 
     /**
      * Handle closing the recurring scope dialog
@@ -3632,9 +3627,9 @@
         await reviewModal.openModal(event);
       } catch (error) {
         logger.error('Error opening review modal:', error);
-        alert('Failed to open review modal: ' + error.message);
+        showError(error, { context: 'Calendar.handleReviewClick', userMessage: 'Failed to open review modal' });
       }
-    }, [reviewModal]);
+    }, [reviewModal, showError]);
 
     /**
      * TBD
@@ -4246,11 +4241,11 @@
 
       // Permission checks
       if (isNew && !effectivePermissions.createEvents) {
-        alert("You don't have permission to create events");
+        showWarning("You don't have permission to create events");
         return false;
       }
       if (!isNew && !effectivePermissions.editEvents) {
-        alert("You don't have permission to edit events");
+        showWarning("You don't have permission to edit events");
         return false;
       }
 
@@ -4275,7 +4270,7 @@
 
       } catch (error) {
         logger.error('Save failed:', error);
-        alert('Save failed: ' + error.message);
+        showError(error, { context: 'Calendar.handleSaveEvent', userMessage: 'Save failed' });
         return false;
       } finally {
         // Clear loading state
@@ -5743,7 +5738,7 @@
      */
     const handleDeleteConfirm = async () => {
       if (!currentEvent?.id) {
-        alert('No event selected for deletion');
+        showWarning('No event selected for deletion');
         return;
       }
       

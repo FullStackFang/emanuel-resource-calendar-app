@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import UnifiedFormLayout from './UnifiedFormLayout';
@@ -89,6 +90,7 @@ export default function UnifiedEventForm({
   const navigate = useNavigate();
   const location = useLocation();
   const { accounts } = useMsal();
+  const { showError, showWarning } = useNotification();
 
   // Handle resubmit mode from navigation state
   useEffect(() => {
@@ -404,7 +406,7 @@ export default function UnifiedEventForm({
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
 
     if (!validateTimes()) {
-      alert('Cannot save: Please fix time validation errors');
+      showWarning('Cannot save: Please fix time validation errors');
       return;
     }
 
@@ -440,7 +442,7 @@ export default function UnifiedEventForm({
 
       if (response.status === 409) {
         const data = await response.json();
-        alert(`This reservation was modified by ${data.lastModifiedBy} while you were editing. Please refresh.`);
+        showWarning(`This reservation was modified by ${data.lastModifiedBy} while you were editing. Please refresh.`);
         return;
       }
 
@@ -461,11 +463,11 @@ export default function UnifiedEventForm({
 
     } catch (error) {
       console.error('❌ Save error:', error);
-      alert(`Failed to save changes: ${error.message}`);
+      showError(error, { context: 'UnifiedEventForm.handleSaveChanges', userMessage: 'Failed to save changes' });
     } finally {
       setIsSaving(false);
     }
-  }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave]);
+  }, [formDataRef, validateRef, reservation, apiToken, originalChangeKey, onSave, showError, showWarning]);
 
   // Keep refs in sync with save functions (prevents stale closures without causing useEffect loops)
   handleSubmitRef.current = handleSubmit;

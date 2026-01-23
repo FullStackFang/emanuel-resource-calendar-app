@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -13,6 +14,7 @@ import './MyReservations.css';
 export default function MyReservations({ apiToken }) {
   const navigate = useNavigate();
   const { canSubmitReservation } = usePermissions();
+  const { showWarning } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -104,7 +106,7 @@ export default function MyReservations({ apiToken }) {
   
   const handleCancelRequest = async (reservation) => {
     if (!cancelReason.trim()) {
-      alert('Please provide a reason for cancellation');
+      showWarning('Please provide a reason for cancellation');
       return;
     }
     

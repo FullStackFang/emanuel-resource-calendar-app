@@ -1,6 +1,7 @@
 // src/components/RoomReservationReview.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
+import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import RoomReservationFormBase from './RoomReservationFormBase';
@@ -51,6 +52,7 @@ export default function RoomReservationReview({
   isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
   originalData = null // Original form data for comparison in edit request mode (Option C inline diff)
 }) {
+  const { showError, showWarning } = useNotification();
   // In edit request mode, override readOnly to allow editing
   // In viewing edit request mode, force readOnly
   const effectiveReadOnly = isViewingEditRequest || (readOnly && !isEditRequestMode);
@@ -129,7 +131,7 @@ export default function RoomReservationReview({
     if (!validateTimes()) {
       console.log('❌ Time validation failed');
       logger.warn('Cannot save - time validation errors exist');
-      alert('Cannot save: Please fix time validation errors');
+      showWarning('Cannot save: Please fix time validation errors');
       return;
     }
 
@@ -232,7 +234,7 @@ export default function RoomReservationReview({
                        `(Your changes will be lost)`;
 
         console.log('⚠️ Conflict detected (409):', data);
-        alert(message);
+        showWarning(message);
         return;
       }
 
@@ -257,7 +259,7 @@ export default function RoomReservationReview({
     } catch (error) {
       console.error('❌ Save error:', error);
       logger.error('Error saving changes:', error);
-      alert(`Failed to save changes: ${error.message}`);
+      showError(error, { context: 'RoomReservationReview.handleSaveChanges', userMessage: 'Failed to save changes' });
     } finally {
       setIsSaving(false);
       console.log('💾 Save process complete');
