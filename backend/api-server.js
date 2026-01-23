@@ -17695,12 +17695,32 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       } catch (error) {
         logger.error('Error pre-processing requestedRooms:', error);
       }
+    } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
+      // Handle locations array (ObjectIds) - fetch display names from database
+      try {
+        const locationIds = updates.locations.map(id =>
+          typeof id === 'string' ? new ObjectId(id) : id
+        );
+
+        const locationDocs = await locationsCollection.find({
+          _id: { $in: locationIds }
+        }).toArray();
+
+        processedLocationDisplayName = locationDocs
+          .map(loc => loc.displayName || loc.name || '')
+          .filter(Boolean)
+          .join('; ');
+
+        logger.debug('Pre-processed location display name from locations:', processedLocationDisplayName);
+      } catch (error) {
+        logger.error('Error pre-processing locations:', error);
+      }
     }
 
-    // If event has a Graph event ID, update it in Graph API
-    // Graph events store the Graph API ID in graphData.id
-    // ONLY update Graph if there are ACTUAL changes to Graph-syncable fields (not just present in request)
-    const graphEventId = event.graphData?.id;
+    // Use iCalUId as the stable identifier for Graph sync
+    // iCalUId never changes and is universal across users/calendars
+    // We'll look up the current user's Graph ID by iCalUId before each operation
+    const eventICalUId = event.iCalUId || event.graphData?.iCalUId;
 
     // Helper to check if a value has actually changed
     const hasFieldChanged = (fieldName, newValue, existingValue) => {
@@ -17741,24 +17761,64 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     logger.info('Graph sync check:', {
       eventId: id,
       hasGraphToken: !!graphToken,
-      hasGraphEventId: !!graphEventId,
+      hasICalUId: !!eventICalUId,
       hasGraphSyncableChanges,
       changedFields: Object.entries(graphChanges).filter(([_, changed]) => changed).map(([field]) => field)
     });
 
-    if (graphEventId && graphToken && hasGraphSyncableChanges) {
+    // Use iCalUId to sync with Graph - this is the stable identifier that works for any user
+    if (eventICalUId && graphToken && hasGraphSyncableChanges) {
       try {
         // Get calendarId for shared calendar support - REQUIRED for Graph API operations
         const calendarId = event.calendarId;
         if (!calendarId) {
-          logger.error('Cannot update Graph event: calendarId is required', { eventId: id, graphEventId });
+          logger.error('Cannot update Graph event: calendarId is required', { eventId: id, eventICalUId });
           return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
         }
 
-        // Determine the correct Graph API endpoint based on editScope for recurring events
-        // Always use shared calendar endpoint: /me/calendars/{calendarId}/events/{id}
-        let graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
-        let targetOccurrenceId = null;
+        // IMPORTANT: Look up the current user's Graph ID by iCalUId
+        // Graph IDs are user-specific, so we always fetch fresh for the current user
+        let graphEventId = null;
+        const iCalLookupUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events?$filter=iCalUId eq '${eventICalUId}'&$select=id,subject,iCalUId`;
+
+        logger.info('Looking up Graph event by iCalUId:', { iCalLookupUrl, eventICalUId });
+
+        const iCalLookupResponse = await fetch(iCalLookupUrl, {
+          headers: {
+            'Authorization': `Bearer ${graphToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (iCalLookupResponse.ok) {
+          const iCalLookupData = await iCalLookupResponse.json();
+          if (iCalLookupData.value && iCalLookupData.value.length > 0) {
+            graphEventId = iCalLookupData.value[0].id;
+            logger.info('Found Graph event for current user:', {
+              graphEventId,
+              subject: iCalLookupData.value[0].subject
+            });
+          } else {
+            logger.warn('No Graph event found for iCalUId - event may not exist in this calendar', { eventICalUId });
+            // Skip Graph sync but continue with local update
+          }
+        } else {
+          const lookupError = await iCalLookupResponse.text();
+          logger.error('Failed to look up Graph event by iCalUId:', {
+            status: iCalLookupResponse.status,
+            error: lookupError
+          });
+          // Skip Graph sync but continue with local update
+        }
+
+        // Only proceed with Graph update if we found the event
+        if (!graphEventId) {
+          logger.info('Skipping Graph sync - no Graph event found for current user');
+        } else {
+          // Determine the correct Graph API endpoint based on editScope for recurring events
+          // Always use shared calendar endpoint: /me/calendars/{calendarId}/events/{id}
+          let graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
+          let targetOccurrenceId = null;
 
         // Handle recurring event single occurrence updates
         if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
@@ -17986,13 +18046,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           body: JSON.stringify(graphUpdate)
         });
 
-        if (!graphResponse.ok) {
-          const errorText = await graphResponse.text();
-          logger.error('Graph API update failed:', { status: graphResponse.status, error: errorText });
-          throw new Error(`Graph API update failed: ${graphResponse.status}`);
-        }
+          if (!graphResponse.ok) {
+            const errorText = await graphResponse.text();
+            logger.error('Graph API update failed:', { status: graphResponse.status, error: errorText });
+            throw new Error(`Graph API update failed: ${graphResponse.status}`);
+          }
 
-        logger.info('Graph event updated successfully');
+          logger.info('Graph event updated successfully');
+        }
       } catch (graphError) {
         logger.error('Failed to update Graph event:', graphError);
         return res.status(500).json({ error: 'Failed to update calendar event', details: graphError.message });
@@ -18051,7 +18112,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // This ensures eventTitle ↔ graphData.subject stay synchronized
     // IMPORTANT: Also sync for pending reservations so approve endpoint has correct data
     const isPendingReservation = event.status === 'pending' || event.status === 'room-reservation-request';
-    if (graphEventId && graphToken) {
+    // Sync graphData if the event has an iCalUId (meaning it's linked to a Graph/Outlook event)
+    if (eventICalUId) {
       // Existing Graph event - sync fields
       // Sync subject
       if (updates.eventTitle !== undefined) {
