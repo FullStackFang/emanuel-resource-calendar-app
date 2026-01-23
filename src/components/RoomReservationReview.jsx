@@ -103,7 +103,6 @@ export default function RoomReservationReview({
 
   // Handle data changes from base component
   const handleDataChange = (updatedData) => {
-    console.log('[RoomReservationReview.handleDataChange] Called, onDataChange exists:', !!onDataChange);
     if (onDataChange) {
       onDataChange(updatedData);
     }
@@ -122,20 +121,17 @@ export default function RoomReservationReview({
 
   // Save changes
   const handleSaveChanges = useCallback(async () => {
-    console.log('💾 Save button clicked');
 
     const formData = formDataRef.current ? formDataRef.current() : {};
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
 
     // Validate times before saving
     if (!validateTimes()) {
-      console.log('❌ Time validation failed');
       logger.warn('Cannot save - time validation errors exist');
       showWarning('Cannot save: Please fix time validation errors');
       return;
     }
 
-    console.log('✅ Validation passed, starting save...');
     setIsSaving(true);
     try {
       const startDateTime = `${formData.startDate}T${formData.startTime}`;
@@ -181,24 +177,7 @@ export default function RoomReservationReview({
       delete updatedData.endTime;
       delete updatedData.requestedRooms;  // Remove old field name
 
-      console.log('📤 Sending save request to API...', {
-        reservationId: reservation._id,
-        locationsCount: updatedData.locations?.length,
-        locationIds: updatedData.locations,
-        hasRequestedRooms: 'requestedRooms' in updatedData,
-        formDataRequestedRoomsCount: formData.requestedRooms?.length,
-        hasRecurrence: !!updatedData.recurrence,
-        recurrenceData: updatedData.recurrence,
-        editScope: updatedData.editScope,
-        seriesMasterId: updatedData.seriesMasterId,
-        hasGraphToken: !!updatedData.graphToken,
-        // Offsite location fields
-        isOffsite: updatedData.isOffsite,
-        offsiteName: updatedData.offsiteName,
-        offsiteAddress: updatedData.offsiteAddress,
-        offsiteLat: updatedData.offsiteLat,
-        offsiteLon: updatedData.offsiteLon
-      });
+      logger.debug('Saving event', { reservationId: reservation._id });
 
       // Use correct endpoint based on event type
       // New unified events use /admin/events, legacy reservations use /admin/room-reservations
@@ -220,7 +199,6 @@ export default function RoomReservationReview({
         }
       );
 
-      console.log('📥 API response received:', { status: response.status, ok: response.ok });
 
       // Handle conflict (409)
       if (response.status === 409) {
@@ -233,7 +211,7 @@ export default function RoomReservationReview({
                        `Your changes have NOT been saved. Please refresh to see the latest version.\n` +
                        `(Your changes will be lost)`;
 
-        console.log('⚠️ Conflict detected (409):', data);
+        logger.warn('Conflict detected (409)', { lastModifiedBy: data.lastModifiedBy });
         showWarning(message);
         return;
       }
@@ -243,7 +221,6 @@ export default function RoomReservationReview({
       }
 
       const result = await response.json();
-      console.log('✅ Save successful:', result);
 
       // Update originalChangeKey with the new changeKey from server
       setOriginalChangeKey(result.changeKey);
@@ -262,14 +239,12 @@ export default function RoomReservationReview({
       showError(error, { context: 'RoomReservationReview.handleSaveChanges', userMessage: 'Failed to save changes' });
     } finally {
       setIsSaving(false);
-      console.log('💾 Save process complete');
     }
   }, [formDataRef, validateRef, reservation, apiToken, graphToken, editScope, originalChangeKey, onSave]);
 
   // Expose save function to parent
   useEffect(() => {
     if (onSaveFunctionReady) {
-      console.log('🔄 Updating save function reference in parent');
       onSaveFunctionReady(handleSaveChanges);
     }
   }, [onSaveFunctionReady, handleSaveChanges]);
@@ -326,7 +301,6 @@ export default function RoomReservationReview({
   // Expose form data getter to parent - only run once when onFormDataReady is set
   useEffect(() => {
     if (onFormDataReady) {
-      console.log('🔄 Exposing form data getter to parent');
       // Pass a stable wrapper that uses the ref to always get the latest function
       onFormDataReady(() => {
         if (getProcessedFormDataRef.current) {

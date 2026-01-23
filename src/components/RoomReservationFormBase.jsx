@@ -185,18 +185,10 @@ export default function RoomReservationFormBase({
   // Use JSON.stringify for more reliable dependency tracking
   const categoriesKey = JSON.stringify(initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || []);
   useEffect(() => {
-    console.log('🏷️ RoomReservationFormBase - categories sync useEffect triggered');
-    console.log('🏷️ RoomReservationFormBase - initialData:', initialData);
-    console.log('🏷️ RoomReservationFormBase - initialData?.categories:', initialData?.categories);
-    console.log('🏷️ RoomReservationFormBase - categoriesKey:', categoriesKey);
     const newCategories = initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || [];
-    console.log('🏷️ RoomReservationFormBase - newCategories to set:', newCategories);
     if (newCategories.length > 0) {
-      console.log('🏷️ RoomReservationFormBase - Setting selectedCategories to:', newCategories);
       setSelectedCategories(newCategories);
       selectedCategoriesRef.current = newCategories;
-    } else {
-      console.log('🏷️ RoomReservationFormBase - newCategories is empty, NOT updating selectedCategories');
     }
   }, [categoriesKey]);
 
@@ -2184,23 +2176,15 @@ export default function RoomReservationFormBase({
         isOpen={showCategoryModal}
         onClose={() => setShowCategoryModal(false)}
         onSave={(categories) => {
-          console.log('🏷️ CategorySelectorModal onSave - categories:', categories);
           setSelectedCategories(categories);
-          selectedCategoriesRef.current = categories; // Update ref immediately
+          selectedCategoriesRef.current = categories;
           setHasChanges(true);
-          // Notify parent component of category change
-          // Use 'categories' field (mecCategories is deprecated)
           if (onDataChange) {
-            const dataToSend = {
+            onDataChange({
               ...formData,
               categories: categories,
               services: selectedServicesRef.current
-            };
-            console.log('🏷️ CategorySelectorModal - calling onDataChange with:', dataToSend);
-            console.log('🏷️ CategorySelectorModal - categories in data:', dataToSend.categories);
-            onDataChange(dataToSend);
-          } else {
-            console.log('🏷️ CategorySelectorModal - onDataChange is null/undefined!');
+            });
           }
         }}
         initialCategories={selectedCategories}

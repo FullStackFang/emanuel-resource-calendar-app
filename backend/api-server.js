@@ -17622,26 +17622,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     const occurrenceDate = updates.occurrenceDate; // For single occurrence edits
     const seriesMasterId = updates.seriesMasterId; // Series master ID for recurring events
 
-    // DEBUG: Log incoming request
-    logger.info('PUT /api/admin/events/:id - Incoming request:', {
-      eventId: id,
-      hasLocations: !!updates.locations,
-      locationsCount: Array.isArray(updates.locations) ? updates.locations.length : 0,
-      locationIds: updates.locations,
-      hasRequestedRooms: !!updates.requestedRooms,
-      requestedRoomsCount: Array.isArray(updates.requestedRooms) ? updates.requestedRooms.length : 0,
-      editScope: editScope,
-      seriesMasterId: seriesMasterId,
-      hasRecurrence: !!updates.recurrence,
-      recurrencePattern: updates.recurrence?.pattern?.type,
-      recurrenceRange: updates.recurrence?.range?.type,
-      // Offsite location fields
-      isOffsite: updates.isOffsite,
-      offsiteName: updates.offsiteName,
-      offsiteAddress: updates.offsiteAddress,
-      offsiteLat: updates.offsiteLat,
-      offsiteLon: updates.offsiteLon
-    });
+    logger.debug('PUT /api/admin/events/:id', { eventId: id, editScope });
 
     // Get event by _id
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
@@ -17660,21 +17641,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // This must happen BEFORE building the Graph update
     let processedLocationDisplayName = null;
 
-    // DEBUG: Log offsite processing decision
-    logger.info('Processing location for event:', {
-      isOffsite: updates.isOffsite,
-      offsiteName: updates.offsiteName,
-      offsiteAddress: updates.offsiteAddress,
-      hasRequestedRooms: !!updates.requestedRooms,
-      requestedRoomsLength: updates.requestedRooms?.length,
-      hasLocations: !!updates.locations,
-      locationsLength: updates.locations?.length
-    });
-
     // If offsite, use offsite name/address for location display
     if (updates.isOffsite) {
       processedLocationDisplayName = `${updates.offsiteName} (Offsite) - ${updates.offsiteAddress}`;
-      logger.info('Set processedLocationDisplayName for offsite:', processedLocationDisplayName);
     } else if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
       try {
         const roomIds = updates.requestedRooms.map(id =>
@@ -17725,9 +17694,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Helper to check if a value has actually changed
     const hasFieldChanged = (fieldName, newValue, existingValue) => {
       if (newValue === undefined) return false;
-      // Handle arrays (like categories, locations)
+      // Handle arrays (like categories, locations) - use spread to avoid mutating original arrays
       if (Array.isArray(newValue) && Array.isArray(existingValue)) {
-        return JSON.stringify(newValue.sort()) !== JSON.stringify(existingValue.sort());
+        return JSON.stringify([...newValue].sort()) !== JSON.stringify([...existingValue].sort());
       }
       // Handle objects
       if (typeof newValue === 'object' && typeof existingValue === 'object' && newValue !== null && existingValue !== null) {
@@ -17737,6 +17706,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     };
 
     // Check for actual changes in Graph-syncable fields
+    // For categories, check against both top-level and graphData.categories for proper comparison
+    const existingCategories = event.categories || event.graphData?.categories || [];
     const graphChanges = {
       eventTitle: hasFieldChanged('eventTitle', updates.eventTitle, event.eventTitle),
       eventDescription: hasFieldChanged('eventDescription', updates.eventDescription, event.eventDescription),
@@ -17747,7 +17718,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
                    hasFieldChanged('endDate', updates.endDate, event.endDate) ||
                    hasFieldChanged('endTime', updates.endTime, event.endTime),
       isAllDayEvent: hasFieldChanged('isAllDayEvent', updates.isAllDayEvent, event.isAllDayEvent),
-      categories: hasFieldChanged('categories', updates.categories, event.categories),
+      categories: hasFieldChanged('categories', updates.categories, existingCategories),
       locations: hasFieldChanged('locations', updates.locations, event.locations) ||
                  hasFieldChanged('requestedRooms', updates.requestedRooms, event.locations),
       isOffsite: hasFieldChanged('isOffsite', updates.isOffsite, event.isOffsite) ||
@@ -17758,13 +17729,12 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
 
-    logger.info('Graph sync check:', {
-      eventId: id,
-      hasGraphToken: !!graphToken,
-      hasICalUId: !!eventICalUId,
-      hasGraphSyncableChanges,
-      changedFields: Object.entries(graphChanges).filter(([_, changed]) => changed).map(([field]) => field)
-    });
+    if (hasGraphSyncableChanges) {
+      logger.debug('Graph sync needed:', {
+        eventId: id,
+        changedFields: Object.entries(graphChanges).filter(([_, changed]) => changed).map(([field]) => field)
+      });
+    }
 
     // Use iCalUId to sync with Graph - this is the stable identifier that works for any user
     if (eventICalUId && graphToken && hasGraphSyncableChanges) {
@@ -17776,16 +17746,45 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
         }
 
-        // IMPORTANT: Look up the current user's Graph ID by iCalUId
-        // Graph IDs are user-specific, so we always fetch fresh for the current user
+        // IMPORTANT: Look up the Graph event ID by iCalUId
+        // For shared mailboxes, use APP token with /users/{calendarOwner}/ endpoint
+        // This uses Application permissions (Calendars.ReadWrite) instead of user delegation
         let graphEventId = null;
-        const iCalLookupUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events?$filter=iCalUId eq '${eventICalUId}'&$select=id,subject,iCalUId`;
+        const calendarOwner = event.calendarOwner;
 
-        logger.info('Looking up Graph event by iCalUId:', { iCalLookupUrl, eventICalUId });
+        // Determine which token and endpoint to use
+        let effectiveToken = graphToken;
+        let graphApiBase;
+        let lookupApiBase;
+
+        if (calendarOwner) {
+          // Shared mailbox: use app token with /users/{calendarOwner}/ endpoint
+          // This requires Calendars.ReadWrite Application permission (not delegated)
+          try {
+            effectiveToken = await emailService.getAppAccessToken();
+            // Use /users/{calendarOwner}/calendar/events (default calendar)
+            // This is more reliable than /users/{calendarOwner}/events for filtering
+            lookupApiBase = `https://graph.microsoft.com/v1.0/users/${calendarOwner}/calendar`;
+            graphApiBase = `https://graph.microsoft.com/v1.0/users/${calendarOwner}/calendar`;
+            logger.debug('Using app token for shared mailbox', { calendarOwner });
+          } catch (tokenError) {
+            logger.error('Failed to get app token for shared mailbox, falling back to user token:', tokenError.message);
+            // Fall back to user token with /me/ endpoint
+            effectiveToken = graphToken;
+            lookupApiBase = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}`;
+            graphApiBase = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}`;
+          }
+        } else {
+          // Personal calendar: use user token with /me/ endpoint
+          lookupApiBase = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}`;
+          graphApiBase = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}`;
+        }
+
+        const iCalLookupUrl = `${lookupApiBase}/events?$filter=iCalUId eq '${eventICalUId}'&$select=id,subject,iCalUId`;
 
         const iCalLookupResponse = await fetch(iCalLookupUrl, {
           headers: {
-            'Authorization': `Bearer ${graphToken}`,
+            'Authorization': `Bearer ${effectiveToken}`,
             'Content-Type': 'application/json'
           }
         });
@@ -17794,30 +17793,22 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           const iCalLookupData = await iCalLookupResponse.json();
           if (iCalLookupData.value && iCalLookupData.value.length > 0) {
             graphEventId = iCalLookupData.value[0].id;
-            logger.info('Found Graph event for current user:', {
-              graphEventId,
-              subject: iCalLookupData.value[0].subject
-            });
+            logger.debug('Found Graph event', { graphEventId });
           } else {
-            logger.warn('No Graph event found for iCalUId - event may not exist in this calendar', { eventICalUId });
-            // Skip Graph sync but continue with local update
+            logger.warn('No Graph event found for iCalUId', { eventICalUId });
           }
         } else {
           const lookupError = await iCalLookupResponse.text();
-          logger.error('Failed to look up Graph event by iCalUId:', {
-            status: iCalLookupResponse.status,
-            error: lookupError
-          });
-          // Skip Graph sync but continue with local update
+          logger.warn('iCalUId lookup failed', { status: iCalLookupResponse.status, error: lookupError });
         }
 
         // Only proceed with Graph update if we found the event
         if (!graphEventId) {
-          logger.info('Skipping Graph sync - no Graph event found for current user');
+          logger.debug('Skipping Graph sync - no Graph event ID found');
         } else {
           // Determine the correct Graph API endpoint based on editScope for recurring events
-          // Always use shared calendar endpoint: /me/calendars/{calendarId}/events/{id}
-          let graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
+          // Use graphApiBase which handles shared vs personal calendars
+          let graphEndpoint = `${graphApiBase}/events/${graphEventId}`;
           let targetOccurrenceId = null;
 
         // Handle recurring event single occurrence updates
@@ -17835,13 +17826,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           const endRange = new Date(occurrenceDateObj);
           endRange.setHours(23, 59, 59, 999);
 
-          const instancesUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+          const instancesUrl = `${graphApiBase}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
 
-          logger.info('Fetching occurrence instances:', { instancesUrl, calendarId });
+          logger.debug('Fetching occurrence instances');
 
           const instancesResponse = await fetch(instancesUrl, {
             headers: {
-              'Authorization': `Bearer ${graphToken}`,
+              'Authorization': `Bearer ${effectiveToken}`,
               'Content-Type': 'application/json'
             }
           });
@@ -17857,8 +17848,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
               if (targetOccurrence) {
                 targetOccurrenceId = targetOccurrence.id;
-                graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId}`;
-                logger.info('Found occurrence ID:', { targetOccurrenceId, calendarId });
+                graphEndpoint = `${graphApiBase}/events/${targetOccurrenceId}`;
+                logger.debug('Found occurrence ID', { targetOccurrenceId });
               } else {
                 logger.warn('No matching occurrence found for date, falling back to series master');
               }
@@ -17872,8 +17863,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // For "all events" edits, update the series master directly
-          graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`;
-          logger.info('Updating entire series via series master:', { seriesMasterId, calendarId });
+          graphEndpoint = `${graphApiBase}/events/${seriesMasterId}`;
+          logger.debug('Updating entire series', { seriesMasterId });
         }
 
         // Prepare Graph API update payload
@@ -17940,6 +17931,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
 
         // Add categories if they exist (Graph API supports this)
+        // Only 'categories' syncs to Outlook - 'mecCategories' is internal only
         if (updates.categories && Array.isArray(updates.categories)) {
           graphUpdate.categories = updates.categories;
         } else if (event.graphData?.categories && Array.isArray(event.graphData.categories)) {
@@ -18025,22 +18017,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         }
 
-        logger.info('Updating Graph event:', {
-          graphEventId,
-          graphEndpoint,
-          editScope,
-          targetOccurrenceId,
-          updates: Object.keys(updates),
-          // Log location being sent to Graph
-          graphUpdateLocation: graphUpdate.location,
-          processedLocationDisplayName
-        });
+        logger.debug('Updating Graph event', { graphEventId });
 
         // Update in Graph API using the appropriate endpoint
         const graphResponse = await fetch(graphEndpoint, {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${graphToken}`,
+            'Authorization': `Bearer ${effectiveToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(graphUpdate)
@@ -18052,7 +18035,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             throw new Error(`Graph API update failed: ${graphResponse.status}`);
           }
 
-          logger.info('Graph event updated successfully');
+          logger.debug('Graph event updated successfully');
         }
       } catch (graphError) {
         logger.error('Failed to update Graph event:', graphError);
