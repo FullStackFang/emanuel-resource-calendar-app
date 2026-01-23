@@ -288,7 +288,10 @@ export default function UnifiedEventForm({
         offsiteAddress: reservation.offsiteAddress || '',
         // Categories and services (categories is the correct field, mecCategories is deprecated)
         categories: reservation.categories || reservation.mecCategories || reservation.internalData?.categories || reservation.internalData?.mecCategories || [],
-        services: reservation.services || reservation.internalData?.services || {}
+        services: reservation.services || reservation.internalData?.services || {},
+        // Concurrent event settings (admin-only)
+        isAllowedConcurrent: reservation.isAllowedConcurrent || false,
+        allowedConcurrentCategories: reservation.allowedConcurrentCategories || []
       });
 
       setOriginalChangeKey(reservation.changeKey);
@@ -330,7 +333,10 @@ export default function UnifiedEventForm({
         offsiteAddress: event.offsiteAddress || '',
         // Categories and services (categories is the correct field, mecCategories is deprecated)
         categories: event.categories || event.mecCategories || event.internalData?.categories || event.internalData?.mecCategories || event.internalEnrichment?.categories || [],
-        services: event.services || event.internalData?.services || event.internalEnrichment?.services || {}
+        services: event.services || event.internalData?.services || event.internalEnrichment?.services || {},
+        // Concurrent event settings (admin-only)
+        isAllowedConcurrent: event.isAllowedConcurrent || false,
+        allowedConcurrentCategories: event.allowedConcurrentCategories || []
       });
 
       setOriginalChangeKey(event.changeKey);

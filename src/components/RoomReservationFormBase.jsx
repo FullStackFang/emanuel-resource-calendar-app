@@ -118,6 +118,8 @@ export default function RoomReservationFormBase({
     offsiteLon: null,
     // Allow concurrent scheduling (admin-only field)
     isAllowedConcurrent: false,
+    // Allowed categories for concurrent events (only applies when isAllowedConcurrent is true)
+    allowedConcurrentCategories: [],
     ...initialData
   });
 
@@ -153,6 +155,31 @@ export default function RoomReservationFormBase({
   // Refs to track latest values (prevents stale closure issues in callbacks)
   const selectedCategoriesRef = useRef(selectedCategories);
   const selectedServicesRef = useRef({});
+
+  // Available categories for concurrent event restrictions (fetched from API)
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+
+  // Fetch available categories when isAllowedConcurrent is checked (for admin)
+  useEffect(() => {
+    if (isAdmin && formData.isAllowedConcurrent && availableCategories.length === 0) {
+      const fetchCategories = async () => {
+        try {
+          setCategoriesLoading(true);
+          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/categories`);
+          if (response.ok) {
+            const data = await response.json();
+            setAvailableCategories(data);
+          }
+        } catch (err) {
+          console.error('Error fetching categories:', err);
+        } finally {
+          setCategoriesLoading(false);
+        }
+      };
+      fetchCategories();
+    }
+  }, [isAdmin, formData.isAllowedConcurrent, availableCategories.length]);
 
   // Sync selectedCategories when initialData changes (e.g., when loading an existing event)
   // Use JSON.stringify for more reliable dependency tracking
@@ -200,10 +227,13 @@ export default function RoomReservationFormBase({
         doorCloseTime: initialData.doorCloseTime || prev.doorCloseTime,
         // Support both naming conventions: requestedRooms and selectedLocations
         requestedRooms: initialData.requestedRooms || initialData.selectedLocations || prev.requestedRooms,
-        attendeeCount: initialData.attendeeCount || prev.attendeeCount
+        attendeeCount: initialData.attendeeCount || prev.attendeeCount,
+        // Concurrent event settings (admin-only)
+        isAllowedConcurrent: initialData.isAllowedConcurrent ?? prev.isAllowedConcurrent,
+        allowedConcurrentCategories: initialData.allowedConcurrentCategories || prev.allowedConcurrentCategories
       }));
     }
-  }, [initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime]);
+  }, [initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
 
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
@@ -909,6 +939,31 @@ export default function RoomReservationFormBase({
     if (onNavigateToSeriesEvent) {
       onNavigateToSeriesEvent(event.eventId);
     }
+  };
+
+  // Handle toggling allowed concurrent categories
+  const handleAllowedCategoryToggle = (categoryId) => {
+    const currentAllowed = formData.allowedConcurrentCategories || [];
+    const categoryIdStr = String(categoryId);
+    let updatedAllowed;
+
+    // Use string comparison to handle ObjectId vs string mismatch
+    if (currentAllowed.some(id => String(id) === categoryIdStr)) {
+      // Remove category
+      updatedAllowed = currentAllowed.filter(id => String(id) !== categoryIdStr);
+    } else {
+      // Add category (store as string)
+      updatedAllowed = [...currentAllowed, categoryIdStr];
+    }
+
+    const updatedData = {
+      ...formData,
+      allowedConcurrentCategories: updatedAllowed
+    };
+
+    setFormData(updatedData);
+    setHasChanges(true);
+    notifyDataChange(updatedData);
   };
 
   const checkRoomCapacity = (room) => {
@@ -1836,66 +1891,88 @@ export default function RoomReservationFormBase({
                     </p>
                   </div>
                 </label>
+
+                {/* Allowed Categories Selector (shown when concurrent is enabled) */}
+                {formData.isAllowedConcurrent && (
+                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #bae6fd' }}>
+                    <label style={{ display: 'block', fontWeight: 500, color: '#0369a1', marginBottom: '8px' }}>
+                      Restrict to specific categories (optional)
+                    </label>
+                    <p style={{ margin: '0 0 10px', fontSize: '0.85rem', color: '#64748b' }}>
+                      Leave empty to allow any event. Select categories to restrict which events can overlap.
+                    </p>
+
+                    {categoriesLoading ? (
+                      <div style={{ padding: '10px', color: '#64748b' }}>Loading categories...</div>
+                    ) : availableCategories.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        {availableCategories.map(cat => {
+                          // Use string comparison to handle ObjectId vs string mismatch
+                          const isSelected = (formData.allowedConcurrentCategories || []).some(
+                            id => String(id) === String(cat._id)
+                          );
+                          return (
+                            <label
+                              key={cat._id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                border: `1px solid ${isSelected ? cat.color || '#0ea5e9' : '#e2e8f0'}`,
+                                backgroundColor: isSelected ? `${cat.color || '#0ea5e9'}15` : '#fff',
+                                cursor: fieldsDisabled ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleAllowedCategoryToggle(cat._id)}
+                                disabled={fieldsDisabled}
+                                style={{ margin: 0 }}
+                              />
+                              <span
+                                style={{
+                                  width: '10px',
+                                  height: '10px',
+                                  borderRadius: '2px',
+                                  backgroundColor: cat.color || '#64748b'
+                                }}
+                              />
+                              <span style={{ fontSize: '0.9rem', color: '#334155' }}>{cat.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ padding: '10px', color: '#64748b', fontSize: '0.85rem' }}>
+                        No categories available
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Read-only Concurrent Events Indicator (Non-admins) */}
             {!isAdmin && formData.isAllowedConcurrent && (
-              <div className="concurrent-events-badge" style={{ marginBottom: '20px', padding: '8px 12px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px dashed #0ea5e9', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '1.1rem' }}>🔄</span>
-                <span style={{ fontSize: '0.9rem', color: '#0369a1' }}>This event allows concurrent scheduling</span>
+              <div className="concurrent-events-badge" style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px dashed #0ea5e9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.1rem' }}>🔄</span>
+                  <span style={{ fontSize: '0.9rem', color: '#0369a1' }}>This event allows concurrent scheduling</span>
+                </div>
+                {(formData.allowedConcurrentCategories || []).length > 0 && (
+                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #bae6fd' }}>
+                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                      Restricted to categories: {(formData.allowedConcurrentCategories || []).length} selected
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Internal Notes Section */}
-            <div className="internal-notes-section">
-              <h4>🔒 Internal Notes (Staff Use Only)</h4>
-              <div className="internal-notes-disclaimer">
-                These notes are for internal staff coordination and will not be visible to the requester.
-              </div>
-
-              <div className="notes-field-row">
-                <div className="form-group">
-                  <label htmlFor="setupNotes">Setup Notes</label>
-                  <textarea
-                    id="setupNotes"
-                    name="setupNotes"
-                    value={formData.setupNotes}
-                    onChange={handleInputChange}
-                    rows="1"
-                    disabled={fieldsDisabled}
-                  />
-                </div>
-              </div>
-
-              <div className="notes-field-row">
-                <div className="form-group">
-                  <label htmlFor="doorNotes">Door/Access Notes</label>
-                  <textarea
-                    id="doorNotes"
-                    name="doorNotes"
-                    value={formData.doorNotes}
-                    onChange={handleInputChange}
-                    rows="1"
-                    disabled={fieldsDisabled}
-                  />
-                </div>
-              </div>
-
-              <div className="notes-field-row">
-                <div className="form-group">
-                  <label htmlFor="eventNotes">Event Notes</label>
-                  <textarea
-                    id="eventNotes"
-                    name="eventNotes"
-                    value={formData.eventNotes}
-                    onChange={handleInputChange}
-                    rows="1"
-                    disabled={fieldsDisabled}
-                  />
-                </div>
-              </div>
-            </div>
           </section>
 
           {/* Right Column: Submitter Information */}
@@ -1984,6 +2061,53 @@ export default function RoomReservationFormBase({
                   </div>
                 </div>
               )}
+            </section>
+
+            {/* Internal Notes Section (Staff Use Only) */}
+            <section className="form-section internal-notes-section">
+              <h2>🔒 Internal Notes</h2>
+              <div className="internal-notes-disclaimer" style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#64748b' }}>
+                These notes are for internal staff coordination and will not be visible to the requester.
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label htmlFor="setupNotes">Setup Notes</label>
+                <textarea
+                  id="setupNotes"
+                  name="setupNotes"
+                  value={formData.setupNotes}
+                  onChange={handleInputChange}
+                  rows="2"
+                  disabled={fieldsDisabled}
+                  placeholder="Notes for setup crew..."
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label htmlFor="doorNotes">Door/Access Notes</label>
+                <textarea
+                  id="doorNotes"
+                  name="doorNotes"
+                  value={formData.doorNotes}
+                  onChange={handleInputChange}
+                  rows="2"
+                  disabled={fieldsDisabled}
+                  placeholder="Notes about door/access requirements..."
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="eventNotes">Event Notes</label>
+                <textarea
+                  id="eventNotes"
+                  name="eventNotes"
+                  value={formData.eventNotes}
+                  onChange={handleInputChange}
+                  rows="2"
+                  disabled={fieldsDisabled}
+                  placeholder="General event notes..."
+                />
+              </div>
             </section>
           </div>
         </div>

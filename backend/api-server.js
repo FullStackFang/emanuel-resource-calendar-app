@@ -1522,12 +1522,53 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     // Get incoming event's concurrent permission (defaults to false)
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
 
-    // Filter conflicts - only a real conflict if BOTH events disallow concurrent
-    // If either event allows concurrent scheduling, they can coexist
+    // Get incoming event's categories (for checking against allowed concurrent categories)
+    const requestCategories = reservation.categories || [];
+
+    // Look up category IDs from category names for the incoming request
+    let requestCategoryIds = [];
+    if (requestCategories.length > 0) {
+      const categoryDocs = await categoriesCollection.find({
+        name: { $in: requestCategories }
+      }).toArray();
+      requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
+    }
+
+    // Filter conflicts - considers both isAllowedConcurrent AND allowedConcurrentCategories
     const actualConflicts = conflicts.filter(conflict => {
       const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
-      // Only a conflict if BOTH disallow concurrent
-      return !requestAllowsConcurrent && !conflictAllowsConcurrent;
+
+      // If BOTH events disallow concurrent, it's always a conflict
+      if (!requestAllowsConcurrent && !conflictAllowsConcurrent) {
+        return true; // IS a conflict
+      }
+
+      // If either event allows concurrent, check category restrictions
+      if (conflictAllowsConcurrent) {
+        const allowedCategories = conflict.allowedConcurrentCategories || [];
+
+        // If no category restrictions, allow any concurrent event
+        if (allowedCategories.length === 0) {
+          return false; // NOT a conflict
+        }
+
+        // Check if incoming event's categories match any allowed category
+        const allowedCategoryStrings = allowedCategories.map(id => id.toString());
+        const hasMatchingCategory = requestCategoryIds.some(catId =>
+          allowedCategoryStrings.includes(catId)
+        );
+
+        // If incoming event has a matching allowed category, NOT a conflict
+        // Otherwise, it IS a conflict (category not in allowed list)
+        return !hasMatchingCategory;
+      }
+
+      // If incoming event allows concurrent (and existing doesn't restrict), not a conflict
+      if (requestAllowsConcurrent) {
+        return false; // NOT a conflict
+      }
+
+      return false; // NOT a conflict
     });
 
     // Return detailed conflict information
@@ -1540,7 +1581,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       status: conflict.status,
       setupTimeMinutes: conflict.setupTimeMinutes || 0,
       teardownTimeMinutes: conflict.teardownTimeMinutes || 0,
-      isAllowedConcurrent: conflict.isAllowedConcurrent ?? false
+      isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
+      allowedConcurrentCategories: conflict.allowedConcurrentCategories || []
     }));
   } catch (error) {
     logger.error('Error checking room conflicts:', error);
@@ -11315,7 +11357,12 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
-      contactEmail
+      contactEmail,
+      // Categories
+      categories,
+      // Concurrent scheduling settings (admin-only)
+      isAllowedConcurrent = false,
+      allowedConcurrentCategories = []
     } = req.body;
     
     // Validation
@@ -11460,6 +11507,15 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
 
+      // Categories
+      categories: categories || [],
+
+      // Concurrent scheduling settings
+      isAllowedConcurrent: isAllowedConcurrent || false,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      }),
+
       status: 'pending',
 
       // New resubmission fields
@@ -11565,7 +11621,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       offsiteName,
       offsiteAddress,
       offsiteLat,
-      offsiteLon
+      offsiteLon,
+      // Concurrent scheduling settings (admin-only)
+      isAllowedConcurrent = false,
+      allowedConcurrentCategories = []
     } = req.body;
 
     // Minimal validation for draft - only eventTitle required
@@ -11618,6 +11677,12 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       // Categories and services (mecCategories is deprecated, use categories)
       categories: categories || mecCategories || [],  // categories is correct field, mecCategories is deprecated
       services: services || {},
+
+      // Concurrent scheduling settings
+      isAllowedConcurrent: isAllowedConcurrent || false,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      }),
 
       // Recurrence and virtual meeting
       recurrence: recurrence || null,
@@ -11731,7 +11796,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       offsiteName,
       offsiteAddress,
       offsiteLat,
-      offsiteLon
+      offsiteLon,
+      // Concurrent scheduling settings (admin-only)
+      isAllowedConcurrent,
+      allowedConcurrentCategories
     } = req.body;
 
     // Minimal validation - only eventTitle required
@@ -11774,6 +11842,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       recurrence: recurrence || null,
       virtualMeetingUrl: virtualMeetingUrl || null,
       requiredFeatures: requiredFeatures || [],
+      // Concurrent scheduling settings
+      isAllowedConcurrent: isAllowedConcurrent || false,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      }),
       'roomReservationData.contactPerson': isOnBehalfOf ? {
         name: contactName || '',
         email: contactEmail || '',
@@ -12032,9 +12105,11 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       // New delegation fields
       isOnBehalfOf = false,
       contactName,
-      contactEmail
+      contactEmail,
+      // Categories
+      categories
     } = req.body;
-    
+
     // Validation
     if (!requesterName || !requesterEmail || !eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
       return res.status(400).json({ 
@@ -12179,6 +12254,13 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       setupNotes: setupNotes || '',
       doorNotes: doorNotes || '',
       eventNotes: eventNotes || '',
+
+      // Categories
+      categories: categories || [],
+
+      // Concurrent scheduling settings (guest reservations default to false - admin can update later)
+      isAllowedConcurrent: false,
+      allowedConcurrentCategories: [],
 
       status: 'pending',
 
@@ -14146,7 +14228,8 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
       'contactName', 'contactEmail', 'reviewNotes',
       'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
       'setupNotes', 'doorNotes', 'eventNotes',
-      'categories', 'services'  // Categories sync with Outlook, services are internal
+      'categories', 'services',  // Categories sync with Outlook, services are internal
+      'isAllowedConcurrent', 'allowedConcurrentCategories'  // Concurrent scheduling settings
     ];
 
     // Build update document
@@ -14163,6 +14246,17 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
     }
     if (updateDoc.$set.endDateTime) {
       updateDoc.$set.endDateTime = new Date(updateDoc.$set.endDateTime);
+    }
+
+    // Convert allowedConcurrentCategories to ObjectIds if provided
+    if (updateDoc.$set.allowedConcurrentCategories && Array.isArray(updateDoc.$set.allowedConcurrentCategories)) {
+      updateDoc.$set.allowedConcurrentCategories = updateDoc.$set.allowedConcurrentCategories.map(id => {
+        try {
+          return new ObjectId(id);
+        } catch {
+          return id; // Keep as-is if not a valid ObjectId
+        }
+      });
     }
 
     // Track changes for revision history
@@ -17561,8 +17655,54 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // If event has a Graph event ID, update it in Graph API
     // Graph events store the Graph API ID in graphData.id
+    // ONLY update Graph if there are ACTUAL changes to Graph-syncable fields (not just present in request)
     const graphEventId = event.graphData?.id;
-    if (graphEventId && graphToken) {
+
+    // Helper to check if a value has actually changed
+    const hasFieldChanged = (fieldName, newValue, existingValue) => {
+      if (newValue === undefined) return false;
+      // Handle arrays (like categories, locations)
+      if (Array.isArray(newValue) && Array.isArray(existingValue)) {
+        return JSON.stringify(newValue.sort()) !== JSON.stringify(existingValue.sort());
+      }
+      // Handle objects
+      if (typeof newValue === 'object' && typeof existingValue === 'object' && newValue !== null && existingValue !== null) {
+        return JSON.stringify(newValue) !== JSON.stringify(existingValue);
+      }
+      return newValue !== existingValue;
+    };
+
+    // Check for actual changes in Graph-syncable fields
+    const graphChanges = {
+      eventTitle: hasFieldChanged('eventTitle', updates.eventTitle, event.eventTitle),
+      eventDescription: hasFieldChanged('eventDescription', updates.eventDescription, event.eventDescription),
+      startDateTime: hasFieldChanged('startDateTime', updates.startDateTime, event.startDateTime) ||
+                     hasFieldChanged('startDate', updates.startDate, event.startDate) ||
+                     hasFieldChanged('startTime', updates.startTime, event.startTime),
+      endDateTime: hasFieldChanged('endDateTime', updates.endDateTime, event.endDateTime) ||
+                   hasFieldChanged('endDate', updates.endDate, event.endDate) ||
+                   hasFieldChanged('endTime', updates.endTime, event.endTime),
+      isAllDayEvent: hasFieldChanged('isAllDayEvent', updates.isAllDayEvent, event.isAllDayEvent),
+      categories: hasFieldChanged('categories', updates.categories, event.categories),
+      locations: hasFieldChanged('locations', updates.locations, event.locations) ||
+                 hasFieldChanged('requestedRooms', updates.requestedRooms, event.locations),
+      isOffsite: hasFieldChanged('isOffsite', updates.isOffsite, event.isOffsite) ||
+                 hasFieldChanged('offsiteName', updates.offsiteName, event.offsiteName) ||
+                 hasFieldChanged('offsiteAddress', updates.offsiteAddress, event.offsiteAddress),
+      recurrence: hasFieldChanged('recurrence', updates.recurrence, event.recurrence)
+    };
+
+    const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
+
+    logger.info('Graph sync check:', {
+      eventId: id,
+      hasGraphToken: !!graphToken,
+      hasGraphEventId: !!graphEventId,
+      hasGraphSyncableChanges,
+      changedFields: Object.entries(graphChanges).filter(([_, changed]) => changed).map(([field]) => field)
+    });
+
+    if (graphEventId && graphToken && hasGraphSyncableChanges) {
       try {
         // Determine the correct Graph API endpoint based on editScope for recurring events
         let graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
@@ -18033,6 +18173,17 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // Clear internal room locations when switching to offsite
       updateOperations.locations = [];
+    }
+
+    // Convert allowedConcurrentCategories to ObjectIds if provided
+    if (updateOperations.allowedConcurrentCategories && Array.isArray(updateOperations.allowedConcurrentCategories)) {
+      updateOperations.allowedConcurrentCategories = updateOperations.allowedConcurrentCategories.map(id => {
+        try {
+          return new ObjectId(id);
+        } catch {
+          return id; // Keep as-is if not a valid ObjectId
+        }
+      });
     }
 
     // Update internal enrichments

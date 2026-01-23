@@ -189,6 +189,7 @@ export default function RoomReservationReview({
       services: reservation.services || {},
       // Allow concurrent scheduling flag (admin-controlled)
       isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
+      allowedConcurrentCategories: reservation.allowedConcurrentCategories || [],
       // Flag to tell FormBase that data is pre-processed
       _isPreProcessed: true
     };

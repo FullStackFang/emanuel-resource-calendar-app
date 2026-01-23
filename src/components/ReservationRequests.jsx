@@ -188,6 +188,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         eventSeriesId: event.eventSeriesId || null,
         seriesIndex: event.seriesIndex || null,
         seriesLength: event.seriesLength || null,
+        // Categories and services
+        categories: event.categories || [],
+        services: event.services || {},
+        // Concurrent event settings (admin-only)
+        isAllowedConcurrent: event.isAllowedConcurrent || false,
+        allowedConcurrentCategories: event.allowedConcurrentCategories || [],
         _isNewUnifiedEvent: true // Flag to identify source
       };
       });
