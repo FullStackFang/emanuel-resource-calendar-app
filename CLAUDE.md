@@ -60,7 +60,8 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 ### Key Services
 - **calendarDataService.js**: Enhanced event operations with caching and unified sync
 - **unifiedEventService.js**: Delta sync for multiple calendars with conflict detection
-- **graphService.js**: Microsoft Graph API interactions for calendar data
+- **graphService.js**: Frontend Graph API interactions (legacy, being phased out)
+- **graphApiService.js**: Backend Graph API service using app-only authentication (preferred)
 - **userPreferencesService.js**: User preference management with MongoDB persistence
 
 ### API Structure
@@ -85,6 +86,38 @@ Events combine Microsoft Graph data with internal enrichments:
 2. Acquires two tokens: Graph API token + Custom API token
 3. Frontend includes API token in Authorization header
 4. Backend validates token using JWKS from Azure AD
+
+### Graph API Authentication (IMPORTANT)
+The backend uses **app-only authentication** via `graphApiService.js` for all Graph API operations. This is a critical architectural decision:
+
+- **DO NOT** use user's `graphToken` for backend Graph API calls
+- **DO** use `graphApiService` with `calendarOwner` email for all Graph operations
+- The frontend still passes `graphToken` in some places for backward compatibility, but it is ignored by the backend
+
+**How it works:**
+1. Backend uses Azure AD client credentials flow (app-only)
+2. `graphApiService.js` obtains tokens automatically using `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`
+3. Graph API calls use `/users/{calendarOwner}/...` pattern with app permissions
+4. No user delegation required - the app acts on behalf of itself
+
+**Example - Creating a calendar event:**
+```javascript
+// CORRECT: Use graphApiService with calendarOwner email
+const event = await graphApiService.createCalendarEvent(
+  calendarOwner,  // e.g., 'templeeventssandbox@emanuelnyc.org'
+  calendarId,     // optional calendar ID, or null for default
+  eventData
+);
+
+// WRONG: Don't use user's graphToken with direct fetch
+// This pattern is deprecated and should not be used
+```
+
+**Endpoints using app-only auth:**
+- `PUT /api/admin/events/:id/approve` - Creates Graph events on approval
+- `PUT /api/admin/events/:id` - Syncs changes to Graph
+- `GET /api/graph/*` - All Graph API proxy endpoints
+- Delta sync operations
 
 ### Environment Configuration
 - Development: `https://localhost:5173` (frontend), `http://localhost:3001` (backend)
@@ -129,6 +162,14 @@ Events combine Microsoft Graph data with internal enrichments:
 - **Teams/Outlook Add-in**: Seamless Microsoft 365 integration
 
 ## Recent Updates
+
+### Graph API Authentication Migration (Completed)
+- **Architecture Change**: Migrated from user-delegated `graphToken` to app-only authentication
+- Backend now uses `graphApiService.js` for all Graph API operations
+- `PUT /api/admin/events/:id/approve` updated to use `graphApiService.createCalendarEvent()`
+- No longer requires user's Graph token - uses `calendarOwner` email instead
+- Frontend still sends `graphToken` for backward compatibility but backend ignores it
+- All new Graph API integrations should use `graphApiService` with app-only auth
 
 ### Room Reservation System (Completed)
 - Implemented complete room reservation workflow
@@ -187,96 +228,67 @@ Events combine Microsoft Graph data with internal enrichments:
 - Reusable utility functions
 - Clear separation of concerns
 
-## Event/Reservation Data Flow (CRITICAL)
+## Event/Reservation Data Flow (SIMPLIFIED)
 
-When adding new fields to events or reservations, they must be added to ALL layers in the data transformation chain. Missing a layer causes fields to not appear in the form.
+The application uses a **centralized transform layer** for all event data transformation. When adding new fields to `templeEvents__Events`, you only need to update **2 places**.
 
-### Calendar Event Click → Edit Form Flow
+### Centralized Transform Layer
+
+**Single Source of Truth:** `src/utils/eventTransformers.js`
+
+All components now use `transformEventToFlatStructure()` instead of inline transformation:
+
+```javascript
+import { transformEventToFlatStructure } from '../utils/eventTransformers';
+
+// Used by: ReservationRequests.jsx, UnifiedEventForm.jsx, RoomReservationReview.jsx
+const flatEvent = transformEventToFlatStructure(mongoEvent);
+```
+
+### Data Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. CALENDAR CLICK                                                           │
-│    Calendar.jsx: handleEventClick(event)                                    │
-│    └─> reviewModal.openModal(event)                                         │
+│                           READ FLOW (Backend → Frontend)                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 2. REVIEW MODAL HOOK                                                        │
-│    src/hooks/useReviewModal.jsx: openModal(event)                           │
-│    └─> setCurrentItem(event)  // Raw event data, no transformation          │
-│    └─> setEditableData(event)                                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 3. REVIEW COMPONENT ⚠️ KEY TRANSFORMATION POINT                             │
-│    src/components/RoomReservationReview.jsx                                 │
-│    └─> initialData = useMemo(() => { ... }, [reservation])                  │
-│    └─> MUST map ALL fields from reservation to initialData                  │
-│    └─> Line ~148-195: Field mapping happens here                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 4. FORM BASE COMPONENT                                                      │
-│    src/components/RoomReservationFormBase.jsx                               │
-│    └─> Receives initialData prop                                            │
-│    └─> useState(formData) initialized with {...defaults, ...initialData}    │
-│    └─> Form renders with formData                                           │
+│  MongoDB ──> API Server ──> transformEventToFlatStructure() ──> Form/UI     │
+│  (nested)    (raw docs)     (SINGLE transform layer)           (flat)       │
 └─────────────────────────────────────────────────────────────────────────────┘
-```
 
-### Reservation Requests Admin → Edit Form Flow
-
-```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. API FETCH                                                                │
-│    Backend: GET /api/events?status=room-reservation-request                 │
-│    └─> Returns full MongoDB documents (all fields)                          │
+│                           WRITE FLOW (Frontend → Backend)                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 2. LIST TRANSFORMATION ⚠️ KEY TRANSFORMATION POINT                          │
-│    src/components/ReservationRequests.jsx                                   │
-│    └─> transformedNewEvents = events.map(event => { ... })                  │
-│    └─> Line ~148-195: MUST include all fields needed by form                │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 3. UNIFIED EVENT FORM ⚠️ KEY TRANSFORMATION POINT                           │
-│    src/components/UnifiedEventForm.jsx                                      │
-│    └─> setInitialData({ ... }) for reservation mode (line ~255-295)         │
-│    └─> setInitialData({ ... }) for event mode (line ~307-340)               │
-│    └─> MUST map ALL fields for both modes                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ 4. FORM BASE COMPONENT                                                      │
-│    src/components/RoomReservationFormBase.jsx                               │
-│    └─> Same as above                                                        │
+│  Form ──> getProcessedFormData() ──> PUT /api/admin/events/:id ──> MongoDB  │
+│  (flat)   (minimal processing)       (handles nested structure)   (nested)  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Adding New Fields Checklist
+### Adding New Fields - Only 2 Places!
 
-When adding a new field to events/reservations, update ALL of these files:
+When adding a new field to events/reservations:
 
-1. **Backend** (`backend/api-server.js`):
-   - Add to create endpoint request body destructuring
-   - Add to update endpoint request body destructuring
-   - Add to MongoDB insert/update operations
-   - Add to conflict detection if relevant
+#### 1. Frontend Transform Layer (`src/utils/eventTransformers.js`)
+Add field extraction in `transformEventToFlatStructure()`:
+```javascript
+return {
+  // ... existing fields
+  newField: event.newField || event.roomReservationData?.newField || defaultValue,
+};
+```
 
-2. **RoomReservationReview.jsx** (~line 148-195):
-   - Add to `initialData = useMemo(...)` mapping
-   - Example: `newField: reservation.newField || defaultValue`
-
-3. **ReservationRequests.jsx** (~line 148-195):
-   - Add to `transformedNewEvents` mapping
-   - Example: `newField: event.newField || defaultValue`
-
-4. **UnifiedEventForm.jsx**:
-   - Add to reservation mode `setInitialData` (~line 255-295)
-   - Add to event mode `setInitialData` (~line 307-340)
-   - Example: `newField: reservation.newField || defaultValue`
-
-5. **RoomReservationFormBase.jsx**:
-   - Add to initial `formData` state (~line 95-125)
-   - Add to sync useEffect if needed (~line 208-236)
-   - Add UI elements to render the field
+#### 2. Backend API (`backend/api-server.js`)
+Add field handling in relevant endpoint(s):
+- Request body destructuring
+- MongoDB insert/update operations
 
 ### Common Pitfalls
 
-- **Field exists in MongoDB but not in form**: Missing from transformation layer
-- **Field saves but doesn't load**: Missing from `initialData` mapping
-- **Field works in one modal but not another**: Different components use different transformation paths
+- **Field exists in MongoDB but not in form**: Missing from `eventTransformers.js`
+- **Field saves but doesn't load**: Missing from `transformEventToFlatStructure()`
 - **ObjectId comparison fails**: Use `String(id)` for comparisons
+
+### See Also
+For detailed architecture documentation, see `architecture-notes.md`
 
 ## Important Notes
 
@@ -287,3 +299,4 @@ When adding a new field to events/reservations, update ALL of these files:
 - Export features include PDF generation and public API access
 - All times are handled with proper timezone conversion
 - Demo mode available for testing without live data
+- **Graph API calls from backend MUST use `graphApiService.js`** with app-only authentication, NOT user's `graphToken`

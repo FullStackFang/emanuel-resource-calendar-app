@@ -1,5 +1,225 @@
 # Architecture Notes
 
+## Table of Contents
+1. [Event Data Transform Architecture](#event-data-transform-architecture)
+2. [Graph API Authentication](#graph-api-authentication)
+3. [DateTime Data Architecture](#datetime-data-architecture)
+
+---
+
+## Event Data Transform Architecture
+
+### Overview
+The application uses a **centralized transform layer** to convert between MongoDB's nested document structure and the flat structure used by UI forms. This simplifies field management - when adding a new field, you only need to update **two places**.
+
+### The Problem (Before)
+Previously, event data transformation was scattered across multiple components:
+- `ReservationRequests.jsx` had inline transformation
+- `UnifiedEventForm.jsx` had its own transformation
+- `RoomReservationReview.jsx` had different transformation logic
+- Each component could have different field mappings, causing bugs
+
+### The Solution: Centralized Transform Layer
+
+**Single Source of Truth:** `src/utils/eventTransformers.js`
+
+```javascript
+// CORRECT: Use the centralized transformer
+import { transformEventToFlatStructure } from '../utils/eventTransformers';
+
+const flatEvent = transformEventToFlatStructure(mongoEvent);
+```
+
+### Adding New Fields - Only 2 Places!
+
+When adding a new field to `templeEvents__Events`, update:
+
+#### 1. Frontend Transform Layer (`src/utils/eventTransformers.js`)
+Add the field extraction in `transformEventToFlatStructure()`:
+```javascript
+return {
+  // ... existing fields
+  newField: event.newField || event.roomReservationData?.newField || defaultValue,
+};
+```
+
+#### 2. Backend API (`backend/api-server.js`)
+Add the field in relevant endpoint(s):
+- Request body destructuring
+- MongoDB insert/update operations
+- Response construction (if needed)
+
+### Data Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           READ FLOW (Backend → Frontend)                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────────────────┐  │
+│  │   MongoDB    │───>│  API Server  │───>│  transformEventToFlatStructure │  │
+│  │   (nested)   │    │  (raw docs)  │    │  (single transform layer)      │  │
+│  └──────────────┘    └──────────────┘    └───────────────┬──────────────┘  │
+│                                                          │                  │
+│                                          ┌───────────────┴───────────────┐  │
+│                                          ▼                               ▼  │
+│                               ┌──────────────────┐           ┌──────────────┐│
+│                               │  Form Components │           │   Calendar   ││
+│                               │  (flat structure)│           │    Views     ││
+│                               └──────────────────┘           └──────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           WRITE FLOW (Frontend → Backend)                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────────┐    ┌─────────────────────┐    ┌──────────────────────┐│
+│  │  Form Components │───>│ getProcessedFormData │───>│   PUT /api/events    ││
+│  │  (flat structure)│    │ (minimal processing) │    │   (stores to Mongo)  ││
+│  └──────────────────┘    └─────────────────────┘    └──────────────────────┘│
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### MongoDB Document Structure
+
+Events in `templeEvents__Events` have a hybrid structure:
+
+```javascript
+{
+  // === TOP-LEVEL FIELDS (Authoritative) ===
+  eventId: "evt-...",
+  _id: ObjectId("..."),
+  status: "pending" | "approved" | "rejected" | "draft",
+
+  // Datetime fields (with Z suffix for UTC)
+  startDateTime: "2025-01-24T16:30:00Z",
+  endDateTime: "2025-01-24T17:00:00Z",
+  startDate: "2025-01-24",
+  startTime: "16:30",
+
+  // Event details
+  eventTitle: "Event Name",
+  eventDescription: "Description",
+  categories: ["Category1"],
+  locations: [ObjectId("...")],
+  locationDisplayNames: "Room Name",
+
+  // Timing
+  setupTime: "16:00",
+  teardownTime: "18:00",
+  doorOpenTime: "16:15",
+  doorCloseTime: "17:00",
+
+  // === NESTED STRUCTURES (For specific contexts) ===
+  graphData: {
+    // Microsoft Graph API format (for sync)
+    subject: "Event Name",
+    start: { dateTime: "...", timeZone: "America/New_York" },
+    end: { dateTime: "...", timeZone: "America/New_York" },
+    location: { displayName: "Room Name" },
+    categories: [...]
+  },
+
+  roomReservationData: {
+    // Room reservation workflow data
+    requestedBy: { userId, name, email },
+    reviewedBy: { userId, name, reviewedAt },
+    communicationHistory: [...]
+  },
+
+  internalData: {
+    // Legacy internal enrichments (being phased out)
+    mecCategories: [...],
+    setupMinutes: 0
+  }
+}
+```
+
+### Components Using Transform Layer
+
+| Component | Usage |
+|-----------|-------|
+| `ReservationRequests.jsx` | `transformEventsToFlatStructure(events)` |
+| `UnifiedEventForm.jsx` | `transformEventToFlatStructure(event)` |
+| `RoomReservationReview.jsx` | `transformEventToFlatStructure(reservation)` |
+| `Calendar.jsx` views | Events already have `start.dateTime` from API |
+
+---
+
+## Graph API Authentication
+
+### Overview
+The backend uses **app-only authentication** (client credentials flow) for all Microsoft Graph API operations. User-delegated tokens (`graphToken`) are **NOT used** on the backend.
+
+### Architecture Decision
+
+| Aspect | Old Approach (Deprecated) | New Approach (Current) |
+|--------|---------------------------|------------------------|
+| Token Source | User's `graphToken` passed from frontend | App-only token via `graphApiService.js` |
+| Auth Flow | User delegation | Client credentials |
+| Required Data | `graphToken` in request body | `calendarOwner` email on event |
+| Graph API Pattern | `/me/calendars/...` | `/users/{email}/calendars/...` |
+
+### How It Works
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Frontend  │────>│  Backend API    │────>│ graphApiService │
+│  (apiToken) │     │  (validates JWT)│     │  (app-only auth)│
+└─────────────┘     └─────────────────┘     └────────┬────────┘
+                                                     │
+                                                     ▼
+                                            ┌─────────────────┐
+                                            │ Microsoft Graph │
+                                            │      API        │
+                                            └─────────────────┘
+```
+
+1. Frontend sends `apiToken` (JWT) in Authorization header
+2. Backend validates JWT, extracts user info
+3. Backend uses `graphApiService.js` to call Graph API
+4. `graphApiService` uses Azure AD client credentials (app-only)
+5. Graph API calls use `/users/{calendarOwner}/...` pattern
+
+### Code Example
+
+```javascript
+// CORRECT: Use graphApiService with calendarOwner
+const event = await graphApiService.createCalendarEvent(
+  calendarOwner,  // e.g., 'templeeventssandbox@emanuelnyc.org'
+  calendarId,     // optional, or null for default calendar
+  eventData
+);
+
+// WRONG: Don't use user's graphToken (deprecated)
+// This pattern should NOT be used in backend code
+const response = await fetch(url, {
+  headers: { 'Authorization': `Bearer ${graphToken}` }
+});
+```
+
+### Endpoints Using App-Only Auth
+
+- `PUT /api/admin/events/:id/approve` - Creates Graph events on approval
+- `PUT /api/admin/events/:id` - Syncs changes to Graph
+- `GET /api/graph/*` - All Graph API proxy endpoints
+- Delta sync operations
+
+### Environment Variables Required
+
+```env
+AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
+AZURE_TENANT_ID=your-tenant-id
+```
+
+### Frontend Backward Compatibility
+
+The frontend still passes `graphToken` in some API calls for backward compatibility, but the backend **ignores** it. No frontend changes are required - the backend simply uses app-only auth instead.
+
+---
+
 ## DateTime Data Architecture
 
 ### Overview
@@ -253,9 +473,13 @@ export const formatEventTime = (dateString, timezone, eventSubject) => {
 ## Related Files
 
 ### Backend
-- `backend/api-server.js` (lines 2504-2514, 3533-3540, 4173-4183, 4255-4265, 14807-14813)
+- `backend/api-server.js` - Main API server with all endpoints
+- `backend/services/graphApiService.js` - App-only Graph API authentication service
 
-### Frontend
+### Frontend - Transform Layer
+- `src/utils/eventTransformers.js` - **SINGLE SOURCE OF TRUTH** for event data transformation
+
+### Frontend - Datetime
 - `src/utils/timezoneUtils.jsx` (timezone conversion utilities)
 - `src/context/TimezoneContext.jsx` (user timezone preference)
 - `src/components/EventDetailsModal.jsx`
@@ -304,6 +528,19 @@ const date = new Date(dateTime);  // May parse as local time!
 
 ## Change Log
 
+### 2026-01-23: Graph API Authentication Migration
+- **Architecture Change**: Migrated from user-delegated `graphToken` to app-only authentication
+- **Backend**: All Graph API calls now use `graphApiService.js` with client credentials flow
+- **Approve Endpoint**: `PUT /api/admin/events/:id/approve` updated to use `graphApiService.createCalendarEvent()`
+- **Pattern Change**: Uses `/users/{calendarOwner}/...` instead of `/me/...` pattern
+- **Backward Compatible**: Frontend still sends `graphToken` but backend ignores it
+
+### 2026-01-23: Centralized Transform Layer
+- **New File**: `src/utils/eventTransformers.js` - single source of truth for event transformation
+- **Simplified Updates**: Adding new fields now requires only 2 places (transform layer + backend)
+- **Components Updated**: `ReservationRequests.jsx`, `UnifiedEventForm.jsx`, `RoomReservationReview.jsx` now use shared transformer
+- **Removed**: Inline transformation logic from individual components
+
 ### 2025-11-13: DateTime Standardization
 - **Backend**: All storage operations now add Z suffix before creating Date objects
 - **API**: Response construction uses top-level fields (with Z) instead of graphData
@@ -315,3 +552,4 @@ const date = new Date(dateTime);  // May parse as local time!
 - **Migration Script**: May need to add Z suffix to existing events without it
 - **Validation**: Add database constraints to ensure Z suffix on all datetime fields
 - **Documentation**: Update API documentation with datetime format requirements
+- **Frontend Cleanup**: Remove `graphToken` from frontend code (currently ignored by backend)

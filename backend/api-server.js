@@ -16747,7 +16747,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
-    const { notes, calendarMode, createCalendarEvent, graphToken, forceApprove, targetCalendar } = req.body;
+    // Note: graphToken is no longer needed - using app-only auth via graphApiService
+    const { notes, calendarMode, createCalendarEvent, forceApprove, targetCalendar } = req.body;
 
     // Get event by _id
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
@@ -16783,19 +16784,35 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     }
 
     // Create Graph calendar event (if requested)
+    // Uses app-only authentication via graphApiService (no user graphToken needed)
     let graphEventId = null;
     let calendarEventResult = null;
-    let selectedCalendar = null;
+    let selectedCalendarOwner = null;
+    let selectedCalendarId = null;
 
-    if (createCalendarEvent && graphToken) {
+    if (createCalendarEvent) {
       try {
-        // Determine target calendar: use override, then database default, then fallback to sandbox
+        // Determine target calendar: use override, then event's calendar, then database default
         if (targetCalendar) {
-          selectedCalendar = targetCalendar;
+          // targetCalendar could be an email or calendar ID
+          // If it looks like an email, use it as the owner
+          if (targetCalendar.includes('@')) {
+            selectedCalendarOwner = targetCalendar;
+            selectedCalendarId = null; // Use default calendar for this user
+          } else {
+            // It's a calendar ID - we need the owner email too
+            selectedCalendarOwner = event.calendarOwner || 'templeeventssandbox@emanuelnyc.org';
+            selectedCalendarId = targetCalendar;
+          }
+        } else if (event.calendarOwner) {
+          // Use the event's calendar owner
+          selectedCalendarOwner = event.calendarOwner;
+          selectedCalendarId = event.calendarId || null;
         } else {
           // Get default from database
           const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
-          selectedCalendar = settings?.defaultCalendar || 'templesandbox@emanuelnyc.org';
+          selectedCalendarOwner = settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org';
+          selectedCalendarId = null;
         }
 
         // Build location for Graph event - check for offsite location data
@@ -16818,7 +16835,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
           });
         }
 
-        // Create Graph event
+        // Create Graph event data
         const graphEventData = {
           subject: event.graphData.subject,
           start: event.graphData.start,
@@ -16833,38 +16850,27 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
           showAs: event.graphData.showAs || 'busy'
         };
 
-        // Use /me/calendars/{calendarId}/events pattern - same as audit-update endpoint (line 4351)
-        // This works with calendar IDs like AAMkAD...
-        // NOT /users/{identifier}/events which expects an email address
-        const graphResponse = await fetch(
-          `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendar}/events`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${graphToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(graphEventData)
-          }
+        // Use graphApiService with app-only authentication (no user token needed)
+        logger.info('Creating Graph event via graphApiService', {
+          calendarOwner: selectedCalendarOwner,
+          calendarId: selectedCalendarId,
+          subject: graphEventData.subject
+        });
+
+        const createdEvent = await graphApiService.createCalendarEvent(
+          selectedCalendarOwner,
+          selectedCalendarId,
+          graphEventData
         );
 
-        if (graphResponse.ok) {
-          const createdEvent = await graphResponse.json();
-          graphEventId = createdEvent.id;
-          calendarEventResult = {
-            success: true,
-            eventId: graphEventId,
-            targetCalendar: selectedCalendar
-          };
-          logger.info('Graph calendar event created:', { graphEventId, targetCalendar: selectedCalendar });
-        } else {
-          const errorText = await graphResponse.text();
-          calendarEventResult = {
-            success: false,
-            error: `Graph API error: ${graphResponse.status} - ${errorText}`
-          };
-          logger.error('Failed to create Graph event:', errorText);
-        }
+        graphEventId = createdEvent.id;
+        calendarEventResult = {
+          success: true,
+          eventId: graphEventId,
+          targetCalendar: selectedCalendarOwner,
+          calendarId: selectedCalendarId
+        };
+        logger.info('Graph calendar event created:', { graphEventId, calendarOwner: selectedCalendarOwner });
       } catch (error) {
         calendarEventResult = {
           success: false,
@@ -16875,7 +16881,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     }
 
     // If calendar event creation was requested but failed, fail the approval
-    if (createCalendarEvent && graphToken && !graphEventId) {
+    if (createCalendarEvent && !graphEventId) {
       logger.error('Graph event creation failed, blocking approval:', calendarEventResult?.error);
       return res.status(500).json({
         error: 'CalendarEventCreationFailed',
@@ -16911,8 +16917,13 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     // Add Graph event ID if created
     if (graphEventId) {
       updateDoc.$set['graphData.id'] = graphEventId;
-      // Set calendarId to the target calendar (not the event ID)
-      updateDoc.$set.calendarId = selectedCalendar;
+      // Set calendarId and calendarOwner for the approved event
+      if (selectedCalendarId) {
+        updateDoc.$set.calendarId = selectedCalendarId;
+      }
+      if (selectedCalendarOwner) {
+        updateDoc.$set.calendarOwner = selectedCalendarOwner;
+      }
       updateDoc.$push = {
         'roomReservationData.createdGraphEventIds': graphEventId
       };
