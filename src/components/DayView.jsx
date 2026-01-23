@@ -74,7 +74,8 @@ const DayView = memo(({
       const eventLocations = locationText
         .split(/[;,]/)
         .map(loc => loc.trim())
-        .filter(loc => loc.length > 0);
+        // Filter out empty strings and "Unspecified" placeholder
+        .filter(loc => loc.length > 0 && loc !== 'Unspecified');
 
       // Find first non-virtual location
       for (const location of eventLocations) {

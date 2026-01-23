@@ -117,7 +117,7 @@ const EventDetailsModal = ({ isOpen, onClose, events, title, migrationConfig }) 
                         </div>
                       )}
                       
-                      {event.location && (
+                      {event.location && event.location !== 'Unspecified' && (
                         <div className="event-location">
                           📍 <strong>Location:</strong> {renderLocation(event.location)}
                         </div>

@@ -193,7 +193,7 @@ const DayEventPanel = memo(({
 
                   <div className="event-subject">{event.subject}</div>
                   
-                  {event.location?.displayName && (
+                  {event.location?.displayName && event.location.displayName !== 'Unspecified' && (
                     <div className="event-detail">
                       {isVirtualLocation(event.location.displayName) ? (
                         <>

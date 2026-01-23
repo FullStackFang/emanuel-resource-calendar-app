@@ -711,6 +711,7 @@
       /**
        * Check if an event has no location assigned
        * Checks if the locations array (ObjectIds) is empty AND locationDisplayNames is empty
+       * Also treats "Unspecified" placeholder as unspecified (used when clearing locations via Graph API)
        */
       const isUnspecifiedLocation = useCallback((event) => {
         // Offsite events are NOT unspecified - they have their own group
@@ -718,9 +719,12 @@
         // Has locations array with items = not unspecified
         if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) return false;
         // Has locationDisplayNames (raw location name from Graph API) = not unspecified
-        if (event.locationDisplayNames && event.locationDisplayNames.trim()) return false;
+        // "Unspecified" is a placeholder used when clearing locations, treat as unspecified
+        const locationDisplayNames = event.locationDisplayNames?.trim();
+        if (locationDisplayNames && locationDisplayNames !== 'Unspecified') return false;
         // Also check graphData.location.displayName as fallback
-        if (event.graphData?.location?.displayName && event.graphData.location.displayName.trim()) return false;
+        const graphDisplayName = event.graphData?.location?.displayName?.trim();
+        if (graphDisplayName && graphDisplayName !== 'Unspecified') return false;
         // No location data found = unspecified
         return true;
       }, []);
@@ -2506,7 +2510,7 @@
             {event.subject}
           </div>
           
-          {viewType !== 'month' && event.location?.displayName && (
+          {viewType !== 'month' && event.location?.displayName && event.location.displayName !== 'Unspecified' && (
             <div className="event-location" style={styles}>
               {event.location.displayName}
             </div>

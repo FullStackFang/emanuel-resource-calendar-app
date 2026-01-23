@@ -63,7 +63,8 @@ const WeekView = memo(({
     const eventLocations = locationText
       .split(/[;,]/)
       .map(loc => loc.trim())
-      .filter(loc => loc.length > 0);
+      // Filter out empty strings and "Unspecified" placeholder
+      .filter(loc => loc.length > 0 && loc !== 'Unspecified');
 
     // If no valid locations after parsing, treat as Unspecified
     if (eventLocations.length === 0) {

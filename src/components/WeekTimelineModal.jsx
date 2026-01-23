@@ -361,7 +361,7 @@ export default function WeekTimelineModal({
                     <div className="week-timeline-all-day-list-item-title">
                       {event.subject || event.eventTitle || 'Untitled Event'}
                     </div>
-                    {event.location?.displayName && (
+                    {event.location?.displayName && event.location.displayName !== 'Unspecified' && (
                       <div className="week-timeline-all-day-list-item-location">
                         📍 {event.location.displayName}
                       </div>

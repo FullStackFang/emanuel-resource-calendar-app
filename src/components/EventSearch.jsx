@@ -672,9 +672,9 @@ function EventSearchInner({
         </div>
         
         {/* Location tag(s) */}
-        {event.location?.displayName && (
+        {event.location?.displayName && event.location.displayName !== 'Unspecified' && (
           <div className="result-tags">
-            <span 
+            <span
               className="location-tag"
               title={event.location.displayName} // Shows full URL on hover
             >

@@ -4580,7 +4580,9 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
 app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
   try {
     const { eventId } = req.params;
-    const { graphFields, internalFields, calendarId, calendarOwner, graphToken } = req.body;
+    // Use let for graphFields since we may need to create it when clearing locations
+    let { graphFields } = req.body;
+    const { internalFields, calendarId, calendarOwner, graphToken } = req.body;
     const userId = req.user.userId;
 
     logger.debug(`Starting unified audit update for event ${eventId}`, {
@@ -4711,6 +4713,16 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       } catch (error) {
         logger.error('Error pre-processing locations for Graph API:', error);
       }
+    } else if (Array.isArray(internalFields?.locations) && internalFields.locations.length === 0) {
+      // User explicitly cleared all locations - use "Unspecified" placeholder
+      // Graph API ignores empty strings/null, so we use a placeholder that it accepts
+      if (!graphFields) {
+        // Initialize graphFields if it doesn't exist (needed to update Graph API)
+        graphFields = {};
+      }
+      graphFields.location = { displayName: 'Unspecified', locationType: 'default' };
+      graphFields.locations = [];
+      logger.info('Clearing locations in Graph API - using "Unspecified" placeholder');
     }
 
     // 1. Update or Create event in Graph API if graphFields provided
@@ -4742,7 +4754,12 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ]
         };
 
-        logger.debug(`Making Graph API batch ${isNewEvent ? 'create' : 'update'}:`, { batchBody });
+        logger.info(`Making Graph API batch ${isNewEvent ? 'create' : 'update'}:`, {
+          locationBeingSent: graphFields.location,
+          locationsBeingSent: graphFields.locations,
+          currentEventGraphDataLocation: currentEvent?.graphData?.location,
+          currentEventGraphDataLocations: currentEvent?.graphData?.locations
+        });
 
         const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
           method: 'POST',
@@ -4773,7 +4790,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
 
             logger.debug(`Graph API ${isNewEvent ? 'create' : 'update'} successful:`, {
               eventId: graphUpdateResult.id,
-              subject: graphUpdateResult.subject
+              subject: graphUpdateResult.subject,
+              locationReturned: graphUpdateResult.location,
+              locationsReturned: graphUpdateResult.locations
             });
 
             // For new events, generate a unique internal UUID (eventId is separate from Graph ID)
@@ -4792,6 +4811,13 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ...(currentEvent?.graphData || {}),
           ...graphUpdateResult
         };
+
+        logger.info('Graph data after merge:', {
+          mergedLocation: updatedGraphData.location,
+          mergedLocations: updatedGraphData.locations,
+          graphResultHadLocation: 'location' in graphUpdateResult,
+          graphResultHadLocations: 'locations' in graphUpdateResult
+        });
 
       } catch (graphError) {
         logger.error('Graph API update error:', graphError);
@@ -17727,6 +17753,17 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // DEBUG: Log location processing state
+    logger.info('=== LOCATION DEBUG ===', {
+      'updates.locations': updates.locations,
+      'updates.location': updates.location,  // CHECK SINGULAR FIELD
+      'updates.requestedRooms': updates.requestedRooms,
+      'updates.isOffsite': updates.isOffsite,
+      'processedLocationsArray': processedLocationsArray,
+      'isLocationsEmptyArray': Array.isArray(updates.locations) && updates.locations.length === 0,
+      'isRequestedRoomsEmptyArray': Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0
+    });
+
     // Use iCalUId as the stable identifier for Graph sync
     // iCalUId never changes and is universal across users/calendars
     // We'll look up the current user's Graph ID by iCalUId before each operation
@@ -17749,6 +17786,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // Check for actual changes in Graph-syncable fields
     // For categories, check against both top-level and graphData.categories for proper comparison
     const existingCategories = event.categories || event.graphData?.categories || [];
+
+    // DEBUG: Log location change detection
+    logger.info('=== LOCATION CHANGE DETECTION ===', {
+      'updates.locations': updates.locations,
+      'event.locations': event.locations,
+      'updates.locations type': updates.locations === undefined ? 'undefined' : (Array.isArray(updates.locations) ? 'array' : typeof updates.locations),
+      'event.locations type': event.locations === undefined ? 'undefined' : (Array.isArray(event.locations) ? 'array' : typeof event.locations),
+      'locationChangeResult': hasFieldChanged('locations', updates.locations, event.locations)
+    });
+
     const graphChanges = {
       eventTitle: hasFieldChanged('eventTitle', updates.eventTitle, event.eventTitle),
       eventDescription: hasFieldChanged('eventDescription', updates.eventDescription, event.eventDescription),
@@ -17770,12 +17817,24 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
 
+    // DEBUG: Always log Graph sync decision
+    logger.info('=== GRAPH SYNC DECISION ===', {
+      hasGraphSyncableChanges,
+      graphChanges,
+      eventICalUId: eventICalUId || 'MISSING',
+      hasGraphToken: !!graphToken
+    });
+
     if (hasGraphSyncableChanges) {
       logger.debug('Graph sync needed:', {
         eventId: id,
         changedFields: Object.entries(graphChanges).filter(([_, changed]) => changed).map(([field]) => field)
       });
     }
+
+    // Variables to store Graph API response for syncing location back to MongoDB
+    let graphApiResponseLocation = null;
+    let graphApiResponseLocations = null;
 
     // Use iCalUId to sync with Graph - this is the stable identifier that works for any user
     if (eventICalUId && graphToken && hasGraphSyncableChanges) {
@@ -17969,6 +18028,17 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             };
             graphUpdate.locations = locationsArray;
           }
+        } else if (
+          // User explicitly cleared all locations (sent empty array)
+          // IMPORTANT: This check must come BEFORE the legacy updates.location check
+          (Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0) ||
+          (Array.isArray(updates.locations) && updates.locations.length === 0)
+        ) {
+          // Clear location in Graph API - use "Unspecified" placeholder
+          // Graph API ignores empty strings/null, so we use a placeholder that it accepts
+          graphUpdate.location = { displayName: 'Unspecified', locationType: 'default' };
+          graphUpdate.locations = [];
+          logger.info('Clearing locations in Graph API - using "Unspecified" placeholder');
         } else if (updates.location) {
           // Legacy single location field (if it exists)
           const singleLocation = {
@@ -17979,15 +18049,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           };
           graphUpdate.location = singleLocation;
           graphUpdate.locations = [singleLocation];
-        } else if (
-          // User explicitly cleared all locations (sent empty array)
-          (Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0) ||
-          (Array.isArray(updates.locations) && updates.locations.length === 0)
-        ) {
-          // Clear location in Graph API
-          graphUpdate.location = { displayName: '', locationType: 'default' };
-          graphUpdate.locations = [];
-          logger.debug('Clearing locations - user sent empty array');
         } else if (event.graphData?.location?.displayName) {
           // Keep existing Graph location if not changed
           graphUpdate.location = event.graphData.location;
@@ -18099,6 +18160,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
         logger.debug('Updating Graph event', { graphEventId });
 
+        // DEBUG: Log exactly what we're sending to Graph API
+        logger.info('=== GRAPH API UPDATE PAYLOAD ===', {
+          endpoint: graphEndpoint,
+          'graphUpdate.location': graphUpdate.location,
+          'graphUpdate.locations': graphUpdate.locations,
+          fullPayload: JSON.stringify(graphUpdate, null, 2)
+        });
+
         // Update in Graph API using the appropriate endpoint
         const graphResponse = await fetch(graphEndpoint, {
           method: 'PATCH',
@@ -18115,7 +18184,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             throw new Error(`Graph API update failed: ${graphResponse.status}`);
           }
 
-          logger.debug('Graph event updated successfully');
+          // DEBUG: Log what Graph API returned
+          const graphResult = await graphResponse.json();
+          logger.info('=== GRAPH API RESPONSE ===', {
+            'returnedLocation': graphResult.location,
+            'returnedLocations': graphResult.locations
+          });
+
+          // Store the Graph response location to sync back to MongoDB
+          graphApiResponseLocation = graphResult.location;
+          graphApiResponseLocations = graphResult.locations;
         }
       } catch (graphError) {
         logger.error('Failed to update Graph event:', graphError);
@@ -18211,6 +18289,32 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // Sync categories - keep local graphData.categories in sync with what was sent to Graph
       if (updates.categories !== undefined) {
         updateOperations['graphData.categories'] = updates.categories;
+      }
+
+      // Sync location - if Graph API was updated with location, sync it back to graphData
+      if (graphApiResponseLocation) {
+        // Remove any conflicting nested path updates (MongoDB doesn't allow both)
+        delete updateOperations['graphData.location.displayName'];
+        delete updateOperations['graphData.location.locationType'];
+        updateOperations['graphData.location'] = graphApiResponseLocation;
+        updateOperations['graphData.locations'] = graphApiResponseLocations || [];
+        // Also update top-level location fields for consistency
+        updateOperations['location'] = graphApiResponseLocation.displayName || '';
+        updateOperations['locationDisplayNames'] = graphApiResponseLocation.displayName || '';
+        logger.info('Syncing Graph location response to MongoDB:', {
+          location: graphApiResponseLocation,
+          locations: graphApiResponseLocations
+        });
+      } else if (Array.isArray(updates.locations) && updates.locations.length === 0) {
+        // Locations were cleared - sync "Unspecified" to graphData
+        // Remove any conflicting nested path updates (MongoDB doesn't allow both)
+        delete updateOperations['graphData.location.displayName'];
+        delete updateOperations['graphData.location.locationType'];
+        updateOperations['graphData.location'] = { displayName: 'Unspecified', locationType: 'default' };
+        updateOperations['graphData.locations'] = [];
+        updateOperations['location'] = 'Unspecified';
+        updateOperations['locationDisplayNames'] = 'Unspecified';
+        logger.info('Syncing cleared locations to MongoDB graphData');
       }
 
       // Sync recurrence (only when editing entire series)
@@ -18313,7 +18417,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           updateOperations.locationDisplayNames = displayNames;
 
           // Sync with graphData.location for Outlook display
-          updateOperations['graphData.location.displayName'] = displayNames;
+          // BUT only if we're not already setting the whole graphData.location object
+          // (to avoid MongoDB conflict between whole object and nested path updates)
+          if (!updateOperations['graphData.location']) {
+            updateOperations['graphData.location.displayName'] = displayNames;
+          }
         }
 
         logger.info('Updated locations - COMPLETE:', {
