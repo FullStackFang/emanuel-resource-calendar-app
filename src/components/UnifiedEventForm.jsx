@@ -543,9 +543,31 @@ export default function UnifiedEventForm({
           dateTime: `${formData.endDate}T${formData.endTime}`,
           timeZone: userTimeZone || 'America/New_York'
         },
-        location: {
-          displayName: formData.requestedRooms.join('; ')
-        },
+        location: (() => {
+          if (!formData.requestedRooms?.length) return undefined;
+          const locationDocs = (availableLocations || []).filter(loc =>
+            formData.requestedRooms.includes(loc._id)
+          );
+          if (!locationDocs.length) return undefined;
+          // Primary location is the first one
+          return {
+            displayName: locationDocs[0].displayName || locationDocs[0].name,
+            locationType: 'default'
+          };
+        })(),
+        locations: (() => {
+          if (!formData.requestedRooms?.length) return undefined;
+          const locationDocs = (availableLocations || []).filter(loc =>
+            formData.requestedRooms.includes(loc._id)
+          );
+          if (!locationDocs.length) return undefined;
+          // Build array of separate location objects for Graph API
+          return locationDocs.map(loc => ({
+            displayName: loc.displayName || loc.name,
+            locationType: 'default'
+          }));
+        })(),
+        locationIds: formData.requestedRooms, // Internal room IDs for database storage
         recurrence: formData.recurrence || null,  // Include recurrence pattern if exists
         internalEnrichment: {
           setupTimeMinutes: formData.setupTimeMinutes,

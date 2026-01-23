@@ -328,6 +328,7 @@ class CalendarDataService {
       start: eventData.start,
       end: eventData.end,
       location: eventData.location,
+      locations: eventData.locations, // Array of separate location objects for Graph API
       categories: eventData.categories
     };
     

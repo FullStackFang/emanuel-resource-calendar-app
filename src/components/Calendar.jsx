@@ -3929,6 +3929,7 @@
           start: data.start,
           end: data.end,
           location: data.location,
+          locations: data.locations, // Array of separate location objects for Graph API
           categories: data.categories,
           isAllDay: data.isAllDay,
           body: data.body,
@@ -3956,7 +3957,7 @@
         
         // Internal fields payload (for setup/teardown and other internal data)
         const internal = {
-          locations: data.locations || [],
+          locations: data.locationIds || [], // Room IDs for internal storage
           setupMinutes: data.setupMinutes || 0,
           teardownMinutes: data.teardownMinutes || 0,
           setupTime: data.setupTime || '',
@@ -4142,6 +4143,7 @@
               start: data.start,
               end: data.end,
               location: data.location,
+              locations: data.locations, // Array of separate location objects for Graph API
               categories: data.categories || [],
               isAllDay: data.isAllDay || false,
               body: data.body || { contentType: 'text', content: '' }
@@ -4149,7 +4151,7 @@
 
             // Prepare internal fields
             const internalFields = {
-              locations: data.locations || [],
+              locations: data.locationIds || [], // Room IDs for internal storage
               setupMinutes: data.setupMinutes || 0,
               teardownMinutes: data.teardownMinutes || 0,
               setupTime: data.setupTime || '',
@@ -4402,16 +4404,19 @@
               ? reservationData.requestedRooms
               : (reservationData.locations || []);
             let locationField = undefined;
+            let locationsArray = [];
             if (multiDayRoomIds.length > 0) {
               const locationDocs = rooms.filter(room =>
                 multiDayRoomIds.includes(room._id)
               );
               if (locationDocs.length > 0) {
-                const locationNames = locationDocs.map(loc => loc.displayName || loc.name).join(', ');
-                locationField = {
-                  displayName: locationNames,
+                // Build array of separate location objects for Graph API
+                locationsArray = locationDocs.map(loc => ({
+                  displayName: loc.displayName || loc.name,
                   locationType: 'default'
-                };
+                }));
+                // Primary location is the first one (for backwards compatibility)
+                locationField = locationsArray[0];
               }
             }
 
@@ -4437,6 +4442,7 @@
                   timeZone: getOutlookTimezone(userTimezone)
                 },
                 location: locationField,
+                locations: locationsArray.length > 0 ? locationsArray : undefined, // Graph API locations array
                 body: {
                   contentType: 'text',
                   content: reservationData.eventDescription || ''
@@ -4451,7 +4457,7 @@
                 }] : [],
                 calendarId: reservationData.calendarId,
                 // Include internal enrichments (use whichever field exists)
-                locations: multiDayRoomIds,
+                locationIds: multiDayRoomIds, // Internal room IDs for database storage
                 setupMinutes: reservationData.setupTimeMinutes || 0,
                 teardownMinutes: reservationData.teardownTimeMinutes || 0,
                 setupTime: reservationData.setupTime || '',
@@ -4530,16 +4536,19 @@
               ? reservationData.requestedRooms
               : (reservationData.locations || []);
             let locationField = undefined;
+            let locationsArray = [];
             if (roomIds.length > 0) {
               const locationDocs = rooms.filter(room =>
                 roomIds.includes(room._id)
               );
               if (locationDocs.length > 0) {
-                const locationNames = locationDocs.map(loc => loc.displayName || loc.name).join(', ');
-                locationField = {
-                  displayName: locationNames,
+                // Build array of separate location objects for Graph API
+                locationsArray = locationDocs.map(loc => ({
+                  displayName: loc.displayName || loc.name,
                   locationType: 'default'
-                };
+                }));
+                // Primary location is the first one (for backwards compatibility)
+                locationField = locationsArray[0];
               }
             }
 
@@ -4555,6 +4564,7 @@
                 timeZone: getOutlookTimezone(userTimezone)
               },
               location: locationField,
+              locations: locationsArray.length > 0 ? locationsArray : undefined, // Graph API locations array
               body: {
                 contentType: 'text',
                 content: reservationData.eventDescription || ''
@@ -4571,7 +4581,7 @@
               // Include recurrence pattern if exists
               recurrence: reservationData.recurrence || null,
               // Include internal enrichments (use whichever field exists)
-              locations: roomIds,
+              locationIds: roomIds, // Internal room IDs for database storage
               setupMinutes: reservationData.setupTimeMinutes || 0,
               teardownMinutes: reservationData.teardownTimeMinutes || 0,
               setupTime: reservationData.setupTime || '',

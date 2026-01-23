@@ -2097,6 +2097,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
           start: { dateTime: new Date().toISOString() },
           end: { dateTime: new Date().toISOString() },
           location: { displayName: '' },
+          locations: [],
           categories: [],
           bodyPreview: '',
           importance: 'normal',
@@ -2331,6 +2332,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         start: graphEvent.start,
         end: graphEvent.end,
         location: graphEvent.location || { displayName: '' },
+        locations: graphEvent.locations || [],
         categories: graphEvent.categories || [],
         bodyPreview: graphEvent.body?.content?.substring(0, 255) || '', // Keep for compatibility, truncate to 255 chars
         body: graphEvent.body || null, // Store full body object with content and contentType
@@ -3675,7 +3677,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
             `startDateTime=${encodeURIComponent(startISO)}` +
             `&endDateTime=${encodeURIComponent(endISO)}` +
             `&$top=250` +
-            `&$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
+            `&$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
 
           logger.log(`🌐 Calling Graph API (/calendarView) for calendar ${calendarId.substring(0, 20)}...`);
 
@@ -3824,6 +3826,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   start: graphEvent.start,
                   end: graphEvent.end,
                   location: graphEvent.location,
+                  locations: graphEvent.locations || [],
                   categories: graphEvent.categories || [],
                   bodyPreview: graphEvent.body?.content || '',
                   isAllDay: graphEvent.isAllDay,
@@ -4680,18 +4683,30 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           isReservable: true
         }).toArray();
 
-        const processedLocationDisplayName = roomDocs
-          .map(room => room.displayName || room.name || '')
-          .filter(Boolean)
+        // Build array of individual location objects for graphFields.locations
+        const processedLocationsArray = roomDocs
+          .map(room => ({
+            displayName: room.displayName || room.name || '',
+            locationType: 'default'
+          }))
+          .filter(loc => loc.displayName);
+
+        // Build semicolon-joined string for graphFields.location.displayName
+        const processedLocationDisplayName = processedLocationsArray
+          .map(loc => loc.displayName)
           .join('; ');
 
-        // Add location to graphFields if we have display names
-        if (processedLocationDisplayName && graphFields) {
+        // Set BOTH location (singular) and locations (plural) - Graph API requires both
+        if (processedLocationsArray.length > 0 && graphFields) {
           graphFields.location = {
             displayName: processedLocationDisplayName,
             locationType: 'default'
           };
-          logger.debug('Pre-processed location display name from internalFields.locations:', processedLocationDisplayName);
+          graphFields.locations = processedLocationsArray;
+          logger.debug('Pre-processed locations for Graph API:', {
+            location: graphFields.location,
+            locations: graphFields.locations
+          });
         }
       } catch (error) {
         logger.error('Error pre-processing locations for Graph API:', error);
@@ -4703,7 +4718,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       try {
         // Construct batch request - use POST for new events, PATCH for existing events
         // Include $select to ensure response contains type, seriesMasterId, and recurrence fields
-        const selectParams = '$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
+        const selectParams = '$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
 
         // calendarId is required for Graph API operations
         if (!calendarId) {
@@ -5137,10 +5152,13 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
         logger.debug(`Batch create: Event ${index + 1} is offsite, setting location:`, graphFields.location);
       }
 
+      // Include $select to ensure response contains locations and other needed fields
+      const selectParams = '$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
+
       return {
         id: String(index + 1),
         method: 'POST',
-        url: `/me/calendars/${calendarId}/events`,
+        url: `/me/calendars/${calendarId}/events?${selectParams}`,
         body: graphFields,
         headers: {
           'Content-Type': 'application/json'
@@ -6706,7 +6724,7 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
         const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
           `startDateTime=${encodeURIComponent(searchStart.toISOString())}` +
           `&endDateTime=${encodeURIComponent(searchEnd.toISOString())}` +
-          `&$select=id,iCalUId,subject,start,end,location,categories`;
+          `&$select=id,iCalUId,subject,start,end,location,locations,categories`;
 
         const graphResponse = await fetch(graphUrl, {
           headers: { 'Authorization': `Bearer ${graphToken}` }
@@ -7399,7 +7417,7 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
             const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` +
               `startDateTime=${encodeURIComponent(startDateTime.toISOString())}&` +
               `endDateTime=${encodeURIComponent(endDateTime.toISOString())}` +
-              `&$select=id,iCalUId,subject,start,end,location` +
+              `&$select=id,iCalUId,subject,start,end,location,locations` +
               `&$top=100`; // Limit to first 100 events per calendar for preview
 
             const eventsResponse = await fetch(eventsUrl, {
@@ -7758,6 +7776,7 @@ function createRegistrationEventFromMain(mainEvent, userId) {
         timeZone: 'UTC'
       },
       location: mainEvent.graphData.location,
+      locations: mainEvent.graphData.locations || [],
       categories: [...(mainEvent.graphData.categories || []), 'Setup/Teardown'],
       bodyPreview: mainEvent.internalData.registrationNotes || '',
       body: {
@@ -17637,13 +17656,19 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Pre-process requestedRooms to generate location display names for Graph API
+    // Pre-process requestedRooms to generate location objects for Graph API
     // This must happen BEFORE building the Graph update
-    let processedLocationDisplayName = null;
+    // We build both a locations array (for separate locations) and a primary location (for backwards compatibility)
+    let processedLocationsArray = [];
+    let processedPrimaryLocation = null;
 
     // If offsite, use offsite name/address for location display
     if (updates.isOffsite) {
-      processedLocationDisplayName = `${updates.offsiteName} (Offsite) - ${updates.offsiteAddress}`;
+      processedPrimaryLocation = {
+        displayName: `${updates.offsiteName} (Offsite) - ${updates.offsiteAddress}`,
+        locationType: 'default'
+      };
+      processedLocationsArray = [processedPrimaryLocation];
     } else if (updates.requestedRooms && Array.isArray(updates.requestedRooms) && updates.requestedRooms.length > 0) {
       try {
         const roomIds = updates.requestedRooms.map(id =>
@@ -17655,12 +17680,20 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           isReservable: true
         }).toArray();
 
-        processedLocationDisplayName = roomDocs
-          .map(room => room.displayName || room.name || '')
-          .filter(Boolean)
-          .join('; ');
+        // Build array of separate location objects for Graph API
+        processedLocationsArray = roomDocs
+          .map(room => ({
+            displayName: room.displayName || room.name || '',
+            locationType: 'default'
+          }))
+          .filter(loc => loc.displayName);
 
-        logger.debug('Pre-processed location display name from requestedRooms:', processedLocationDisplayName);
+        // Primary location is the first one (for backwards compatibility)
+        if (processedLocationsArray.length > 0) {
+          processedPrimaryLocation = processedLocationsArray[0];
+        }
+
+        logger.debug('Pre-processed locations array from requestedRooms:', processedLocationsArray.map(l => l.displayName));
       } catch (error) {
         logger.error('Error pre-processing requestedRooms:', error);
       }
@@ -17675,12 +17708,20 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           _id: { $in: locationIds }
         }).toArray();
 
-        processedLocationDisplayName = locationDocs
-          .map(loc => loc.displayName || loc.name || '')
-          .filter(Boolean)
-          .join('; ');
+        // Build array of separate location objects for Graph API
+        processedLocationsArray = locationDocs
+          .map(loc => ({
+            displayName: loc.displayName || loc.name || '',
+            locationType: 'default'
+          }))
+          .filter(loc => loc.displayName);
 
-        logger.debug('Pre-processed location display name from locations:', processedLocationDisplayName);
+        // Primary location is the first one (for backwards compatibility)
+        if (processedLocationsArray.length > 0) {
+          processedPrimaryLocation = processedLocationsArray[0];
+        }
+
+        logger.debug('Pre-processed locations array from locations:', processedLocationsArray.map(l => l.displayName));
       } catch (error) {
         logger.error('Error pre-processing locations:', error);
       }
@@ -17881,8 +17922,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         };
 
-        // Handle location field - convert from our internal array format to Graph's single object format
-        if (processedLocationDisplayName) {
+        // Handle location field - send separate locations array to Graph API
+        if (processedLocationsArray.length > 0) {
           if (updates.isOffsite) {
             // Use complete Graph location object for offsite events with address/coordinates
             graphUpdate.location = buildOffsiteGraphLocation(
@@ -17891,30 +17932,69 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
               updates.offsiteLat,
               updates.offsiteLon
             );
+            // For offsite, locations array has single offsite location
+            graphUpdate.locations = [graphUpdate.location];
           } else {
-            // Use pre-processed location from requestedRooms
-            graphUpdate.location = { displayName: processedLocationDisplayName };
+            // Use pre-processed locations array for separate location entries in Outlook
+            // location.displayName must be semicolon-joined, locations array has individual items
+            const joinedLocationDisplayName = processedLocationsArray
+              .map(loc => loc.displayName)
+              .join('; ');
+            graphUpdate.location = {
+              displayName: joinedLocationDisplayName,
+              locationType: 'default'
+            };
+            graphUpdate.locations = processedLocationsArray;
           }
         } else if (updates.locations && Array.isArray(updates.locations) && updates.locations.length > 0) {
-          // Join multiple locations into a single string
-          const locationString = updates.locations
-            .map(loc => typeof loc === 'string' ? loc : loc.displayName || loc.name || '')
-            .filter(Boolean)
-            .join('; ');
+          // Handle locations that are already in Graph API format (array of {displayName, locationType} objects)
+          const locationsArray = updates.locations
+            .map(loc => {
+              if (typeof loc === 'string') {
+                return { displayName: loc, locationType: 'default' };
+              }
+              return {
+                displayName: loc.displayName || loc.name || '',
+                locationType: loc.locationType || 'default'
+              };
+            })
+            .filter(loc => loc.displayName);
 
-          if (locationString) {
-            graphUpdate.location = { displayName: locationString };
+          if (locationsArray.length > 0) {
+            // location.displayName must be semicolon-joined for multiple locations
+            const joinedDisplayName = locationsArray.map(loc => loc.displayName).join('; ');
+            graphUpdate.location = {
+              displayName: joinedDisplayName,
+              locationType: 'default'
+            };
+            graphUpdate.locations = locationsArray;
           }
         } else if (updates.location) {
           // Legacy single location field (if it exists)
-          graphUpdate.location = {
+          const singleLocation = {
             displayName: typeof updates.location === 'string'
               ? updates.location
-              : updates.location.displayName || updates.location.name || ''
+              : updates.location.displayName || updates.location.name || '',
+            locationType: 'default'
           };
+          graphUpdate.location = singleLocation;
+          graphUpdate.locations = [singleLocation];
+        } else if (
+          // User explicitly cleared all locations (sent empty array)
+          (Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0) ||
+          (Array.isArray(updates.locations) && updates.locations.length === 0)
+        ) {
+          // Clear location in Graph API
+          graphUpdate.location = { displayName: '', locationType: 'default' };
+          graphUpdate.locations = [];
+          logger.debug('Clearing locations - user sent empty array');
         } else if (event.graphData?.location?.displayName) {
           // Keep existing Graph location if not changed
           graphUpdate.location = event.graphData.location;
+          // Also preserve existing locations array if it exists
+          if (event.graphData?.locations && Array.isArray(event.graphData.locations)) {
+            graphUpdate.locations = event.graphData.locations;
+          }
         }
 
         // Handle body/description
