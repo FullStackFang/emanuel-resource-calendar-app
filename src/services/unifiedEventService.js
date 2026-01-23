@@ -7,7 +7,6 @@ const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 class UnifiedEventService {
   constructor() {
     this.apiToken = null;
-    this.graphToken = null;
   }
 
   // Set the API token for authenticated requests
@@ -15,9 +14,11 @@ class UnifiedEventService {
     this.apiToken = token;
   }
 
-  // Set the Graph token for Graph API calls
-  setGraphToken(token) {
-    this.graphToken = token;
+  // Deprecated: Graph token is no longer needed - backend uses app-only auth
+  // Kept for backward compatibility during migration
+  setGraphToken(/* token */) {
+    // No-op: Backend now uses application permissions for Graph API calls
+    // Users no longer need individual calendar permissions
   }
 
   // Get authorization headers
@@ -25,17 +26,10 @@ class UnifiedEventService {
     if (!this.apiToken) {
       throw new Error('API token not set');
     }
-    const headers = {
+    return {
       'Authorization': `Bearer ${this.apiToken}`,
       'Content-Type': 'application/json'
     };
-    
-    // Add Graph token if available for delta sync
-    if (this.graphToken) {
-      headers['X-Graph-Token'] = this.graphToken;
-    }
-    
-    return headers;
   }
 
   /**

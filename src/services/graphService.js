@@ -1,169 +1,243 @@
 // src/services/graphService.js
-import { Client } from "@microsoft/microsoft-graph-client";
-import { graphConfig } from "../config/authConfig";
+// Updated to use backend proxy endpoints instead of direct Graph API calls
+// This allows the app to use application permissions, so users don't need individual calendar access
 
-// Helper function to get Microsoft Graph client
-export const getGraphClient = (accessToken) => {
-  // Initialize Graph client
-  const graphClient = Client.init({
-    // Use the provided access token to authenticate requests
-    authProvider: (done) => {
-      done(null, accessToken);
-    },
-  });
-  
-  return graphClient;
+import APP_CONFIG from '../config/config';
+
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+
+// Store the API token for authentication
+let apiToken = null;
+
+/**
+ * Set the API token for backend requests
+ * @param {string} token - The API token from MSAL authentication
+ */
+export const setApiToken = (token) => {
+  apiToken = token;
 };
 
-// Get user information
-export const getUserDetails = async (accessToken) => {
+/**
+ * Get authorization headers for backend requests
+ * @returns {Object} Headers object with Authorization
+ */
+const getAuthHeaders = () => {
+  if (!apiToken) {
+    throw new Error('API token not set. Call setApiToken first.');
+  }
+  return {
+    'Authorization': `Bearer ${apiToken}`,
+    'Content-Type': 'application/json'
+  };
+};
+
+/**
+ * Make authenticated request to backend
+ * @param {string} endpoint - API endpoint (relative to API_BASE_URL)
+ * @param {Object} options - Fetch options
+ * @returns {Promise<Object>} API response
+ */
+const backendRequest = async (endpoint, options = {}) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...options.headers
+    }
+  });
+
+  // Handle no-content responses (like DELETE)
+  if (response.status === 204) {
+    return { success: true };
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(data.error || `API error: ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  return data;
+};
+
+// Note: getGraphClient is removed - no longer making direct Graph API calls
+
+/**
+ * Get user information
+ * @param {string} userId - User ID or email
+ * @returns {Promise<Object>} User details
+ */
+export const getUserDetails = async (userId) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    const user = await graphClient.api(graphConfig.graphMeEndpoint).get();
-    return user;
+    return await backendRequest(`/graph/users/${encodeURIComponent(userId)}`);
   } catch (error) {
     console.error("Error getting user details:", error);
     throw error;
   }
 };
 
-// Get calendar events
-export const getCalendarEvents = async (accessToken, startDateTime, endDateTime) => {
+/**
+ * Get calendar events for a date range
+ * @param {string} userId - User ID or email (calendar owner)
+ * @param {string} startDateTime - ISO date string
+ * @param {string} endDateTime - ISO date string
+ * @param {string} calendarId - Optional specific calendar ID
+ * @returns {Promise<Object>} Events response
+ */
+export const getCalendarEvents = async (userId, startDateTime, endDateTime, calendarId = null) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    
-    // Format the query with start and end times
-    const eventsQuery = `${graphConfig.graphEventsEndpoint}?$select=subject,organizer,start,end,location&$orderby=start/dateTime&$filter=start/dateTime ge '${startDateTime}' and end/dateTime le '${endDateTime}'`;
-    
-    const events = await graphClient.api(eventsQuery).get();
-    return events;
+    const params = new URLSearchParams({
+      userId,
+      startDateTime,
+      endDateTime
+    });
+    if (calendarId) {
+      params.append('calendarId', calendarId);
+    }
+
+    return await backendRequest(`/graph/events?${params}`);
   } catch (error) {
     console.error("Error getting calendar events:", error);
     throw error;
   }
 };
 
-// Get all calendars (owned and shared)
-export const getCalendars = async (accessToken) => {
+/**
+ * Get all calendars (owned and shared) for a user
+ * @param {string} userId - User ID or email
+ * @returns {Promise<Object>} Calendars response
+ */
+export const getCalendars = async (userId) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    const calendars = await graphClient
-      .api('/me/calendars')
-      .select('id,name,owner,canEdit,canShare,canViewPrivateItems,isDefaultCalendar,isShared,isRemovable')
-      .orderby('name')
-      .get();
-    return calendars;
+    const params = new URLSearchParams({ userId });
+    return await backendRequest(`/graph/calendars?${params}`);
   } catch (error) {
     console.error("Error getting calendars:", error);
     throw error;
   }
 };
 
-// Get shared calendars specifically
-export const getSharedCalendars = async (accessToken) => {
+/**
+ * Get shared calendars specifically
+ * Note: With app permissions, this returns all calendars for the specified user
+ * @param {string} userId - User ID or email
+ * @returns {Promise<Object>} Calendars response
+ */
+export const getSharedCalendars = async (userId) => {
+  // With application permissions, we access calendars for a specific user/mailbox
+  // The concept of "shared" is different - we specify which user's calendars to access
+  return getCalendars(userId);
+};
+
+/**
+ * Search for calendars by user email
+ * @param {string} searchEmail - Email to search for
+ * @returns {Promise<Object>} Calendars response
+ */
+export const searchUserCalendars = async (searchEmail) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    const calendars = await graphClient
-      .api('/me/calendars')
-      .select('id,name,owner,canEdit,canShare,canViewPrivateItems,isDefaultCalendar,isShared,isRemovable')
-      .filter('isShared eq true')
-      .orderby('name')
-      .get();
-    return calendars;
+    const params = new URLSearchParams({ email: searchEmail });
+    return await backendRequest(`/graph/calendars/search?${params}`);
   } catch (error) {
-    console.error("Error getting shared calendars:", error);
+    console.error("Error searching user calendars:", error);
     throw error;
   }
 };
 
-// Create a new calendar event
-export const createCalendarEvent = async (accessToken, event) => {
+/**
+ * Create a new calendar event
+ * @param {string} userId - User ID or email (calendar owner)
+ * @param {Object} event - Event data
+ * @param {string} calendarId - Optional specific calendar ID
+ * @returns {Promise<Object>} Created event
+ */
+export const createCalendarEvent = async (userId, event, calendarId = null) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    const result = await graphClient.api(graphConfig.graphEventsEndpoint).post(event);
-    return result;
+    return await backendRequest('/graph/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        calendarId,
+        eventData: event
+      })
+    });
   } catch (error) {
     console.error("Error creating calendar event:", error);
     throw error;
   }
 };
 
-// Extended Properties for Event Linking
-const EXTENDED_PROPERTY_NAMESPACE = "Emanuel-Calendar-App";
-const LINKED_EVENT_ID_PROPERTY = `String {66f5a359-4659-4830-9070-00047ec6ac6e} Name ${EXTENDED_PROPERTY_NAMESPACE}_linkedEventId`;
-const EVENT_TYPE_PROPERTY = `String {66f5a359-4659-4830-9070-00047ec6ac6f} Name ${EXTENDED_PROPERTY_NAMESPACE}_eventType`;
+/**
+ * Update a calendar event
+ * @param {string} userId - User ID or email (calendar owner)
+ * @param {string} eventId - Event ID to update
+ * @param {Object} eventData - Updated event data
+ * @param {string} calendarId - Optional specific calendar ID
+ * @returns {Promise<Object>} Updated event
+ */
+export const updateCalendarEvent = async (userId, eventId, eventData, calendarId = null) => {
+  try {
+    return await backendRequest(`/graph/events/${eventId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        userId,
+        calendarId,
+        eventData
+      })
+    });
+  } catch (error) {
+    console.error("Error updating calendar event:", error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a calendar event
+ * @param {string} userId - User ID or email (calendar owner)
+ * @param {string} eventId - Event ID to delete
+ * @param {string} calendarId - Optional specific calendar ID
+ * @returns {Promise<Object>} Success indicator
+ */
+export const deleteCalendarEvent = async (userId, eventId, calendarId = null) => {
+  try {
+    const params = new URLSearchParams({ userId });
+    if (calendarId) {
+      params.append('calendarId', calendarId);
+    }
+    return await backendRequest(`/graph/events/${eventId}?${params}`, {
+      method: 'DELETE'
+    });
+  } catch (error) {
+    console.error("Error deleting calendar event:", error);
+    throw error;
+  }
+};
 
 /**
  * Create linked events (main event + registration event) atomically
- * @param {string} accessToken - Microsoft Graph access token
+ * @param {string} userId - User ID or email (calendar owner)
  * @param {Object} mainEventData - Main event data
- * @param {Object} registrationEventData - Registration event data  
+ * @param {Object} registrationEventData - Registration event data
  * @param {string} mainCalendarId - Calendar ID for main event
  * @param {string} registrationCalendarId - Calendar ID for registration event
- * @returns {Object} Both created events with linking information
+ * @returns {Promise<Object>} Both created events with linking information
  */
-export const createLinkedEvents = async (accessToken, mainEventData, registrationEventData, mainCalendarId, registrationCalendarId) => {
+export const createLinkedEvents = async (userId, mainEventData, registrationEventData, mainCalendarId, registrationCalendarId) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    
-    // Create main event first
-    const mainEventPath = mainCalendarId ? 
-      `/me/calendars/${mainCalendarId}/events` : 
-      '/me/events';
-    
-    const mainEvent = await graphClient.api(mainEventPath).post(mainEventData);
-    
-    // Create registration event with linking to main event
-    const registrationEventPath = registrationCalendarId ? 
-      `/me/calendars/${registrationCalendarId}/events` : 
-      '/me/events';
-    
-    // Add extended properties to link events
-    const linkedRegistrationEventData = {
-      ...registrationEventData,
-      singleValueExtendedProperties: [
-        {
-          id: LINKED_EVENT_ID_PROPERTY,
-          value: mainEvent.id
-        },
-        {
-          id: EVENT_TYPE_PROPERTY,
-          value: "registration"
-        }
-      ]
-    };
-    
-    const registrationEvent = await graphClient.api(registrationEventPath).post(linkedRegistrationEventData);
-    
-    // Update main event with linking to registration event
-    const mainEventUpdateData = {
-      singleValueExtendedProperties: [
-        {
-          id: LINKED_EVENT_ID_PROPERTY,
-          value: registrationEvent.id
-        },
-        {
-          id: EVENT_TYPE_PROPERTY,
-          value: "main"
-        }
-      ]
-    };
-    
-    await graphClient.api(`${mainEventPath}/${mainEvent.id}`).patch(mainEventUpdateData);
-    
-    return {
-      mainEvent: {
-        ...mainEvent,
-        linkedEventId: registrationEvent.id,
-        eventType: "main"
-      },
-      registrationEvent: {
-        ...registrationEvent,
-        linkedEventId: mainEvent.id,
-        eventType: "registration"
-      }
-    };
-    
+    return await backendRequest('/graph/events/linked', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        mainEventData,
+        registrationEventData,
+        mainCalendarId,
+        registrationCalendarId
+      })
+    });
   } catch (error) {
     console.error("Error creating linked events:", error);
     throw error;
@@ -172,70 +246,23 @@ export const createLinkedEvents = async (accessToken, mainEventData, registratio
 
 /**
  * Find linked event using extended properties
- * @param {string} accessToken - Microsoft Graph access token
+ * @param {string} userId - User ID or email (calendar owner)
  * @param {string} eventId - ID of the event to find linked event for
  * @param {string} calendarId - Calendar ID (optional)
- * @returns {Object|null} Linked event or null if not found
+ * @returns {Promise<Object|null>} Linked event or null if not found
  */
-export const findLinkedEvent = async (accessToken, eventId, calendarId = null) => {
+export const findLinkedEvent = async (userId, eventId, calendarId = null) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    
-    // First get the source event to find its linked event ID
-    const eventPath = calendarId ? 
-      `/me/calendars/${calendarId}/events/${eventId}` : 
-      `/me/events/${eventId}`;
-    
-    const sourceEvent = await graphClient
-      .api(eventPath)
-      .expand(`singleValueExtendedProperties($filter=id eq '${LINKED_EVENT_ID_PROPERTY}' or id eq '${EVENT_TYPE_PROPERTY}')`)
-      .get();
-    
-    if (!sourceEvent.singleValueExtendedProperties) {
-      return null;
+    const params = new URLSearchParams({ userId });
+    if (calendarId) {
+      params.append('calendarId', calendarId);
     }
-    
-    // Extract linked event ID
-    const linkedEventIdProperty = sourceEvent.singleValueExtendedProperties.find(
-      prop => prop.id === LINKED_EVENT_ID_PROPERTY
-    );
-    
-    if (!linkedEventIdProperty) {
-      return null;
-    }
-    
-    const linkedEventId = linkedEventIdProperty.value;
-    
-    // Search for the linked event across all calendars
-    const calendarsResponse = await graphClient.api('/me/calendars').get();
-    
-    for (const calendar of calendarsResponse.value) {
-      try {
-        const linkedEvent = await graphClient
-          .api(`/me/calendars/${calendar.id}/events/${linkedEventId}`)
-          .expand(`singleValueExtendedProperties($filter=id eq '${LINKED_EVENT_ID_PROPERTY}' or id eq '${EVENT_TYPE_PROPERTY}')`)
-          .get();
-        
-        return {
-          ...linkedEvent,
-          calendarId: calendar.id,
-          calendarName: calendar.name
-        };
-      } catch {
-        // Event not in this calendar, continue searching
-        continue;
-      }
-    }
-    
-    return null;
-    
+    return await backendRequest(`/graph/events/${eventId}/linked?${params}`);
   } catch (error) {
-    // Handle 404 errors gracefully - it means the source event was already deleted
-    if (error.statusCode === 404 || error.code === 'ItemNotFound') {
-      console.log('Source event already deleted (404 - Not Found):', eventId);
-      return null; // Return null since we can't find the source event
+    // 404 means no linked event found - return null instead of throwing
+    if (error.status === 404) {
+      return null;
     }
-    
     console.error("Error finding linked event:", error);
     return null;
   }
@@ -243,91 +270,32 @@ export const findLinkedEvent = async (accessToken, eventId, calendarId = null) =
 
 /**
  * Update linked event when source event changes
- * @param {string} accessToken - Microsoft Graph access token
+ * @param {string} userId - User ID or email (calendar owner)
  * @param {string} sourceEventId - ID of the event that was changed
  * @param {Object} sourceEventData - Updated event data
  * @param {string} sourceCalendarId - Calendar ID of source event
  * @param {number} setupMinutes - Setup time in minutes
  * @param {number} teardownMinutes - Teardown time in minutes
- * @returns {Object|null} Updated linked event or null if no linked event
+ * @returns {Promise<Object|null>} Updated linked event or null if no linked event
  */
-export const updateLinkedEvent = async (accessToken, sourceEventId, sourceEventData, sourceCalendarId, setupMinutes = 0, teardownMinutes = 0) => {
+export const updateLinkedEvent = async (userId, sourceEventId, sourceEventData, sourceCalendarId, setupMinutes = 0, teardownMinutes = 0) => {
   try {
-    // Find the linked event
-    const linkedEvent = await findLinkedEvent(accessToken, sourceEventId, sourceCalendarId);
-    
-    if (!linkedEvent) {
+    return await backendRequest(`/graph/events/${sourceEventId}/linked`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        userId,
+        calendarId: sourceCalendarId,
+        eventData: sourceEventData,
+        setupMinutes,
+        teardownMinutes
+      })
+    });
+  } catch (error) {
+    // 404 means no linked event found
+    if (error.status === 404) {
       console.log('No linked event found for', sourceEventId);
       return null;
     }
-    
-    const graphClient = getGraphClient(accessToken);
-    
-    // Determine event types
-    const sourceEventType = sourceEventData.singleValueExtendedProperties?.find(
-      prop => prop.id === EVENT_TYPE_PROPERTY
-    )?.value || "main";
-    
-    const linkedEventType = linkedEvent.singleValueExtendedProperties?.find(
-      prop => prop.id === EVENT_TYPE_PROPERTY
-    )?.value || "registration";
-    
-    let updatedEventData;
-    
-    if (sourceEventType === "main" && linkedEventType === "registration") {
-      // Main event changed, update registration event with new setup/teardown times
-      const sourceStart = new Date(sourceEventData.start.dateTime);
-      const sourceEnd = new Date(sourceEventData.end.dateTime);
-      
-      const registrationStart = new Date(sourceStart.getTime() - (setupMinutes * 60 * 1000));
-      const registrationEnd = new Date(sourceEnd.getTime() + (teardownMinutes * 60 * 1000));
-      
-      updatedEventData = {
-        subject: `[SETUP/TEARDOWN] ${sourceEventData.subject}`,
-        start: {
-          dateTime: registrationStart.toISOString(),
-          timeZone: sourceEventData.start.timeZone || 'UTC'
-        },
-        end: {
-          dateTime: registrationEnd.toISOString(),
-          timeZone: sourceEventData.end.timeZone || 'UTC'
-        },
-        location: sourceEventData.location
-      };
-      
-    } else if (sourceEventType === "registration" && linkedEventType === "main") {
-      // Registration event changed, update main event (removing setup/teardown)
-      const sourceStart = new Date(sourceEventData.start.dateTime);
-      const sourceEnd = new Date(sourceEventData.end.dateTime);
-      
-      const mainStart = new Date(sourceStart.getTime() + (setupMinutes * 60 * 1000));
-      const mainEnd = new Date(sourceEnd.getTime() - (teardownMinutes * 60 * 1000));
-      
-      updatedEventData = {
-        subject: sourceEventData.subject.replace(/^\[SETUP\/TEARDOWN\]\s*/, ''),
-        start: {
-          dateTime: mainStart.toISOString(),
-          timeZone: sourceEventData.start.timeZone || 'UTC'
-        },
-        end: {
-          dateTime: mainEnd.toISOString(),
-          timeZone: sourceEventData.end.timeZone || 'UTC'
-        },
-        location: sourceEventData.location
-      };
-    }
-    
-    if (updatedEventData) {
-      const linkedEventPath = `/me/calendars/${linkedEvent.calendarId}/events/${linkedEvent.id}`;
-      const updatedEvent = await graphClient.api(linkedEventPath).patch(updatedEventData);
-      
-      console.log(`Updated linked ${linkedEventType} event:`, updatedEvent.id);
-      return updatedEvent;
-    }
-    
-    return null;
-    
-  } catch (error) {
     console.error("Error updating linked event:", error);
     throw error;
   }
@@ -335,197 +303,215 @@ export const updateLinkedEvent = async (accessToken, sourceEventId, sourceEventD
 
 /**
  * Delete linked event when source event is deleted
- * @param {string} accessToken - Microsoft Graph access token
+ * @param {string} userId - User ID or email (calendar owner)
  * @param {string} eventId - ID of the deleted event
  * @param {string} calendarId - Calendar ID of deleted event
- * @returns {boolean} Success indicator
+ * @returns {Promise<boolean>} Success indicator
  */
-export const deleteLinkedEvent = async (accessToken, eventId, calendarId = null) => {
+export const deleteLinkedEvent = async (userId, eventId, calendarId = null) => {
   try {
-    // Find the linked event
-    const linkedEvent = await findLinkedEvent(accessToken, eventId, calendarId);
-    
-    if (!linkedEvent) {
-      console.log('No linked event found for deletion:', eventId);
-      return false;
+    const params = new URLSearchParams({ userId });
+    if (calendarId) {
+      params.append('calendarId', calendarId);
     }
-    
-    const graphClient = getGraphClient(accessToken);
-    
-    // Delete the linked event
-    const linkedEventPath = `/me/calendars/${linkedEvent.calendarId}/events/${linkedEvent.id}`;
-    await graphClient.api(linkedEventPath).delete();
-    
-    console.log('Successfully deleted linked event:', linkedEvent.id);
-    return true;
-    
+    const result = await backendRequest(`/graph/events/${eventId}/linked?${params}`, {
+      method: 'DELETE'
+    });
+    return result.success;
   } catch (error) {
-    // Handle 404 errors gracefully - it means the linked event was already deleted
-    if (error.statusCode === 404 || error.code === 'ItemNotFound') {
-      console.log('Linked event already deleted (404 - Not Found):', eventId);
-      return true; // Treat as success since the event is already gone
+    // 404 means event already deleted - treat as success
+    if (error.status === 404) {
+      console.log('Linked event already deleted:', eventId);
+      return true;
     }
-    
     console.error("Error deleting linked event:", error);
     return false;
   }
 };
 
 /**
- * Create a webhook subscription for calendar changes
- * @param {string} accessToken - Microsoft Graph access token
- * @param {string} notificationUrl - URL to receive webhook notifications
- * @param {string} calendarId - Calendar ID to monitor (optional, defaults to all calendars)
- * @returns {Object} Subscription details
+ * Get Outlook categories for a user
+ * @param {string} userId - User ID or email
+ * @returns {Promise<Object>} Categories response
  */
-export const createCalendarWebhook = async (accessToken, notificationUrl, calendarId = null) => {
+export const getOutlookCategories = async (userId) => {
   try {
-    const graphClient = getGraphClient(accessToken);
-    
-    // Set up subscription for calendar events
-    const resource = calendarId ? 
-      `/me/calendars/${calendarId}/events` : 
-      '/me/events';
-    
-    const subscription = {
-      changeType: 'created,updated,deleted',
-      notificationUrl: notificationUrl,
-      resource: resource,
-      expirationDateTime: new Date(Date.now() + 3600000).toISOString(), // 1 hour from now
-      clientState: 'emanuel-calendar-app-webhook'
-    };
-    
-    const result = await graphClient.api('/subscriptions').post(subscription);
-    
-    console.log('Created webhook subscription:', result.id);
-    return result;
-    
+    const params = new URLSearchParams({ userId });
+    return await backendRequest(`/graph/categories?${params}`);
   } catch (error) {
-    console.error("Error creating calendar webhook:", error);
+    console.error("Error getting Outlook categories:", error);
     throw error;
   }
+};
+
+/**
+ * Create an Outlook category
+ * @param {string} userId - User ID or email
+ * @param {string} displayName - Category name
+ * @param {string} color - Category color
+ * @returns {Promise<Object>} Created category
+ */
+export const createOutlookCategory = async (userId, displayName, color) => {
+  try {
+    return await backendRequest('/graph/categories', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        displayName,
+        color
+      })
+    });
+  } catch (error) {
+    console.error("Error creating Outlook category:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get schema extensions owned by the app
+ * @param {string} ownerId - Optional owner ID (defaults to app ID)
+ * @returns {Promise<Object>} Schema extensions response
+ */
+export const getSchemaExtensions = async (ownerId = null) => {
+  try {
+    const params = ownerId ? new URLSearchParams({ ownerId }) : new URLSearchParams();
+    return await backendRequest(`/graph/schema-extensions?${params}`);
+  } catch (error) {
+    console.error("Error getting schema extensions:", error);
+    throw error;
+  }
+};
+
+/**
+ * Create a schema extension
+ * @param {Object} schemaData - Schema extension data
+ * @returns {Promise<Object>} Created schema extension
+ */
+export const createSchemaExtension = async (schemaData) => {
+  try {
+    return await backendRequest('/graph/schema-extensions', {
+      method: 'POST',
+      body: JSON.stringify({ schemaData })
+    });
+  } catch (error) {
+    console.error("Error creating schema extension:", error);
+    throw error;
+  }
+};
+
+/**
+ * Update a schema extension
+ * @param {string} schemaId - Schema extension ID
+ * @param {Object} schemaData - Updated schema data
+ * @returns {Promise<Object>} Updated schema extension
+ */
+export const updateSchemaExtension = async (schemaId, schemaData) => {
+  try {
+    return await backendRequest(`/graph/schema-extensions/${schemaId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ schemaData })
+    });
+  } catch (error) {
+    console.error("Error updating schema extension:", error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a schema extension
+ * @param {string} schemaId - Schema extension ID
+ * @returns {Promise<Object>} Success indicator
+ */
+export const deleteSchemaExtension = async (schemaId) => {
+  try {
+    return await backendRequest(`/graph/schema-extensions/${schemaId}`, {
+      method: 'DELETE'
+    });
+  } catch (error) {
+    console.error("Error deleting schema extension:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get recurring event instances
+ * @param {string} userId - User ID or email
+ * @param {string} seriesMasterId - Series master event ID
+ * @param {string} startDateTime - ISO date string
+ * @param {string} endDateTime - ISO date string
+ * @param {string} calendarId - Optional calendar ID
+ * @returns {Promise<Object>} Event instances response
+ */
+export const getRecurringEventInstances = async (userId, seriesMasterId, startDateTime, endDateTime, calendarId = null) => {
+  try {
+    const params = new URLSearchParams({
+      userId,
+      startDateTime,
+      endDateTime
+    });
+    if (calendarId) {
+      params.append('calendarId', calendarId);
+    }
+    return await backendRequest(`/graph/events/${seriesMasterId}/instances?${params}`);
+  } catch (error) {
+    console.error("Error getting recurring event instances:", error);
+    throw error;
+  }
+};
+
+/**
+ * Batch calendar operations
+ * @param {Array} requests - Array of batch request objects
+ * @returns {Promise<Object>} Batch response
+ */
+export const batchCalendarOperations = async (requests) => {
+  try {
+    return await backendRequest('/graph/events/batch', {
+      method: 'POST',
+      body: JSON.stringify({ requests })
+    });
+  } catch (error) {
+    console.error("Error in batch operation:", error);
+    throw error;
+  }
+};
+
+// Webhook functions - these are typically managed server-side with app permissions
+// Keeping stubs for API compatibility but actual webhook management should be done via backend
+
+/**
+ * Create a webhook subscription for calendar changes
+ * Note: With app permissions, webhooks are managed server-side
+ * @deprecated Use backend webhook management instead
+ */
+export const createCalendarWebhook = async (/* userId, notificationUrl, calendarId */) => {
+  console.warn('createCalendarWebhook: Webhooks should be managed server-side with app permissions');
+  throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
 /**
  * Renew a webhook subscription
- * @param {string} accessToken - Microsoft Graph access token
- * @param {string} subscriptionId - Subscription ID to renew
- * @returns {Object} Updated subscription details
+ * @deprecated Use backend webhook management instead
  */
-export const renewCalendarWebhook = async (accessToken, subscriptionId) => {
-  try {
-    const graphClient = getGraphClient(accessToken);
-    
-    const updateData = {
-      expirationDateTime: new Date(Date.now() + 3600000).toISOString() // 1 hour from now
-    };
-    
-    const result = await graphClient.api(`/subscriptions/${subscriptionId}`).patch(updateData);
-    
-    console.log('Renewed webhook subscription:', subscriptionId);
-    return result;
-    
-  } catch (error) {
-    console.error("Error renewing calendar webhook:", error);
-    throw error;
-  }
+export const renewCalendarWebhook = async (/* subscriptionId */) => {
+  console.warn('renewCalendarWebhook: Webhooks should be managed server-side with app permissions');
+  throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
 /**
  * Delete a webhook subscription
- * @param {string} accessToken - Microsoft Graph access token
- * @param {string} subscriptionId - Subscription ID to delete
- * @returns {boolean} Success indicator
+ * @deprecated Use backend webhook management instead
  */
-export const deleteCalendarWebhook = async (accessToken, subscriptionId) => {
-  try {
-    const graphClient = getGraphClient(accessToken);
-    
-    await graphClient.api(`/subscriptions/${subscriptionId}`).delete();
-    
-    console.log('Deleted webhook subscription:', subscriptionId);
-    return true;
-    
-  } catch (error) {
-    console.error("Error deleting calendar webhook:", error);
-    return false;
-  }
+export const deleteCalendarWebhook = async (/* subscriptionId */) => {
+  console.warn('deleteCalendarWebhook: Webhooks should be managed server-side with app permissions');
+  throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
 /**
- * Process webhook notification and sync linked events if needed
- * @param {Object} notification - Webhook notification payload
- * @param {string} accessToken - Microsoft Graph access token
- * @returns {boolean} Success indicator
+ * Process webhook notification
+ * @deprecated Webhook processing happens server-side
  */
-export const processWebhookNotification = async (notification, accessToken) => {
-  try {
-    console.log('Processing webhook notification:', notification);
-    
-    // Extract event information from notification
-    const resourceData = notification.resourceData;
-    if (!resourceData || !resourceData.id) {
-      console.log('Invalid notification format, skipping');
-      return false;
-    }
-    
-    const eventId = resourceData.id;
-    const changeType = notification.changeType;
-    
-    if (changeType === 'deleted') {
-      // Handle deletion - try to delete linked event
-      await deleteLinkedEvent(accessToken, eventId);
-      return true;
-    }
-    
-    if (changeType === 'created' || changeType === 'updated') {
-      // For updates, we need to get the current event data and sync linked event
-      const graphClient = getGraphClient(accessToken);
-      
-      try {
-        // Get the updated event
-        const updatedEvent = await graphClient
-          .api(`/me/events/${eventId}`)
-          .expand(`singleValueExtendedProperties($filter=id eq '${LINKED_EVENT_ID_PROPERTY}' or id eq '${EVENT_TYPE_PROPERTY}')`)
-          .get();
-        
-        // Check if this event has a linked event
-        const hasLinkedEvent = updatedEvent.singleValueExtendedProperties?.some(
-          prop => prop.id === LINKED_EVENT_ID_PROPERTY
-        );
-        
-        if (hasLinkedEvent) {
-          console.log('Event has linked event, checking for sync requirements');
-          
-          // Get setup/teardown times from internal data (if available)
-          // For webhook processing, we'll need to fetch these from your internal API
-          // For now, we'll use default values or skip sync
-          const setupMinutes = 30; // Default or fetch from internal data
-          const teardownMinutes = 30; // Default or fetch from internal data
-          
-          // Update the linked event
-          await updateLinkedEvent(
-            accessToken,
-            eventId,
-            updatedEvent,
-            null, // We don't know the calendar ID from webhook
-            setupMinutes,
-            teardownMinutes
-          );
-        }
-        
-        return true;
-        
-      } catch (eventError) {
-        console.error('Error fetching event for webhook sync:', eventError);
-        return false;
-      }
-    }
-    
-    return true;
-    
-  } catch (error) {
-    console.error("Error processing webhook notification:", error);
-    return false;
-  }
+export const processWebhookNotification = async (/* notification */) => {
+  console.warn('processWebhookNotification: Webhooks are processed server-side');
+  throw new Error('Webhook processing happens on the backend');
 };

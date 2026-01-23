@@ -257,6 +257,8 @@ function App() {
   }, [showDraftModal, draftPrefillData]);
 
   // Memoized token acquisition function
+  // Note: Graph token is no longer required - backend uses app-only authentication
+  // We only need the API token to authenticate users to our backend
   const acquireTokens = useCallback(async (account) => {
     if (!account) {
       logger.warn('No account provided for token acquisition');
@@ -265,31 +267,7 @@ function App() {
 
     logger.log('Acquiring tokens for account:', account.username);
 
-    // Acquire Graph token
-    try {
-      logger.debug('Attempting to acquire Graph token silently');
-      const graphResponse = await instance.acquireTokenSilent({
-        ...loginRequest,
-        account
-      });
-      logger.debug('Graph token acquired successfully');
-      setGraphToken(graphResponse.accessToken);
-    } catch (error) {
-      logger.error('Silent Graph token acquisition failed:', error);
-      try {
-        logger.debug('Falling back to popup for Graph token');
-        const graphPopup = await instance.acquireTokenPopup({
-          ...loginRequest,
-          account
-        });
-        logger.debug('Graph token acquired via popup');
-        setGraphToken(graphPopup.accessToken);
-      } catch (popupError) {
-        logger.error('Graph token popup failed:', popupError);
-      }
-    }
-
-    // Acquire API token
+    // Acquire API token (required for backend authentication)
     try {
       logger.debug('Attempting to acquire API token silently');
       const apiResponse = await instance.acquireTokenSilent({
@@ -298,6 +276,9 @@ function App() {
       });
       logger.debug('API token acquired successfully');
       setApiToken(apiResponse.accessToken);
+      // Set graphToken to a placeholder for backward compatibility
+      // Components can check for apiToken instead
+      setGraphToken('app-auth-mode');
     } catch (error) {
       logger.error('Silent API token acquisition failed:', error);
       try {
@@ -308,10 +289,14 @@ function App() {
         });
         logger.debug('API token acquired via popup');
         setApiToken(apiPopup.accessToken);
+        setGraphToken('app-auth-mode');
       } catch (popupError) {
         logger.error('API token popup failed:', popupError);
       }
     }
+
+    // Note: Graph token acquisition removed - backend now handles all Graph API calls
+    // using application permissions (client credentials flow)
   }, [instance]);
 
   // Initialize MSAL

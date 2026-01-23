@@ -73,26 +73,28 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
   // Load available calendars
   useEffect(() => {
-    if (graphToken) {
+    if (apiToken) {
       loadAvailableCalendars();
     }
-  }, [graphToken]);
+  }, [apiToken]);
 
   const loadAvailableCalendars = async () => {
     try {
       setLoadingCalendars(true);
 
-      // Get user's calendars from Graph API
-      const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars', {
+      // Get calendars via backend (uses app-only auth)
+      const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+      const params = new URLSearchParams({ userId });
+      const response = await fetch(`${API_BASE_URL}/graph/calendars?${params}`, {
         headers: {
-          'Authorization': `Bearer ${graphToken}`
+          'Authorization': `Bearer ${apiToken}`
         }
       });
 
       if (response.ok) {
         const data = await response.json();
-        const calendars = data.value.map(cal => ({
-          id: cal.owner.address,
+        const calendars = (data.value || []).map(cal => ({
+          id: cal.owner?.address || cal.id,
           name: cal.name,
           isDefaultCalendar: cal.isDefaultCalendar,
           canEdit: cal.canEdit,

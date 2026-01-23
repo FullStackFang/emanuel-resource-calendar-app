@@ -30,7 +30,8 @@
   import LoadingSpinner from './shared/LoadingSpinner';
   import RoomReservationReview from './RoomReservationReview';
     // import { getCalendars } from '../services/graphService';
-  import { 
+  import {
+    setApiToken as setGraphServiceApiToken,
     createLinkedEvents,
     findLinkedEvent,
     updateLinkedEvent,
@@ -113,7 +114,7 @@
     // Use TanStack Query for categories - provides automatic caching and background refresh
     const queryClient = useQueryClient();
     const { data: baseCategories = [] } = useBaseCategoriesQuery(apiToken);
-    const { data: outlookCategories = [] } = useOutlookCategoriesQuery(graphToken);
+    const { data: outlookCategories = [] } = useOutlookCategoriesQuery(apiToken, APP_CONFIG.DEFAULT_DISPLAY_CALENDAR);
 
     // Track last summary time to prevent duplicate summaries
     const lastSummaryTimeRef = useRef(0);
@@ -1059,39 +1060,38 @@
      * Load schema extensions available for this application
      */
     const loadSchemaExtensions = useCallback(async () => {
+      if (!apiToken) return [];
+
       try {
-        // Get your app ID
-        const schemaOwnerId = msalConfig.auth.clientId;
-        
-        // Filter for schema extensions owned by your app
-        const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
+        // Fetch schema extensions via backend (uses app-only auth)
+        const response = await fetch(`${API_BASE_URL}/graph/schema-extensions`, {
           headers: {
-            Authorization: `Bearer ${graphToken}`
+            Authorization: `Bearer ${apiToken}`
           }
         });
-        
+
         if (!response.ok) {
           logger.error('Failed to load schema extensions');
           return [];
         }
-        
+
         const data = await response.json();
-        
+
         // Filter to extensions that target events
-        const eventExtensions = data.value.filter(ext => 
-          ext.status === 'Available' && 
+        const eventExtensions = (data.value || []).filter(ext =>
+          ext.status === 'Available' &&
           ext.targetTypes.includes('event')
         );
-        
+
         // Store in state for use in UI
         setSchemaExtensions(eventExtensions);
-        
+
         return eventExtensions;
       } catch (err) {
         logger.error('Error loading schema extensions:', err);
         return [];
       }
-    }, [graphToken]);
+    }, [apiToken]);
 
     // NOTE: loadBaseCategories and loadOutlookCategories have been replaced by TanStack Query hooks
     // useBaseCategoriesQuery and useOutlookCategoriesQuery (see state declarations above)
@@ -1119,16 +1119,18 @@
       }
     }, [apiToken]);
 
-    // Loads the current user's available calendars (both owned and shared)
+    // Loads the available calendars using backend proxy (app-only auth)
     // Filters to only show admin-configured allowed calendars
     const loadAvailableCalendars = useCallback(async () => {
-      if (!graphToken) return [];
+      if (!apiToken) return [];
 
       try {
-        // Fetch all calendars from Graph API
-        const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,owner,canEdit,isDefaultCalendar&$orderby=name', {
+        // Fetch calendars via backend (uses app-only auth)
+        const defaultUserId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+        const params = new URLSearchParams({ userId: defaultUserId });
+        const response = await fetch(`${API_BASE_URL}/graph/calendars?${params}`, {
           headers: {
-            Authorization: `Bearer ${graphToken}`
+            Authorization: `Bearer ${apiToken}`
           }
         });
 
@@ -1137,15 +1139,32 @@
         }
 
         const data = await response.json();
-        let calendars = data.value.map(calendar => ({
-          id: calendar.id,
-          name: calendar.name,
-          owner: calendar.owner,  // Keep full owner object for shared calendars
-          canEdit: calendar.canEdit || false,
-          isDefaultCalendar: calendar.isDefaultCalendar || false,
-          // Determine if shared based on owner info
-          isShared: calendar.owner && calendar.owner.address && !calendar.isDefaultCalendar || false
-        }));
+
+        // System calendars to always exclude (read-only, not useful for event creation)
+        const systemCalendarPatterns = [
+          'birthdays',
+          'united states holidays',
+          'holiday calendar',
+          'holidays in united states',
+          'us holidays',
+          'holidays'
+        ];
+
+        let calendars = (data.value || [])
+          // Filter out system calendars (check if name contains any system pattern)
+          .filter(calendar => {
+            const calName = (calendar.name || '').toLowerCase();
+            return !systemCalendarPatterns.some(pattern => calName.includes(pattern));
+          })
+          .map(calendar => ({
+            id: calendar.id,
+            name: calendar.name,
+            owner: calendar.owner,  // Keep full owner object for shared calendars
+            canEdit: calendar.canEdit || false,
+            isDefaultCalendar: calendar.isDefaultCalendar || false,
+            // Determine if shared based on owner info
+            isShared: calendar.owner && calendar.owner.address && !calendar.isDefaultCalendar || false
+          }));
 
         // Fetch allowed calendars configuration from backend
         const allowedConfig = await fetchAllowedCalendarsConfig();
@@ -1179,7 +1198,7 @@
         logger.error('Error fetching calendars:', error);
         return [];
       }
-    }, [graphToken, apiToken, setAvailableCalendars, fetchAllowedCalendarsConfig]);
+    }, [apiToken, setAvailableCalendars, fetchAllowedCalendarsConfig]);
 
     /**
      * TBD
@@ -1192,14 +1211,20 @@
       
       setLoading(true);
       try {
+        // Get calendar owner for app-only auth
+        const currentCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        const calendarOwner = currentCalendar?.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         // Initialize the service with current settings
         calendarDataService.initialize(
-          graphToken, 
-          apiToken, 
-          selectedCalendarId, 
-          schemaExtensions
+          graphToken, // Kept for backward compatibility
+          apiToken,
+          selectedCalendarId,
+          schemaExtensions,
+          userTimeZone?.timezone,
+          calendarOwner
         );
-        
+
         // Get events through the service (demo mode)
         const events = await calendarDataService.getEvents(dateRange);
 
@@ -1222,8 +1247,8 @@
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
     const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null) => {
-      if (!graphToken || !apiToken) {
-        logger.debug("loadEventsUnified: Missing tokens - returning false");
+      if (!apiToken) {
+        logger.debug("loadEventsUnified: Missing API token - returning false");
         return false;
       }
 
@@ -1277,9 +1302,11 @@
         const dateRangeStr = `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
         logger.debug(`Loading calendars: ${calendarDetails.map(c => c.name).join(', ')} | ${dateRangeStr}${forceRefresh ? ' | Force refresh' : ''}`);
 
-        // Initialize unified event service
+        // Initialize services with API token
+        // Note: Graph token is no longer needed - backend uses app-only auth
         unifiedEventService.setApiToken(apiToken);
-        unifiedEventService.setGraphToken(graphToken);
+        unifiedEventService.setGraphToken(graphToken); // Kept for backward compatibility
+        setGraphServiceApiToken(apiToken); // Initialize graphService for linked events
 
         // Get calendarOwners (email addresses) for the selected calendars
         const calendarOwners = calendarIds
@@ -1526,42 +1553,42 @@
     }, [loadEvents]);
 
     /**
-     * Sync events to internal database 
+     * Sync events to internal database
      * @param {Date} startDate - Start date of the range to sync
      * @param {Date} endDate - End date of the range to sync
-     * @returns {Promise<Object>} Success indicator and result  
+     * @returns {Promise<Object>} Success indicator and result
      */
     const syncEventsToInternal = useCallback(async (startDate, endDate) => {
-      if (!graphToken || !apiToken) {
-        logger.error('Missing tokens for sync');
+      if (!apiToken) {
+        logger.error('Missing API token for sync');
         return { success: false, error: 'Authentication required' };
       }
-      
+
       try {
-        // Fetch events from Graph for the date range
+        // Fetch events via backend (uses app-only auth)
         const { start, end } = formatDateRangeForAPI(startDate, endDate);
-        
-        const calendarPath = selectedCalendarId ? 
-          `/me/calendars/${selectedCalendarId}/events` : 
-          '/me/events';
-        
-        let allEvents = [];
-        let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?$top=100&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'`;
-        
-        while (nextLink) {
-          const resp = await fetch(nextLink, {
-            headers: { Authorization: `Bearer ${graphToken}` }
-          });
-          
-          if (!resp.ok) {
-            throw new Error('Failed to fetch events from Graph');
-          }
-          
-          const data = await resp.json();
-          allEvents = allEvents.concat(data.value || []);
-          nextLink = data['@odata.nextLink'] || null;
+        const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
+        const params = new URLSearchParams({
+          userId,
+          startDateTime: start,
+          endDateTime: end
+        });
+        if (selectedCalendarId) {
+          params.append('calendarId', selectedCalendarId);
         }
-        
+
+        const response = await fetch(`${API_BASE_URL}/graph/events?${params}`, {
+          headers: { Authorization: `Bearer ${apiToken}` }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch events from Graph');
+        }
+
+        const data = await response.json();
+        const allEvents = data.value || [];
+
         // Sync to internal database
         const syncResult = await eventDataService.syncEvents(allEvents, selectedCalendarId);
 
@@ -1573,7 +1600,7 @@
         logger.error('Sync failed:', error);
         return { success: false, error: error.message };
       }
-    }, [graphToken, apiToken, selectedCalendarId, loadEvents]);
+    }, [apiToken, selectedCalendarId, loadEvents]);
 
 
     /**
@@ -1758,8 +1785,8 @@
       // Mark initialization as started immediately
       initializationStarted.current = true;
 
-      if (!graphToken || !apiToken) {
-        logger.error("Cannot initialize: Missing authentication tokens");
+      if (!apiToken) {
+        logger.error("Cannot initialize: Missing API token");
         return;
       }
 
@@ -2025,16 +2052,17 @@
       return targetCalendarId;
     }, [selectedCalendarId, availableCalendars]);
 
-    const makeBatchBody = (eventId, coreBody, extPayload, calendarId) => {
-      // Determine the base URL based on whether a calendar is selected
-      const baseUrl = calendarId 
-        ? `/me/calendars/${calendarId}/events` 
-        : '/me/events';
-      
+    const makeBatchBody = (eventId, coreBody, extPayload, calendarId, calendarOwner) => {
+      // Determine the base URL using /users/{owner} for app-only auth compatibility
+      const userPath = calendarOwner ? `/users/${encodeURIComponent(calendarOwner)}` : '/me';
+      const baseUrl = calendarId
+        ? `${userPath}/calendars/${calendarId}/events`
+        : `${userPath}/events`;
+
       return {
         requests: [
           {
-            id: '1', 
+            id: '1',
             method: eventId ? 'PATCH' : 'POST',
             url: eventId ? `${baseUrl}/${eventId}` : baseUrl,
             headers: { 'Content-Type': 'application/json' },
@@ -2042,12 +2070,12 @@
           },
           ...(
             Object.keys(extPayload).length && eventId
-              ? [{ 
-                  id: '2', 
-                  method: 'PATCH', 
-                  url: `${baseUrl}/${eventId}`, 
-                  headers: { 'Content-Type': 'application/json' }, 
-                  body: extPayload 
+              ? [{
+                  id: '2',
+                  method: 'PATCH',
+                  url: `${baseUrl}/${eventId}`,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: extPayload
                 }]
               : []
           )
@@ -2057,9 +2085,9 @@
 
     const patchEventBatch = async (eventId, coreBody, extPayload, calendarId, internalFields) => {
       const targetCalendarId = calendarId || selectedCalendarId;
-      // Get calendar owner from the selected calendar
+      // Get calendar owner from the selected calendar (required for app-only Graph API auth)
       const targetCalendar = availableCalendars.find(cal => cal.id === targetCalendarId);
-      const calendarOwner = targetCalendar?.owner?.address?.toLowerCase() || null;
+      const calendarOwner = targetCalendar?.owner?.address?.toLowerCase() || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
 
       // Prepare Graph API fields
       const graphFields = { ...coreBody };
@@ -2129,17 +2157,20 @@
 
       // For new events, handle the case where we need to create the event first
       if (!eventId && !result.event?.id) {
-        // Fall back to direct Graph API creation for new events
-        logger.debug('[patchEventBatch] Creating new event via direct Graph API');
+        // Fall back to backend batch API for new events (uses app-only auth)
+        logger.debug('[patchEventBatch] Creating new event via backend batch API');
 
-        const batchBody = makeBatchBody(null, coreBody, extPayload, targetCalendarId);
-        const resp = await fetch('https://graph.microsoft.com/v1.0/$batch', {
+        const batchBody = makeBatchBody(null, coreBody, extPayload, targetCalendarId, calendarOwner);
+        const resp = await fetch(`${API_BASE_URL}/graph/events/batch`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${graphToken}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(batchBody)
+          body: JSON.stringify({
+            userId: calendarOwner,
+            requests: batchBody.requests
+          })
         });
 
         if (!resp.ok) {
@@ -2167,8 +2198,7 @@
                 body: JSON.stringify({
                   internalFields: internalFields,
                   calendarId: targetCalendarId,
-                  calendarOwner: calendarOwner,
-                  graphToken: graphToken
+                  calendarOwner: calendarOwner
                 })
               });
             }
@@ -2995,22 +3025,28 @@
      * Create default categories in Outlook if none exist
      */
     const createDefaultCategories = async () => {
+      if (!apiToken) return [];
+
       try {
         const defaultCategories = [
         ];
-        
+
         const createdCategories = [];
-        
+        const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         for (const cat of defaultCategories) {
-          const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
+          const response = await fetch(`${API_BASE_URL}/graph/categories`, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${graphToken}`,
+              Authorization: `Bearer ${apiToken}`,
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify(cat)
+            body: JSON.stringify({
+              userId,
+              ...cat
+            })
           });
-          
+
           if (response.ok) {
             const data = await response.json();
             createdCategories.push({
@@ -3022,7 +3058,7 @@
             logger.error(`Failed to create category ${cat.displayName}`);
           }
         }
-        
+
         // Invalidate the Outlook categories cache to trigger a refetch
         queryClient.invalidateQueries({ queryKey: OUTLOOK_CATEGORIES_QUERY_KEY });
         return createdCategories;
@@ -3038,38 +3074,42 @@
      * @returns {Object|null} The created category or null if failed
      */
     const createOutlookCategory = useCallback(async (categoryName) => {
+      if (!apiToken) return null;
+
       try {
         // Define a list of possible colors to use
         const colors = [
-          'preset0', 'preset1', 'preset2', 'preset3', 'preset4', 
+          'preset0', 'preset1', 'preset2', 'preset3', 'preset4',
           'preset5', 'preset6', 'preset7', 'preset8', 'preset9',
           'preset10', 'preset11', 'preset12', 'preset13', 'preset14', 'preset15'
         ];
-        
+
         // Pick a random color
         const randomColor = colors[Math.floor(Math.random() * colors.length)];
-        
-        const response = await fetch('https://graph.microsoft.com/v1.0/me/outlook/masterCategories', {
+        const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
+        const response = await fetch(`${API_BASE_URL}/graph/categories`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${graphToken}`,
+            Authorization: `Bearer ${apiToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            userId,
             displayName: categoryName,
             color: randomColor
           })
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
           logger.error(`Failed to create category ${categoryName}:`, errorData);
           return null;
         }
-        
+
         const data = await response.json();
         logger.debug(`Created new Outlook category: ${categoryName}`, data);
-        
+
         // Create the category object
         const newCategory = {
           id: data.id,
@@ -3085,7 +3125,7 @@
         logger.error(`Error creating category ${categoryName}:`, err);
         return null;
       }
-    }, [graphToken]);
+    }, [apiToken]);
     
     //---------------------------------------------------------------------------
     // EVENT HANDLERS
@@ -3657,14 +3697,20 @@
      */
     const handleSaveDemoEvent = async (data) => {
       const isNew = !data.id || data.id.includes('demo_event_') || data.id.includes('event_');
-      
+
       try {
+        // Get calendar owner for app-only auth
+        const currentCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        const calendarOwner = currentCalendar?.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         // Initialize the service
         calendarDataService.initialize(
-          graphToken, 
-          apiToken, 
-          selectedCalendarId, 
-          schemaExtensions
+          graphToken, // Kept for backward compatibility
+          apiToken,
+          selectedCalendarId,
+          schemaExtensions,
+          userTimeZone?.timezone,
+          calendarOwner
         );
         
         // Save through the service (demo mode)
@@ -3807,11 +3853,14 @@
         };
 
         // Use new linked events creation for new events
+        // Get calendar owner email for app-only auth
+        const calendarOwner = currentCalendar.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         if (!eventData.id) {
           logger.debug('Creating new linked events with extended properties');
-          
+
           const linkedEvents = await createLinkedEvents(
-            graphToken,
+            calendarOwner, // Use calendar owner email instead of graphToken
             mainEventData,
             registrationEventData,
             calendarId,
@@ -3851,14 +3900,14 @@
           return result;
         } else {
           // For existing events, check if a linked registration event already exists
-          const existingLinkedEvent = await findLinkedEvent(graphToken, eventData.id, calendarId);
-          
+          const existingLinkedEvent = await findLinkedEvent(calendarOwner, eventData.id, calendarId);
+
           if (existingLinkedEvent) {
             logger.debug('Updating existing linked registration event');
-            
+
             // Update the linked event with new times
             await updateLinkedEvent(
-              graphToken,
+              calendarOwner, // Use calendar owner email instead of graphToken
               eventData.id,
               mainEventData,
               calendarId,
@@ -3867,37 +3916,47 @@
             );
           } else {
             logger.debug('No existing linked event found, creating new registration event');
-            
-            // Fall back to old method for existing events without links
-            const response = await fetch(`https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendar.id}/events`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${graphToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(registrationEventData)
-            });
 
-            if (response.ok) {
-              const createdEvent = await response.json();
-              logger.debug('Successfully created registration event:', createdEvent.id);
-              
-              // Store linking in internal data
-              if (eventDataService.apiToken) {
-                try {
-                  await eventDataService.updateInternalFields(eventData.id, {
-                    registrationEventId: createdEvent.id,
-                    registrationCalendarId: registrationCalendar.id,
-                    setupMinutes: setupMinutes,
-                    teardownMinutes: teardownMinutes
-                  });
-                } catch (error) {
-                  logger.error('Failed to link registration event:', error);
+            // Fall back to creating event via backend (app-only auth)
+            const registrationCalendarOwner = registrationCalendar.owner?.address || calendarOwner;
+
+            try {
+              const response = await fetch(`${API_BASE_URL}/graph/events`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  userId: registrationCalendarOwner,
+                  calendarId: registrationCalendar.id,
+                  eventData: registrationEventData
+                })
+              });
+
+              if (response.ok) {
+                const createdEvent = await response.json();
+                logger.debug('Successfully created registration event:', createdEvent.id);
+
+                // Store linking in internal data
+                if (eventDataService.apiToken) {
+                  try {
+                    await eventDataService.updateInternalFields(eventData.id, {
+                      registrationEventId: createdEvent.id,
+                      registrationCalendarId: registrationCalendar.id,
+                      setupMinutes: setupMinutes,
+                      teardownMinutes: teardownMinutes
+                    });
+                  } catch (error) {
+                    logger.error('Failed to link registration event:', error);
+                  }
                 }
+              } else {
+                const errorData = await response.json().catch(() => ({}));
+                logger.error('Failed to create registration event:', errorData);
               }
-            } else {
-              const error = await response.json();
-              logger.error('Failed to create registration event:', error);
+            } catch (fetchError) {
+              logger.error('Error creating registration event:', fetchError);
             }
           }
         }
@@ -4093,9 +4152,9 @@
 
         logger.debug(`[handleBatchCreateEvents] Creating ${eventsData.length} events in batches of 5`);
 
-        // Validate that tokens are available (they come from component props)
-        if (!apiToken || !graphToken) {
-          throw new Error('Authentication tokens not available');
+        // Validate that API token is available
+        if (!apiToken) {
+          throw new Error('API token not available');
         }
 
         // Get target calendar ID (same logic as handleSaveApiEvent)
@@ -4260,10 +4319,16 @@
 
       try {
         // Dispatch to the appropriate handler based on mode
+        let success;
         if (isDemoMode) {
-          await handleSaveDemoEvent(data);
+          success = await handleSaveDemoEvent(data);
         } else {
-          await handleSaveApiEvent(data);
+          success = await handleSaveApiEvent(data);
+        }
+
+        // Check if save was successful
+        if (!success) {
+          return false;
         }
 
         // Close modal if it's open (common to both modes)
@@ -5486,9 +5551,13 @@
      */
     const handleRegistrationEventDeletion = async (eventId) => {
       try {
+        // Get calendar owner for app-only auth
+        const currentCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        const calendarOwner = currentCalendar?.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         // First try the new linked events deletion method
-        const linkedEventDeleted = await deleteLinkedEvent(graphToken, eventId, selectedCalendarId);
-        
+        const linkedEventDeleted = await deleteLinkedEvent(calendarOwner, eventId, selectedCalendarId);
+
         if (linkedEventDeleted) {
           logger.debug('Successfully deleted linked registration event using extended properties');
           return;
@@ -5520,21 +5589,25 @@
           return;
         }
 
-        // Delete the registration event using legacy method
+        // Delete the registration event using legacy method (via backend)
         const registrationEventId = internalData.registrationEventId;
         const registrationCalendarId = internalData.registrationCalendarId;
 
-        if (registrationCalendarId) {
-          const deleteUrl = `https://graph.microsoft.com/v1.0/me/calendars/${registrationCalendarId}/events/${registrationEventId}`;
-          
-          const deleteResponse = await fetch(deleteUrl, {
+        if (registrationCalendarId && registrationEventId) {
+          const params = new URLSearchParams({
+            userId: calendarOwner,
+            calendarId: registrationCalendarId
+          });
+
+          const deleteResponse = await fetch(`${API_BASE_URL}/graph/events/${registrationEventId}?${params}`, {
             method: 'DELETE',
             headers: {
-              Authorization: `Bearer ${graphToken}`
+              'Authorization': `Bearer ${apiToken}`,
+              'Content-Type': 'application/json'
             }
           });
 
-          if (deleteResponse.ok) {
+          if (deleteResponse.ok || deleteResponse.status === 204) {
             logger.debug('Successfully deleted registration event (legacy method):', registrationEventId);
           } else if (deleteResponse.status === 404) {
             // 404 means the registration event doesn't exist in Graph API (already deleted)
@@ -5554,12 +5627,18 @@
      */
     const handleDeleteDemoEvent = async (eventId) => {
       try {
+        // Get calendar owner for app-only auth
+        const currentCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        const calendarOwner = currentCalendar?.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
         // Initialize the service
         calendarDataService.initialize(
-          graphToken, 
-          apiToken, 
-          selectedCalendarId, 
-          schemaExtensions
+          graphToken, // Kept for backward compatibility
+          apiToken,
+          selectedCalendarId,
+          schemaExtensions,
+          userTimeZone?.timezone,
+          calendarOwner
         );
         
         // Delete through the service (demo mode)
@@ -5586,24 +5665,30 @@
     const handleDeleteApiEvent = async (eventId) => {
       let graphDeleted = false;
       let mongoDeleted = false;
-      
+
       try {
         // Step 1: Delete linked registration events first (from Graph API)
         await handleRegistrationEventDeletion(eventId);
-        
-        // Step 2: Delete main event from Microsoft Graph API
-        const apiUrl = selectedCalendarId
-          ? `https://graph.microsoft.com/v1.0/me/calendars/${selectedCalendarId}/events/${eventId}`
-          : `https://graph.microsoft.com/v1.0/me/events/${eventId}`;
-            
-        const graphResponse = await fetch(apiUrl, {
+
+        // Step 2: Delete main event via backend (app-only auth)
+        // Get calendar owner for app-only auth
+        const currentCalendar = availableCalendars.find(cal => cal.id === selectedCalendarId);
+        const calendarOwner = currentCalendar?.owner?.address || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+
+        const params = new URLSearchParams({ userId: calendarOwner });
+        if (selectedCalendarId) {
+          params.append('calendarId', selectedCalendarId);
+        }
+
+        const graphResponse = await fetch(`${API_BASE_URL}/graph/events/${eventId}?${params}`, {
           method: 'DELETE',
           headers: {
-            Authorization: `Bearer ${graphToken}`
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
           }
         });
-    
-        if (!graphResponse.ok) {
+
+        if (!graphResponse.ok && graphResponse.status !== 204) {
           if (graphResponse.status === 404) {
             // 404 means the event doesn't exist in Graph API (already deleted)
             // This is actually a success case - treat as if deletion succeeded
@@ -5611,8 +5696,8 @@
             logger.debug('Event already deleted from Microsoft Calendar (404 - Not Found)');
           } else {
             // Other errors are actual failures
-            const error = await graphResponse.json();
-            logger.error('Failed to delete event from Graph:', error);
+            const errorData = await graphResponse.json().catch(() => ({}));
+            logger.error('Failed to delete event from Graph:', errorData);
             throw new Error(`Graph API delete failed: ${graphResponse.status}`);
           }
         } else {
@@ -5858,12 +5943,12 @@
     // MAIN INITIALIZATION FUNCTION
     //---------------------------------------------------------------------------
     useEffect(() => {
-      // Check if tokens are available for initialization
-      if (graphToken && apiToken && initializing) {
-        logger.debug("Tokens available, starting initialization");
+      // Check if API token is available for initialization
+      if (apiToken && initializing) {
+        logger.debug("API token available, starting initialization");
         initializeApp();
       }
-    }, [graphToken, apiToken, initializing, initializeApp]);
+    }, [apiToken, initializing, initializeApp]);
 
     useEffect(() => {
       if (apiToken) {
@@ -5879,7 +5964,7 @@
     // Consolidated event loading effect to prevent duplicate API calls
     useEffect(() => {
 
-      if (graphToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
+      if (apiToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
         const startTime = Date.now();

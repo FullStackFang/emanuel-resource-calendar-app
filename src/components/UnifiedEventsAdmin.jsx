@@ -171,30 +171,33 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
   // Load available calendars for CSV import
   const loadAvailableCalendars = useCallback(async () => {
     try {
-      if (!graphToken) {
-        logger.warn('No graph token available for calendar loading');
+      if (!apiToken) {
+        logger.warn('No API token available for calendar loading');
         return;
       }
 
-      const response = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,owner,isDefaultCalendar&$orderby=name', {
+      // Fetch calendars via backend (uses app-only auth)
+      const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+      const params = new URLSearchParams({ userId });
+      const response = await fetch(`${API_BASE_URL}/graph/calendars?${params}`, {
         headers: {
-          Authorization: `Bearer ${graphToken}`
+          Authorization: `Bearer ${apiToken}`
         }
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('Graph API error response:', errorText);
+        logger.error('Backend API error response:', errorText);
         throw new Error(`Failed to fetch calendars: ${response.status} - ${errorText}`);
       }
-      
+
       const data = await response.json();
       logger.log('Calendar data received:', data.value);
-      
+
       // Filter out system calendars we don't need
       const systemCalendarNames = [
         'Birthdays',
-        'United States Holidays', 
+        'United States Holidays',
         'Holiday Calendar',
         'Holidays in United States',
         'US Holidays',
@@ -202,10 +205,10 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         'US holidays',             // lowercase variant
         'Holidays'                 // generic holidays
       ];
-      
+
       // Debug: Log all calendar names first
       logger.log('All available calendar names before filtering:', (data.value || []).map(cal => `"${cal.name}"`));
-      
+
       const filteredCalendars = (data.value || []).filter(calendar => {
         const name = calendar.name || '';
         const shouldFilter = systemCalendarNames.includes(name);
@@ -214,20 +217,20 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
         }
         return !shouldFilter;
       });
-      
+
       logger.log(`Filtered ${data.value?.length || 0} calendars down to ${filteredCalendars.length}`);
       if (filteredCalendars.length !== (data.value?.length || 0)) {
         const removedCalendars = (data.value || []).filter(cal => systemCalendarNames.includes(cal.name || ''));
         logger.log('Removed system calendars:', removedCalendars.map(cal => `"${cal.name}"`));
       }
-      
+
       setAvailableCalendars(filteredCalendars);
-      
+
     } catch (err) {
       logger.error('Error loading calendars:', err);
       // Don't show error to user, just log it
     }
-  }, [graphToken]);
+  }, [apiToken, API_BASE_URL]);
 
   // Force sync
   const forceSync = async (calendarId = null) => {

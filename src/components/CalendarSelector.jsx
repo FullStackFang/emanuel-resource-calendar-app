@@ -36,13 +36,22 @@ function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarCh
       disabled={changingCalendar}
       title={changingCalendar ? 'Loading calendar events...' : 'Select a calendar'}
     >
-      {availableCalendars.map(calendar => (
-        <option key={calendar.id} value={calendar.id}>
-          {calendar.isDefaultCalendar
-            ? `${calendar.name} (Default)`
-            : `${calendar.name}${calendar.isShared ? ` (${calendar.owner?.name || 'Shared'})` : ''}`}
-        </option>
-      ))}
+      {availableCalendars.map(calendar => {
+        // Extract owner name from email (e.g., "templeeventssandbox@emanuelnyc.org" -> "TempleEventsSandbox")
+        const ownerEmail = calendar.owner?.address || '';
+        const ownerName = calendar.owner?.name || ownerEmail.split('@')[0] || 'Unknown';
+
+        // Format display name - use owner name for default calendar, otherwise show calendar name with owner
+        const displayName = calendar.isDefaultCalendar
+          ? ownerName
+          : `${calendar.name} (${ownerName})`;
+
+        return (
+          <option key={calendar.id} value={calendar.id}>
+            {displayName}
+          </option>
+        );
+      })}
     </select>
   );
 }

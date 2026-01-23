@@ -64,7 +64,7 @@ export default function EventSyncAdmin({
   };
 
   const handleSync = async () => {
-    if (!graphToken || !apiToken) {
+    if (!apiToken) {
       setError('Authentication required to sync events.');
       return;
     }
@@ -80,39 +80,36 @@ export default function EventSyncAdmin({
       const endDate = new Date(dateRange.end);
       endDate.setHours(23, 59, 59, 999);
 
-      // Fetch events from Microsoft Graph
-      const calendarPath = selectedCalendarId ? 
-        `/me/calendars/${selectedCalendarId}/events` : 
-        '/me/events';
-      
-      let allEvents = [];
-      let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-        `$top=100&` +
-        `$filter=start/dateTime ge '${startDate.toISOString()}' and start/dateTime le '${endDate.toISOString()}'`;
-      
-      // Fetch all pages of events
-      while (nextLink) {
-        const response = await fetch(nextLink, {
-          headers: { Authorization: `Bearer ${graphToken}` }
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch events from Microsoft Graph');
-        }
-        
-        const data = await response.json();
-        allEvents = allEvents.concat(data.value || []);
-        nextLink = data['@odata.nextLink'] || null;
+      // Fetch events via backend (uses app-only auth)
+      const userId = APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
+      const params = new URLSearchParams({
+        userId,
+        startDateTime: startDate.toISOString(),
+        endDateTime: endDate.toISOString()
+      });
+      if (selectedCalendarId) {
+        params.append('calendarId', selectedCalendarId);
       }
+
+      const response = await fetch(`${API_BASE_URL}/graph/events?${params}`, {
+        headers: { Authorization: `Bearer ${apiToken}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch events from Microsoft Graph');
+      }
+
+      const data = await response.json();
+      const allEvents = data.value || [];
 
       // Sync to internal database
       const result = await eventDataService.syncEvents(allEvents, selectedCalendarId);
       setSyncResult(result.results);
       setSuccessMessage(`Sync completed: ${result.results.created} created, ${result.results.updated} updated`);
-      
+
       // Reload sync status
       await loadSyncStatus();
-      
+
     } catch (err) {
       console.error('Sync error:', err);
       setError(`Failed to sync events: ${err.message}`);
@@ -224,10 +221,10 @@ export default function EventSyncAdmin({
           </div>
         </div>
         
-        <button 
+        <button
           className="sync-button"
           onClick={handleSync}
-          disabled={loading || !graphToken || !apiToken}
+          disabled={loading || !apiToken}
         >
           {loading ? (
             <>

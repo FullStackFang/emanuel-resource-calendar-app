@@ -1,24 +1,35 @@
 // Updated calendarDataService.js with timezone fixes
+// Modified to use backend proxy for Graph API calls (app-only authentication)
 import { logger } from '../utils/logger';
+import APP_CONFIG from '../config/config';
+
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
 class CalendarDataService {
   constructor() {
     this.isDemoMode = false;
     this.demoData = null;
-    this.graphToken = null;
     this.apiToken = null;
     this.selectedCalendarId = null;
+    this.calendarOwner = null; // Email of the calendar owner (e.g., temple@emanuelnyc.org)
     this.schemaExtensions = [];
     this.userTimeZone = 'America/New_York'; // Default timezone
   }
 
   // Initialize the service with tokens and settings
-  initialize(graphToken, apiToken, selectedCalendarId, schemaExtensions = [], userTimeZone = 'America/New_York') {
-    this.graphToken = graphToken;
+  // Note: graphToken parameter kept for backward compatibility but is no longer used
+  initialize(graphToken, apiToken, selectedCalendarId, schemaExtensions = [], userTimeZone = 'America/New_York', calendarOwner = null) {
+    // graphToken is no longer needed - backend uses app-only auth
     this.apiToken = apiToken;
     this.selectedCalendarId = selectedCalendarId;
+    this.calendarOwner = calendarOwner || APP_CONFIG.DEFAULT_DISPLAY_CALENDAR;
     this.schemaExtensions = schemaExtensions;
     this.userTimeZone = userTimeZone;
+  }
+
+  // Set calendar owner (email address of the calendar/mailbox)
+  setCalendarOwner(calendarOwner) {
+    this.calendarOwner = calendarOwner;
   }
 
   // Set user timezone
@@ -207,60 +218,62 @@ class CalendarDataService {
     return { success: true };
   }
 
-  // API MODE METHODS (updated with timezone handling)
+  // API MODE METHODS (updated to use backend proxy)
   async _getApiEvents(dateRange) {
-    if (!this.graphToken) {
-      throw new Error('Graph token not available');
+    if (!this.apiToken) {
+      throw new Error('API token not available');
+    }
+
+    if (!this.calendarOwner) {
+      throw new Error('Calendar owner not set. Call setCalendarOwner() or initialize() first.');
     }
 
     try {
       const { start, end } = this._formatDateRangeForAPI(dateRange.start, dateRange.end);
 
-      const calendarPath = this.selectedCalendarId ? 
-        `/me/calendars/${this.selectedCalendarId}/events` : 
-        '/me/events';
-      
-      // Build extension filter
-      const extIds = this.schemaExtensions.map(e => e.id);
-      const extFilter = extIds
-        .map(id => `id eq '${id}'`)
-        .join(" or ");
+      // Build query parameters for backend endpoint
+      const params = new URLSearchParams({
+        userId: this.calendarOwner,
+        startDateTime: start,
+        endDateTime: end
+      });
 
-      // Build API URL with extended date range for timezone safety
-      let url = `https://graph.microsoft.com/v1.0${calendarPath}?$top=250&$orderby=start/dateTime desc&$filter=start/dateTime ge '${start}' and start/dateTime le '${end}'`;
-      
-      if (extFilter) {
-        url += `&$expand=extensions($filter=${encodeURIComponent(extFilter)})`;
+      if (this.selectedCalendarId) {
+        params.append('calendarId', this.selectedCalendarId);
       }
 
-      // Fetch all pages
-      let allEvents = [];
-      let nextLink = url;
+      // Build extension filter if needed
+      if (this.schemaExtensions.length > 0) {
+        const extIds = this.schemaExtensions.map(e => e.id);
+        const extFilter = extIds.map(id => `id eq '${id}'`).join(" or ");
+        params.append('expand', `extensions($filter=${extFilter})`);
+      }
 
-      while (nextLink) {
-        const response = await fetch(nextLink, {
-          headers: { Authorization: `Bearer ${this.graphToken}` }
-        });
-
-        if (!response.ok) {
-          // Handle specific error cases for shared calendars
-          if (response.status === 403) {
-            logger.error('Access denied to calendar. This may be a shared calendar with limited permissions.');
-            throw new Error('You do not have permission to access events in this calendar');
-          } else if (response.status === 404) {
-            throw new Error('Calendar not found');
-          }
-          throw new Error(`API request failed: ${response.status}`);
+      // Fetch events from backend (which uses app-only auth)
+      const response = await fetch(`${API_BASE_URL}/graph/events?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${this.apiToken}`,
+          'Content-Type': 'application/json'
         }
+      });
 
-        const data = await response.json();
-        allEvents = allEvents.concat(data.value || []);
-        nextLink = data['@odata.nextLink'] || null;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 403) {
+          logger.error('Access denied to calendar.');
+          throw new Error('You do not have permission to access events in this calendar');
+        } else if (response.status === 404) {
+          throw new Error('Calendar not found');
+        }
+        throw new Error(errorData.error || `API request failed: ${response.status}`);
       }
+
+      const data = await response.json();
+      const allEvents = data.value || [];
 
       // Convert to calendar format and filter by actual view range in user timezone
       const convertedEvents = allEvents.map(event => this._convertApiEventToCalendarFormat(event));
-      
+
       // Additional filtering based on user timezone view range
       const filteredEvents = convertedEvents.filter(event => {
         try {
@@ -268,16 +281,16 @@ class CalendarDataService {
           const eventStartInUserTZ = new Date(eventStartUTC.toLocaleString('en-US', {
             timeZone: this.userTimeZone
           }));
-          
+
           const eventDateInUserTZ = new Date(eventStartInUserTZ);
           eventDateInUserTZ.setHours(0, 0, 0, 0);
-          
+
           const viewStartInUserTZ = new Date(dateRange.start);
           viewStartInUserTZ.setHours(0, 0, 0, 0);
-          
+
           const viewEndInUserTZ = new Date(dateRange.end);
           viewEndInUserTZ.setHours(23, 59, 59, 999);
-          
+
           return eventDateInUserTZ >= viewStartInUserTZ && eventDateInUserTZ <= viewEndInUserTZ;
         } catch (error) {
           logger.error('Error filtering API event by timezone:', error);
@@ -302,36 +315,48 @@ class CalendarDataService {
   }
 
   async _deleteApiEvent(eventId) {
-    const apiUrl = this.selectedCalendarId
-      ? `https://graph.microsoft.com/v1.0/me/calendars/${this.selectedCalendarId}/events/${eventId}`
-      : `https://graph.microsoft.com/v1.0/me/events/${eventId}`;
+    if (!this.apiToken || !this.calendarOwner) {
+      throw new Error('API token or calendar owner not set');
+    }
 
-    const response = await fetch(apiUrl, {
+    const params = new URLSearchParams({ userId: this.calendarOwner });
+    if (this.selectedCalendarId) {
+      params.append('calendarId', this.selectedCalendarId);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/graph/events/${eventId}?${params}`, {
       method: 'DELETE',
       headers: {
-        Authorization: `Bearer ${this.graphToken}`
+        'Authorization': `Bearer ${this.apiToken}`,
+        'Content-Type': 'application/json'
       }
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to delete event: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to delete event: ${response.status}`);
     }
 
     return { success: true };
   }
 
-  // Helper method for API operations
+  // Helper method for API operations - now uses backend proxy
   async _performApiEventOperation(method, eventId, eventData) {
-    // Build core and extension payloads
+    if (!this.apiToken || !this.calendarOwner) {
+      throw new Error('API token or calendar owner not set');
+    }
+
+    // Build core event data
     const core = {
       subject: eventData.subject,
       start: eventData.start,
       end: eventData.end,
       location: eventData.location,
-      locations: eventData.locations, // Array of separate location objects for Graph API
+      locations: eventData.locations,
       categories: eventData.categories
     };
-    
+
+    // Build extension data
     const ext = {};
     this.schemaExtensions.forEach(extDef => {
       const props = {};
@@ -342,40 +367,67 @@ class CalendarDataService {
       if (Object.keys(props).length) ext[extDef.id] = props;
     });
 
-    // Perform batch update
-    const batchBody = this._makeBatchBody(eventId, core, ext);
-    
-    const response = await fetch('https://graph.microsoft.com/v1.0/$batch', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.graphToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(batchBody)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Batch operation failed: ${response.status}`);
+    // Combine core and extension data
+    const combinedEventData = { ...core };
+    if (Object.keys(ext).length > 0) {
+      // Schema extensions are added directly to the event body
+      Object.assign(combinedEventData, ext);
     }
 
-    const result = await response.json();
-    
-    // Handle batch response
-    if (result.responses && result.responses[0] && result.responses[0].status >= 400) {
-      const errorStatus = result.responses[0].status;
-      const errorMessage = result.responses[0].body?.error?.message || 'Unknown error';
+    // Use appropriate backend endpoint based on method
+    if (method === 'POST') {
+      // Create new event
+      const response = await fetch(`${API_BASE_URL}/graph/events`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: this.calendarOwner,
+          calendarId: this.selectedCalendarId,
+          eventData: combinedEventData
+        })
+      });
 
-      // Handle specific error cases for shared calendars
-      if (errorStatus === 403) {
-        throw new Error('You do not have permission to modify events in this calendar. This may be a read-only shared calendar.');
-      } else if (errorStatus === 404) {
-        throw new Error('Calendar or event not found');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 403) {
+          throw new Error('You do not have permission to create events in this calendar.');
+        }
+        throw new Error(errorData.error || `Event creation failed: ${response.status}`);
       }
 
-      throw new Error(`Event operation failed: ${errorMessage}`);
+      return await response.json();
+    } else if (method === 'PATCH' && eventId) {
+      // Update existing event
+      const response = await fetch(`${API_BASE_URL}/graph/events/${eventId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${this.apiToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: this.calendarOwner,
+          calendarId: this.selectedCalendarId,
+          eventData: combinedEventData
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 403) {
+          throw new Error('You do not have permission to modify events in this calendar.');
+        } else if (response.status === 404) {
+          throw new Error('Calendar or event not found');
+        }
+        throw new Error(errorData.error || `Event update failed: ${response.status}`);
+      }
+
+      return await response.json();
     }
 
-    return { success: true };
+    throw new Error(`Unsupported method: ${method}`);
   }
 
   // CONVERSION METHODS (updated for timezone handling)

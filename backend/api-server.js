@@ -15,6 +15,7 @@ const { initializeLocationFields, parseLocationString, normalizeLocationString, 
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
+const graphApiService = require('./services/graphApiService');
 // Performance metrics utility - available for detailed timing via PERF_METRICS_ENABLED=true
 // const { createLoadTracker, logPhaseMetrics } = require('./utils/performanceMetrics');
 const crypto = require('crypto');
@@ -1956,6 +1957,604 @@ async function createRoomReservationCalendarEvent(reservation, calendarMode, use
 }
 
 // ============================================
+// GRAPH API PROXY ROUTES (App-Only Authentication)
+// ============================================
+// These endpoints use application permissions to access Microsoft Graph API
+// eliminating the need for individual users to have calendar permissions.
+
+/**
+ * Test Graph API connection and configuration
+ */
+app.get('/api/graph/status', verifyToken, async (req, res) => {
+  try {
+    const config = graphApiService.getServiceConfig();
+    const connectionOk = await graphApiService.testConnection();
+
+    res.status(200).json({
+      configured: config.hasClientSecret,
+      connected: connectionOk,
+      appId: config.appId,
+      tenantId: config.tenantId,
+      tokenCached: config.tokenCached
+    });
+  } catch (error) {
+    logger.error('Graph API status check failed:', error);
+    res.status(500).json({ error: 'Failed to check Graph API status' });
+  }
+});
+
+/**
+ * Get calendars for a user/shared mailbox
+ * Used by frontend to list available calendars
+ */
+app.get('/api/graph/calendars', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const calendars = await graphApiService.getCalendars(userId);
+    res.status(200).json(calendars);
+  } catch (error) {
+    logger.error('Error fetching calendars:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch calendars'
+    });
+  }
+});
+
+/**
+ * Search calendars for a specific user by email
+ * Used by SharedCalendarSearch component
+ */
+app.get('/api/graph/calendars/search', verifyToken, async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ error: 'email query parameter is required' });
+    }
+
+    const calendars = await graphApiService.getCalendars(email);
+    res.status(200).json(calendars);
+  } catch (error) {
+    logger.error('Error searching user calendars:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to search calendars'
+    });
+  }
+});
+
+/**
+ * Get calendar events for a date range
+ */
+app.get('/api/graph/events', verifyToken, async (req, res) => {
+  try {
+    const { userId, calendarId, startDateTime, endDateTime, select, expand } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+    if (!startDateTime || !endDateTime) {
+      return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
+    }
+
+    const events = await graphApiService.getCalendarEvents(
+      userId,
+      calendarId || null,
+      startDateTime,
+      endDateTime,
+      { select, expand }
+    );
+
+    res.status(200).json({ value: events });
+  } catch (error) {
+    logger.error('Error fetching calendar events:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch events'
+    });
+  }
+});
+
+/**
+ * Get a single event by ID
+ */
+app.get('/api/graph/events/:eventId', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId, select, expand } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const event = await graphApiService.getEvent(
+      userId,
+      calendarId || null,
+      eventId,
+      { select, expand }
+    );
+
+    res.status(200).json(event);
+  } catch (error) {
+    logger.error('Error fetching event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch event'
+    });
+  }
+});
+
+/**
+ * Create a calendar event
+ */
+app.post('/api/graph/events', verifyToken, async (req, res) => {
+  try {
+    const { userId, calendarId, eventData } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required in request body' });
+    }
+    if (!eventData) {
+      return res.status(400).json({ error: 'eventData is required in request body' });
+    }
+
+    const event = await graphApiService.createCalendarEvent(
+      userId,
+      calendarId || null,
+      eventData
+    );
+
+    logger.info('Calendar event created via Graph API', {
+      userId,
+      calendarId,
+      eventId: event.id,
+      subject: event.subject,
+      createdBy: req.user?.email
+    });
+
+    res.status(201).json(event);
+  } catch (error) {
+    logger.error('Error creating calendar event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to create event'
+    });
+  }
+});
+
+/**
+ * Update a calendar event
+ */
+app.patch('/api/graph/events/:eventId', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId, eventData } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required in request body' });
+    }
+    if (!eventData) {
+      return res.status(400).json({ error: 'eventData is required in request body' });
+    }
+
+    const event = await graphApiService.updateCalendarEvent(
+      userId,
+      calendarId || null,
+      eventId,
+      eventData
+    );
+
+    logger.info('Calendar event updated via Graph API', {
+      userId,
+      calendarId,
+      eventId,
+      updatedBy: req.user?.email
+    });
+
+    res.status(200).json(event);
+  } catch (error) {
+    logger.error('Error updating calendar event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to update event'
+    });
+  }
+});
+
+/**
+ * Delete a calendar event
+ */
+app.delete('/api/graph/events/:eventId', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    await graphApiService.deleteCalendarEvent(userId, calendarId || null, eventId);
+
+    logger.info('Calendar event deleted via Graph API', {
+      userId,
+      calendarId,
+      eventId,
+      deletedBy: req.user?.email
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    logger.error('Error deleting calendar event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to delete event'
+    });
+  }
+});
+
+/**
+ * Batch calendar operations
+ */
+app.post('/api/graph/events/batch', verifyToken, async (req, res) => {
+  try {
+    const { requests } = req.body;
+
+    if (!requests || !Array.isArray(requests)) {
+      return res.status(400).json({ error: 'requests array is required' });
+    }
+
+    const result = await graphApiService.batchRequest(requests);
+
+    logger.info('Batch operation completed via Graph API', {
+      requestCount: requests.length,
+      executedBy: req.user?.email
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Error in batch operation:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Batch operation failed'
+    });
+  }
+});
+
+/**
+ * Create linked events (main + registration/setup-teardown)
+ */
+app.post('/api/graph/events/linked', verifyToken, async (req, res) => {
+  try {
+    const { userId, mainEventData, registrationEventData, mainCalendarId, registrationCalendarId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    if (!mainEventData || !registrationEventData) {
+      return res.status(400).json({ error: 'mainEventData and registrationEventData are required' });
+    }
+
+    const result = await graphApiService.createLinkedEvents(
+      userId,
+      mainEventData,
+      registrationEventData,
+      mainCalendarId || null,
+      registrationCalendarId || null
+    );
+
+    logger.info('Linked events created via Graph API', {
+      userId,
+      mainEventId: result.mainEvent.id,
+      registrationEventId: result.registrationEvent.id,
+      createdBy: req.user?.email
+    });
+
+    res.status(201).json(result);
+  } catch (error) {
+    logger.error('Error creating linked events:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to create linked events'
+    });
+  }
+});
+
+/**
+ * Find linked event for a given event
+ */
+app.get('/api/graph/events/:eventId/linked', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const linkedEvent = await graphApiService.findLinkedEvent(userId, eventId, calendarId || null);
+
+    if (!linkedEvent) {
+      return res.status(404).json({ error: 'No linked event found' });
+    }
+
+    res.status(200).json(linkedEvent);
+  } catch (error) {
+    logger.error('Error finding linked event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to find linked event'
+    });
+  }
+});
+
+/**
+ * Update linked event
+ */
+app.patch('/api/graph/events/:eventId/linked', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId, eventData, setupMinutes, teardownMinutes } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    if (!eventData) {
+      return res.status(400).json({ error: 'eventData is required' });
+    }
+
+    const result = await graphApiService.updateLinkedEvent(
+      userId,
+      eventId,
+      eventData,
+      calendarId || null,
+      setupMinutes || 0,
+      teardownMinutes || 0
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'No linked event found to update' });
+    }
+
+    logger.info('Linked event updated via Graph API', {
+      userId,
+      eventId,
+      linkedEventId: result.id,
+      updatedBy: req.user?.email
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    logger.error('Error updating linked event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to update linked event'
+    });
+  }
+});
+
+/**
+ * Delete linked event
+ */
+app.delete('/api/graph/events/:eventId/linked', verifyToken, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { userId, calendarId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const success = await graphApiService.deleteLinkedEvent(userId, eventId, calendarId || null);
+
+    if (success) {
+      logger.info('Linked event deleted via Graph API', {
+        userId,
+        eventId,
+        deletedBy: req.user?.email
+      });
+    }
+
+    res.status(200).json({ success });
+  } catch (error) {
+    logger.error('Error deleting linked event:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to delete linked event'
+    });
+  }
+});
+
+/**
+ * Get Outlook categories for a user
+ */
+app.get('/api/graph/categories', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const categories = await graphApiService.getOutlookCategories(userId);
+    res.status(200).json({ value: categories });
+  } catch (error) {
+    logger.error('Error fetching Outlook categories:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch categories'
+    });
+  }
+});
+
+/**
+ * Create Outlook category
+ */
+app.post('/api/graph/categories', verifyToken, async (req, res) => {
+  try {
+    const { userId, displayName, color } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    if (!displayName) {
+      return res.status(400).json({ error: 'displayName is required' });
+    }
+
+    const category = await graphApiService.createOutlookCategory(userId, { displayName, color });
+
+    logger.info('Outlook category created via Graph API', {
+      userId,
+      displayName,
+      createdBy: req.user?.email
+    });
+
+    res.status(201).json(category);
+  } catch (error) {
+    logger.error('Error creating Outlook category:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to create category'
+    });
+  }
+});
+
+/**
+ * Get schema extensions
+ */
+app.get('/api/graph/schema-extensions', verifyToken, async (req, res) => {
+  try {
+    const { ownerId } = req.query;
+
+    const extensions = await graphApiService.getSchemaExtensions(ownerId || undefined);
+    res.status(200).json({ value: extensions });
+  } catch (error) {
+    logger.error('Error fetching schema extensions:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch schema extensions'
+    });
+  }
+});
+
+/**
+ * Create schema extension
+ */
+app.post('/api/graph/schema-extensions', verifyToken, async (req, res) => {
+  try {
+    const { schemaData } = req.body;
+
+    if (!schemaData) {
+      return res.status(400).json({ error: 'schemaData is required' });
+    }
+
+    const extension = await graphApiService.createSchemaExtension(schemaData);
+
+    logger.info('Schema extension created via Graph API', {
+      schemaId: extension.id,
+      createdBy: req.user?.email
+    });
+
+    res.status(201).json(extension);
+  } catch (error) {
+    logger.error('Error creating schema extension:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to create schema extension'
+    });
+  }
+});
+
+/**
+ * Update schema extension
+ */
+app.patch('/api/graph/schema-extensions/:schemaId', verifyToken, async (req, res) => {
+  try {
+    const { schemaId } = req.params;
+    const { schemaData } = req.body;
+
+    if (!schemaData) {
+      return res.status(400).json({ error: 'schemaData is required' });
+    }
+
+    const extension = await graphApiService.updateSchemaExtension(schemaId, schemaData);
+
+    logger.info('Schema extension updated via Graph API', {
+      schemaId,
+      updatedBy: req.user?.email
+    });
+
+    res.status(200).json(extension);
+  } catch (error) {
+    logger.error('Error updating schema extension:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to update schema extension'
+    });
+  }
+});
+
+/**
+ * Delete schema extension
+ */
+app.delete('/api/graph/schema-extensions/:schemaId', verifyToken, async (req, res) => {
+  try {
+    const { schemaId } = req.params;
+
+    await graphApiService.deleteSchemaExtension(schemaId);
+
+    logger.info('Schema extension deleted via Graph API', {
+      schemaId,
+      deletedBy: req.user?.email
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    logger.error('Error deleting schema extension:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to delete schema extension'
+    });
+  }
+});
+
+/**
+ * Get user details
+ */
+app.get('/api/graph/users/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await graphApiService.getUserDetails(userId);
+    res.status(200).json(user);
+  } catch (error) {
+    logger.error('Error fetching user details:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch user details'
+    });
+  }
+});
+
+/**
+ * Get recurring event instances
+ */
+app.get('/api/graph/events/:seriesMasterId/instances', verifyToken, async (req, res) => {
+  try {
+    const { seriesMasterId } = req.params;
+    const { userId, calendarId, startDateTime, endDateTime } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+    if (!startDateTime || !endDateTime) {
+      return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
+    }
+
+    const instances = await graphApiService.getRecurringEventInstances(
+      userId,
+      calendarId || null,
+      seriesMasterId,
+      startDateTime,
+      endDateTime
+    );
+
+    res.status(200).json({ value: instances });
+  } catch (error) {
+    logger.error('Error fetching recurring event instances:', error);
+    res.status(error.status || 500).json({
+      error: error.message || 'Failed to fetch event instances'
+    });
+  }
+});
+
+// ============================================
 // INTERNAL EVENT ROUTES
 // ============================================
 // Sync events from Microsoft Graph to internal database (Admin only)
@@ -3515,22 +4114,19 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     const { calendarIds, calendarOwners, startTime, endTime, forceRefresh = false } = req.body;
     const userId = req.user.userId;
-    const graphToken = req.headers['x-graph-token'] || req.headers['graph-token'];
 
-    // Enhanced validation and logging
+    // Enhanced validation and logging (app-only auth - no user token needed)
     logger.debug('Cache-first events load handler: validating request', {
       userId,
-      hasGraphToken: !!graphToken,
-      graphTokenLength: graphToken ? graphToken.length : 0,
-      graphTokenPreview: graphToken ? `${graphToken.substring(0, 20)}...` : 'MISSING',
       calendarIds,
       calendarOwners,
       startTime,
       endTime,
-      forceRefresh
+      forceRefresh,
+      authMode: 'app-only'
     });
 
-    logger.log(`🔍 Graph Token Check: ${graphToken ? '✅ PRESENT (' + graphToken.length + ' chars)' : '❌ MISSING'}`);
+    logger.log(`🔍 Auth Mode: App-only authentication (graphApiService)`);
 
     // Accept either calendarOwners (preferred) or calendarIds (legacy)
     // calendarOwners are email addresses, calendarIds are Graph API calendar IDs
@@ -3655,78 +4251,36 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     if (disableGraphSync) {
       logger.log('📡 STEP 2: Graph sync DISABLED - loading from MongoDB only');
       loadResults.strategy = 'mongodb-only';
-    } else if (startTime && endTime && graphToken) {
-      logger.log('📡 STEP 2: Fetching events from Graph API...');
-      logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime}, graphToken: ${!!graphToken})`);
+    } else if (startTime && endTime) {
+      // Use app-only authentication via graphApiService (no user token needed)
+      logger.log('📡 STEP 2: Fetching events from Graph API (app-only auth)...');
+      logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime})`);
 
       for (const { calendarOwner, calendarId } of calendarsToLoad) {
-        // Skip if no calendarId or if 'primary' (personal calendar not supported)
-        if (!calendarId || calendarId === 'primary') {
-          logger.debug(`Skipping Graph API fetch for ${calendarOwner} - calendarId is ${calendarId || 'missing'} (personal calendar not supported)`);
+        // Skip if no calendarOwner (need it for app-only auth)
+        if (!calendarOwner) {
+          logger.debug(`Skipping Graph API fetch - calendarOwner is missing`);
           continue;
         }
         try {
-          // Build Graph API URL using /calendarView endpoint (auto-expands recurring series)
-          // Always use shared calendar endpoint: /me/calendars/{calendarId}/calendarView
-          const calendarPath = `/me/calendars/${calendarId}/calendarView`;
-
           const startISO = new Date(startTime).toISOString();
           const endISO = new Date(endTime).toISOString();
 
-          let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
-            `startDateTime=${encodeURIComponent(startISO)}` +
-            `&endDateTime=${encodeURIComponent(endISO)}` +
-            `&$top=250` +
-            `&$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting`;
+          logger.log(`🌐 Calling Graph API (app-only auth) for calendar owner ${calendarOwner}...`);
 
-          logger.log(`🌐 Calling Graph API (/calendarView) for calendar ${calendarId.substring(0, 20)}...`);
-
-          let graphEvents = [];
-          let pageCount = 0;
-
-          // Fetch all pages
-          while (nextLink) {
-            pageCount++;
-
-            const response = await fetch(nextLink, {
-              headers: {
-                'Authorization': `Bearer ${graphToken}`,
-                'Content-Type': 'application/json'
-              }
-            });
-
-            if (!response.ok) {
-              const errorBody = await response.text();
-              logger.error(`❌ Graph API fetch failed for calendar ${calendarId}`, {
-                status: response.status,
-                statusText: response.statusText,
-                errorBody: errorBody,
-                url: nextLink.substring(0, 100) + '...'
-              });
-              loadResults.errors.push({
-                calendarId: calendarId,
-                error: `Graph API error: ${response.status} - ${errorBody.substring(0, 200)}`,
-                step: 'graph'
-              });
-              break;
+          // Use graphApiService with app-only authentication
+          const graphEvents = await graphApiService.getCalendarEvents(
+            calendarOwner,
+            calendarId || null,
+            startISO,
+            endISO,
+            {
+              top: 250,
+              select: 'id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting'
             }
+          );
 
-            // Parse JSON response
-            let data;
-            try {
-              data = await response.json();
-            } catch (jsonError) {
-              logger.error(`Failed to parse Graph API JSON response for calendar ${calendarId.substring(0, 20)}...`, {
-                error: jsonError.message
-              });
-              data = { value: [] };
-            }
-
-            graphEvents = graphEvents.concat(data.value || []);
-            nextLink = data['@odata.nextLink'] || null;
-          }
-
-          logger.log(`✅ Fetched ${graphEvents.length} total events from Graph API for calendar ${calendarId.substring(0, 20)}... (${pageCount} pages)`);
+          logger.log(`✅ Fetched ${graphEvents.length} total events from Graph API for ${calendarOwner}`);
 
           // Note: /calendarView automatically expands recurring series - no manual expansion needed!
 
@@ -3915,19 +4469,22 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
           }
 
           // Update load results
-          if (loadResults.calendars[calendarId]) {
-            loadResults.calendars[calendarId].graphEvents = graphEvents.length;
-            loadResults.calendars[calendarId].newEvents = newEvents.length;
-            loadResults.calendars[calendarId].totalEvents =
-              loadResults.calendars[calendarId].cachedEvents + newEvents.length;
+          const calendarKey = calendarOwner || calendarId || 'unknown';
+          if (loadResults.calendars[calendarKey]) {
+            loadResults.calendars[calendarKey].graphEvents = graphEvents.length;
+            loadResults.calendars[calendarKey].newEvents = newEvents.length;
+            loadResults.calendars[calendarKey].totalEvents =
+              loadResults.calendars[calendarKey].cachedEvents + newEvents.length;
           }
         } catch (graphError) {
-          logger.error(`❌ Exception during Graph API fetch for calendar ${calendarId}`, {
+          logger.error(`❌ Exception during Graph API fetch for calendar owner ${calendarOwner}`, {
             errorMessage: graphError.message,
             errorStack: graphError.stack,
+            calendarOwner: calendarOwner,
             calendarId: calendarId
           });
           loadResults.errors.push({
+            calendarOwner: calendarOwner,
             calendarId: calendarId,
             error: `Exception: ${graphError.message}`,
             step: 'graph'
@@ -3935,12 +4492,11 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         }
       }
 
-      logger.log(`📊 Graph API Fetch Summary: ${newGraphEvents.length} new events added from ${calendarIds.length} calendar(s)`);
+      logger.log(`📊 Graph API Fetch Summary: ${newGraphEvents.length} new events added from ${calendarsToLoad.length} calendar(s)`);
     } else {
       logger.warn(`⚠️ Skipping Graph API fetch - Missing required data:`);
       logger.warn(`   - startTime: ${!!startTime}`);
       logger.warn(`   - endTime: ${!!endTime}`);
-      logger.warn(`   - graphToken: ${!!graphToken}`);
     }
 
     // STEP 3: Batch persist new Graph events using bulkWrite for performance
@@ -4726,84 +5282,52 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     }
 
     // 1. Update or Create event in Graph API if graphFields provided
-    if (graphFields && graphToken) {
+    // Use app-only authentication via graphApiService (calendarOwner required instead of graphToken)
+    if (graphFields && calendarOwner) {
       try {
-        // Construct batch request - use POST for new events, PATCH for existing events
-        // Include $select to ensure response contains type, seriesMasterId, and recurrence fields
-        const selectParams = '$select=id,iCalUId,subject,start,end,location,locations,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
-
         // calendarId is required for Graph API operations
         if (!calendarId) {
           logger.error('Cannot perform Graph API operation: calendarId is required', { eventId, isNewEvent });
           return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
         }
 
-        const batchBody = {
-          requests: [
-            {
-              id: '1',
-              method: isNewEvent ? 'POST' : 'PATCH',
-              url: isNewEvent ?
-                `/me/calendars/${calendarId}/events?${selectParams}` :
-                `/me/calendars/${calendarId}/events/${eventId}?${selectParams}`,
-              body: graphFields,
-              headers: {
-                'Content-Type': 'application/json'
-              }
-            }
-          ]
-        };
-
-        logger.info(`Making Graph API batch ${isNewEvent ? 'create' : 'update'}:`, {
+        logger.info(`Making Graph API ${isNewEvent ? 'create' : 'update'} via app-only auth:`, {
+          calendarOwner,
+          calendarId,
+          eventId: isNewEvent ? 'new' : eventId,
           locationBeingSent: graphFields.location,
           locationsBeingSent: graphFields.locations,
           currentEventGraphDataLocation: currentEvent?.graphData?.location,
           currentEventGraphDataLocations: currentEvent?.graphData?.locations
         });
 
-        const graphResponse = await fetch('https://graph.microsoft.com/v1.0/$batch', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${graphToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(batchBody)
-        });
-
-        if (!graphResponse.ok) {
-          const errorText = await graphResponse.text();
-          logger.error('Graph API batch request failed:', {
-            status: graphResponse.status,
-            statusText: graphResponse.statusText,
-            error: errorText,
-            isNewEvent
-          });
-          return res.status(502).json({ error: `Graph API ${isNewEvent ? 'create' : 'update'} failed: ${graphResponse.status} ${graphResponse.statusText}` });
+        // Use graphApiService with app-only authentication
+        if (isNewEvent) {
+          graphUpdateResult = await graphApiService.createCalendarEvent(
+            calendarOwner,
+            calendarId,
+            graphFields
+          );
+        } else {
+          graphUpdateResult = await graphApiService.updateCalendarEvent(
+            calendarOwner,
+            calendarId,
+            eventId,
+            graphFields
+          );
         }
 
-        const batchResult = await graphResponse.json();
+        logger.debug(`Graph API ${isNewEvent ? 'create' : 'update'} successful:`, {
+          eventId: graphUpdateResult.id,
+          subject: graphUpdateResult.subject,
+          locationReturned: graphUpdateResult.location,
+          locationsReturned: graphUpdateResult.locations
+        });
 
-        if (batchResult.responses && batchResult.responses.length > 0) {
-          const mainResponse = batchResult.responses[0];
-          if (mainResponse.status >= 200 && mainResponse.status < 300) {
-            graphUpdateResult = mainResponse.body;
-
-            logger.debug(`Graph API ${isNewEvent ? 'create' : 'update'} successful:`, {
-              eventId: graphUpdateResult.id,
-              subject: graphUpdateResult.subject,
-              locationReturned: graphUpdateResult.location,
-              locationsReturned: graphUpdateResult.locations
-            });
-
-            // For new events, generate a unique internal UUID (eventId is separate from Graph ID)
-            if (isNewEvent && graphUpdateResult.id) {
-              actualEventId = crypto.randomUUID();
-              logger.debug('New event created - Graph ID:', graphUpdateResult.id, '| Internal eventId:', actualEventId);
-            }
-          } else {
-            logger.error('Graph API batch response error:', mainResponse);
-            return res.status(502).json({ error: `Graph API ${isNewEvent ? 'create' : 'update'} failed: ${mainResponse.status}` });
-          }
+        // For new events, generate a unique internal UUID (eventId is separate from Graph ID)
+        if (isNewEvent && graphUpdateResult.id) {
+          actualEventId = crypto.randomUUID();
+          logger.debug('New event created - Graph ID:', graphUpdateResult.id, '| Internal eventId:', actualEventId);
         }
 
         // Update local graphData with the new values

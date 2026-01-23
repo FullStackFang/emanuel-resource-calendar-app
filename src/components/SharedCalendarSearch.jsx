@@ -1,8 +1,12 @@
 // src/components/SharedCalendarSearch.jsx
+// Updated to use backend proxy for Graph API calls (app-only authentication)
 import React, { useState } from 'react';
+import APP_CONFIG from '../config/config';
 import './SharedCalendarSearch.css';
 
-function SharedCalendarSearch({ graphToken, onCalendarAdded }) {
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+
+function SharedCalendarSearch({ apiToken, onCalendarAdded }) {
   const [searchEmail, setSearchEmail] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
@@ -18,27 +22,30 @@ function SharedCalendarSearch({ graphToken, onCalendarAdded }) {
     setFoundCalendars([]);
 
     try {
-      // Search for user by email
-      const userResponse = await fetch(
-        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(searchEmail)}/calendars`,
+      // Search for calendars via backend (uses app-only auth)
+      const params = new URLSearchParams({ email: searchEmail.trim() });
+      const response = await fetch(
+        `${API_BASE_URL}/graph/calendars/search?${params}`,
         {
           headers: {
-            Authorization: `Bearer ${graphToken}`
+            'Authorization': `Bearer ${apiToken}`,
+            'Content-Type': 'application/json'
           }
         }
       );
 
-      if (!userResponse.ok) {
-        if (userResponse.status === 404) {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 404) {
           throw new Error('No calendars found for this email address');
         }
-        throw new Error('Failed to search for calendars');
+        throw new Error(errorData.error || 'Failed to search for calendars');
       }
 
-      const data = await userResponse.json();
-      
+      const data = await response.json();
+
       // Filter to only show calendars that can be shared
-      const shareableCalendars = data.value.filter(cal => 
+      const shareableCalendars = (data.value || []).filter(cal =>
         cal.canShare || cal.owner?.address === searchEmail
       );
 
@@ -74,7 +81,7 @@ function SharedCalendarSearch({ graphToken, onCalendarAdded }) {
   return (
     <div className="shared-calendar-search">
       {!showSearch ? (
-        <button 
+        <button
           className="add-shared-calendar-btn"
           onClick={() => setShowSearch(true)}
           title="Add a shared calendar"
@@ -92,14 +99,14 @@ function SharedCalendarSearch({ graphToken, onCalendarAdded }) {
               className="search-input"
               disabled={searching}
             />
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={searching || !searchEmail.trim()}
               className="search-btn"
             >
               {searching ? 'Searching...' : 'Search'}
             </button>
-            <button 
+            <button
               type="button"
               onClick={() => {
                 setShowSearch(false);

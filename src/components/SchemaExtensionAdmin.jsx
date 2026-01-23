@@ -4,8 +4,11 @@ import { Link } from 'react-router-dom';
 import { msalConfig } from '../config/authConfig';
 import { logger } from '../utils/logger';
 import LoadingSpinner from './shared/LoadingSpinner';
+import APP_CONFIG from '../config/config';
 
-function SchemaExtensionAdmin({ accessToken }) {
+const API_BASE_URL = APP_CONFIG.API_BASE_URL;
+
+function SchemaExtensionAdmin({ accessToken, apiToken }) {
   // State for extensions and form
   const [extensions, setExtensions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,23 +20,20 @@ function SchemaExtensionAdmin({ accessToken }) {
 
   // Load existing schema extensions
   useEffect(() => {
-    if (accessToken) {
+    if (apiToken) {
       loadSchemaExtensions();
     }
-  }, [accessToken]);
+  }, [apiToken]);
 
   // Fetch all schema extensions owned by this app
   const loadSchemaExtensions = async () => {
     try {
         setLoading(true);
 
-        // Get your app ID
-        const schemaOwnerId = msalConfig.auth.clientId;
-        
-        // Filter for schema extensions owned by your app
-        const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions?$filter=owner eq '${schemaOwnerId}'`, {
+        // Fetch schema extensions via backend (uses app-only auth)
+        const response = await fetch(`${API_BASE_URL}/graph/schema-extensions`, {
             headers: {
-                Authorization: `Bearer ${accessToken}`
+                Authorization: `Bearer ${apiToken}`
             }
         });
         
@@ -182,20 +182,21 @@ function SchemaExtensionAdmin({ accessToken }) {
         description: formData.description || "Custom event extension",
         targetTypes: ['event'],
         owner: appId,
-        properties: formData.properties.length > 0 
+        properties: formData.properties.length > 0
           ? formData.properties.map(prop => ({
               name: prop.name,
               type: prop.type
-            })) 
+            }))
           : [{ name: "eventCode", type: "String" }]
       };
-      
+
       logger.debug('Creating schema extension with payload:', JSON.stringify(schemaExtension, null, 2));
-      
-      const response = await fetch('https://graph.microsoft.com/v1.0/schemaExtensions', {
+
+      // Create schema extension via backend (uses app-only auth)
+      const response = await fetch(`${API_BASE_URL}/graph/schema-extensions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(schemaExtension)
@@ -243,18 +244,19 @@ function SchemaExtensionAdmin({ accessToken }) {
   const updateToAvailable = async (schemaId) => {
     try {
       logger.debug(`Updating schema extension ${schemaId} to Available status...`);
-      
-      const updateResponse = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions/${schemaId}`, {
+
+      // Update schema extension via backend (uses app-only auth)
+      const updateResponse = await fetch(`${API_BASE_URL}/graph/schema-extensions/${schemaId}`, {
         method: 'PATCH',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${apiToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           status: "Available"
         })
       });
-      
+
       if (updateResponse.ok) {
         logger.debug(`Schema extension ${schemaId} updated to Available status`);
         setMessage(`Schema extension ${schemaId} created and set to Available status`);
@@ -274,26 +276,27 @@ function SchemaExtensionAdmin({ accessToken }) {
     if (!window.confirm(`Are you sure you want to delete schema extension ${id}?`)) {
       return;
     }
-    
+
     try {
       setMessage(`Deleting schema extension ${id}...`);
-      
-      const response = await fetch(`https://graph.microsoft.com/v1.0/schemaExtensions/${id}`, {
+
+      // Delete schema extension via backend (uses app-only auth)
+      const response = await fetch(`${API_BASE_URL}/graph/schema-extensions/${id}`, {
         method: 'DELETE',
         headers: {
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${apiToken}`
         }
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         logger.error('Failed to delete schema extension:', errorData);
         setMessage(`Error deleting schema: ${errorData.error?.message || 'Unknown error'}`);
         return;
       }
-      
+
       setMessage(`Schema extension ${id} deleted successfully`);
-      
+
       // Reload extensions
       loadSchemaExtensions();
     } catch (err) {

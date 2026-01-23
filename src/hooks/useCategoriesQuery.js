@@ -35,26 +35,29 @@ const fetchBaseCategories = async (apiToken) => {
 };
 
 /**
- * Fetch Outlook categories from Microsoft Graph API
- * @param {string} graphToken - Graph API token for authentication
+ * Fetch Outlook categories via backend proxy (app-only authentication)
+ * @param {string} apiToken - API token for authentication
+ * @param {string} userId - User ID or email to fetch categories for
  */
-const fetchOutlookCategories = async (graphToken) => {
-  if (!graphToken) {
+const fetchOutlookCategories = async (apiToken, userId) => {
+  if (!apiToken || !userId) {
     return [];
   }
 
   try {
+    const params = new URLSearchParams({ userId });
     const response = await fetch(
-      'https://graph.microsoft.com/v1.0/me/outlook/masterCategories',
+      `${APP_CONFIG.API_BASE_URL}/graph/categories?${params}`,
       {
         headers: {
-          Authorization: `Bearer ${graphToken}`,
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json'
         },
       }
     );
 
     if (!response.ok) {
-      // Graceful fallback - return empty array if Graph API fails
+      // Graceful fallback - return empty array if API fails
       return [];
     }
 
@@ -82,15 +85,17 @@ export const useBaseCategoriesQuery = (apiToken) => {
 
 /**
  * Hook for fetching Outlook categories with TanStack Query
- * @param {string} graphToken - Graph API token for authentication
+ * Uses backend proxy with app-only authentication
+ * @param {string} apiToken - API token for authentication
+ * @param {string} userId - User ID or email to fetch categories for (e.g., 'temple@emanuelnyc.org')
  * @returns {object} Query result with data, isLoading, isError, refetch, etc.
  */
-export const useOutlookCategoriesQuery = (graphToken) => {
+export const useOutlookCategoriesQuery = (apiToken, userId) => {
   return useQuery({
-    queryKey: OUTLOOK_CATEGORIES_QUERY_KEY,
-    queryFn: () => fetchOutlookCategories(graphToken),
+    queryKey: [...OUTLOOK_CATEGORIES_QUERY_KEY, userId],
+    queryFn: () => fetchOutlookCategories(apiToken, userId),
     staleTime: 10 * 60 * 1000, // 10 minutes - Outlook categories change less frequently
-    enabled: !!graphToken, // Only fetch when token is available
+    enabled: !!apiToken && !!userId, // Only fetch when both token and userId are available
   });
 };
 
