@@ -110,8 +110,11 @@ export function transformEventToFlatStructure(event) {
   const eventDescription = rawDescription.includes('<') ? extractTextFromHtml(rawDescription) : rawDescription;
 
   // Detect if this is an offsite event (has Graph location but no internal rooms)
+  // Note: "Unspecified" is a placeholder sent to Graph API when locations are cleared,
+  // and should not be treated as a valid offsite location
   const graphLocation = isCalendarEvent ? event.location : event.graphData?.location;
-  const hasGraphLocation = graphLocation?.displayName;
+  const hasGraphLocation = graphLocation?.displayName &&
+                           graphLocation.displayName !== 'Unspecified';
   const hasInternalRooms = (event.locations && event.locations.length > 0) ||
                           (event.roomReservationData?.requestedRooms && event.roomReservationData.requestedRooms.length > 0);
   const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
