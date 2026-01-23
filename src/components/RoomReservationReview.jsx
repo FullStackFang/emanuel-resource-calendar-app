@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
+import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import RoomReservationFormBase from './RoomReservationFormBase';
 import ReservationAuditHistory from './ReservationAuditHistory';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
-import { extractTextFromHtml } from '../utils/textUtils';
 import './RoomReservationForm.css';
 
 /**
@@ -69,130 +69,11 @@ export default function RoomReservationReview({
   // Track previous reservation ID for changeKey updates
   const prevReservationIdRef = useRef(null);
 
-  // Compute initialData synchronously from reservation prop (no flicker!)
+  // Compute initialData synchronously from reservation prop using shared transformer (no flicker!)
+  // The transformer handles: date/time parsing, HTML stripping, offsite detection, auto-defaults
   const initialData = useMemo(() => {
     if (!reservation) return {};
-
-    // Handle both formats: combined datetime OR separate date/time fields
-    let startDate, startTime, endDate, endTime;
-
-    if (reservation.startDate && reservation.endDate) {
-      // New format: separate date/time fields
-      startDate = reservation.startDate;
-      startTime = reservation.startTime || '';
-      endDate = reservation.endDate;
-      endTime = reservation.endTime || '';
-    } else if (reservation.startDateTime && reservation.endDateTime) {
-      // Old format: combined datetime fields
-      const startDateTime = new Date(reservation.startDateTime);
-      const endDateTime = new Date(reservation.endDateTime);
-
-      // Validate dates
-      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-        console.error('❌ Invalid date values in reservation:', {
-          startDateTime: reservation.startDateTime,
-          endDateTime: reservation.endDateTime
-        });
-        return {};
-      }
-
-      startDate = startDateTime.toISOString().split('T')[0];
-      startTime = startDateTime.toTimeString().slice(0, 5);
-      endDate = endDateTime.toISOString().split('T')[0];
-      endTime = endDateTime.toTimeString().slice(0, 5);
-    } else {
-      // No valid date/time information
-      startDate = '';
-      startTime = '';
-      endDate = '';
-      endTime = '';
-    }
-
-    // Detect if this is an offsite event (has Graph location but no internal rooms)
-    const hasGraphLocation = reservation.graphData?.location?.displayName;
-    const hasInternalRooms = reservation.locations && reservation.locations.length > 0;
-    const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
-
-    // Format address from Graph API location data
-    const formatGraphAddress = (address) => {
-      if (!address) return '';
-      const parts = [
-        address.street,
-        address.city,
-        address.state,
-        address.postalCode,
-        address.countryOrRegion
-      ].filter(Boolean);
-      return parts.join(', ');
-    };
-
-    // Process eventDescription - strip HTML if present
-    const rawDescription = reservation.eventDescription || '';
-    const eventDescription = rawDescription.includes('<') ? extractTextFromHtml(rawDescription) : rawDescription;
-
-    // Auto-populate doorCloseTime with endTime if not set
-    const doorCloseTime = reservation.doorCloseTime || endTime || '';
-
-    // Auto-populate teardownTime with endTime + 1 hour if not set
-    let teardownTime = reservation.teardownTime || '';
-    if (!teardownTime && endTime) {
-      const [hours, minutes] = endTime.split(':');
-      const endTimeDate = new Date();
-      endTimeDate.setHours(parseInt(hours), parseInt(minutes));
-      endTimeDate.setHours(endTimeDate.getHours() + 1);
-      const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
-      const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
-      teardownTime = `${teardownHours}:${teardownMinutes}`;
-    }
-
-    return {
-      requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
-      requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
-      department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
-      phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
-      eventTitle: reservation.eventTitle || '',
-      eventDescription,
-      startDate,
-      startTime,
-      endDate,
-      endTime,
-      doorOpenTime: reservation.doorOpenTime || '',
-      doorCloseTime,
-      setupTime: reservation.setupTime || '',
-      teardownTime,
-      setupNotes: reservation.setupNotes || '',
-      doorNotes: reservation.doorNotes || '',
-      eventNotes: reservation.eventNotes || '',
-      attendeeCount: reservation.attendeeCount || '',
-      requestedRooms: reservation.locations || [],
-      specialRequirements: reservation.specialRequirements || '',
-      setupTimeMinutes: reservation.setupTimeMinutes || 0,
-      teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-      contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
-      contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
-      isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false,
-      reviewNotes: reservation.roomReservationData?.reviewNotes || reservation.reviewNotes || '',
-      isAllDayEvent: reservation.isAllDayEvent || false,
-      virtualMeetingUrl: reservation.virtualMeetingUrl || reservation.graphData?.onlineMeetingUrl || null,
-      graphData: reservation.graphData || null,
-      eventId: reservation.eventId || null,
-      eventSeriesId: reservation.eventSeriesId || null,
-      seriesIndex: reservation.seriesIndex || null,
-      seriesLength: reservation.seriesLength || null,
-      recurrence: reservation.recurrence || reservation.graphData?.recurrence || null,
-      isOffsite: isOffsiteEvent,
-      offsiteName: isOffsiteEvent ? reservation.graphData.location.displayName : '',
-      offsiteAddress: isOffsiteEvent ? formatGraphAddress(reservation.graphData.location.address) : '',
-      offsiteLat: isOffsiteEvent ? reservation.graphData.location.coordinates?.latitude || null : null,
-      offsiteLon: isOffsiteEvent ? reservation.graphData.location.coordinates?.longitude || null : null,
-      categories: reservation.categories || reservation.graphData?.categories || reservation.mecCategories || reservation.internalData?.mecCategories || [],
-      services: reservation.services || {},
-      // Allow concurrent scheduling flag (admin-controlled)
-      isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
-      allowedConcurrentCategories: reservation.allowedConcurrentCategories || [],
-      // Flag to tell FormBase that data is pre-processed
-      _isPreProcessed: true
-    };
+    return transformEventToFlatStructure(reservation);
   }, [reservation]);
 
   // Update changeKey when reservation changes

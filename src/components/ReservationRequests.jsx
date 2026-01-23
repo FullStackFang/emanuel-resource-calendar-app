@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
@@ -135,68 +136,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Parse response
       const newData = await newEventsResponse.json();
 
-      // Transform new events to match old reservation format for display
-      logger.debug('🔧 RAW BACKEND EVENT (first event):', newData.events?.[0]);
-      logger.debug('🔧 RAW BACKEND - First event series fields:', {
-        eventId: newData.events?.[0]?.eventId,
-        hasEventSeriesId: !!newData.events?.[0]?.eventSeriesId,
-        eventSeriesId: newData.events?.[0]?.eventSeriesId,
-        seriesIndex: newData.events?.[0]?.seriesIndex,
-        seriesLength: newData.events?.[0]?.seriesLength
-      });
-
-      const transformedNewEvents = (newData.events || []).map(event => {
-        logger.debug('🔧 Transforming event:', {
-          eventId: event.eventId,
-          hasEventSeriesId: !!event.eventSeriesId,
-          eventSeriesId: event.eventSeriesId,
-          seriesIndex: event.seriesIndex,
-          seriesLength: event.seriesLength
-        });
-
-        return {
-        _id: event._id,
-        eventId: event.eventId,
-        eventTitle: event.graphData?.subject || 'Untitled Event',
-        eventDescription: event.graphData?.bodyPreview || '',
-        startDateTime: event.graphData?.start?.dateTime,
-        endDateTime: event.graphData?.end?.dateTime,
-        requestedRooms: event.roomReservationData?.requestedRooms || [],
-        requesterName: event.roomReservationData?.requestedBy?.name || '',
-        requesterEmail: event.roomReservationData?.requestedBy?.email || '',
-        department: event.roomReservationData?.requestedBy?.department || '',
-        phone: event.roomReservationData?.requestedBy?.phone || '',
-        attendeeCount: event.roomReservationData?.attendeeCount || 0,
-        priority: event.roomReservationData?.priority || 'medium',
-        specialRequirements: event.roomReservationData?.specialRequirements || '',
-        status: event.status === 'room-reservation-request' ? 'pending' : event.status,
-        submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
-        changeKey: event.roomReservationData?.changeKey,
-        setupTime: event.roomReservationData?.timing?.setupTime || '',
-        teardownTime: event.roomReservationData?.timing?.teardownTime || '',
-        doorOpenTime: event.roomReservationData?.timing?.doorOpenTime || '',
-        doorCloseTime: event.roomReservationData?.timing?.doorCloseTime || '',
-        setupTimeMinutes: event.roomReservationData?.timing?.setupTimeMinutes || 0,
-        teardownTimeMinutes: event.roomReservationData?.timing?.teardownTimeMinutes || 0,
-        setupNotes: event.roomReservationData?.internalNotes?.setupNotes || '',
-        doorNotes: event.roomReservationData?.internalNotes?.doorNotes || '',
-        eventNotes: event.roomReservationData?.internalNotes?.eventNotes || '',
-        contactName: event.roomReservationData?.contactPerson?.name || '',
-        contactEmail: event.roomReservationData?.contactPerson?.email || '',
-        isOnBehalfOf: event.roomReservationData?.contactPerson?.isOnBehalfOf || false,
-        reviewNotes: event.roomReservationData?.reviewNotes || '',
-        eventSeriesId: event.eventSeriesId || null,
-        seriesIndex: event.seriesIndex || null,
-        seriesLength: event.seriesLength || null,
-        // Categories and services
-        categories: event.categories || [],
-        services: event.services || {},
-        // Concurrent event settings (admin-only)
-        isAllowedConcurrent: event.isAllowedConcurrent || false,
-        allowedConcurrentCategories: event.allowedConcurrentCategories || [],
-        _isNewUnifiedEvent: true // Flag to identify source
-      };
-      });
+      // Transform events using shared utility (single source of truth)
+      const transformedNewEvents = transformEventsToFlatStructure(newData.events || []);
 
       logger.debug('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
         eventId: transformedNewEvents?.[0]?.eventId,

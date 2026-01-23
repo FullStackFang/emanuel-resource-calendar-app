@@ -187,6 +187,97 @@ Events combine Microsoft Graph data with internal enrichments:
 - Reusable utility functions
 - Clear separation of concerns
 
+## Event/Reservation Data Flow (CRITICAL)
+
+When adding new fields to events or reservations, they must be added to ALL layers in the data transformation chain. Missing a layer causes fields to not appear in the form.
+
+### Calendar Event Click → Edit Form Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. CALENDAR CLICK                                                           │
+│    Calendar.jsx: handleEventClick(event)                                    │
+│    └─> reviewModal.openModal(event)                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 2. REVIEW MODAL HOOK                                                        │
+│    src/hooks/useReviewModal.jsx: openModal(event)                           │
+│    └─> setCurrentItem(event)  // Raw event data, no transformation          │
+│    └─> setEditableData(event)                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 3. REVIEW COMPONENT ⚠️ KEY TRANSFORMATION POINT                             │
+│    src/components/RoomReservationReview.jsx                                 │
+│    └─> initialData = useMemo(() => { ... }, [reservation])                  │
+│    └─> MUST map ALL fields from reservation to initialData                  │
+│    └─> Line ~148-195: Field mapping happens here                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 4. FORM BASE COMPONENT                                                      │
+│    src/components/RoomReservationFormBase.jsx                               │
+│    └─> Receives initialData prop                                            │
+│    └─> useState(formData) initialized with {...defaults, ...initialData}    │
+│    └─> Form renders with formData                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Reservation Requests Admin → Edit Form Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. API FETCH                                                                │
+│    Backend: GET /api/events?status=room-reservation-request                 │
+│    └─> Returns full MongoDB documents (all fields)                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 2. LIST TRANSFORMATION ⚠️ KEY TRANSFORMATION POINT                          │
+│    src/components/ReservationRequests.jsx                                   │
+│    └─> transformedNewEvents = events.map(event => { ... })                  │
+│    └─> Line ~148-195: MUST include all fields needed by form                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 3. UNIFIED EVENT FORM ⚠️ KEY TRANSFORMATION POINT                           │
+│    src/components/UnifiedEventForm.jsx                                      │
+│    └─> setInitialData({ ... }) for reservation mode (line ~255-295)         │
+│    └─> setInitialData({ ... }) for event mode (line ~307-340)               │
+│    └─> MUST map ALL fields for both modes                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 4. FORM BASE COMPONENT                                                      │
+│    src/components/RoomReservationFormBase.jsx                               │
+│    └─> Same as above                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Adding New Fields Checklist
+
+When adding a new field to events/reservations, update ALL of these files:
+
+1. **Backend** (`backend/api-server.js`):
+   - Add to create endpoint request body destructuring
+   - Add to update endpoint request body destructuring
+   - Add to MongoDB insert/update operations
+   - Add to conflict detection if relevant
+
+2. **RoomReservationReview.jsx** (~line 148-195):
+   - Add to `initialData = useMemo(...)` mapping
+   - Example: `newField: reservation.newField || defaultValue`
+
+3. **ReservationRequests.jsx** (~line 148-195):
+   - Add to `transformedNewEvents` mapping
+   - Example: `newField: event.newField || defaultValue`
+
+4. **UnifiedEventForm.jsx**:
+   - Add to reservation mode `setInitialData` (~line 255-295)
+   - Add to event mode `setInitialData` (~line 307-340)
+   - Example: `newField: reservation.newField || defaultValue`
+
+5. **RoomReservationFormBase.jsx**:
+   - Add to initial `formData` state (~line 95-125)
+   - Add to sync useEffect if needed (~line 208-236)
+   - Add UI elements to render the field
+
+### Common Pitfalls
+
+- **Field exists in MongoDB but not in form**: Missing from transformation layer
+- **Field saves but doesn't load**: Missing from `initialData` mapping
+- **Field works in one modal but not another**: Different components use different transformation paths
+- **ObjectId comparison fails**: Use `String(id)` for comparisons
+
 ## Important Notes
 
 - The app functions as both a standalone web app and Microsoft Teams/Outlook add-in

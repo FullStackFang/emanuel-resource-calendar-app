@@ -205,13 +205,21 @@ export default function RoomReservationFormBase({
     selectedCategoriesRef.current = selectedCategories;
   }, [selectedCategories]);
 
-  // Sync form fields when initialData changes (e.g., from AI chat prefill)
+  // Sync form fields when initialData changes (e.g., from AI chat prefill or shared transformer)
   // This handles the case where initialData is set after component mounts
   useEffect(() => {
-    // Only sync if initialData has actual content (not just empty defaults)
+    // If data is pre-processed by the shared transformer, use simple spread
+    // The _isPreProcessed flag indicates all fields are already in the correct format
+    if (initialData?._isPreProcessed) {
+      logger.debug('Syncing pre-processed form fields from initialData');
+      setFormData(prev => ({ ...prev, ...initialData }));
+      return;
+    }
+
+    // Legacy fallback: Only sync if initialData has actual content (not just empty defaults)
     const hasEventData = initialData?.eventTitle || initialData?.startDate || initialData?.selectedLocations?.length || initialData?.requestedRooms?.length;
     if (hasEventData) {
-      logger.debug('Syncing form fields from initialData:', initialData);
+      logger.debug('Syncing form fields from initialData (legacy path):', initialData);
       setFormData(prev => ({
         ...prev,
         eventTitle: initialData.eventTitle || prev.eventTitle,
@@ -233,7 +241,7 @@ export default function RoomReservationFormBase({
         allowedConcurrentCategories: initialData.allowedConcurrentCategories || prev.allowedConcurrentCategories
       }));
     }
-  }, [initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
+  }, [initialData?._isPreProcessed, initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
 
   // Virtual meeting state
   const [showVirtualModal, setShowVirtualModal] = useState(false);
