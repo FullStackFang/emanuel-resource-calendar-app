@@ -3658,16 +3658,15 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       logger.log(`✅ Conditions met for Graph API fetch (startTime: ${!!startTime}, endTime: ${!!endTime}, graphToken: ${!!graphToken})`);
 
       for (const { calendarOwner, calendarId } of calendarsToLoad) {
-        // Skip if no calendarId (can't call Graph API without it)
-        if (!calendarId) {
-          logger.debug(`Skipping Graph API fetch for ${calendarOwner} - no calendarId available`);
+        // Skip if no calendarId or if 'primary' (personal calendar not supported)
+        if (!calendarId || calendarId === 'primary') {
+          logger.debug(`Skipping Graph API fetch for ${calendarOwner} - calendarId is ${calendarId || 'missing'} (personal calendar not supported)`);
           continue;
         }
         try {
           // Build Graph API URL using /calendarView endpoint (auto-expands recurring series)
-          const calendarPath = calendarId === 'primary'
-            ? '/me/calendar/calendarView'
-            : `/me/calendars/${calendarId}/calendarView`;
+          // Always use shared calendar endpoint: /me/calendars/{calendarId}/calendarView
+          const calendarPath = `/me/calendars/${calendarId}/calendarView`;
 
           const startISO = new Date(startTime).toISOString();
           const endISO = new Date(endTime).toISOString();
@@ -4706,14 +4705,20 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         // Include $select to ensure response contains type, seriesMasterId, and recurrence fields
         const selectParams = '$select=id,iCalUId,subject,start,end,location,organizer,body,categories,importance,showAs,sensitivity,isAllDay,type,seriesMasterId,recurrence,responseStatus,attendees,extensions,singleValueExtendedProperties,onlineMeetingUrl,onlineMeeting';
 
+        // calendarId is required for Graph API operations
+        if (!calendarId) {
+          logger.error('Cannot perform Graph API operation: calendarId is required', { eventId, isNewEvent });
+          return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
+        }
+
         const batchBody = {
           requests: [
             {
               id: '1',
               method: isNewEvent ? 'POST' : 'PATCH',
               url: isNewEvent ?
-                (calendarId ? `/me/calendars/${calendarId}/events?${selectParams}` : `/me/events?${selectParams}`) :
-                (calendarId ? `/me/calendars/${calendarId}/events/${eventId}?${selectParams}` : `/me/events/${eventId}?${selectParams}`),
+                `/me/calendars/${calendarId}/events?${selectParams}` :
+                `/me/calendars/${calendarId}/events/${eventId}?${selectParams}`,
               body: graphFields,
               headers: {
                 'Content-Type': 'application/json'
@@ -5108,6 +5113,15 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
 
     logger.debug(`Batch create: Creating ${events.length} events for user ${userId}`);
 
+    // Validate all events have calendarId
+    const eventsWithoutCalendarId = events.filter((event, index) => !event.calendarId);
+    if (eventsWithoutCalendarId.length > 0) {
+      return res.status(400).json({
+        error: 'calendarId is required for all events in batch create',
+        eventsWithoutCalendarId: eventsWithoutCalendarId.map((_, i) => i)
+      });
+    }
+
     // Build batch requests for Graph API
     const batchRequests = events.map((event, index) => {
       const { graphFields, calendarId, internalFields } = event;
@@ -5126,7 +5140,7 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
       return {
         id: String(index + 1),
         method: 'POST',
-        url: calendarId ? `/me/calendars/${calendarId}/events` : `/me/events`,
+        url: `/me/calendars/${calendarId}/events`,
         body: graphFields,
         headers: {
           'Content-Type': 'application/json'
@@ -6682,9 +6696,11 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
         searchEnd.setMinutes(searchEnd.getMinutes() + 1);
 
         const eventCalendarId = event.calendarId;
-        const calendarPath = eventCalendarId === 'primary'
-          ? '/me/calendar/calendarView'
-          : `/me/calendars/${eventCalendarId}/calendarView`;
+        if (!eventCalendarId || eventCalendarId === 'primary') {
+          results.errors.push({ eventId: event.eventId, title: title, error: 'calendarId is required (personal calendar not supported)' });
+          continue;
+        }
+        const calendarPath = `/me/calendars/${eventCalendarId}/calendarView`;
 
         // Note: $filter with 'eq' on subject requires exact match
         const graphUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
@@ -7102,11 +7118,23 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
     let totalOutlookEvents = 0;
     
     for (const calendarId of calendarIds) {
+      // Skip invalid calendarIds
+      if (!calendarId || calendarId === 'primary') {
+        logger.debug(`Skipping calendar details for ${calendarId || 'undefined'} - personal calendar not supported`);
+        calendarDetails.push({
+          id: calendarId,
+          name: 'Invalid Calendar',
+          eventCount: -1,
+          permissions: { canEdit: false, canShare: false, canViewPrivateItems: false },
+          accessLevel: 'invalid',
+          error: 'calendarId is required (personal calendar not supported)'
+        });
+        continue;
+      }
       try {
         // Get calendar name and permission info
-        const calendarPath = calendarId === 'primary' 
-          ? '/me/calendar' 
-          : `/me/calendars/${calendarId}`;
+        // Always use shared calendar endpoint
+        const calendarPath = `/me/calendars/${calendarId}`;
         
         // Request calendar with permission properties
         const calendarUrl = `https://graph.microsoft.com/v1.0${calendarPath}?` +
@@ -7147,9 +7175,8 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
         }
         
         // Count events using calendarView (Microsoft's recommended approach for date ranges)
-        const calendarViewPath = calendarId === 'primary' 
-          ? '/me/calendar/calendarView' 
-          : `/me/calendars/${calendarId}/calendarView`;
+        // Always use shared calendar endpoint (calendarId already validated above)
+        const calendarViewPath = `/me/calendars/${calendarId}/calendarView`;
         
         // Use ISO 8601 format for calendarView parameters
         const startDateStr = startDateTime.toISOString();
@@ -7360,10 +7387,14 @@ app.post('/api/admin/migration/preview', verifyToken, async (req, res) => {
 
         // Fetch sample of new events from Graph API for each calendar
         for (const calendarId of calendarIds) {
+          // Skip invalid calendarIds
+          if (!calendarId || calendarId === 'primary') {
+            logger.debug(`Skipping event preview for ${calendarId || 'undefined'} - personal calendar not supported`);
+            continue;
+          }
           try {
-            const eventsPath = calendarId === 'primary'
-              ? '/me/calendar/calendarView'
-              : `/me/calendars/${calendarId}/calendarView`;
+            // Always use shared calendar endpoint
+            const eventsPath = `/me/calendars/${calendarId}/calendarView`;
 
             const eventsUrl = `https://graph.microsoft.com/v1.0${eventsPath}?` +
               `startDateTime=${encodeURIComponent(startDateTime.toISOString())}&` +
@@ -7585,13 +7616,18 @@ async function processMigration(sessionId, userId, graphToken, startDate, endDat
   try {
     for (const calendarId of calendarIds) {
       if (session.status === 'cancelled') break;
-      
+
+      // Skip invalid calendarIds
+      if (!calendarId || calendarId === 'primary') {
+        logger.debug(`Skipping migration for ${calendarId || 'undefined'} - personal calendar not supported`);
+        continue;
+      }
+
       session.currentCalendar = calendarId;
-      
+
       // Fetch events from Graph API using calendarView
-      const calendarPath = calendarId === 'primary'
-        ? '/me/calendar/calendarView'
-        : `/me/calendars/${calendarId}/calendarView`;
+      // Always use shared calendar endpoint
+      const calendarPath = `/me/calendars/${calendarId}/calendarView`;
 
       let nextLink = `https://graph.microsoft.com/v1.0${calendarPath}?` +
         `startDateTime=${encodeURIComponent(startDate)}&` +
@@ -17237,20 +17273,28 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
         }
 
         if (Object.keys(graphUpdate).length > 0) {
-          const graphResponse = await fetch(`https://graph.microsoft.com/v1.0/me/events/${graphEventId}`, {
-            method: 'PATCH',
-            headers: {
-              'Authorization': `Bearer ${graphToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(graphUpdate)
-          });
-
-          if (!graphResponse.ok) {
-            const errorText = await graphResponse.text();
-            logger.error('Failed to update Graph event:', { status: graphResponse.status, error: errorText });
+          // Get calendarId for shared calendar support
+          const calendarId = event.calendarId;
+          if (!calendarId) {
+            logger.error('Cannot update Graph event: calendarId is required', { graphEventId });
+            // Continue without Graph update - internal fields were already saved
           } else {
-            logger.info('Graph event updated successfully:', { graphEventId });
+            const graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
+            const graphResponse = await fetch(graphEndpoint, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${graphToken}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(graphUpdate)
+            });
+
+            if (!graphResponse.ok) {
+              const errorText = await graphResponse.text();
+              logger.error('Failed to update Graph event:', { status: graphResponse.status, error: errorText });
+            } else {
+              logger.info('Graph event updated successfully:', { graphEventId, calendarId });
+            }
           }
         }
       } catch (graphError) {
@@ -17704,8 +17748,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     if (graphEventId && graphToken && hasGraphSyncableChanges) {
       try {
+        // Get calendarId for shared calendar support - REQUIRED for Graph API operations
+        const calendarId = event.calendarId;
+        if (!calendarId) {
+          logger.error('Cannot update Graph event: calendarId is required', { eventId: id, graphEventId });
+          return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
+        }
+
         // Determine the correct Graph API endpoint based on editScope for recurring events
-        let graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+        // Always use shared calendar endpoint: /me/calendars/{calendarId}/events/{id}
+        let graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
         let targetOccurrenceId = null;
 
         // Handle recurring event single occurrence updates
@@ -17723,9 +17775,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           const endRange = new Date(occurrenceDateObj);
           endRange.setHours(23, 59, 59, 999);
 
-          const instancesUrl = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+          const instancesUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
 
-          logger.info('Fetching occurrence instances:', { instancesUrl });
+          logger.info('Fetching occurrence instances:', { instancesUrl, calendarId });
 
           const instancesResponse = await fetch(instancesUrl, {
             headers: {
@@ -17745,8 +17797,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
               if (targetOccurrence) {
                 targetOccurrenceId = targetOccurrence.id;
-                graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId}`;
-                logger.info('Found occurrence ID:', { targetOccurrenceId });
+                graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId}`;
+                logger.info('Found occurrence ID:', { targetOccurrenceId, calendarId });
               } else {
                 logger.warn('No matching occurrence found for date, falling back to series master');
               }
@@ -17760,8 +17812,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // For "all events" edits, update the series master directly
-          graphEndpoint = `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
-          logger.info('Updating entire series via series master:', { seriesMasterId });
+          graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`;
+          logger.info('Updating entire series via series master:', { seriesMasterId, calendarId });
         }
 
         // Prepare Graph API update payload
@@ -18294,6 +18346,13 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Use graphData.id (Graph API ID) instead of eventId (internal MongoDB UUID)
         const graphEventId = event.graphData?.id || event.eventId;
         const calendarId = reqCalendarId || event.calendarId;
+
+        // calendarId is required for Graph API operations
+        if (!calendarId) {
+          logger.error('Cannot delete Graph event: calendarId is required', { eventId: event.eventId, graphEventId });
+          return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
+        }
+
         let graphApiUrl;
         let targetOccurrenceId = null;
 
@@ -18313,9 +18372,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           const endRange = new Date(occurrenceDateObj);
           endRange.setHours(23, 59, 59, 999);
 
-          const instancesUrl = calendarId
-            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`
-            : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+          const instancesUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
 
           logger.log('📡 Fetching occurrence instances:', instancesUrl);
 
@@ -18348,21 +18405,15 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
 
           // Use occurrence ID if found, otherwise fall back to series master
-          graphApiUrl = calendarId
-            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId || graphEventId}`
-            : `https://graph.microsoft.com/v1.0/me/events/${targetOccurrenceId || graphEventId}`;
+          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId || graphEventId}`;
 
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // Delete entire series - delete the series master
           logger.log('🔄 Deleting entire recurring series:', { seriesMasterId });
-          graphApiUrl = calendarId
-            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`
-            : `https://graph.microsoft.com/v1.0/me/events/${seriesMasterId}`;
+          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`;
         } else {
           // Regular single event delete (non-recurring)
-          graphApiUrl = calendarId
-            ? `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`
-            : `https://graph.microsoft.com/v1.0/me/events/${graphEventId}`;
+          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
         }
 
         logger.log('📡 Graph API URL:', graphApiUrl);

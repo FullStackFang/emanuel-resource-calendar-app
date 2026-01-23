@@ -117,13 +117,13 @@ export function transformEventToFlatStructure(event) {
   const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
 
   // Extract timing data - can come from multiple sources
-  // Check nested structures first, then top-level fields, then defaults
+  // Prioritize top-level fields (authoritative) over nested internalData (may be stale)
   const timingSource = event.roomReservationData?.timing || event.internalData || {};
-  // Always check nested THEN top-level THEN default to startTime
-  const setupTime = timingSource.setupTime || event.setupTime || startTime || '';
-  const doorOpenTime = timingSource.doorOpenTime || event.doorOpenTime || startTime || '';
-  const rawTeardownTime = timingSource.teardownTime || event.teardownTime || '';
-  const rawDoorCloseTime = timingSource.doorCloseTime || event.doorCloseTime || '';
+  // Top-level fields take precedence over nested structures
+  const setupTime = event.setupTime || timingSource.setupTime || startTime || '';
+  const doorOpenTime = event.doorOpenTime || timingSource.doorOpenTime || startTime || '';
+  const rawTeardownTime = event.teardownTime || timingSource.teardownTime || '';
+  const rawDoorCloseTime = event.doorCloseTime || timingSource.doorCloseTime || '';
 
   // Auto-populate doorCloseTime with endTime if not set
   const doorCloseTime = rawDoorCloseTime || endTime || '';
