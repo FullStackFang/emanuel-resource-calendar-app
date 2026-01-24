@@ -40,7 +40,10 @@
       "Bash(mongosh:*)",
       "Bash(awk:*)",
       "Bash(wc:*)",
-      "Bash(python3 -c:*)"
+      "Bash(python3 -c:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm test)",
+      "Bash(npm test:*)"
     ],
     "deny": []
   }

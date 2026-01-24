@@ -11013,6 +11013,20 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'API is running' });
 });
 
+// Public config endpoint - allows frontend to read runtime configuration
+app.get('/api/config', (req, res) => {
+  const mode = CALENDAR_CONFIG.DEFAULT_MODE;
+  res.status(200).json({
+    calendarMode: mode,
+    defaultDisplayCalendar: mode === 'production'
+      ? 'TempleEvents@emanuelnyc.org'
+      : 'TempleEventsSandbox@emanuelnyc.org',
+    roomReservationCalendar: mode === 'production'
+      ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
+      : CALENDAR_CONFIG.SANDBOX_CALENDAR
+  });
+});
+
 // Version info endpoint - shows deployed version
 app.get('/api/version', (req, res) => {
   const packageJson = require('./package.json');

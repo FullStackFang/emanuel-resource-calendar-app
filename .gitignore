@@ -30,3 +30,7 @@ dist-ssr
 dist.zip
 backend.zip
 build-info.json
+
+# Test coverage
+coverage
+backend/coverage

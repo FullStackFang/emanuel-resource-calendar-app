@@ -30,7 +30,7 @@ import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
 import { useNotification } from './context/NotificationContext';
-import APP_CONFIG from './config/config';
+import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
 import './App.css';
@@ -298,6 +298,23 @@ function App() {
     // Note: Graph token acquisition removed - backend now handles all Graph API calls
     // using application permissions (client credentials flow)
   }, [instance]);
+
+  // Fetch runtime config from backend (controls sandbox vs production mode)
+  useEffect(() => {
+    const loadRuntimeConfig = async () => {
+      try {
+        const config = await fetchRuntimeConfig();
+        if (config?.defaultDisplayCalendar) {
+          // Update APP_CONFIG so all components use the backend-controlled value
+          APP_CONFIG.DEFAULT_DISPLAY_CALENDAR = config.defaultDisplayCalendar;
+          logger.log('Runtime config loaded, calendar mode:', config.calendarMode);
+        }
+      } catch (error) {
+        logger.warn('Failed to load runtime config, using defaults');
+      }
+    };
+    loadRuntimeConfig();
+  }, []);
 
   // Initialize MSAL
   useEffect(() => {
