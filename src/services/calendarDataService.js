@@ -353,7 +353,8 @@ class CalendarDataService {
       end: eventData.end,
       location: eventData.location,
       locations: eventData.locations,
-      categories: eventData.categories
+      categories: eventData.categories,
+      body: eventData.body
     };
 
     // Build extension data

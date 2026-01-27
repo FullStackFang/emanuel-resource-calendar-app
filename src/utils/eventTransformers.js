@@ -104,9 +104,10 @@ export function transformEventToFlatStructure(event) {
   }
 
   // Process eventDescription - strip HTML if present
+  // Prioritize top-level eventDescription (authoritative) over graphData.bodyPreview (may be stale)
   const rawDescription = isCalendarEvent
     ? (event.bodyPreview || event.body?.content || '')
-    : (event.graphData?.bodyPreview || event.eventDescription || '');
+    : (event.eventDescription || event.graphData?.body?.content || event.graphData?.bodyPreview || '');
   const eventDescription = rawDescription.includes('<') ? extractTextFromHtml(rawDescription) : rawDescription;
 
   // Detect if this is an offsite event (has Graph location but no internal rooms)

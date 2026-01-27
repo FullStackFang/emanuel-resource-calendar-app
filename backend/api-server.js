@@ -18630,8 +18630,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           }
         }
 
-        // Handle body/description
-        if (updates.eventDescription) {
+        // Handle body/description - support multiple formats
+        if (updates.body?.content) {
+          // Handle Graph API body object format from frontend
+          graphUpdate.body = {
+            contentType: updates.body.contentType === 'text' ? 'Text' : 'HTML',
+            content: updates.body.content
+          };
+          // Also store as eventDescription for MongoDB consistency
+          updateOperations.eventDescription = updates.body.content;
+        } else if (updates.eventDescription) {
           graphUpdate.body = {
             contentType: 'HTML',
             content: updates.eventDescription
@@ -18849,6 +18857,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
       // Sync body/description
       if (updates.eventDescription !== undefined) {
+        // bodyPreview is limited to 255 chars in Graph API
+        updateOperations['graphData.bodyPreview'] = updates.eventDescription.substring(0, 255);
         updateOperations['graphData.body.content'] = updates.eventDescription;
         updateOperations['graphData.body.contentType'] = 'HTML';
       }
