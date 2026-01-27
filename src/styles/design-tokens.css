@@ -1,0 +1,374 @@
+/* ============================================================================
+   EMANUEL MODERN DESIGN SYSTEM - Design Tokens
+   ============================================================================
+   A refined institutional aesthetic for Temple Emanuel
+   Version: 1.0.0
+   ============================================================================ */
+
+:root {
+  /* ==========================================================================
+     COLOR PALETTE
+     ========================================================================== */
+
+  /* Primary - Deep Sapphire (Institutional Blue)
+     A dignified blue that conveys trust and tradition */
+  --color-primary-50: #eef4ff;
+  --color-primary-100: #dae6ff;
+  --color-primary-200: #bdd4ff;
+  --color-primary-300: #90baff;
+  --color-primary-400: #5c94fc;
+  --color-primary-500: #3b6eb8;
+  --color-primary-600: #2d5a9e;
+  --color-primary-700: #1e4785;
+  --color-primary-800: #1a3a6b;
+  --color-primary-900: #162f57;
+
+  /* Accent - Warm Gold (Temple Heritage)
+     Evokes tradition, celebration, and warmth */
+  --color-accent-50: #fefce8;
+  --color-accent-100: #fef9c3;
+  --color-accent-200: #fef08a;
+  --color-accent-300: #fde047;
+  --color-accent-400: #facc15;
+  --color-accent-500: #eab308;
+  --color-accent-600: #ca8a04;
+  --color-accent-700: #a16207;
+  --color-accent-800: #854d0e;
+  --color-accent-900: #713f12;
+
+  /* Neutrals - Warm Stone Grays
+     Softer than pure grays, more inviting */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #fafaf9;
+  --color-neutral-100: #f5f5f4;
+  --color-neutral-200: #e7e5e4;
+  --color-neutral-300: #d6d3d1;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-500: #78716c;
+  --color-neutral-600: #57534e;
+  --color-neutral-700: #44403c;
+  --color-neutral-800: #292524;
+  --color-neutral-900: #1c1917;
+
+  /* Semantic Colors */
+  --color-success-50: #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-500: #059669;
+  --color-success-600: #047857;
+  --color-success-700: #065f46;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-500: #d97706;
+  --color-warning-600: #b45309;
+  --color-warning-700: #92400e;
+
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-500: #dc2626;
+  --color-error-600: #b91c1c;
+  --color-error-700: #991b1b;
+
+  --color-info-50: #f0f9ff;
+  --color-info-100: #e0f2fe;
+  --color-info-500: #0284c7;
+  --color-info-600: #0369a1;
+  --color-info-700: #075985;
+
+  /* ==========================================================================
+     SEMANTIC COLOR ALIASES
+     ========================================================================== */
+
+  /* Background Colors */
+  --bg-primary: var(--color-neutral-0);
+  --bg-secondary: var(--color-neutral-50);
+  --bg-tertiary: var(--color-neutral-100);
+  --bg-inverse: var(--color-neutral-900);
+  --bg-brand: var(--color-primary-500);
+  --bg-brand-subtle: var(--color-primary-50);
+  --bg-accent: var(--color-accent-500);
+  --bg-accent-subtle: var(--color-accent-50);
+
+  /* Text Colors */
+  --text-primary: var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-600);
+  --text-tertiary: var(--color-neutral-500);
+  --text-inverse: var(--color-neutral-0);
+  --text-brand: var(--color-primary-600);
+  --text-accent: var(--color-accent-700);
+  --text-link: var(--color-primary-600);
+  --text-link-hover: var(--color-primary-700);
+
+  /* Border Colors */
+  --border-default: var(--color-neutral-200);
+  --border-subtle: var(--color-neutral-100);
+  --border-strong: var(--color-neutral-300);
+  --border-brand: var(--color-primary-500);
+  --border-focus: var(--color-primary-400);
+
+  /* ==========================================================================
+     TYPOGRAPHY
+     ========================================================================== */
+
+  /* Font Families */
+  --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  /* Font Sizes - Using a modular scale (1.25 ratio) */
+  --text-2xs: 0.625rem;   /* 10px */
+  --text-xs: 0.75rem;     /* 12px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 1.875rem;   /* 30px */
+  --text-4xl: 2.25rem;    /* 36px */
+  --text-5xl: 3rem;       /* 48px */
+
+  /* Font Weights */
+  --font-light: 300;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /* Letter Spacing */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* ==========================================================================
+     SPACING
+     ========================================================================== */
+
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+  --space-16: 4rem;     /* 64px */
+  --space-20: 5rem;     /* 80px */
+  --space-24: 6rem;     /* 96px */
+
+  /* ==========================================================================
+     BORDER RADIUS
+     ========================================================================== */
+
+  --radius-none: 0;
+  --radius-sm: 0.25rem;   /* 4px */
+  --radius-md: 0.375rem;  /* 6px */
+  --radius-lg: 0.5rem;    /* 8px */
+  --radius-xl: 0.75rem;   /* 12px */
+  --radius-2xl: 1rem;     /* 16px */
+  --radius-3xl: 1.5rem;   /* 24px */
+  --radius-full: 9999px;
+
+  /* ==========================================================================
+     SHADOWS
+     ========================================================================== */
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+
+  /* Colored Shadows */
+  --shadow-primary: 0 4px 14px 0 rgb(59 110 184 / 0.25);
+  --shadow-accent: 0 4px 14px 0 rgb(234 179 8 / 0.25);
+
+  /* ==========================================================================
+     TRANSITIONS
+     ========================================================================== */
+
+  --duration-instant: 0ms;
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --duration-slower: 500ms;
+
+  --ease-linear: linear;
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+  /* Common Transitions */
+  --transition-colors: color var(--duration-normal) var(--ease-in-out),
+                       background-color var(--duration-normal) var(--ease-in-out),
+                       border-color var(--duration-normal) var(--ease-in-out);
+  --transition-transform: transform var(--duration-normal) var(--ease-out);
+  --transition-shadow: box-shadow var(--duration-normal) var(--ease-in-out);
+  --transition-all: all var(--duration-normal) var(--ease-in-out);
+
+  /* ==========================================================================
+     Z-INDEX SCALE
+     ========================================================================== */
+
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-popover: 600;
+  --z-tooltip: 700;
+  --z-toast: 800;
+  --z-max: 9999;
+
+  /* ==========================================================================
+     LAYOUT
+     ========================================================================== */
+
+  /* Container Widths */
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+  --container-2xl: 1536px;
+
+  /* Header/Navigation Heights */
+  --header-height: 64px;
+  --nav-height: 56px;
+
+  /* Sidebar Widths */
+  --sidebar-width: 280px;
+  --sidebar-collapsed: 64px;
+
+  /* ==========================================================================
+     COMPONENT-SPECIFIC TOKENS
+     ========================================================================== */
+
+  /* Buttons */
+  --btn-height-sm: 32px;
+  --btn-height-md: 40px;
+  --btn-height-lg: 48px;
+  --btn-padding-sm: var(--space-2) var(--space-3);
+  --btn-padding-md: var(--space-2) var(--space-4);
+  --btn-padding-lg: var(--space-3) var(--space-6);
+
+  /* Inputs */
+  --input-height-sm: 32px;
+  --input-height-md: 40px;
+  --input-height-lg: 48px;
+  --input-padding: var(--space-2) var(--space-3);
+  --input-border-width: 1px;
+
+  /* Cards */
+  --card-padding: var(--space-6);
+  --card-radius: var(--radius-xl);
+  --card-shadow: var(--shadow-sm);
+  --card-shadow-hover: var(--shadow-md);
+
+  /* Tables */
+  --table-header-bg: var(--color-neutral-50);
+  --table-row-hover: var(--color-neutral-50);
+  --table-border: var(--color-neutral-200);
+
+  /* Modals */
+  --modal-width-sm: 400px;
+  --modal-width-md: 560px;
+  --modal-width-lg: 720px;
+  --modal-width-xl: 900px;
+  --modal-radius: var(--radius-2xl);
+  --modal-shadow: var(--shadow-2xl);
+
+  /* Badges */
+  --badge-padding: var(--space-1) var(--space-2);
+  --badge-radius: var(--radius-full);
+  --badge-font-size: var(--text-xs);
+
+  /* Calendar */
+  --calendar-cell-min-height: 100px;
+  --calendar-event-radius: var(--radius-md);
+  --calendar-today-ring: 2px solid var(--color-primary-400);
+
+  /* ==========================================================================
+     LEGACY COMPATIBILITY ALIASES
+     (For gradual migration - use new tokens in new code)
+     ========================================================================== */
+
+  /* Old color variables mapped to new system */
+  --primary-color: var(--color-primary-500);
+  --secondary-color: var(--color-primary-600);
+  --light-gray: var(--color-neutral-100);
+  --dark-gray: var(--color-neutral-700);
+  --white: var(--color-neutral-0);
+  --shadow: var(--shadow-md);
+  --error-color: var(--color-error-500);
+  --error-hover: var(--color-error-600);
+
+  /* Additional legacy aliases */
+  --background-light: var(--bg-secondary);
+  --border-color: var(--border-default);
+  --text-muted: var(--text-tertiary);
+  --hover-light: var(--color-neutral-50);
+  --primary-light: var(--color-primary-50);
+  --transition-normal: var(--transition-all);
+}
+
+/* ==========================================================================
+   DARK MODE SUPPORT (Future Enhancement)
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root.dark-mode {
+    /* Invert backgrounds */
+    --bg-primary: var(--color-neutral-900);
+    --bg-secondary: var(--color-neutral-800);
+    --bg-tertiary: var(--color-neutral-700);
+
+    /* Invert text */
+    --text-primary: var(--color-neutral-50);
+    --text-secondary: var(--color-neutral-300);
+    --text-tertiary: var(--color-neutral-400);
+
+    /* Adjust borders */
+    --border-default: var(--color-neutral-700);
+    --border-subtle: var(--color-neutral-800);
+    --border-strong: var(--color-neutral-600);
+  }
+}
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+
+/* Focus Ring Utility */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Visually Hidden (Accessibility) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

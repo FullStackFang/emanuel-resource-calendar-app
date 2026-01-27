@@ -1,90 +1,52 @@
 /* ============================================================================
-   CALENDAR.CSS - Complete Calendar Component Styles
+   CALENDAR - Emanuel Modern Design System
+   ============================================================================
+   Complete calendar component styles with month, week, and day views
    ============================================================================ */
 
-/* ============================================================================
-   1. CSS VARIABLES & DESIGN TOKENS
-   ============================================================================ */
-:root {
-  /* Primary Colors */
-  --primary-color: #3b82f6;
-  --secondary-color: #2563eb;
-  --primary-light: #eff6ff;
-  
-  /* UI Colors */
-  --white: #ffffff;
-  --light-gray: #f9fafb;
-  --hover-light: #f3f4f6;
-  --background-light: #ffffff;
-  --dark-gray: #6b7280;
-  
-  /* Text Colors */
-  --text-primary: #111827;
-  --text-secondary: #6b7280;
-  
-  /* Border Colors */
-  --border-color: #e5e7eb;
-  --border-light: #f3f4f6;
-  
-  /* Status Colors */
-  --error-color: #ef4444;
-  --success-color: #10b981;
-  --warning-color: #f59e0b;
-  
-  /* Layout */
-  --sidebar-width: 400px;
-  --category-column-width: 180px;
-  --header-height: 200px;
-  
-  /* Transitions */
-  --transition-fast: 0.1s ease;
-  --transition-normal: 0.2s ease;
-  --transition-slow: 0.3s ease;
-  
-  /* Shadows */
-  --shadow-light: 0 1px 3px rgba(0,0,0,0.1);
-  --shadow-medium: 0 2px 6px rgba(0, 0, 0, 0.2);
-  --shadow-strong: 0 4px 12px rgba(0, 0, 0, 0.1);
+/* ==========================================================================
+   LAYOUT CONSTANTS (Local overrides for calendar-specific sizing)
+   ========================================================================== */
+
+.calendar-container {
+  --calendar-sidebar-width: 400px;
+  --calendar-category-column-width: 180px;
 }
 
-/* ============================================================================
-   2. MAIN CALENDAR CONTAINER & LAYOUT
-   ============================================================================ */
+/* ==========================================================================
+   MAIN CALENDAR CONTAINER & LAYOUT
+   ========================================================================== */
 
-/* Main Calendar Container */
 .calendar-container {
   display: flex;
   flex-direction: column;
-  background-color: var(--white);
+  background-color: var(--bg-primary);
   height: 100%;
   overflow: hidden;
   margin: 0;
   padding: 0;
   width: 100%;
   box-sizing: border-box;
-  zoom: 0.8; /* Scale entire page to 80% to match ReservationRequests modal rendering */
+  zoom: 0.8;
 }
 
-/* Calendar Header Section */
-/* NEW: Main Layout Container - Flex container for content and sidebar */
 .calendar-layout-container {
   display: flex;
-  gap: 15px;
+  gap: var(--space-4);
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: calc(100vh - 170px);
   width: 100%;
   max-width: 100%;
-  padding: 0 25px 20px 20px;
+  padding: 0 var(--space-6) var(--space-5) var(--space-5);
   box-sizing: border-box;
 }
 
-/* Updated Main Content */
 .calendar-main-content {
   flex: 1;
-  min-width: 0; /* Allows flex item to shrink below content size */
-  min-height: 0; /* Allows flex item to shrink below content size */
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -93,54 +55,55 @@
   max-width: 100%;
 }
 
-/* Calendar Grid Container (Primary Content Area) */
 .calendar-grid-container {
   flex: 1;
   overflow: auto;
-  background: var(--white);
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
 }
 
-/* UPDATED: Right Sidebar - Enhanced with refined border and shadow */
+/* ==========================================================================
+   RIGHT SIDEBAR
+   ========================================================================== */
+
 .calendar-right-sidebar {
-  width: var(--sidebar-width);
-  max-width: var(--sidebar-width);
+  width: var(--calendar-sidebar-width);
+  max-width: var(--calendar-sidebar-width);
   display: flex;
   flex-direction: column;
-  background-color: var(--white);
-  border: 1px solid #e1e5e9;
-  border-radius: 12px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
   flex-shrink: 0;
   height: fit-content;
   align-self: flex-start;
   box-sizing: border-box;
-  overflow: visible; /* Allow dropdowns to overflow like MonthView */
+  overflow: visible;
   position: relative;
-  padding: 0; /* Ensure no extra padding on the sidebar itself */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.08);
-  transition: box-shadow 0.2s ease-in-out;
+  padding: 0;
+  box-shadow: var(--shadow-lg);
+  transition: box-shadow var(--duration-normal) var(--ease-in-out);
 }
 
 .calendar-right-sidebar:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08), 0 3px 6px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-xl);
 }
 
-/* ============================================================================
-   3. SIDEBAR FILTER COMPONENTS
-   ============================================================================ */
+/* ==========================================================================
+   SIDEBAR FILTER COMPONENTS
+   ========================================================================== */
 
-/* NEW: Filters Container - Match sibling container pattern */
 .filters-container {
-  padding: 15px;
-  background-color: var(--background-light);
-  border-bottom: 1px solid var(--border-color);
-  border-radius: 8px;
+  padding: var(--space-4);
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
   flex-shrink: 0;
   display: flex;
-  gap: 15px;
-  width: calc(100% - 30px);
-  margin: 15px;
+  gap: var(--space-4);
+  width: calc(100% - var(--space-8));
+  margin: var(--space-4);
   box-sizing: border-box;
   justify-content: stretch;
   overflow: visible;
@@ -158,135 +121,136 @@
   overflow: visible;
   position: relative;
   z-index: 20;
-  /* Remove background, border, padding - MonthView doesn't have these */
+  margin-bottom: var(--space-5);
 }
 
 .filter-section h3 {
-  margin: 0 0 8px 0;
-  color: var(--primary-color);
-  font-size: 14px;
-  font-weight: 600;
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-primary-500);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   text-align: center;
 }
 
-/* Filter Container and Section Styling */
-
-.filter-section {
-  margin-bottom: 20px;
-}
-
 .filter-title {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
-/* NEW: Filter Status - Now below filters like MonthView */
+/* ==========================================================================
+   FILTER STATUS
+   ========================================================================== */
+
 .filter-status {
-  background: #e3f2fd;
-  border: 1px solid #2196f3;
-  border-radius: 4px;
-  padding: 12px;
-  margin: 15px;
-  font-size: 13px;
-  width: calc(100% - 30px);
+  background: var(--color-info-50);
+  border: 1px solid var(--color-info-500);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin: var(--space-4);
+  font-size: var(--text-xs);
+  width: calc(100% - var(--space-8));
   box-sizing: border-box;
   position: relative;
   z-index: 1;
 }
 
 .status-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: #1976d2;
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-1);
+  color: var(--color-info-600);
 }
 
 .status-info {
   margin-bottom: 2px;
-  color: #424242;
+  color: var(--text-primary);
 }
 
 .status-events {
-  font-weight: 600;
-  color: #1976d2;
+  font-weight: var(--font-semibold);
+  color: var(--color-info-600);
 }
 
-/* NEW: Grouping Info - Simplified */
+/* ==========================================================================
+   GROUPING INFO
+   ========================================================================== */
+
 .grouping-info {
-  padding: 12px;
-  margin: 15px;
-  background: var(--white);
-  border-radius: 6px;
-  border: 1px solid #dee2e6;
-  width: calc(100% - 30px);
+  padding: var(--space-3);
+  margin: var(--space-4);
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  width: calc(100% - var(--space-8));
   box-sizing: border-box;
   position: relative;
   z-index: 1;
 }
 
 .grouping-title {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #495057;
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .grouping-description {
   margin: 0;
-  font-size: 13px;
-  color: #6c757d;
-  line-height: 1.3;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
 }
 
-/* ============================================================================
-   5. DATE PICKER STYLING
-   ============================================================================ */
+/* ==========================================================================
+   DATE PICKER STYLING
+   ========================================================================== */
 
 .date-picker-wrapper {
   display: inline-block;
 }
 
 .date-picker-input {
-  padding: 8px 16px;
-  border: 1px solid #ccc;
-  background: var(--white);
-  border-radius: 4px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: var(--transition-normal);
-  font-size: 14px;
-  font-family: inherit;
+  transition: var(--transition-all);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
 }
 
 .date-picker-input:hover {
-  background-color: var(--light-gray);
+  background-color: var(--bg-secondary);
 }
 
 /* React DatePicker Styling */
 .react-datepicker {
-  font-family: inherit;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  background: white;
-  width: auto; 
+  font-family: var(--font-body);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-primary);
+  width: auto;
 }
 
 .react-datepicker__header {
-  background: var(--white);
-  border-bottom: 1px solid #ddd;
-  border-radius: 8px 8px 0 0;
-  padding: 16px 8px 12px 8px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: var(--space-4) var(--space-2) var(--space-3) var(--space-2);
   min-height: 60px;
 }
 
 .react-datepicker__header__dropdown {
-  margin-top: 8px !important;
-  margin-bottom: 4px !important;
+  margin-top: var(--space-2) !important;
+  margin-bottom: var(--space-1) !important;
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: var(--space-2) !important;
   flex-wrap: nowrap !important;
 }
 
@@ -300,21 +264,20 @@
 .react-datepicker__month-select,
 .react-datepicker__year-select {
   margin: 0 2px;
-  padding: 6px 12px !important;
-  border: 1px solid var(--primary-color) !important;
-  border-radius: 4px !important;
-  background: var(--white) !important;
-  color: var(--primary-color) !important;
-  font-size: 14px !important;
-  font-family: inherit !important;
+  padding: var(--space-2) var(--space-3) !important;
+  border: 1px solid var(--color-primary-500) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-primary) !important;
+  color: var(--color-primary-500) !important;
+  font-family: var(--font-body) !important;
+  font-size: var(--text-sm) !important;
   cursor: pointer !important;
-  transition: var(--transition-normal) !important;
+  transition: var(--transition-all) !important;
   min-width: 60px;
-  
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
   appearance: none !important;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%230078d4' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e") !important;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%231e3a5f' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3e%3c/svg%3e") !important;
   background-repeat: no-repeat !important;
   background-position: right 8px center !important;
   padding-right: 28px !important;
@@ -323,24 +286,22 @@
 .react-datepicker__header__dropdown--select:hover,
 .react-datepicker__month-select:hover,
 .react-datepicker__year-select:hover {
-  background-color: var(--light-gray) !important;
+  background-color: var(--bg-secondary) !important;
 }
 
-/* ============================================================================
-   6. CALENDAR GRID LAYOUT (EXISTING STYLES)
-   ============================================================================ */
+/* ==========================================================================
+   CALENDAR GRID LAYOUT
+   ========================================================================== */
 
-/* Base Calendar Grid */
 .calendar-grid {
   width: 100%;
   overflow: auto;
   flex: 1;
-  background-color: var(--white);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
 
-/* Month View Layout */
 .calendar-grid.month-view {
   display: flex;
   height: 100%;
@@ -348,21 +309,24 @@
   border-radius: 0;
 }
 
-/* Grid Header (Sticky Horizontal Headers) */
+/* ==========================================================================
+   GRID HEADER
+   ========================================================================== */
+
 .grid-header {
   display: flex;
   position: sticky;
   top: 0;
   z-index: 10;
-  background-color: var(--primary-color);
-  color: var(--white);
-  box-shadow: var(--shadow-light);
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
 }
 
 .grid-header .header-cell {
-  padding: 12px 8px;
-  font-weight: 600;
-  font-size: 14px;
+  padding: var(--space-3) var(--space-2);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
   text-align: center;
   border-right: 1px solid rgba(255, 255, 255, 0.2);
   flex: 1;
@@ -374,44 +338,49 @@
 }
 
 .grid-header .category-header {
-  background-color: var(--secondary-color);
-  font-weight: 700;
-  min-width: var(--category-column-width);
-  flex: 0 0 var(--category-column-width);
+  background-color: var(--color-primary-600);
+  font-weight: var(--font-bold);
+  min-width: var(--calendar-category-column-width);
+  flex: 0 0 var(--calendar-category-column-width);
 }
 
-/* Grid Rows */
+/* ==========================================================================
+   GRID ROWS
+   ========================================================================== */
+
 .grid-row {
   display: flex;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .grid-row:last-child {
   border-bottom: none;
 }
 
-/* Category/Location Cells */
+/* ==========================================================================
+   CATEGORY/LOCATION CELLS
+   ========================================================================== */
+
 .grid-cell.category-cell,
 .grid-cell.location-cell {
-  background-color: var(--light-gray);
-  border-right: 1px solid var(--border-color);
-  padding: 8px 6px;
-  font-weight: 500;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-default);
+  padding: var(--space-2) var(--space-2);
+  font-weight: var(--font-medium);
   display: flex;
   align-items: center;
   min-height: 60px;
   color: var(--text-primary);
-  min-width: var(--category-column-width);
-  max-width: var(--category-column-width);
-  flex: 0 0 var(--category-column-width);
-  font-size: 11px;
+  min-width: var(--calendar-category-column-width);
+  max-width: var(--calendar-category-column-width);
+  flex: 0 0 var(--calendar-category-column-width);
+  font-size: var(--text-xs);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  line-height: 1.3;
+  line-height: var(--leading-relaxed);
 }
 
-/* Responsive font sizing for category text */
 .grid-cell.category-cell {
   font-size: clamp(8px, 1.5vw, 11px);
 }
@@ -420,7 +389,6 @@
   font-size: clamp(8px, 1.5vw, 11px);
 }
 
-/* Ensure text content respects overflow */
 .grid-cell.category-cell > *,
 .grid-cell.location-cell > * {
   overflow: hidden;
@@ -428,21 +396,23 @@
   white-space: nowrap;
 }
 
-/* Make sure text after color dot doesn't overflow */
 .grid-cell.category-cell,
 .grid-cell.location-cell {
   word-break: break-word;
   overflow-wrap: break-word;
 }
 
-/* Day Cells */
+/* ==========================================================================
+   DAY CELLS
+   ========================================================================== */
+
 .grid-cell.day-cell {
-  border-right: 1px solid var(--border-color);
-  padding: 4px;
+  border-right: 1px solid var(--border-default);
+  padding: var(--space-1);
   min-height: 60px;
-  background-color: var(--white);
+  background-color: var(--bg-primary);
   cursor: pointer;
-  transition: var(--transition-normal);
+  transition: var(--transition-all);
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1;
@@ -454,12 +424,12 @@
 }
 
 .grid-cell.day-cell:hover {
-  background-color: var(--white);
+  background-color: var(--bg-primary);
 }
 
-/* ============================================================================
-   7. MONTH VIEW COMPONENTS (EXISTING STYLES)
-   ============================================================================ */
+/* ==========================================================================
+   MONTH VIEW COMPONENTS
+   ========================================================================== */
 
 .calendar-content-wrapper {
   display: flex;
@@ -471,17 +441,17 @@
 .weekday-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background-color: var(--primary-color);
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
   border-radius: 0;
 }
 
 .weekday {
   text-align: center;
-  font-weight: 600;
-  padding: 8px;
+  font-weight: var(--font-semibold);
+  padding: var(--space-2);
   border-right: 1px solid rgba(255, 255, 255, 0.2);
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 .weekday:last-child {
@@ -500,7 +470,7 @@
   grid-template-columns: repeat(7, 1fr);
   flex: 1;
   min-height: 120px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .week-row:last-child {
@@ -509,14 +479,14 @@
 
 .day-cell {
   position: relative;
-  padding: 6px;
-  border-right: 1px solid #eee;
-  background-color: white;
+  padding: var(--space-2);
+  border-right: 1px solid var(--border-subtle);
+  background-color: var(--bg-primary);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: var(--transition-normal);
+  transition: var(--transition-all);
   min-height: 100px;
   vertical-align: top;
 }
@@ -526,120 +496,139 @@
 }
 
 .day-cell:hover:not(.selected) {
-  background-color: var(--hover-light);
+  background-color: var(--bg-secondary);
 }
 
 .day-cell.selected {
-  background-color: var(--primary-light) !important;
-  outline: 2px solid var(--primary-color);
+  background-color: var(--color-primary-50) !important;
+  outline: 2px solid var(--color-primary-500);
   outline-offset: -2px;
 }
 
 .day-cell.outside-month {
-  background-color: var(--white);
+  background-color: var(--bg-primary);
 }
 
 .day-cell.current-day {
-  background-color: #f0f7ff;
+  background-color: var(--color-primary-50);
 }
 
 .day-cell .day-number {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   text-align: right;
-  padding: 2px 4px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 2px var(--space-1);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
 }
 
 .day-cell.outside-month .day-number {
-  color: #ccc;
+  color: var(--text-tertiary);
 }
 
 .day-cell.current-day .day-number {
-  color: white;
-  font-weight: bold;
+  color: var(--text-inverse);
+  background-color: var(--color-primary-500);
+  border-radius: var(--radius-full);
+  font-weight: var(--font-bold);
 }
 
-/* ============================================================================
-   8. EVENT STYLING (EXISTING STYLES)
-   ============================================================================ */
+/* ==========================================================================
+   EVENT STYLING
+   ========================================================================== */
 
 .event-item {
   position: relative;
-  background-color: rgba(0, 120, 212, 0.05);
-  border-left: 3px solid var(--primary-color);
-  padding: 3px 5px;
-  margin-bottom: 3px;
-  border-radius: 3px;
-  font-size: 13px;
+  background-color: var(--color-primary-50);
+  border-left: 3px solid var(--color-primary-500);
+  padding: var(--space-1) var(--space-1);
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: var(--transition-all);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   z-index: 2;
-  box-shadow: var(--shadow-light);
+  box-shadow: var(--shadow-sm);
 }
 
 .event-item:hover {
-  background-color: rgba(0, 120, 212, 0.1);
+  background-color: var(--color-primary-100);
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  box-shadow: var(--shadow-md);
 }
 
 .event-time {
-  font-size: 12px;
-  color: var(--dark-gray);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   margin-bottom: 2px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .event-title {
-  font-weight: 600;
+  font-weight: var(--font-semibold);
   margin-bottom: 2px;
   color: var(--text-primary);
 }
 
 .event-location {
-  font-size: 12px;
-  color: var(--dark-gray);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 .event-extension {
-  font-size: 0.8em;
-  color: #666;
-  margin-top: 3px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ============================================================================
-   9. CONTEXT MENU & LOADING STATES (EXISTING STYLES)
-   ============================================================================ */
+/* ==========================================================================
+   NESTED EVENTS
+   ========================================================================== */
+
+.event-item.nested-event {
+  position: relative;
+}
+
+.event-item.parent-event {
+  border-left-width: 3px !important;
+  border-left-color: var(--color-success-500) !important;
+}
+
+.event-item.parent-event:hover {
+  background-color: var(--color-success-50) !important;
+}
+
+/* ==========================================================================
+   CONTEXT MENU
+   ========================================================================== */
 
 .context-menu {
   position: fixed;
-  background-color: white;
-  border: 1px solid #e1dfdd;
-  border-radius: 4px;
-  box-shadow: var(--shadow-strong);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   z-index: 100;
   min-width: 150px;
   overflow: hidden;
 }
 
 .context-menu-item {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-sm);
   color: var(--text-primary);
-  transition: var(--transition-fast);
-  border-bottom: 1px solid #f5f5f5;
+  transition: var(--transition-all);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .context-menu-item:last-child {
@@ -647,192 +636,21 @@
 }
 
 .context-menu-item:hover {
-  background-color: #f3f2f1;
+  background-color: var(--bg-secondary);
 }
 
 .context-menu-item.delete {
-  color: var(--error-color);
+  color: var(--color-error-500);
 }
 
 .context-menu-item.delete:hover {
-  background-color: #fde7e9;
+  background-color: var(--color-error-50);
 }
 
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(255, 255, 255, 0.8);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  transition: opacity var(--transition-slow);
-}
-
-.loading-content {
-  text-align: center;
-  padding: 20px;
-  border-radius: 8px;
-  background-color: white;
-  box-shadow: var(--shadow-strong);
-}
-
-.loading-spinner {
-  display: inline-block;
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(0, 120, 212, 0.2);
-  border-radius: 50%;
-  border-top-color: var(--primary-color);
-  animation: spin 1s ease-in-out infinite;
-  margin-bottom: 16px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* ============================================================================
-   10. RESPONSIVE DESIGN
-   ============================================================================ */
-
-/* Large Screens - Reduce sidebar size */
-@media (max-width: 1600px) {
-  :root {
-    --sidebar-width: 380px;
-  }
-}
-
-@media (max-width: 1400px) {
-  :root {
-    --sidebar-width: 350px;
-  }
-}
-
-@media (max-width: 1200px) {
-  :root {
-    --sidebar-width: 320px;
-  }
-  
-  /* Stack layout on smaller screens */
-  .calendar-layout-container {
-    flex-direction: column;
-  }
-  
-  .calendar-right-sidebar {
-    width: 100%;
-    min-width: auto;
-    border: 1px solid #dee2e6;
-    border-top: 1px solid #dee2e6;
-    height: auto;
-    align-self: stretch;
-  }
-  
-  /* Maintain MonthView pattern on medium screens */
-  .filters-container {
-    padding: 12px;
-    gap: 12px;
-    overflow: visible;
-  }
-}
-
-/* Medium screens - Reorganize header */
-@media (max-width: 992px) {
-  .header-top-row,
-  .header-bottom-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  
-  .navigation-group {
-    flex-direction: column;
-    gap: 12px;
-  }
-  
-  .calendar-action-buttons {
-    justify-content: center;
-  }
-  
-  .calendar-grid-container {
-    height: 600px;
-  }
-}
-
-/* Small screens */
-@media (max-width: 768px) {
-  :root {
-    --category-column-width: 150px;
-  }
-  
-  .calendar-header {
-    padding: 12px 16px;
-  }
-  
-  /* Stack filters vertically on small screens */
-  .filters-container {
-    flex-direction: column;
-    gap: 15px;
-  }
-  
-  .settings-group {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  
-  .time-zone-selector select,
-  .week-start-selector select {
-    width: 100%;
-  }
-  
-  .calendar-grid-container {
-    height: 500px;
-  }
-  
-  .grid-cell.category-cell,
-  .grid-cell.location-cell {
-    font-size: clamp(8px, 1.5vw, 11px);
-    line-height: 1.2;
-    padding: 6px 4px;
-  }
-
-/* ============================================================================
-   MODE TOGGLE CONTAINER WITH ACTION BUTTONS
-   ============================================================================ */
-.mode-toggle-container .search-button:hover {
-  background-color: var(--hover-light) !important;
-  border-color: var(--dark-gray) !important;
-}
-
-.mode-toggle-container .add-event-button:hover {
-  background-color: var(--secondary-color) !important;
-  border-color: var(--secondary-color) !important;
-}
-
-/* ============================================================================
-   DELETE CONFIRMATION MODAL
-   ============================================================================ */
-.delete-confirmation .cancel-button:hover {
-  background-color: #e8eaed !important;
-  border-color: #dadce0 !important;
-}
-
-.delete-confirmation .delete-button:hover {
-  background-color: #d33b2c !important;
-  box-shadow: 0 1px 3px rgba(234, 67, 53, 0.3);
-}
-}
-
-/* ============================================================================
+/* ==========================================================================
    LOADING STATES
-   ============================================================================ */
+   ========================================================================== */
 
-/* Loading overlay for secondary loading states */
 .loading-overlay {
   position: absolute;
   top: 0;
@@ -844,34 +662,26 @@
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  transition: opacity var(--duration-slow) var(--ease-out);
 }
 
-/* Full screen loading screen for initial load */
-.calendar-loading-screen {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  min-height: 400px;
-  width: 100%;
-  background-color: var(--white);
+.loading-content {
+  text-align: center;
+  padding: var(--space-5);
+  border-radius: var(--radius-xl);
+  background-color: var(--bg-primary);
+  box-shadow: var(--shadow-lg);
 }
 
-.calendar-loading-screen p {
-  margin-top: 20px;
-  font-size: 18px;
-  color: var(--text-secondary);
-}
-
-/* Loading spinner */
 .loading-spinner {
+  display: inline-block;
   width: 48px;
   height: 48px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--primary-color);
+  border: 3px solid var(--border-default);
   border-radius: 50%;
+  border-top-color: var(--color-primary-500);
   animation: spin 1s linear infinite;
+  margin-bottom: var(--space-4);
 }
 
 @keyframes spin {
@@ -880,21 +690,37 @@
   }
 }
 
-/* ============================================================================
-   MULTISELECT DROPDOWN
-   ============================================================================ */
+.calendar-loading-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  min-height: 400px;
+  width: 100%;
+  background-color: var(--bg-primary);
+}
 
-/* Ensure MultiSelect dropdown appears above all other elements */
+.calendar-loading-screen p {
+  margin-top: var(--space-5);
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   MULTISELECT DROPDOWN
+   ========================================================================== */
+
 .multiselect-dropdown {
   position: absolute !important;
   top: 100% !important;
   left: 0 !important;
   right: 0 !important;
   z-index: 99999 !important;
-  background-color: white !important;
-  border: 1px solid #dadce0 !important;
-  border-radius: 4px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+  background-color: var(--bg-primary) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
   margin-top: 2px !important;
   max-height: 200px !important;
   overflow-y: auto !important;
@@ -902,16 +728,15 @@
   width: auto !important;
 }
 
-/* ============================================================================
+/* ==========================================================================
    SIDEBAR LOADING PLACEHOLDER
-   ============================================================================ */
+   ========================================================================== */
 
-/* Sidebar loading placeholder - maintains layout stability */
 .sidebar-loading-placeholder {
-  padding: 15px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
   height: 100%;
   min-height: 400px;
 }
@@ -919,24 +744,24 @@
 .loading-placeholder-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .loading-placeholder-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   color: var(--text-secondary);
   text-align: center;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .loading-placeholder-content {
   height: 80px;
-  background: linear-gradient(90deg, var(--light-gray) 25%, #f0f0f0 50%, var(--light-gray) 75%);
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
   background-size: 200% 100%;
   animation: loading-shimmer 2s infinite;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
 }
 
 @keyframes loading-shimmer {
@@ -948,22 +773,135 @@
   }
 }
 
-/* Calendar sidebar spacer for month view */
 .calendar-sidebar-spacer {
   width: 0;
   flex-shrink: 0;
 }
 
-/* Nested Events Styling for Week/Day Views */
-.event-item.nested-event {
-  position: relative;
+/* ==========================================================================
+   MODE TOGGLE CONTAINER
+   ========================================================================== */
+
+.mode-toggle-container .search-button:hover {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--text-secondary) !important;
 }
 
-.event-item.parent-event {
-  border-left-width: 3px !important;
-  border-left-color: #4aba6d !important;
+.mode-toggle-container .add-event-button:hover {
+  background-color: var(--color-primary-600) !important;
+  border-color: var(--color-primary-600) !important;
 }
 
-.event-item.parent-event:hover {
-  background-color: rgba(74, 186, 109, 0.15) !important;
+/* ==========================================================================
+   DELETE CONFIRMATION MODAL
+   ========================================================================== */
+
+.delete-confirmation .cancel-button:hover {
+  background-color: var(--bg-tertiary) !important;
+  border-color: var(--border-default) !important;
+}
+
+.delete-confirmation .delete-button:hover {
+  background-color: var(--color-error-600) !important;
+  box-shadow: 0 1px 3px rgba(234, 67, 53, 0.3);
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
+@media (max-width: 1600px) {
+  .calendar-container {
+    --calendar-sidebar-width: 380px;
+  }
+}
+
+@media (max-width: 1400px) {
+  .calendar-container {
+    --calendar-sidebar-width: 350px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .calendar-container {
+    --calendar-sidebar-width: 320px;
+  }
+
+  .calendar-layout-container {
+    flex-direction: column;
+  }
+
+  .calendar-right-sidebar {
+    width: 100%;
+    min-width: auto;
+    border: 1px solid var(--border-default);
+    border-top: 1px solid var(--border-default);
+    height: auto;
+    align-self: stretch;
+  }
+
+  .filters-container {
+    padding: var(--space-3);
+    gap: var(--space-3);
+    overflow: visible;
+  }
+}
+
+@media (max-width: 992px) {
+  .header-top-row,
+  .header-bottom-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .navigation-group {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .calendar-action-buttons {
+    justify-content: center;
+  }
+
+  .calendar-grid-container {
+    height: 600px;
+  }
+}
+
+@media (max-width: 768px) {
+  .calendar-container {
+    --calendar-category-column-width: 150px;
+  }
+
+  .calendar-header {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .filters-container {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .settings-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .time-zone-selector select,
+  .week-start-selector select {
+    width: 100%;
+  }
+
+  .calendar-grid-container {
+    height: 500px;
+  }
+
+  .grid-cell.category-cell,
+  .grid-cell.location-cell {
+    font-size: clamp(8px, 1.5vw, 11px);
+    line-height: var(--leading-normal);
+    padding: var(--space-2) var(--space-1);
+  }
 }

@@ -1,4 +1,12 @@
-/* RecurringScopeDialog.css */
+/* ============================================================================
+   RECURRING SCOPE DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Dialog for selecting scope when editing recurring events
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY
+   ========================================================================== */
 
 .recurring-scope-overlay {
   position: fixed;
@@ -10,18 +18,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
-  padding: 20px;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: fadeIn var(--duration-fast) var(--ease-out);
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CONTAINER
+   ========================================================================== */
+
 .recurring-scope-dialog {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
   max-width: 400px;
   width: 100%;
   overflow: hidden;
-  animation: recurring-scope-slide-in 0.2s ease-out;
+  animation: recurring-scope-slide-in var(--duration-normal) var(--ease-out);
 }
 
 @keyframes recurring-scope-slide-in {
@@ -35,32 +53,37 @@
   }
 }
 
-/* Header */
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
 .recurring-scope-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .recurring-scope-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #111827;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 300px;
+  letter-spacing: var(--tracking-tight);
 }
 
 .recurring-scope-close {
   background: none;
   border: none;
-  font-size: 22px;
-  color: #6b7280;
+  font-size: var(--text-2xl);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
   width: 28px;
@@ -68,65 +91,71 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
 }
 
 .recurring-scope-close:hover {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
-/* Content */
+/* ==========================================================================
+   CONTENT
+   ========================================================================== */
+
 .recurring-scope-content {
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .recurring-scope-date {
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  color: #6b7280;
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .recurring-scope-prompt {
-  margin: 0 0 16px 0;
-  font-size: 14px;
-  color: #374151;
-  line-height: 1.5;
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
 }
 
-/* Options */
+/* ==========================================================================
+   OPTIONS
+   ========================================================================== */
+
 .recurring-scope-options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .recurring-scope-option {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-xl);
   cursor: pointer;
-  transition: all 0.15s ease;
-  background: white;
+  transition: var(--transition-all);
+  background: var(--bg-primary);
 }
 
 .recurring-scope-option:hover {
-  border-color: #d1d5db;
-  background: #f9fafb;
+  border-color: var(--border-strong);
+  background: var(--bg-secondary);
 }
 
 .recurring-scope-option.selected {
-  border-color: #3b82f6;
-  background: #eff6ff;
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
 }
 
 .recurring-scope-option input[type="radio"] {
-  margin: 2px 0 0 0;
-  accent-color: #3b82f6;
+  margin: var(--space-1) 0 0 0;
+  accent-color: var(--color-primary-500);
   width: 16px;
   height: 16px;
   cursor: pointer;
@@ -135,66 +164,73 @@
 .recurring-scope-option-content {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 .recurring-scope-option-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: #111827;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
 }
 
 .recurring-scope-option-desc {
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.4;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
 }
 
-/* Footer */
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
 .recurring-scope-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .recurring-scope-btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
 }
 
 .recurring-scope-btn-cancel {
-  background: white;
-  border: 1px solid #d1d5db;
-  color: #374151;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
 }
 
 .recurring-scope-btn-cancel:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
 }
 
 .recurring-scope-btn-continue {
-  background: #3b82f6;
+  background: var(--color-primary-500);
   border: none;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .recurring-scope-btn-continue:hover {
-  background: #2563eb;
+  background: var(--color-primary-600);
 }
 
-/* Responsive */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 480px) {
   .recurring-scope-dialog {
     max-width: 100%;
-    margin: 10px;
+    margin: var(--space-3);
   }
 
   .recurring-scope-title {

@@ -1,4 +1,12 @@
-/* DraftSaveDialog.css */
+/* ============================================================================
+   DRAFT SAVE DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Confirmation dialog for saving or discarding draft changes
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY
+   ========================================================================== */
 
 .draft-save-overlay {
   position: fixed;
@@ -10,18 +18,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
-  padding: 20px;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: fadeIn var(--duration-fast) var(--ease-out);
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CONTAINER
+   ========================================================================== */
+
 .draft-save-dialog {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
   max-width: 420px;
   width: 100%;
   overflow: hidden;
-  animation: draft-save-slide-in 0.2s ease-out;
+  animation: draft-save-slide-in var(--duration-normal) var(--ease-out);
 }
 
 @keyframes draft-save-slide-in {
@@ -35,28 +53,33 @@
   }
 }
 
-/* Header */
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
 .draft-save-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .draft-save-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #111827;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .draft-save-close {
   background: none;
   border: none;
-  font-size: 22px;
-  color: #6b7280;
+  font-size: var(--text-2xl);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
   width: 28px;
@@ -64,13 +87,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
 }
 
 .draft-save-close:hover:not(:disabled) {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .draft-save-close:disabled {
@@ -78,48 +101,55 @@
   cursor: not-allowed;
 }
 
-/* Content */
+/* ==========================================================================
+   CONTENT
+   ========================================================================== */
+
 .draft-save-content {
-  padding: 24px 20px;
+  padding: var(--space-6) var(--space-5);
   text-align: center;
 }
 
 .draft-save-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: var(--text-5xl);
+  margin-bottom: var(--space-4);
 }
 
 .draft-save-message {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  color: #374151;
-  line-height: 1.5;
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-relaxed);
 }
 
 .draft-save-hint {
   margin: 0;
-  font-size: 12px;
-  color: #9ca3af;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
   font-style: italic;
 }
 
-/* Footer */
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
 .draft-save-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 20px;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .draft-save-btn {
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: 6px;
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
 }
 
 .draft-save-btn:disabled {
@@ -128,42 +158,45 @@
 }
 
 .draft-save-btn-discard {
-  background: white;
-  border: 1px solid #fca5a5;
-  color: #dc2626;
+  background: var(--bg-primary);
+  border: 1px solid var(--color-error-100);
+  color: var(--color-error-500);
 }
 
 .draft-save-btn-discard:hover:not(:disabled) {
-  background: #fef2f2;
-  border-color: #f87171;
+  background: var(--color-error-50);
+  border-color: var(--color-error-500);
 }
 
 .draft-save-btn-cancel {
-  background: white;
-  border: 1px solid #d1d5db;
-  color: #374151;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
 }
 
 .draft-save-btn-cancel:hover:not(:disabled) {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
 }
 
 .draft-save-btn-save {
-  background: #3b82f6;
+  background: var(--color-primary-500);
   border: none;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .draft-save-btn-save:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--color-primary-600);
 }
 
-/* Responsive */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 480px) {
   .draft-save-dialog {
     max-width: 100%;
-    margin: 10px;
+    margin: var(--space-3);
   }
 
   .draft-save-footer {

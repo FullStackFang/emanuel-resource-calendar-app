@@ -1,45 +1,56 @@
-/* src/components/shared/SharedFormStyles.css */
-/* Common form layout styles shared across multiple components */
+/* ============================================================================
+   SHARED FORM STYLES - Emanuel Modern Design System
+   ============================================================================
+   Common form layout styles shared across multiple components
+   ============================================================================ */
 
-/* Form Section Container */
+/* ==========================================================================
+   FORM SECTION CONTAINER
+   ========================================================================== */
+
 .shared-form-section {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 18px;
-  margin-bottom: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-sm);
 }
 
 .shared-form-section h2 {
-  color: #333;
-  margin: 0 0 20px 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  border-bottom: 2px solid #e5e7eb;
-  padding-bottom: 10px;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-5) 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  border-bottom: 2px solid var(--border-default);
+  padding-bottom: var(--space-3);
+  letter-spacing: var(--tracking-tight);
 }
 
 .shared-form-section h3 {
-  color: #374151;
-  margin: 15px 0 10px 0;
-  font-size: 1.1rem;
-  font-weight: 600;
+  color: var(--text-secondary);
+  margin: var(--space-4) 0 var(--space-3) 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
 }
 
 .shared-form-section h4 {
-  color: #6b7280;
-  margin: 12px 0 8px 0;
-  font-size: 1rem;
-  font-weight: 500;
+  color: var(--text-secondary);
+  margin: var(--space-3) 0 var(--space-2) 0;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
 }
 
-/* Form Grid Layout */
+/* ==========================================================================
+   FORM GRID LAYOUT
+   ========================================================================== */
+
 .shared-form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 15px;
-  margin-bottom: 15px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .shared-form-grid.single-column {
@@ -50,11 +61,14 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
-/* Form Group */
+/* ==========================================================================
+   FORM GROUP
+   ========================================================================== */
+
 .shared-form-group {
   display: flex;
   flex-direction: column;
-  margin-bottom: 15px;
+  margin-bottom: var(--space-4);
 }
 
 .shared-form-group.full-width {
@@ -62,19 +76,22 @@
 }
 
 .shared-form-group label {
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 6px;
-  font-size: 0.95rem;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
   display: block;
 }
 
 .shared-form-group label.required::after {
   content: ' *';
-  color: #ef4444;
+  color: var(--color-error-500);
 }
 
-/* Form Inputs */
+/* ==========================================================================
+   FORM INPUTS
+   ========================================================================== */
+
 .shared-form-group input[type="text"],
 .shared-form-group input[type="email"],
 .shared-form-group input[type="tel"],
@@ -84,14 +101,14 @@
 .shared-form-group input[type="datetime-local"],
 .shared-form-group select,
 .shared-form-group textarea {
-  padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 1rem;
-  background: white;
-  color: #111827;
-  transition: border-color 0.2s, box-shadow 0.2s;
-  font-family: inherit;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-all);
   width: 100%;
   box-sizing: border-box;
 }
@@ -100,17 +117,17 @@
 .shared-form-group select:focus,
 .shared-form-group textarea:focus {
   outline: none;
-  border-color: #0078d4;
-  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .shared-form-group input:disabled,
 .shared-form-group select:disabled,
 .shared-form-group textarea:disabled {
-  background-color: #f9fafb;
-  color: #6b7280;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
   cursor: not-allowed;
-  border-color: #e5e7eb;
+  border-color: var(--border-default);
 }
 
 .shared-form-group textarea {
@@ -119,62 +136,74 @@
 }
 
 .shared-form-group .readonly-field {
-  background: #f9fafb;
-  border-color: #e5e7eb;
-  color: #111827;
+  background: var(--bg-secondary);
+  border-color: var(--border-default);
+  color: var(--text-primary);
   cursor: default;
 }
 
-/* Help Text */
+/* ==========================================================================
+   HELP & ERROR TEXT
+   ========================================================================== */
+
 .shared-form-group .help-text {
-  font-size: 0.85rem;
-  color: #6b7280;
-  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
   font-style: italic;
 }
 
 .shared-form-group .error-text {
-  font-size: 0.85rem;
-  color: #ef4444;
-  margin-top: 4px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  color: var(--color-error-500);
+  margin-top: var(--space-1);
+  font-weight: var(--font-medium);
 }
 
-/* Two-Column Section Row */
+/* ==========================================================================
+   TWO-COLUMN SECTION ROW
+   ========================================================================== */
+
 .shared-section-row-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-bottom: 20px;
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
 }
 
-/* Time Fields Stack (Chronological Order) */
+/* ==========================================================================
+   TIME FIELDS STACK
+   ========================================================================== */
+
 .shared-time-fields-stack {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
-  margin-bottom: 15px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 
 .shared-time-fields-stack .shared-form-group {
   margin-bottom: 0;
 }
 
-/* Checkbox and Radio Groups */
+/* ==========================================================================
+   CHECKBOX & RADIO GROUPS
+   ========================================================================== */
+
 .shared-checkbox-group,
 .shared-radio-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .shared-checkbox-group label,
 .shared-radio-group label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
-  font-weight: normal;
+  font-weight: var(--font-normal);
 }
 
 .shared-checkbox-group input[type="checkbox"],
@@ -182,83 +211,96 @@
   width: 18px;
   height: 18px;
   cursor: pointer;
+  accent-color: var(--color-primary-500);
 }
 
-/* Validation Errors */
+/* ==========================================================================
+   VALIDATION ERRORS
+   ========================================================================== */
+
 .shared-validation-errors {
-  background: #fef2f2;
-  border: 2px solid #ef4444;
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 20px;
+  background: var(--color-error-50);
+  border: 2px solid var(--color-error-500);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
 .shared-validation-errors h4 {
-  color: #dc2626;
-  margin: 0 0 10px 0;
-  font-size: 1rem;
+  color: var(--color-error-600);
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
 }
 
 .shared-validation-errors ul {
   margin: 0;
-  padding-left: 20px;
-  color: #991b1b;
+  padding-left: var(--space-5);
+  color: var(--color-error-700);
 }
 
 .shared-validation-errors li {
-  margin-bottom: 5px;
+  margin-bottom: var(--space-2);
 }
 
-/* Loading State */
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
 .shared-loading-message {
   text-align: center;
-  padding: 20px;
-  color: #6b7280;
+  padding: var(--space-5);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
-/* Info Boxes */
+/* ==========================================================================
+   INFO BOXES
+   ========================================================================== */
+
 .shared-info-box {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  padding: 12px 15px;
-  margin-bottom: 15px;
-  color: #1e40af;
-  font-size: 0.95rem;
+  background: var(--color-info-50);
+  border: 1px solid var(--color-info-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-info-700);
+  font-size: var(--text-sm);
 }
 
 .shared-warning-box {
-  background: #fffbeb;
-  border: 1px solid #fcd34d;
-  border-radius: 6px;
-  padding: 12px 15px;
-  margin-bottom: 15px;
-  color: #92400e;
-  font-size: 0.95rem;
+  background: var(--color-warning-50);
+  border: 1px solid var(--color-warning-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-warning-700);
+  font-size: var(--text-sm);
 }
 
 .shared-error-box {
-  background: #fef2f2;
-  border: 1px solid #fca5a5;
-  border-radius: 6px;
-  padding: 12px 15px;
-  margin-bottom: 15px;
-  color: #991b1b;
-  font-size: 0.95rem;
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-error-700);
+  font-size: var(--text-sm);
 }
 
 .shared-success-box {
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-radius: 6px;
-  padding: 12px 15px;
-  margin-bottom: 15px;
-  color: #166534;
-  font-size: 0.95rem;
+  background: var(--color-success-50);
+  border: 1px solid var(--color-success-100);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--color-success-700);
+  font-size: var(--text-sm);
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 768px) {
   .shared-form-grid {
     grid-template-columns: 1fr;

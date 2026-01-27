@@ -1,4 +1,12 @@
-/* ErrorReportModal Component Styles */
+/* ============================================================================
+   ERROR REPORT MODAL - Emanuel Modern Design System
+   ============================================================================
+   Modal for users to report errors with additional context
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY
+   ========================================================================== */
 
 .error-report-modal-overlay {
   position: fixed;
@@ -10,30 +18,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
-  padding: 20px;
-  animation: errorModalFadeIn 0.2s ease;
+  z-index: var(--z-max);
+  padding: var(--space-5);
+  animation: errorModalFadeIn var(--duration-fast) var(--ease-out);
 }
 
 @keyframes errorModalFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
+/* ==========================================================================
+   MODAL CONTAINER
+   ========================================================================== */
+
 .error-report-modal {
-  background-color: white;
-  border-radius: 12px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  background-color: var(--bg-primary);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-2xl);
   width: 100%;
   max-width: 480px;
   max-height: 90vh;
   overflow-y: auto;
   position: relative;
-  animation: errorModalSlideUp 0.3s ease;
+  animation: errorModalSlideUp var(--duration-slow) var(--ease-out);
 }
 
 @keyframes errorModalSlideUp {
@@ -47,26 +55,30 @@
   }
 }
 
+/* ==========================================================================
+   CLOSE BUTTON
+   ========================================================================== */
+
 .error-report-modal-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: var(--space-3);
+  right: var(--space-3);
   width: 32px;
   height: 32px;
   border: none;
   background: transparent;
   cursor: pointer;
-  color: #9ca3af;
-  border-radius: 6px;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
 }
 
 .error-report-modal-close:hover {
-  background-color: #f3f4f6;
-  color: #4b5563;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .error-report-modal-close svg {
@@ -74,17 +86,21 @@
   height: 20px;
 }
 
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
 .error-report-modal-header {
-  padding: 24px 24px 16px;
+  padding: var(--space-6) var(--space-6) var(--space-4);
   text-align: center;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .error-report-modal-icon {
   width: 48px;
   height: 48px;
-  margin: 0 auto 16px;
-  color: #dc2626;
+  margin: 0 auto var(--space-4);
+  color: var(--color-error-500);
 }
 
 .error-report-modal-icon svg {
@@ -93,32 +109,38 @@
 }
 
 .error-report-modal-header h2 {
-  margin: 0 0 8px 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: #111827;
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .error-report-modal-header p {
   margin: 0;
-  font-size: 14px;
-  color: #6b7280;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
+/* ==========================================================================
+   BODY
+   ========================================================================== */
+
 .error-report-modal-body {
-  padding: 20px 24px;
+  padding: var(--space-5) var(--space-6);
 }
 
 .error-report-auto-reported {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background-color: #ecfdf5;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #047857;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-success-50);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--color-success-600);
+  margin-bottom: var(--space-4);
 }
 
 .error-report-auto-reported svg {
@@ -127,121 +149,137 @@
   flex-shrink: 0;
 }
 
+/* ==========================================================================
+   FORM
+   ========================================================================== */
+
 .error-report-form-group {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .error-report-form-group label {
   display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
 }
 
 .error-report-form-group select,
 .error-report-form-group textarea {
   width: 100%;
-  padding: 10px 12px;
-  font-size: 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background-color: white;
-  color: #111827;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  padding: var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-all);
 }
 
 .error-report-form-group select:focus,
 .error-report-form-group textarea:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .error-report-form-group textarea {
   resize: vertical;
   min-height: 100px;
-  font-family: inherit;
 }
 
 .error-report-char-count {
   display: block;
   text-align: right;
-  font-size: 12px;
-  color: #9ca3af;
-  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
 }
 
+/* ==========================================================================
+   MESSAGES
+   ========================================================================== */
+
 .error-report-error {
-  padding: 10px 14px;
-  background-color: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #dc2626;
-  margin-bottom: 16px;
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-100);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--color-error-500);
+  margin-bottom: var(--space-4);
 }
 
 .error-report-warning {
-  padding: 10px 14px;
-  background-color: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 6px;
-  font-size: 13px;
-  color: #b45309;
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-warning-50);
+  border: 1px solid var(--color-warning-100);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--color-warning-600);
 }
 
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
 .error-report-modal-footer {
-  padding: 16px 24px 24px;
+  padding: var(--space-4) var(--space-6) var(--space-6);
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   justify-content: flex-end;
 }
 
 .error-report-btn {
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   border: none;
 }
 
 .error-report-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .error-report-btn.primary {
-  background-color: #2563eb;
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .error-report-btn.primary:hover:not(:disabled) {
-  background-color: #1d4ed8;
+  background-color: var(--color-primary-600);
 }
 
 .error-report-btn.secondary {
-  background-color: #e5e7eb;
-  color: #374151;
+  background-color: var(--color-neutral-200);
+  color: var(--text-primary);
 }
 
 .error-report-btn.secondary:hover:not(:disabled) {
-  background-color: #d1d5db;
+  background-color: var(--color-neutral-300);
 }
 
-/* Success state */
+/* ==========================================================================
+   SUCCESS STATE
+   ========================================================================== */
+
 .error-report-modal-success {
-  padding: 40px 24px;
+  padding: var(--space-10) var(--space-6);
   text-align: center;
 }
 
 .error-report-success-icon {
   width: 64px;
   height: 64px;
-  margin: 0 auto 20px;
-  color: #059669;
+  margin: 0 auto var(--space-5);
+  color: var(--color-success-500);
 }
 
 .error-report-success-icon svg {
@@ -250,35 +288,38 @@
 }
 
 .error-report-modal-success p {
-  margin: 0 0 12px 0;
-  font-size: 16px;
-  color: #047857;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  color: var(--color-success-600);
 }
 
 .error-report-correlation {
-  font-size: 13px !important;
-  color: #6b7280 !important;
+  font-size: var(--text-sm) !important;
+  color: var(--text-secondary) !important;
 }
 
 .error-report-correlation code {
-  background-color: #f3f4f6;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
+  background-color: var(--bg-tertiary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
-/* Responsive adjustments */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 500px) {
   .error-report-modal-overlay {
-    padding: 10px;
+    padding: var(--space-3);
   }
 
   .error-report-modal-header,
   .error-report-modal-body,
   .error-report-modal-footer {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
   }
 
   .error-report-modal-footer {

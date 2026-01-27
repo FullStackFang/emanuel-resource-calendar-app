@@ -1,36 +1,51 @@
-/* src/components/Settings.css */
+/* ============================================================================
+   SETTINGS - Emanuel Modern Design System
+   ============================================================================
+   User settings page with form layout
+   ============================================================================ */
+
+/* ==========================================================================
+   MAIN CONTAINER
+   ========================================================================== */
 
 .settings-container {
-  padding: 20px 24px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
   max-width: 700px;
-  margin: 16px auto;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin: var(--space-4) auto;
+  box-shadow: var(--shadow-md);
 }
 
 .settings-container h2 {
-  margin: 0 0 16px 0;
-  font-size: 1.25rem;
-  color: #111827;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  margin: 0 0 var(--space-4) 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight);
 }
 
 .settings-container h3 {
-  margin: 16px 0 12px 0;
-  font-size: 1rem;
-  color: #374151;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e5e7eb;
+  margin: var(--space-4) 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: var(--font-semibold);
 }
 
-/* Form layout - two columns on larger screens */
+/* ==========================================================================
+   FORM LAYOUT
+   ========================================================================== */
+
 .settings-container form {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 20px;
+  gap: var(--space-3) var(--space-5);
 }
 
 .settings-container h3 {
@@ -48,35 +63,36 @@
 
 .form-group label {
   display: block;
-  margin-bottom: 4px;
-  font-weight: 500;
-  color: #374151;
-  font-size: 0.9rem;
+  margin-bottom: var(--space-1);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
 }
 
 .form-group input,
 .form-group select {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  background: white;
-  color: #111827;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-all);
   box-sizing: border-box;
 }
 
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #0078d4;
-  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.1);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .form-group input:disabled {
-  background-color: #f9fafb;
-  color: #6b7280;
+  background-color: var(--bg-secondary);
+  color: var(--text-secondary);
   cursor: not-allowed;
 }
 
@@ -85,101 +101,115 @@
 }
 
 .form-group small {
-  margin-top: 4px;
-  font-size: 0.8rem;
-  color: #6b7280;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
-/* Form actions */
+/* ==========================================================================
+   FORM ACTIONS
+   ========================================================================== */
+
 .form-actions {
   grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
-  padding-top: 12px;
-  margin-top: 8px;
-  border-top: 1px solid #e5e7eb;
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--border-default);
 }
 
 .save-button {
-  padding: 8px 20px;
-  background: #0078d4;
-  color: white;
+  padding: var(--space-2) var(--space-5);
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
   border: none;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  font-weight: 500;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
 }
 
 .save-button:hover:not(:disabled) {
-  background: #106ebe;
+  background: var(--color-primary-600);
   transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 120, 212, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .save-button:disabled {
-  background: #9ca3af;
+  background: var(--color-neutral-400);
   cursor: not-allowed;
   transform: none;
 }
 
-/* Messages */
+/* ==========================================================================
+   MESSAGES
+   ========================================================================== */
+
 .settings-container .error-message {
-  background: #fee2e2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
-  padding: 10px 12px;
-  border-radius: 4px;
-  margin-bottom: 12px;
-  font-size: 0.9rem;
+  background: var(--color-error-50);
+  border: 1px solid var(--color-error-200);
+  color: var(--color-error-600);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
 }
 
 .settings-container .success-message {
-  background: #dcfce7;
-  border: 1px solid #bbf7d0;
-  color: #166534;
-  padding: 10px 12px;
-  border-radius: 4px;
-  margin-bottom: 12px;
-  font-size: 0.9rem;
+  background: var(--color-success-50);
+  border: 1px solid var(--color-success-200);
+  color: var(--color-success-700);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
 }
 
 .settings-loading {
-  padding: 30px;
+  padding: var(--space-8);
   text-align: center;
-  color: #6b7280;
-  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
-/* Legacy support for setting-item class */
+/* ==========================================================================
+   LEGACY SUPPORT
+   ========================================================================== */
+
 .setting-item {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .setting-item label {
   display: block;
-  margin-bottom: 4px;
-  font-weight: 500;
-  color: #374151;
-  font-size: 0.9rem;
+  margin-bottom: var(--space-1);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
 }
 
 .setting-item select,
 .setting-item input {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.95rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
 }
 
-/* Responsive - single column on smaller screens */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 600px) {
   .settings-container {
-    padding: 16px;
-    margin: 10px;
+    padding: var(--space-4);
+    margin: var(--space-3);
     max-width: none;
   }
 

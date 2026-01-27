@@ -6,7 +6,6 @@ import { loginRequest, apiRequest } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
 import Calendar from './components/Calendar';
-import Settings from './components/Settings';
 import MySettings from './components/MySettings';
 import CalendarSelector from './components/CalendarSelector';
 import UserAdmin from './components/UserAdmin';
@@ -415,7 +414,7 @@ function App() {
                     showRegistrationTimes={showRegistrationTimes}
                   />
                 } />  
-                <Route path="/settings" element={<Settings graphToken={graphToken} />} />
+                <Route path="/settings" element={<Navigate to="/my-settings" replace />} />
                 <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
                 <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
                 <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />

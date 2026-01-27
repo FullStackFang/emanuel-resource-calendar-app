@@ -1,6 +1,13 @@
-/* src/components/WeekTimelineModal.css */
+/* ============================================================================
+   WEEK TIMELINE MODAL - Emanuel Modern Design System
+   ============================================================================
+   Full-week timeline view with event blocks and all-day support
+   ============================================================================ */
 
-/* Modal Overlay */
+/* ==========================================================================
+   MODAL OVERLAY
+   ========================================================================== */
+
 .week-timeline-modal-overlay {
   position: fixed;
   top: 0;
@@ -11,17 +18,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
-  padding: 20px;
+  z-index: var(--z-max);
+  padding: var(--space-5);
   backdrop-filter: blur(2px);
 }
 
-/* Modal Container */
+/* ==========================================================================
+   MODAL CONTAINER
+   ========================================================================== */
+
 .week-timeline-modal-container {
-  position: relative; /* Positioning context for tooltip */
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  position: relative;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
   max-width: 98vw;
   width: 1600px;
   max-height: 95vh;
@@ -30,95 +40,109 @@
   overflow: hidden;
 }
 
-/* Modal Header */
+/* ==========================================================================
+   MODAL HEADER
+   ========================================================================== */
+
 .week-timeline-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 20px 24px;
-  border-bottom: 2px solid #e5e7eb;
-  background: linear-gradient(to bottom, #ffffff, #f9fafb);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 2px solid var(--border-default);
+  background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
   flex-shrink: 0;
 }
 
 .week-timeline-modal-title h2 {
   margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #111827;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .week-timeline-modal-date {
-  margin: 4px 0 0 0;
-  font-size: 14px;
-  color: #6b7280;
+  margin: var(--space-1) 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .week-timeline-modal-calendar-badge {
   display: inline-block;
-  margin-top: 8px;
-  padding: 4px 12px;
-  background-color: #eff6ff;
-  color: #1e40af;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background-color: var(--color-info-50);
+  color: var(--color-info-700);
+  border-radius: var(--radius-xl);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
 }
 
 .week-timeline-modal-close {
   background: none;
   border: none;
-  font-size: 32px;
+  font-size: var(--text-3xl);
   line-height: 1;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0;
   width: 32px;
   height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
   flex-shrink: 0;
 }
 
 .week-timeline-modal-close:hover {
-  background-color: #f3f4f6;
-  color: #111827;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
-/* Modal Content */
+/* ==========================================================================
+   MODAL CONTENT
+   ========================================================================== */
+
 .week-timeline-modal-content {
   flex: 1;
   overflow: auto;
-  padding: 16px;
-  background-color: #f9fafb;
+  padding: var(--space-4);
+  background-color: var(--bg-secondary);
 }
 
-/* Timeline Grid */
+/* ==========================================================================
+   TIMELINE GRID
+   ========================================================================== */
+
 .week-timeline-grid {
   display: flex;
   gap: 0;
-  min-height: 1200px; /* 24 hours × 50px per hour */
-  background: white;
-  border-radius: 6px;
+  min-height: 1200px; /* 24 hours x 50px per hour */
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
-/* Time Labels Column */
+/* ==========================================================================
+   TIME LABELS COLUMN
+   ========================================================================== */
+
 .week-timeline-time-column {
   width: 70px;
   flex-shrink: 0;
-  border-right: 2px solid #e5e7eb;
-  background: #fafafa;
+  border-right: 2px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .week-timeline-time-header {
   height: 50px;
-  border-bottom: 2px solid #e5e7eb;
-  background: #ffffff;
+  border-bottom: 2px solid var(--border-default);
+  background: var(--bg-primary);
 }
 
 .week-timeline-hour-label {
@@ -126,20 +150,23 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  padding: 4px 8px 0 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #6b7280;
-  border-bottom: 1px solid #e5e7eb;
+  padding: var(--space-1) var(--space-2) 0 var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
   position: relative;
-  top: -8px; /* Offset to align with hour line */
+  top: -8px;
 }
 
-/* Day Columns */
+/* ==========================================================================
+   DAY COLUMNS
+   ========================================================================== */
+
 .week-timeline-day-column {
   flex: 1;
   min-width: 120px;
-  border-right: 1px solid #e5e7eb;
+  border-right: 1px solid var(--border-default);
   position: relative;
 }
 
@@ -147,26 +174,32 @@
   border-right: none;
 }
 
-/* Day Headers */
+/* ==========================================================================
+   DAY HEADERS
+   ========================================================================== */
+
 .week-timeline-day-header {
   height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  border-bottom: 2px solid #e5e7eb;
-  background: linear-gradient(to bottom, #ffffff, #f9fafb);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border-default);
+  background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
-/* Day Grid with Hour Lines */
+/* ==========================================================================
+   DAY GRID WITH HOUR LINES
+   ========================================================================== */
+
 .week-timeline-day-grid {
   position: relative;
-  height: 1200px; /* 24 hours × 50px */
+  height: 1200px; /* 24 hours x 50px */
 }
 
 .week-timeline-hour-line {
@@ -174,15 +207,15 @@
   left: 0;
   right: 0;
   height: 50px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .week-timeline-hour-line:nth-child(odd) {
-  background-color: #fafafa;
+  background-color: var(--bg-secondary);
 }
 
 .week-timeline-hour-line:nth-child(even) {
-  background-color: #ffffff;
+  background-color: var(--bg-primary);
 }
 
 /* Position each hour line */
@@ -211,77 +244,68 @@
 .week-timeline-hour-line:nth-child(23) { top: 1100px; }
 .week-timeline-hour-line:nth-child(24) { top: 1150px; }
 
-/* Event Blocks with Hover Expansion */
+/* ==========================================================================
+   EVENT BLOCKS
+   ========================================================================== */
+
 .week-timeline-event-block {
   position: absolute;
-  left: 4px;
-  right: 4px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  border-radius: 6px;
-  border-left: 3px solid #1e40af;
-  padding: 6px 8px;
+  left: var(--space-1);
+  right: var(--space-1);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  border-radius: var(--radius-lg);
+  border-left: 3px solid var(--color-primary-700);
+  padding: var(--space-2) var(--space-2);
   overflow: hidden;
   z-index: 5;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-sm);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 30px;
 }
 
 .week-timeline-event-block:hover {
-  /* Actually expand dimensions - not transform scale */
   left: 0px;
-  right: auto; /* Allow expansion to the right */
-  min-width: 250px; /* Generous minimum width for content */
-  max-width: 400px; /* Cap it so it doesn't get too wide */
-  padding: 12px 14px;
-
-  /* Keep original inline height - don't shrink below event duration */
-  /* Content will overflow visibly if it expands beyond the block */
+  right: auto;
+  min-width: 250px;
+  max-width: 400px;
+  padding: var(--space-3) var(--space-4);
   min-height: 60px;
-
-  z-index: 200 !important; /* Override inline z-index to always be on top */
-
-  /* Vibrant accent color - cyan/teal */
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-  border-left: 4px solid #0e7490;
-  border-radius: 8px;
-
-  /* Enhanced shadow with glow */
+  z-index: 200 !important;
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
+  border-left: 4px solid var(--color-info-700);
+  border-radius: var(--radius-xl);
   box-shadow:
     0 0 0 3px rgba(6, 182, 212, 0.3),
-    0 12px 32px rgba(0, 0, 0, 0.35),
+    var(--shadow-xl),
     0 0 25px rgba(6, 182, 212, 0.25);
-
-  /* Allow content to expand naturally beyond the block */
   overflow: visible;
 }
 
-
 .week-timeline-event-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: white;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-inverse);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.4;
-  margin-bottom: 3px;
+  margin-bottom: var(--space-1);
   transition: all 0.25s;
 }
 
 .week-timeline-event-block:hover .week-timeline-event-title {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
-  line-height: 1.3;
+  line-height: var(--leading-snug);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .week-timeline-event-time {
-  font-size: 10px;
+  font-size: var(--text-3xs);
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
   overflow: hidden;
@@ -291,78 +315,88 @@
 }
 
 .week-timeline-event-block:hover .week-timeline-event-time {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
   color: rgba(255, 255, 255, 1);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-/* Overlapping Event Enhancement */
+/* ==========================================================================
+   OVERLAPPING EVENT ENHANCEMENT
+   ========================================================================== */
+
 .week-timeline-event-block.has-overlap {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .week-timeline-event-block.has-overlap:hover {
-  /* Same enhanced hover as normal events */
   left: 0px;
   right: auto;
   min-width: 250px;
   max-width: 400px;
-  padding: 12px 14px;
-  /* Keep original inline height - don't shrink below event duration */
+  padding: var(--space-3) var(--space-4);
   min-height: 60px;
-  background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-  border-left: 4px solid #0e7490;
-  border-radius: 8px;
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
+  border-left: 4px solid var(--color-info-700);
+  border-radius: var(--radius-xl);
   box-shadow:
     0 0 0 3px rgba(6, 182, 212, 0.3),
-    0 12px 32px rgba(0, 0, 0, 0.35),
+    var(--shadow-xl),
     0 0 25px rgba(6, 182, 212, 0.25);
   z-index: 200 !important;
   overflow: visible;
 }
 
-/* All-Day Event Overlay */
+/* ==========================================================================
+   ALL-DAY EVENT OVERLAY
+   ========================================================================== */
+
 .week-timeline-all-day-overlay {
   position: absolute;
   top: 0;
-  left: 4px;
-  right: 4px;
+  left: var(--space-1);
+  right: var(--space-1);
   height: 100%;
   background: rgba(147, 197, 253, 0.15);
   border: 2px dashed rgba(59, 130, 246, 0.4);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   z-index: 1;
   pointer-events: none;
 }
 
-/* All-Day Event Badge */
+/* ==========================================================================
+   ALL-DAY EVENT BADGE
+   ========================================================================== */
+
 .week-timeline-all-day-badge {
   position: absolute;
-  top: 8px;
+  top: var(--space-2);
   left: 50%;
   transform: translateX(-50%);
   background: rgba(59, 130, 246, 0.9);
-  color: white;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
+  color: var(--text-inverse);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-xl);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
   cursor: pointer;
   pointer-events: all;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-sm);
   z-index: 2;
-  transition: all 0.2s;
+  transition: var(--transition-all);
   white-space: nowrap;
 }
 
 .week-timeline-all-day-badge:hover {
   background: rgba(59, 130, 246, 1);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-md);
   transform: translateX(-50%) scale(1.05);
 }
 
-/* All-Day Event List Modal Overlay */
+/* ==========================================================================
+   ALL-DAY EVENT LIST MODAL OVERLAY
+   ========================================================================== */
+
 .week-timeline-all-day-list-overlay {
   position: fixed;
   top: 0;
@@ -373,15 +407,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10002;
-  padding: 20px;
+  z-index: calc(var(--z-max) + 2);
+  padding: var(--space-5);
 }
 
-/* All-Day Event List Modal */
+/* ==========================================================================
+   ALL-DAY EVENT LIST MODAL
+   ========================================================================== */
+
 .week-timeline-all-day-list {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
   max-width: 500px;
   width: 100%;
   max-height: 80vh;
@@ -394,55 +431,57 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
-  border-bottom: 2px solid #e5e7eb;
-  background: linear-gradient(to bottom, #ffffff, #f9fafb);
+  padding: var(--space-5);
+  border-bottom: 2px solid var(--border-default);
+  background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
   flex-shrink: 0;
 }
 
 .week-timeline-all-day-list-header h3 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #111827;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .week-timeline-all-day-list-close {
   background: none;
   border: none;
-  font-size: 28px;
+  font-size: var(--text-2xl);
   line-height: 1;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0;
   width: 28px;
   height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
   flex-shrink: 0;
 }
 
 .week-timeline-all-day-list-close:hover {
-  background-color: #f3f4f6;
-  color: #111827;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .week-timeline-all-day-list-content {
-  padding: 16px 20px;
+  padding: var(--space-4) var(--space-5);
   overflow-y: auto;
   flex: 1;
 }
 
 .week-timeline-all-day-list-item {
-  padding: 12px 16px;
-  margin-bottom: 8px;
-  background: #f9fafb;
-  border-left: 4px solid #3b82f6;
-  border-radius: 4px;
-  transition: all 0.2s;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--bg-secondary);
+  border-left: 4px solid var(--color-primary-500);
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
 }
 
 .week-timeline-all-day-list-item:last-child {
@@ -450,26 +489,29 @@
 }
 
 .week-timeline-all-day-list-item:hover {
-  background: #eff6ff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background: var(--color-info-50);
+  box-shadow: var(--shadow-sm);
 }
 
 .week-timeline-all-day-list-item-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #111827;
-  margin-bottom: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
 }
 
 .week-timeline-all-day-list-item-location,
 .week-timeline-all-day-list-item-organizer {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
   line-height: 1.5;
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 1200px) {
   .week-timeline-modal-container {
     max-width: 98vw;
@@ -484,7 +526,7 @@
   }
 
   .week-timeline-event-title {
-    font-size: 10px;
+    font-size: var(--text-3xs);
   }
 
   .week-timeline-event-time {
@@ -499,19 +541,19 @@
   }
 
   .week-timeline-modal-header {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .week-timeline-modal-title h2 {
-    font-size: 20px;
+    font-size: var(--text-xl);
   }
 
   .week-timeline-modal-content {
-    padding: 12px;
+    padding: var(--space-3);
   }
 
   .week-timeline-grid {
-    min-height: 960px; /* Smaller on mobile */
+    min-height: 960px;
   }
 
   .week-timeline-day-grid {

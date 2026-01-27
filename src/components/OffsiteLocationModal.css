@@ -1,5 +1,12 @@
-/* src/components/OffsiteLocationModal.css */
-/* Address autocomplete styles for offsite location modal */
+/* ============================================================================
+   OFFSITE LOCATION MODAL - Emanuel Modern Design System
+   ============================================================================
+   Address autocomplete styles for offsite location modal
+   ============================================================================ */
+
+/* ==========================================================================
+   AUTOCOMPLETE WRAPPER
+   ========================================================================== */
 
 .address-autocomplete-wrapper {
   position: relative;
@@ -11,80 +18,95 @@
   width: 100%;
 }
 
+/* ==========================================================================
+   SEARCH SPINNER
+   ========================================================================== */
+
 .address-search-spinner {
   position: absolute;
-  right: 12px;
+  right: var(--space-3);
   top: 50%;
   transform: translateY(-50%);
-  color: #9ca3af;
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* ==========================================================================
+   SUGGESTIONS DROPDOWN
+   ========================================================================== */
+
 .address-suggestions {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--space-1));
   left: 0;
   right: 0;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
   max-height: 240px;
   overflow-y: auto;
-  z-index: 1000;
+  z-index: var(--z-dropdown);
   margin: 0;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   list-style: none;
 }
+
+/* ==========================================================================
+   SUGGESTION ITEMS
+   ========================================================================== */
 
 .address-suggestion-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .address-suggestion-item:hover {
-  background: #f0f9ff;
+  background: var(--color-primary-50);
 }
 
 .address-suggestion-item:active {
-  background: #e0f2fe;
+  background: var(--color-primary-100);
 }
 
 .suggestion-icon {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: var(--text-sm);
   line-height: 1.5;
-  color: #FF7043;
+  color: var(--color-accent-500);
 }
 
 .suggestion-text {
   flex: 1;
-  font-size: 13px;
-  color: #374151;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   line-height: 1.5;
 }
 
-/* Custom scrollbar for suggestions */
+/* ==========================================================================
+   CUSTOM SCROLLBAR
+   ========================================================================== */
+
 .address-suggestions::-webkit-scrollbar {
   width: 6px;
 }
 
 .address-suggestions::-webkit-scrollbar-track {
-  background: #f3f4f6;
-  border-radius: 3px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
 }
 
 .address-suggestions::-webkit-scrollbar-thumb {
-  background: #d1d5db;
-  border-radius: 3px;
+  background: var(--border-default);
+  border-radius: var(--radius-sm);
 }
 
 .address-suggestions::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: var(--border-strong);
 }

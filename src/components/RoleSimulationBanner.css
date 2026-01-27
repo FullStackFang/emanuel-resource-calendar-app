@@ -1,60 +1,76 @@
-/* src/components/RoleSimulationBanner.css */
+/* ============================================================================
+   ROLE SIMULATION BANNER - Emanuel Modern Design System
+   ============================================================================
+   Warning banner displayed when simulating a different user role
+   ============================================================================ */
+
+/* ==========================================================================
+   BANNER CONTAINER
+   ========================================================================== */
 
 .role-simulation-banner {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(90deg, #ff6b35 0%, #f7931e 100%);
-  color: white;
-  padding: 8px 16px;
+  background: linear-gradient(90deg, var(--color-warning-500) 0%, var(--color-warning-400) 100%);
+  color: var(--text-inverse);
+  padding: var(--space-2) var(--space-4);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  z-index: 9999;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  font-size: 14px;
+  z-index: var(--z-max);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
 }
+
+/* ==========================================================================
+   CONTENT
+   ========================================================================== */
 
 .role-simulation-banner-content {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 
 .role-simulation-icon {
-  font-size: 18px;
+  font-size: var(--text-lg);
 }
 
 .role-simulation-text {
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .role-simulation-text strong {
-  font-weight: 700;
+  font-weight: var(--font-bold);
 }
 
 .role-simulation-note {
-  font-size: 12px;
+  font-size: var(--text-xs);
   opacity: 0.9;
   font-style: italic;
 }
 
+/* ==========================================================================
+   EXIT BUTTON
+   ========================================================================== */
+
 .role-simulation-exit-button {
-  background: white;
-  color: #ff6b35;
+  background: var(--bg-primary);
+  color: var(--color-warning-600);
   border: none;
-  padding: 6px 16px;
-  border-radius: 4px;
-  font-weight: 600;
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-semibold);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-all);
   white-space: nowrap;
 }
 
 .role-simulation-exit-button:hover {
-  background: #fff5f0;
+  background: var(--color-warning-50);
   transform: translateY(-1px);
 }
 
@@ -62,19 +78,25 @@
   transform: translateY(0);
 }
 
+/* ==========================================================================
+   LAYOUT OFFSET
+   ========================================================================== */
+
 /* Offset main content when banner is visible */
-/* This class should be added to body or a wrapper when simulating */
 .app-simulating .app-header,
 .app-simulating .navigation-container {
   margin-top: 44px;
 }
 
-/* Responsive adjustments */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 600px) {
   .role-simulation-banner {
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
   }
 
   .role-simulation-banner-content {

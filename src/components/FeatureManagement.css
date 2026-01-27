@@ -1,72 +1,90 @@
-/* src/components/FeatureManagement.css */
+/* ============================================================================
+   FEATURE MANAGEMENT - Emanuel Modern Design System
+   ============================================================================
+   Admin interface for managing feature flags and categories
+   ============================================================================ */
+
+/* ==========================================================================
+   CONTAINER
+   ========================================================================== */
 
 .feature-management {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .feature-management .header {
-  margin-bottom: 30px;
+  margin-bottom: var(--space-8);
 }
 
 .feature-management h2 {
-  color: #1a1a1a;
-  font-size: 28px;
-  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  margin-bottom: var(--space-2);
 }
 
 .feature-management .subtitle {
-  color: #666;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
   margin: 0;
 }
 
 .feature-management .error-message {
-  background-color: #fee;
-  border: 1px solid #fcc;
-  color: #c00;
-  padding: 12px;
-  border-radius: 4px;
-  margin-bottom: 20px;
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-100);
+  color: var(--color-error-500);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-5);
 }
 
-/* Tabs */
+/* ==========================================================================
+   TABS
+   ========================================================================== */
+
 .feature-management .tabs {
   display: flex;
   gap: 2px;
-  border-bottom: 2px solid #e0e0e0;
-  margin-bottom: 30px;
+  border-bottom: 2px solid var(--border-default);
+  margin-bottom: var(--space-8);
 }
 
 .feature-management .tab {
-  padding: 12px 24px;
+  padding: var(--space-3) var(--space-6);
   background: none;
   border: none;
-  color: #666;
-  font-size: 16px;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
   cursor: pointer;
   border-bottom: 3px solid transparent;
-  transition: all 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .tab:hover {
-  color: #333;
-  background-color: #f5f5f5;
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
 }
 
 .feature-management .tab.active {
-  color: #0078d4;
-  border-bottom-color: #0078d4;
-  font-weight: 600;
+  color: var(--color-primary-500);
+  border-bottom-color: var(--color-primary-500);
+  font-weight: var(--font-semibold);
 }
 
-/* Tab Content */
+/* ==========================================================================
+   TAB CONTENT
+   ========================================================================== */
+
 .feature-management .tab-content {
-  animation: fadeIn 0.3s ease;
+  animation: featureFadeIn var(--duration-normal) var(--ease-out);
 }
 
-@keyframes fadeIn {
+@keyframes featureFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
@@ -75,81 +93,94 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .feature-management .tab-header h3 {
   margin: 0;
-  color: #333;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .feature-management .add-btn {
-  background-color: #0078d4;
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
   border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  font-size: 14px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .add-btn:hover {
-  background-color: #005a9e;
+  background-color: var(--color-primary-600);
 }
 
 .feature-management .info-box {
-  background-color: #f0f8ff;
-  border-left: 4px solid #0078d4;
-  padding: 12px;
-  margin-bottom: 24px;
-  border-radius: 4px;
+  background-color: var(--color-info-50);
+  border-left: 4px solid var(--color-primary-500);
+  padding: var(--space-3);
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-md);
 }
 
 .feature-management .info-box p {
   margin: 0;
-  color: #333;
-  font-size: 14px;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
 }
 
-/* Category Groups */
+/* ==========================================================================
+   CATEGORY GROUPS
+   ========================================================================== */
+
 .feature-management .category-group {
-  margin-bottom: 32px;
+  margin-bottom: var(--space-8);
 }
 
 .feature-management .category-group h4 {
-  color: #444;
-  font-size: 18px;
-  margin-bottom: 16px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e0e0e0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
-/* Feature Grid */
+/* ==========================================================================
+   FEATURE GRID
+   ========================================================================== */
+
 .feature-management-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr; /* Force exactly 2 columns */
-  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
 }
 
 .feature-management .feature-card {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   min-height: 140px;
-  transition: box-shadow 0.3s ease;
+  transition: var(--transition-all);
   position: relative;
 }
 
 .feature-management .feature-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
 .feature-management .feature-icon {
-  font-size: 32px;
+  font-size: var(--text-3xl);
   flex-shrink: 0;
 }
 
@@ -159,73 +190,77 @@
 }
 
 .feature-management .feature-name {
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 4px;
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .feature-management .cost-badge {
-  font-size: 12px;
-  background-color: #fff3cd;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-size: var(--text-xs);
+  background-color: var(--color-warning-50);
+  color: var(--color-warning-600);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
 }
 
 .feature-management .feature-key {
-  font-size: 12px;
-  color: #666;
-  font-family: monospace;
-  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-bottom: var(--space-2);
 }
 
 .feature-management .feature-description {
-  font-size: 13px;
-  color: #555;
-  margin-bottom: 8px;
-  line-height: 1.4;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+  line-height: var(--leading-relaxed);
 }
 
 .feature-management .feature-meta {
   display: flex;
-  gap: 12px;
-  font-size: 12px;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
 }
 
 .feature-management .data-type {
-  color: #666;
-  background-color: #f5f5f5;
-  padding: 2px 8px;
-  border-radius: 4px;
+  color: var(--text-tertiary);
+  background-color: var(--bg-tertiary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
 }
 
 .feature-management .status {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-medium);
 }
 
 .feature-management .status.active {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: var(--color-success-50);
+  color: var(--color-success-600);
 }
 
 .feature-management .status.inactive {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: var(--color-error-50);
+  color: var(--color-error-500);
 }
 
-/* Feature Card Actions */
+/* ==========================================================================
+   FEATURE CARD ACTIONS
+   ========================================================================== */
+
 .feature-management .feature-actions {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: var(--space-3);
+  right: var(--space-3);
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .feature-card:hover .feature-actions {
@@ -236,34 +271,37 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  transition: all 0.2s ease;
+  font-size: var(--text-sm);
+  transition: var(--transition-all);
 }
 
 .feature-management .edit-btn {
-  background-color: #0078d4;
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .feature-management .edit-btn:hover {
-  background-color: #005a9e;
+  background-color: var(--color-primary-600);
 }
 
 .feature-management .delete-btn {
-  background-color: #d13438;
-  color: white;
+  background-color: var(--color-error-500);
+  color: var(--text-inverse);
 }
 
 .feature-management .delete-btn:hover {
-  background-color: #a4262c;
+  background-color: var(--color-error-600);
 }
 
-/* Confirmation Dialog */
+/* ==========================================================================
+   CONFIRMATION DIALOG
+   ========================================================================== */
+
 .feature-management .confirmation-overlay {
   position: fixed;
   top: 0;
@@ -274,72 +312,78 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: var(--z-max);
 }
 
 .feature-management .confirmation-dialog {
-  background: white;
-  border-radius: 8px;
-  padding: 24px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
   width: 90%;
   max-width: 400px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2xl);
 }
 
 .feature-management .confirmation-dialog h4 {
-  margin: 0 0 16px 0;
-  color: #333;
-  font-size: 18px;
+  margin: 0 0 var(--space-4) 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .feature-management .confirmation-dialog p {
-  margin: 0 0 24px 0;
-  color: #666;
-  line-height: 1.4;
+  margin: 0 0 var(--space-6) 0;
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
 }
 
 .feature-management .confirmation-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .feature-management .confirm-delete-btn {
-  background-color: #d13438;
-  color: white;
+  background-color: var(--color-error-500);
+  color: var(--text-inverse);
   border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .confirm-delete-btn:hover {
-  background-color: #a4262c;
+  background-color: var(--color-error-600);
 }
 
-/* Categories Tab */
+/* ==========================================================================
+   CATEGORIES TAB
+   ========================================================================== */
+
 .feature-management .category-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .feature-management .category-item {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 20px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: box-shadow 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .category-item:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
 }
 
 .feature-management .category-info {
@@ -347,45 +391,49 @@
 }
 
 .feature-management .category-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 4px;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
 }
 
 .feature-management .category-key {
-  font-size: 12px;
-  color: #666;
-  font-family: monospace;
-  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-bottom: var(--space-2);
 }
 
 .feature-management .category-description {
-  font-size: 14px;
-  color: #555;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .feature-management .category-stats {
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
   align-items: center;
 }
 
 .feature-management .stat {
-  background-color: #f5f5f5;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  color: #666;
+  background-color: var(--bg-tertiary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .feature-management .category-actions {
   display: flex;
-  gap: 8px;
-  margin-left: 16px;
+  gap: var(--space-2);
+  margin-left: var(--space-4);
 }
 
-/* Modal */
+/* ==========================================================================
+   MODAL
+   ========================================================================== */
+
 .feature-management .modal-overlay {
   position: fixed;
   top: 0;
@@ -396,37 +444,40 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 
 .feature-management .modal-content {
-  background: white;
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
   width: 90%;
   max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2xl);
 }
 
 .feature-management .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #e0e0e0;
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .feature-management .modal-header h3 {
   margin: 0;
-  color: #333;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .feature-management .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
-  color: #666;
+  font-size: var(--text-2xl);
+  color: var(--text-tertiary);
   cursor: pointer;
   padding: 0;
   width: 32px;
@@ -434,29 +485,33 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: background-color 0.3s ease;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
 }
 
 .feature-management .close-btn:hover {
-  background-color: #f5f5f5;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
-/* Form */
+/* ==========================================================================
+   FORM
+   ========================================================================== */
+
 .feature-management form {
-  padding: 20px;
+  padding: var(--space-5);
 }
 
 .feature-management .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-5);
 }
 
 .feature-management .form-group label {
   display: block;
-  margin-bottom: 6px;
-  color: #333;
-  font-size: 14px;
-  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
 }
 
 .feature-management .form-group input[type="text"],
@@ -464,147 +519,163 @@
 .feature-management .form-group textarea,
 .feature-management .form-group select {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  font-size: 14px;
-  transition: border-color 0.3s ease;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  transition: var(--transition-all);
 }
 
 .feature-management .form-group input:focus,
 .feature-management .form-group textarea:focus,
 .feature-management .form-group select:focus {
   outline: none;
-  border-color: #0078d4;
-  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.1);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .feature-management .form-group textarea {
   resize: vertical;
   font-family: inherit;
+  min-height: 80px;
 }
 
 .feature-management .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
-  font-size: 14px;
-  color: #333;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
 }
 
 .feature-management .checkbox-label input[type="checkbox"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
+  accent-color: var(--color-primary-500);
 }
 
-/* Icon Picker */
+/* ==========================================================================
+   ICON PICKER
+   ========================================================================== */
+
 .feature-management .icon-picker {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  background-color: #f9f9f9;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-secondary);
 }
 
 .feature-management .icon-option {
   width: 40px;
   height: 40px;
-  border: 1px solid #e0e0e0;
-  background: white;
-  border-radius: 4px;
-  font-size: 20px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xl);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: var(--transition-all);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .feature-management .icon-option:hover {
-  border-color: #0078d4;
+  border-color: var(--color-primary-500);
   transform: scale(1.1);
 }
 
 .feature-management .icon-option.selected {
-  background-color: #0078d4;
-  border-color: #0078d4;
-  box-shadow: 0 2px 8px rgba(0, 120, 212, 0.3);
+  background-color: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  box-shadow: var(--shadow-md);
 }
 
-/* Form Actions */
+/* ==========================================================================
+   FORM ACTIONS
+   ========================================================================== */
+
 .feature-management .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #e0e0e0;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--border-default);
 }
 
 .feature-management .cancel-btn,
 .feature-management .submit-btn {
-  padding: 10px 24px;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
+  padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: var(--transition-all);
 }
 
 .feature-management .cancel-btn {
-  background: white;
-  border: 1px solid #d0d0d0;
-  color: #666;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
 }
 
 .feature-management .cancel-btn:hover {
-  background-color: #f5f5f5;
-  border-color: #999;
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-strong);
 }
 
 .feature-management .submit-btn {
-  background-color: #0078d4;
+  background-color: var(--color-primary-500);
   border: none;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .feature-management .submit-btn:hover {
-  background-color: #005a9e;
+  background-color: var(--color-primary-600);
 }
 
-/* Loading State */
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
 .feature-management .loading {
   text-align: center;
-  padding: 60px 20px;
-  color: #666;
-  font-size: 16px;
+  padding: var(--space-15) var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 768px) {
   .feature-management-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .feature-management .tabs {
     overflow-x: auto;
   }
-  
+
   .feature-management .category-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: 16px;
+    gap: var(--space-4);
   }
-  
+
   .feature-management .category-stats {
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .feature-management .icon-picker {
     grid-template-columns: repeat(5, 1fr);
   }

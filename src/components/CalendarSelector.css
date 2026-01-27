@@ -1,28 +1,37 @@
-/* CalendarSelector.css */
+/* ============================================================================
+   CALENDAR SELECTOR - Emanuel Modern Design System
+   ============================================================================
+   Error state for calendar selector component
+   ============================================================================ */
+
+/* ==========================================================================
+   ERROR STATE
+   ========================================================================== */
 
 .calendar-selector-error {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background-color: #fee;
-  border: 1px solid #fcc;
-  border-radius: 4px;
-  color: #c00;
-  font-size: 13px;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-200);
+  border-radius: var(--radius-md);
+  color: var(--color-error-700);
+  font-size: var(--text-sm);
 }
 
 .calendar-selector-error .error-icon {
-  background-color: #c00;
-  color: white;
+  background-color: var(--color-error-500);
+  color: var(--text-inverse);
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  font-size: 11px;
+  font-weight: var(--font-bold);
+  font-size: var(--text-xs);
+  flex-shrink: 0;
 }
 
 .calendar-selector-error .error-text {

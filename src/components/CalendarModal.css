@@ -1,4 +1,12 @@
-/* CalendarModal.css - Specific styling for Calendar review modal */
+/* ============================================================================
+   CALENDAR MODAL - Emanuel Modern Design System
+   ============================================================================
+   Specific styling for Calendar review modal with embedded forms
+   ============================================================================ */
+
+/* ==========================================================================
+   MODAL OVERLAY
+   ========================================================================== */
 
 .calendar-modal-overlay {
   position: fixed;
@@ -10,22 +18,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   padding: 0;
 }
 
+/* ==========================================================================
+   MODAL CONTAINER
+   ========================================================================== */
+
 .calendar-modal {
-  background: white;
-  border-radius: 8px;
-  padding: 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3);
   max-width: 2400px;
   width: 100%;
   max-height: 98vh;
   overflow-y: auto;
   overflow-x: hidden;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-2xl);
   box-sizing: border-box;
 }
+
+/* ==========================================================================
+   DRAGGING STATE
+   ========================================================================== */
 
 /* Prevent modal scrolling when dragging inside timeline */
 .calendar-modal.dragging-timeline {
@@ -41,6 +57,10 @@
   -ms-user-select: none !important;
 }
 
+/* ==========================================================================
+   EMBEDDED FORM OVERRIDES
+   ========================================================================== */
+
 /* Override fixed widths from RoomReservationForm when inside modal */
 @media (min-width: 1px) {
   .calendar-modal .room-reservation-form,
@@ -48,10 +68,14 @@
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
-    padding: 5px !important;
+    padding: var(--space-1) !important;
     box-sizing: border-box !important;
   }
 }
+
+/* ==========================================================================
+   CONTENT SCALING
+   ========================================================================== */
 
 /* Scale all content inside modal to 75% while keeping modal window large */
 .calendar-modal > * {
@@ -63,14 +87,18 @@
   zoom: 1.33 !important; /* Counter the 0.75 zoom (1 / 0.75 = 1.33) */
 }
 
+/* ==========================================================================
+   LAYOUT ADJUSTMENTS
+   ========================================================================== */
+
 /* Force flexible layout inside modal */
 .calendar-modal .event-and-rooms-container {
   grid-template-columns: minmax(0, 30%) minmax(0, 70%) !important;
-  gap: 12px !important;
-  margin-bottom: 12px !important;
+  gap: var(--space-3) !important;
+  margin-bottom: var(--space-3) !important;
 }
 
 /* Reduce spacing in form groups for more compact display */
 .calendar-modal .form-group {
-  margin-bottom: 10px !important;
+  margin-bottom: var(--space-3) !important;
 }

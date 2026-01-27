@@ -1,109 +1,158 @@
-/* src/components/SharedCalendarSearch.css */
+/* ============================================================================
+   SHARED CALENDAR SEARCH - Emanuel Modern Design System
+   ============================================================================
+   Search interface for finding and adding shared calendars
+   ============================================================================ */
+
+/* ==========================================================================
+   CONTAINER
+   ========================================================================== */
+
 .shared-calendar-search {
-  margin: 10px 0;
+  margin: var(--space-2) 0;
 }
 
+/* ==========================================================================
+   ADD BUTTON
+   ========================================================================== */
+
 .add-shared-calendar-btn {
-  background-color: #0078d4;
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
   border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .add-shared-calendar-btn:hover {
-  background-color: #106ebe;
+  background-color: var(--color-primary-600);
 }
 
+/* ==========================================================================
+   SEARCH CONTAINER
+   ========================================================================== */
+
 .search-container {
-  background-color: #f5f5f5;
-  padding: 15px;
-  border-radius: 8px;
-  margin-top: 10px;
+  background-color: var(--bg-secondary);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  margin-top: var(--space-2);
 }
 
 .search-container form {
   display: flex;
-  gap: 10px;
-  margin-bottom: 15px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
+
+/* ==========================================================================
+   SEARCH INPUT
+   ========================================================================== */
 
 .search-input {
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #0078d4;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
 }
+
+/* ==========================================================================
+   BUTTONS
+   ========================================================================== */
 
 .search-btn,
 .cancel-btn {
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .search-btn {
-  background-color: #0078d4;
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .search-btn:hover:not(:disabled) {
-  background-color: #106ebe;
+  background-color: var(--color-primary-600);
 }
 
 .search-btn:disabled {
-  background-color: #ccc;
+  background-color: var(--color-neutral-300);
   cursor: not-allowed;
 }
 
 .cancel-btn {
-  background-color: #e0e0e0;
-  color: #333;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .cancel-btn:hover {
-  background-color: #d0d0d0;
+  background-color: var(--color-neutral-300);
 }
+
+/* ==========================================================================
+   ERROR MESSAGE
+   ========================================================================== */
 
 .error-message {
-  color: #d83b01;
-  padding: 10px;
-  background-color: #fde7e9;
-  border-radius: 4px;
-  margin-bottom: 10px;
-  font-size: 14px;
+  color: var(--color-error-700);
+  padding: var(--space-2);
+  background-color: var(--color-error-50);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
 }
 
+/* ==========================================================================
+   FOUND CALENDARS
+   ========================================================================== */
+
 .found-calendars {
-  margin-top: 15px;
+  margin-top: var(--space-4);
 }
 
 .found-calendars h4 {
-  margin-bottom: 10px;
-  color: #333;
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
 }
+
+/* ==========================================================================
+   CALENDAR ITEM
+   ========================================================================== */
 
 .calendar-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px;
-  background-color: white;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 8px;
+  padding: var(--space-2);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
 }
 
 .calendar-info {
@@ -112,27 +161,33 @@
 }
 
 .calendar-info strong {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  margin-bottom: var(--space-0);
 }
 
 .calendar-owner {
-  font-size: 12px;
-  color: #666;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
+/* ==========================================================================
+   ADD BUTTON
+   ========================================================================== */
+
 .add-btn {
-  background-color: #107c10;
-  color: white;
+  background-color: var(--color-success-500);
+  color: var(--text-inverse);
   border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 12px;
-  transition: background-color 0.2s;
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .add-btn:hover {
-  background-color: #0e5d0e;
+  background-color: var(--color-success-600);
 }

@@ -1,32 +1,38 @@
-/* src/components/CalendarHeader.css */
-/* Minimalist toolbar-style calendar header */
+/* ============================================================================
+   CALENDAR HEADER - Emanuel Modern Design System
+   ============================================================================
+   Minimalist toolbar-style calendar header with refined controls
+   ============================================================================ */
 
-/* Main Header Container */
+/* ==========================================================================
+   MAIN HEADER CONTAINER
+   ========================================================================== */
+
 .calendar-header {
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-default);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
   flex-shrink: 0;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-xs);
 }
 
 /* Controls Container */
 .calendar-controls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
-/* ============================================
+/* ==========================================================================
    TOP ROW - Navigation & View Selector
-   ============================================ */
+   ========================================================================== */
 
 .header-top-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
@@ -34,68 +40,73 @@
 .navigation-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .navigation {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 2px;
-  height: 40px;
+  gap: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+  height: 44px;
 }
 
 .navigation .nav-button {
   height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: transparent;
   border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   white-space: nowrap;
 }
 
 .navigation .nav-button:hover {
-  background: #ffffff;
-  color: #111827;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .navigation .nav-button:active {
   transform: scale(0.98);
 }
 
-/* Date Picker Button */
+/* ==========================================================================
+   DATE PICKER
+   ========================================================================== */
+
 .date-picker-wrapper {
   position: relative;
 }
 
 .date-picker-input {
   height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--space-4);
   background: transparent;
   border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   white-space: nowrap;
 }
 
 .date-picker-input:hover {
-  background: #ffffff;
-  color: #111827;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Date Picker Dropdown */
@@ -103,112 +114,134 @@
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 1000;
-  margin-top: 4px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  z-index: var(--z-dropdown);
+  margin-top: var(--space-1);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  animation: dropdownSlide var(--duration-fast) var(--ease-out);
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .date-picker-dropdown .react-datepicker {
   border: none;
-  font-family: inherit;
+  font-family: var(--font-body);
 }
 
 .date-picker-dropdown .react-datepicker__header {
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-  padding-top: 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  padding-top: var(--space-3);
 }
 
 .date-picker-dropdown .react-datepicker__month-dropdown-container,
 .date-picker-dropdown .react-datepicker__year-dropdown-container {
-  margin: 0 4px;
+  margin: 0 var(--space-1);
 }
 
 .date-picker-dropdown .react-datepicker__month-select,
 .date-picker-dropdown .react-datepicker__year-select {
-  padding: 4px 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
-  font-size: 13px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   cursor: pointer;
+  font-family: var(--font-body);
 }
 
 .date-picker-dropdown .react-datepicker__day--selected,
 .date-picker-dropdown .react-datepicker__day--keyboard-selected {
-  background-color: #2563eb;
-  border-radius: 4px;
+  background-color: var(--color-primary-500);
+  border-radius: var(--radius-md);
 }
 
 .date-picker-dropdown .react-datepicker__day:hover {
-  background-color: #dbeafe;
-  border-radius: 4px;
+  background-color: var(--color-primary-100);
+  border-radius: var(--radius-md);
 }
 
-/* Current Date Range Display */
+/* ==========================================================================
+   CURRENT DATE RANGE DISPLAY
+   ========================================================================== */
+
 .current-range {
-  font-size: 14px;
-  font-weight: 600;
-  color: #111827;
-  padding: 0 20px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-normal);
+  color: var(--text-primary);
+  padding: 0 var(--space-5);
   white-space: nowrap;
-  height: 40px;
+  height: 44px;
   display: flex;
   align-items: center;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  letter-spacing: var(--tracking-tight);
 }
 
-/* View Selector (Day/Week/Month) */
+/* ==========================================================================
+   VIEW SELECTOR (Day/Week/Month)
+   ========================================================================== */
+
 .view-selector {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 2px;
-  height: 40px;
+  gap: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+  height: 44px;
 }
 
 .view-selector button {
   height: 36px;
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   background: transparent;
   border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #6b7280;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   white-space: nowrap;
 }
 
 .view-selector button:hover {
-  color: #374151;
-  background: #f3f4f6;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 
 .view-selector button.active {
-  background: #ffffff;
-  color: #2563eb;
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  background: var(--bg-primary);
+  color: var(--color-primary-600);
+  font-weight: var(--font-semibold);
+  box-shadow: var(--shadow-sm);
 }
 
-/* ============================================
+/* ==========================================================================
    BOTTOM ROW - Settings & Grouping
-   ============================================ */
+   ========================================================================== */
 
 .header-bottom-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
@@ -216,7 +249,7 @@
 .settings-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Calendar Selector Wrapper */
@@ -225,32 +258,36 @@
   align-items: center;
 }
 
-/* Unified Select Styling for all dropdowns */
+/* ==========================================================================
+   UNIFIED SELECT STYLING
+   ========================================================================== */
+
 .calendar-selector-wrapper .calendar-selector,
 .time-zone-selector .timezone-select,
 .week-start-selector .week-start-select {
-  height: 40px;
-  padding: 10px 32px 10px 16px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
+  height: 44px;
+  padding: var(--space-2) var(--space-8) var(--space-2) var(--space-4);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2378716c' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  background-position: right var(--space-3) center;
   background-size: 12px;
   width: 200px;
   max-width: 200px;
-  line-height: 1.4;
+  line-height: var(--leading-normal);
   vertical-align: middle;
 }
 
-/* Calendar selector needs text truncation for long names */
+/* Calendar selector - text truncation */
 .calendar-selector-wrapper .calendar-selector {
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -260,72 +297,76 @@
 .calendar-selector-wrapper .calendar-selector:hover,
 .time-zone-selector .timezone-select:hover,
 .week-start-selector .week-start-select:hover {
-  border-color: #d1d5db;
-  background-color: #f9fafb;
+  border-color: var(--border-strong);
+  background-color: var(--bg-secondary);
 }
 
 .calendar-selector-wrapper .calendar-selector:focus,
 .time-zone-selector .timezone-select:focus,
 .week-start-selector .week-start-select:focus {
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .calendar-selector-wrapper .calendar-selector:disabled,
 .time-zone-selector .timezone-select:disabled,
 .week-start-selector .week-start-select:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
-  background-color: #f9fafb;
+  background-color: var(--bg-secondary);
 }
 
-/* View Mode Selector (Group by Category/Location) */
+/* ==========================================================================
+   VIEW MODE SELECTOR (Group by Category/Location)
+   ========================================================================== */
+
 .view-mode-selector {
   display: flex;
   align-items: center;
-  gap: 4px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 2px;
-  height: 40px;
+  gap: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+  height: 44px;
 }
 
 .view-mode-selector button {
   height: 36px;
-  padding: 0 20px;
+  padding: 0 var(--space-5);
   background: transparent;
   border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #6b7280;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   white-space: nowrap;
 }
 
 .view-mode-selector button:hover {
-  color: #374151;
-  background: #f3f4f6;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
 }
 
 .view-mode-selector button.active {
-  background: #ffffff;
-  color: #2563eb;
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  background: var(--bg-primary);
+  color: var(--color-primary-600);
+  font-weight: var(--font-semibold);
+  box-shadow: var(--shadow-sm);
 }
 
-/* ============================================
+/* ==========================================================================
    RESPONSIVE DESIGN
-   ============================================ */
+   ========================================================================== */
 
 /* Tablet and below */
 @media (max-width: 992px) {
   .calendar-header {
-    padding: 10px 12px;
+    padding: var(--space-3);
   }
 
   .header-top-row,
@@ -334,54 +375,54 @@
   }
 
   .current-range {
-    font-size: 13px;
-    height: 34px;
+    font-size: var(--text-sm);
+    height: 40px;
+  }
+
+  .navigation,
+  .view-selector,
+  .view-mode-selector {
+    height: 40px;
   }
 
   .navigation .nav-button,
   .date-picker-input,
   .view-selector button,
   .view-mode-selector button {
-    height: 34px;
-    font-size: 12px;
-    padding: 0 14px;
+    height: 32px;
+    font-size: var(--text-xs);
+    padding: 0 var(--space-3);
   }
 
   .calendar-selector-wrapper .calendar-selector,
   .time-zone-selector .timezone-select,
   .week-start-selector .week-start-select {
-    height: 38px;
-    padding: 9px 32px 9px 14px;
-    font-size: 12px;
+    height: 40px;
+    padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
     width: 180px;
     max-width: 180px;
-  }
-
-  .navigation,
-  .view-selector,
-  .view-mode-selector {
-    height: 38px;
   }
 }
 
 /* Mobile */
 @media (max-width: 768px) {
   .calendar-header {
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-3);
   }
 
   .calendar-controls {
-    gap: 10px;
+    gap: var(--space-3);
   }
 
   .header-top-row,
   .header-bottom-row {
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .navigation-group {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-2);
     width: 100%;
   }
 
@@ -393,6 +434,7 @@
   .current-range {
     text-align: center;
     width: 100%;
+    justify-content: center;
   }
 
   .view-selector,
@@ -424,17 +466,17 @@
 
   .navigation .nav-button,
   .date-picker-input {
-    padding: 0 8px;
+    padding: 0 var(--space-2);
   }
 
   .view-selector button,
   .view-mode-selector button {
-    padding: 0 8px;
-    font-size: 11px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-2xs);
   }
 
   .current-range {
-    font-size: 12px;
-    padding: 0 12px;
+    font-size: var(--text-xs);
+    padding: 0 var(--space-3);
   }
 }

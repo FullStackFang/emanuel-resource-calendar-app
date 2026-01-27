@@ -1,20 +1,27 @@
-/* src/components/shared/ActionButtons.css */
-/* Shared button styles for action buttons across the application */
+/* ============================================================================
+   ACTION BUTTONS - Emanuel Modern Design System
+   ============================================================================
+   Shared button styles for action buttons across the application
+   ============================================================================ */
 
-/* Base Action Button */
+/* ==========================================================================
+   BASE ACTION BUTTON
+   ========================================================================== */
+
 .shared-action-btn {
-  padding: 10px 20px;
+  padding: var(--space-3) var(--space-5);
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  font-weight: 500;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .shared-action-btn:disabled {
@@ -24,121 +31,142 @@
 
 .shared-action-btn:focus {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(0, 120, 212, 0.2);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
-/* Primary Button (Default Action) */
+/* ==========================================================================
+   PRIMARY BUTTON
+   ========================================================================== */
+
 .shared-action-btn.primary {
-  background: #0078d4;
-  color: white;
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .shared-action-btn.primary:hover:not(:disabled) {
-  background: #106ebe;
+  background: var(--color-primary-600);
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(0, 120, 212, 0.3);
+  box-shadow: var(--shadow-primary);
 }
 
 .shared-action-btn.primary:active:not(:disabled) {
   transform: translateY(0);
 }
 
-/* Success Button (Approve, Confirm) */
+/* ==========================================================================
+   SUCCESS BUTTON
+   ========================================================================== */
+
 .shared-action-btn.success {
-  background: #10b981;
-  color: white;
+  background: var(--color-success-500);
+  color: var(--text-inverse);
 }
 
 .shared-action-btn.success:hover:not(:disabled) {
-  background: #059669;
+  background: var(--color-success-600);
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 6px rgba(5, 150, 105, 0.3);
 }
 
 .shared-action-btn.success:active:not(:disabled) {
   transform: translateY(0);
 }
 
-/* Danger Button (Reject, Delete) */
+/* ==========================================================================
+   DANGER BUTTON
+   ========================================================================== */
+
 .shared-action-btn.danger {
-  background: #ef4444;
-  color: white;
+  background: var(--color-error-500);
+  color: var(--text-inverse);
 }
 
 .shared-action-btn.danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--color-error-600);
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 6px rgba(220, 38, 38, 0.3);
 }
 
 .shared-action-btn.danger:active:not(:disabled) {
   transform: translateY(0);
 }
 
-/* Secondary Button (Cancel, Close) */
+/* ==========================================================================
+   SECONDARY BUTTON
+   ========================================================================== */
+
 .shared-action-btn.secondary {
-  background: white;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 
 .shared-action-btn.secondary:hover:not(:disabled) {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
 }
 
-/* Warning Button */
+/* ==========================================================================
+   WARNING BUTTON
+   ========================================================================== */
+
 .shared-action-btn.warning {
-  background: #f59e0b;
-  color: white;
+  background: var(--color-warning-500);
+  color: var(--text-inverse);
 }
 
 .shared-action-btn.warning:hover:not(:disabled) {
-  background: #d97706;
+  background: var(--color-warning-600);
   transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 4px 6px rgba(217, 119, 6, 0.3);
 }
 
 .shared-action-btn.warning:active:not(:disabled) {
   transform: translateY(0);
 }
 
-/* Ghost Button (Minimal Style) */
+/* ==========================================================================
+   GHOST BUTTON
+   ========================================================================== */
+
 .shared-action-btn.ghost {
   background: transparent;
-  color: #0078d4;
+  color: var(--color-primary-600);
   border: none;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
 }
 
 .shared-action-btn.ghost:hover:not(:disabled) {
-  background: #eff6ff;
+  background: var(--color-primary-50);
 }
 
-/* Small Button Variant */
+/* ==========================================================================
+   SIZE VARIANTS
+   ========================================================================== */
+
 .shared-action-btn.small {
-  padding: 6px 12px;
-  font-size: 0.875rem;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
 }
 
-/* Large Button Variant */
 .shared-action-btn.large {
-  padding: 14px 28px;
-  font-size: 1.125rem;
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--text-lg);
 }
 
-/* Full Width Button */
 .shared-action-btn.full-width {
   width: 100%;
 }
 
-/* Icon-Only Button */
 .shared-action-btn.icon-only {
-  padding: 10px;
+  padding: var(--space-3);
   aspect-ratio: 1;
 }
 
-/* Loading State */
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
 .shared-action-btn.loading {
   position: relative;
   color: transparent;
@@ -155,7 +183,7 @@
   margin-left: -8px;
   margin-top: -8px;
   border: 2px solid currentColor;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border-top-color: transparent;
   animation: spinner 0.6s linear infinite;
 }
@@ -166,10 +194,13 @@
   }
 }
 
-/* Button Group */
+/* ==========================================================================
+   BUTTON GROUP
+   ========================================================================== */
+
 .shared-button-group {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
 }
 
@@ -189,7 +220,10 @@
   justify-content: space-between;
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 768px) {
   .shared-button-group {
     flex-direction: column;

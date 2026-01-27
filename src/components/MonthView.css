@@ -1,6 +1,13 @@
-/* MonthView.css - Static height solution */
+/* ============================================================================
+   MONTH VIEW - Emanuel Modern Design System
+   ============================================================================
+   Calendar month view with refined grid layout
+   ============================================================================ */
 
-/* Month View Wrapper */
+/* ==========================================================================
+   MONTH VIEW WRAPPER
+   ========================================================================== */
+
 .month-view-wrapper {
   display: flex;
   height: 100%;
@@ -11,53 +18,67 @@
   overflow: hidden;
 }
 
-/* Month View Container - Full height */
+/* ==========================================================================
+   MONTH VIEW CONTAINER
+   ========================================================================== */
+
 .month-view-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
   border-right: none;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   min-width: 400px;
+  background: var(--bg-primary);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Month Header */
+/* ==========================================================================
+   MONTH HEADER
+   ========================================================================== */
+
 .month-header {
   flex-shrink: 0;
   margin-bottom: 0;
-  background-color: var(--primary-color);
-  color: var(--white);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
   padding: 0;
   text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-  border-radius: 4px 4px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--font-normal);
+  border-radius: var(--radius-xl) 0 0 0;
+  letter-spacing: var(--tracking-tight);
 }
 
-/* Weekday Headers */
+/* ==========================================================================
+   WEEKDAY HEADERS
+   ========================================================================== */
+
 .weekday-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  background-color: #f9fafb;
-  color: #6b7280;
+  background-color: var(--bg-secondary);
+  color: var(--text-tertiary);
   border-radius: 0;
-  height: 40px;
-  border-bottom: 1px solid #e5e7eb;
+  height: 44px;
+  border-bottom: 1px solid var(--border-default);
 }
 
 .weekday {
   text-align: center;
-  font-weight: 500;
-  padding: 8px;
-  border-right: 1px solid #e5e7eb;
-  font-size: 12px;
+  font-family: var(--font-body);
+  font-weight: var(--font-semibold);
+  padding: var(--space-2);
+  border-right: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--tracking-wider);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,7 +88,10 @@
   border-right: none;
 }
 
-/* Month Days Grid - Fill remaining space */
+/* ==========================================================================
+   MONTH DAYS GRID
+   ========================================================================== */
+
 .month-days {
   flex: 1;
   display: grid !important;
@@ -78,19 +102,22 @@
   gap: 0;
 }
 
-/* Day Cells */
+/* ==========================================================================
+   DAY CELLS
+   ========================================================================== */
+
 .month-view-wrapper .day-cell {
   position: relative;
-  padding: 2px;
-  border-right: 1px solid #eee;
-  border-bottom: 1px solid #eee;
-  background-color: white;
+  padding: var(--space-1);
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-primary);
   overflow: hidden;
   cursor: pointer;
-  transition: var(--transition-normal);
+  transition: var(--transition-all);
   min-height: 0 !important;
   max-height: 100%;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .day-cell:nth-child(7n) {
@@ -102,81 +129,92 @@
 }
 
 .day-cell:hover:not(.selected) {
-  background-color: var(--hover-light);
+  background-color: var(--bg-secondary);
 }
 
 .day-cell.selected {
-  background-color: var(--primary-light) !important;
-  outline: 2px solid var(--primary-color);
+  background-color: var(--color-primary-50) !important;
+  outline: 2px solid var(--color-primary-400);
   outline-offset: -2px;
 }
 
 .day-cell.outside-month {
-  background-color: #f9f9f9;
+  background-color: var(--bg-tertiary);
 }
 
-/* Current day - prominent highlighting */
+/* ==========================================================================
+   CURRENT DAY HIGHLIGHTING
+   ========================================================================== */
+
 .day-cell.current-day {
-  background-color: #f0f9ff;
-  box-shadow: inset 0 0 0 2px #60a5fa;
+  background-color: var(--color-primary-50);
+  box-shadow: inset 0 0 0 2px var(--color-primary-300);
 }
 
-/* Day Numbers */
+/* ==========================================================================
+   DAY NUMBERS
+   ========================================================================== */
+
 .day-cell .day-number {
   position: absolute;
-  top: 4px;
-  right: 6px;
-  font-weight: 600;
-  padding: 2px 4px;
+  top: var(--space-1);
+  right: var(--space-2);
+  font-family: var(--font-body);
+  font-weight: var(--font-semibold);
+  padding: var(--space-1);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1;
   z-index: 2;
 }
 
 .day-cell.outside-month .day-number {
-  color: #ccc;
+  color: var(--text-tertiary);
 }
 
-/* Today's date number - rounded square highlight */
+/* Today's Date Number - Rounded Highlight */
 .day-cell .day-number.today-number {
-  background-color: #3b82f6;
-  color: white;
-  border-radius: 6px;
-  width: 24px;
-  height: 24px;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  border-radius: var(--radius-md);
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  font-weight: var(--font-bold);
+  box-shadow: var(--shadow-sm);
 }
 
 .day-cell.current-day .day-number {
-  color: white;
-  font-weight: bold;
+  color: var(--text-inverse);
+  font-weight: var(--font-bold);
 }
 
-/* Add event button */
+/* ==========================================================================
+   ADD EVENT BUTTON
+   ========================================================================== */
+
 .day-cell .add-event-btn {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
+  top: var(--space-1);
+  left: var(--space-1);
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   background-color: transparent;
-  color: #9ca3af;
-  font-size: 16px;
-  font-weight: bold;
+  color: var(--text-tertiary);
+  font-size: var(--text-base);
+  font-weight: var(--font-bold);
   line-height: 1;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: all 0.15s ease;
+  transition: var(--transition-all);
   z-index: 3;
 }
 
@@ -185,12 +223,15 @@
 }
 
 .day-cell .add-event-btn:hover {
-  background-color: var(--primary-color);
-  color: white;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
   transform: scale(1.1);
 }
 
-/* Day Events Container */
+/* ==========================================================================
+   DAY EVENTS CONTAINER
+   ========================================================================== */
+
 .day-events {
   position: absolute;
   top: 50%;
@@ -203,52 +244,63 @@
   z-index: 1;
 }
 
-/* Event Count Circle */
+/* ==========================================================================
+   EVENT COUNT CIRCLE
+   ========================================================================== */
+
 .event-count-circle {
-  background-color: var(--primary-color);
-  color: white;
-  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  transition: all 0.2s ease;
+  font-family: var(--font-body);
+  font-weight: var(--font-semibold);
+  transition: var(--transition-all);
   cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .event-count-circle:hover {
   transform: scale(1.1);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lg);
 }
 
-/* Month Right Panel - Fixed height */
+/* ==========================================================================
+   MONTH RIGHT PANEL
+   ========================================================================== */
+
 .month-right-panel {
   width: 500px;
   min-width: 500px;
   max-width: 500px;
-  min-height: 700px; /* FLEXIBLE HEIGHT - can grow as needed */
+  min-height: 700px;
   display: flex;
   flex-direction: column;
-  background-color: var(--white);
-  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
   border-left: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xl);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   flex-shrink: 0;
   box-sizing: border-box;
   overflow: auto;
+  box-shadow: var(--shadow-sm);
 }
 
-/* Month Filter Container */
+/* ==========================================================================
+   MONTH FILTER CONTAINER
+   ========================================================================== */
+
 .month-filter-container {
-  padding: 15px;
-  background-color: var(--background-light);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-4);
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
   display: flex;
-  gap: 15px;
+  gap: var(--space-4);
   width: 100%;
   box-sizing: border-box;
   justify-content: stretch;
@@ -270,19 +322,24 @@
 }
 
 .month-filter-container .filter-section h3 {
-  margin: 0 0 8px 0;
-  color: var(--primary-color);
-  font-size: 14px;
-  font-weight: 600;
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-primary-600);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--font-normal);
   text-align: center;
+  letter-spacing: var(--tracking-tight);
 }
 
-/* Day Event Panel - Constrained to remaining space */
+/* ==========================================================================
+   DAY EVENT PANEL
+   ========================================================================== */
+
 .month-right-panel .day-event-panel {
   flex: 1;
   min-height: 0;
   width: 100%;
-  background-color: var(--white);
+  background-color: var(--bg-primary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -306,22 +363,25 @@
   display: contents !important;
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 1200px) {
   .month-view-wrapper {
-    min-height: 650px; /* Flexible height for medium screens */
+    min-height: 650px;
   }
-  
+
   .month-view-container,
   .month-right-panel {
     min-height: 650px;
   }
-  
+
   .month-right-panel {
     width: 450px;
     min-width: 450px;
   }
-  
+
   .month-view-container {
     min-width: 350px;
   }
@@ -330,38 +390,43 @@
 @media (max-width: 992px) {
   .month-view-wrapper {
     flex-direction: column;
-    height: auto; /* Allow stacking on mobile */
+    height: auto;
   }
-  
+
   .month-view-container {
     max-width: none;
     min-width: none;
-    min-height: 400px; /* Flexible height for mobile */
-    border-right: 1px solid var(--border-color);
-    border-radius: 4px;
+    min-height: 400px;
+    border-right: 1px solid var(--border-default);
+    border-radius: var(--radius-xl);
     border-bottom-right-radius: 0;
     border-bottom-left-radius: 0;
   }
-  
+
   .month-right-panel {
     width: 100%;
     min-width: none;
-    min-height: 400px; /* Flexible height for mobile */
-    border: 1px solid var(--border-color);
+    min-height: 400px;
+    border: 1px solid var(--border-default);
     border-top: none;
-    border-radius: 0 0 4px 4px;
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
   }
 }
 
 @media (max-width: 768px) {
   .month-view-container,
   .month-right-panel {
-    min-height: 350px; /* Flexible height for small screens */
+    min-height: 350px;
   }
-  
+
   .day-cell .day-number {
-    font-size: 12px;
-    top: 2px;
-    right: 4px;
+    font-size: var(--text-xs);
+    top: var(--space-1);
+    right: var(--space-1);
+  }
+
+  .month-filter-container {
+    flex-direction: column;
+    gap: var(--space-3);
   }
 }

@@ -1,6 +1,13 @@
-/* src/components/RecurrencePatternModal.css - Light Theme with Blue Accent and Calendar Preview */
+/* ============================================================================
+   RECURRENCE PATTERN MODAL - Emanuel Modern Design System
+   ============================================================================
+   Modal for configuring recurring event patterns with calendar preview
+   ============================================================================ */
 
-/* Modal Overlay */
+/* ==========================================================================
+   MODAL OVERLAY
+   ========================================================================== */
+
 .recurrence-modal-overlay {
   position: fixed;
   top: 0;
@@ -11,45 +18,53 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
-  padding: 20px;
+  z-index: var(--z-modal);
+  padding: var(--space-5);
 }
 
-/* Modal Container - Wide Layout (800px) */
+/* ==========================================================================
+   MODAL CONTAINER
+   ========================================================================== */
+
 .recurrence-modal {
-  background: #ffffff;
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
   width: 100%;
-  max-width: 850px; /* Slightly wider for better spacing */
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  max-width: 850px;
+  box-shadow: var(--shadow-2xl);
   display: flex;
   flex-direction: column;
-  max-height: 88vh; /* Reduced to prevent scrolling */
-  color: #1f2937;
+  max-height: 88vh;
+  color: var(--text-primary);
 }
 
-/* Modal Header */
+/* ==========================================================================
+   MODAL HEADER
+   ========================================================================== */
+
 .recurrence-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 24px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: var(--space-6) var(--space-6) var(--space-4);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .recurrence-modal-header h2 {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #1f2937;
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
 .recurrence-close-btn {
   background: none;
   border: none;
-  font-size: 1.5rem;
+  font-size: var(--text-2xl);
   line-height: 1;
-  color: #6b7280;
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 0;
   width: 32px;
@@ -57,95 +72,107 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
 }
 
 .recurrence-close-btn:hover {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
-/* Modal Body */
+/* ==========================================================================
+   MODAL BODY
+   ========================================================================== */
+
 .recurrence-modal-body {
-  padding: 16px 20px; /* Reduced padding for more space */
+  padding: var(--space-4) var(--space-5);
   overflow-y: auto;
   flex: 1;
-  min-height: 0; /* Allows flex children to shrink */
+  min-height: 0;
 }
 
-/* Two-Column Layout */
+/* ==========================================================================
+   TWO-COLUMN LAYOUT
+   ========================================================================== */
+
 .recurrence-modal-columns {
   display: flex;
-  gap: 24px;
+  gap: var(--space-6);
 }
 
 .recurrence-calendar-column {
   flex: 0 0 350px;
-  border-right: 1px solid #e5e7eb;
-  padding-right: 24px;
+  border-right: 1px solid var(--border-default);
+  padding-right: var(--space-6);
 }
 
 .recurrence-config-column {
   flex: 1;
-  min-width: 0; /* Allows flex shrinking */
+  min-width: 0;
 }
 
-/* Calendar Mode Toggle */
+/* ==========================================================================
+   CALENDAR MODE TOGGLE
+   ========================================================================== */
+
 .calendar-mode-toggle {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
 .mode-btn {
   flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: white;
-  color: #374151;
-  font-size: 0.9rem;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
 }
 
 .mode-btn:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
 }
 
 .mode-btn.active {
-  background: #1a73e8;
-  color: white;
-  border-color: #1a73e8;
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
+  border-color: var(--color-primary-500);
 }
 
-/* Calendar Styling */
+/* ==========================================================================
+   CALENDAR STYLING
+   ========================================================================== */
+
 .recurrence-calendar-column .react-datepicker {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
   font-family: inherit;
 }
 
 .recurrence-calendar-column .react-datepicker__header {
-  background-color: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-  padding-top: 12px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  padding-top: var(--space-3);
 }
 
 .recurrence-calendar-column .react-datepicker__current-month {
-  font-weight: 600;
-  font-size: 1rem;
-  color: #1f2937;
-  margin-bottom: 8px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
 }
 
 .recurrence-calendar-column .react-datepicker__day-name {
-  color: #6b7280;
-  font-weight: 500;
-  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
   width: 2.5rem;
   line-height: 2.5rem;
   margin: 0.166rem;
@@ -155,93 +182,96 @@
   width: 2.5rem;
   line-height: 2.5rem;
   margin: 0.166rem;
-  border-radius: 6px;
-  color: #374151;
-  transition: all 0.2s;
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  transition: var(--transition-all);
 }
 
 .recurrence-calendar-column .react-datepicker__day:hover {
-  background-color: #f3f4f6;
+  background-color: var(--bg-tertiary);
   cursor: pointer;
 }
 
-/* Pattern Dates - Blue */
+/* Pattern Dates - Primary Color */
 .recurrence-calendar-column .react-datepicker__day.recurrence-pattern {
-  background-color: #e8f0fe;
-  color: #1a73e8;
-  font-weight: 600;
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-600);
+  font-weight: var(--font-semibold);
 }
 
 .recurrence-calendar-column .react-datepicker__day.recurrence-pattern:hover {
-  background-color: #d2e3fc;
+  background-color: var(--color-primary-100);
 }
 
-/* Added Dates - Green */
+/* Added Dates - Success Color */
 .recurrence-calendar-column .react-datepicker__day.adhoc-addition {
-  background-color: #e6f4ea;
-  color: #1e8e3e;
-  font-weight: 600;
+  background-color: var(--color-success-50);
+  color: var(--color-success-600);
+  font-weight: var(--font-semibold);
 }
 
 .recurrence-calendar-column .react-datepicker__day.adhoc-addition:hover {
-  background-color: #ceead6;
+  background-color: var(--color-success-100);
 }
 
-/* Excluded Dates - Red with Strikethrough */
+/* Excluded Dates - Error Color with Strikethrough */
 .recurrence-calendar-column .react-datepicker__day.adhoc-exclusion {
-  background-color: #fce8e6;
-  color: #c5221f;
+  background-color: var(--color-error-50);
+  color: var(--color-error-500);
   text-decoration: line-through;
-  font-weight: 600;
+  font-weight: var(--font-semibold);
 }
 
 .recurrence-calendar-column .react-datepicker__day.adhoc-exclusion:hover {
-  background-color: #fad2cf;
+  background-color: var(--color-error-100);
 }
 
-/* Existing Events - Gray Ring */
+/* Existing Events - Ring */
 .recurrence-calendar-column .react-datepicker__day.existing-event {
-  box-shadow: inset 0 0 0 2px #9ca3af;
+  box-shadow: inset 0 0 0 2px var(--border-strong);
 }
 
-/* Calendar Legend */
+/* ==========================================================================
+   CALENDAR LEGEND
+   ========================================================================== */
+
 .calendar-legend {
-  margin-top: 16px;
-  padding: 10px 12px;
-  background: #f9fafb;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-xs);
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .legend-color {
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
 .recurrence-pattern-color {
-  background-color: #e8f0fe;
-  border: 1px solid #1a73e8;
+  background-color: var(--color-primary-50);
+  border: 1px solid var(--color-primary-500);
 }
 
 .adhoc-addition-color {
-  background-color: #e6f4ea;
-  border: 1px solid #1e8e3e;
+  background-color: var(--color-success-50);
+  border: 1px solid var(--color-success-500);
 }
 
 .adhoc-exclusion-color {
-  background-color: #fce8e6;
-  border: 1px solid #c5221f;
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-500);
   position: relative;
 }
 
@@ -252,52 +282,55 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: #c5221f;
+  background: var(--color-error-500);
 }
 
 .existing-event-color {
-  background: white;
-  border: 2px solid #9ca3af;
+  background: var(--bg-primary);
+  border: 2px solid var(--border-strong);
 }
 
-/* Configuration Column Styles */
+/* ==========================================================================
+   CONFIGURATION COLUMN STYLES
+   ========================================================================== */
+
 .recurrence-start-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .recurrence-start-row label {
-  font-size: 1rem;
-  color: #374151;
+  font-size: var(--text-base);
+  color: var(--text-primary);
   min-width: 60px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .recurrence-start-date-input {
   flex: 1;
-  padding: 8px 12px;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #1f2937;
-  font-size: 1rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-base);
   outline: none;
 }
 
 .recurrence-start-date-input:focus {
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 /* Calendar icon styling for start date */
 .recurrence-start-date-input::-webkit-calendar-picker-indicator {
-  background-color: #1a73e8;
-  color: white;
-  border-radius: 3px;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
   padding: 2px;
   opacity: 0.8;
   cursor: pointer;
@@ -307,159 +340,171 @@
 
 .recurrence-start-date-input::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
-  background-color: #1557b0;
+  background-color: var(--color-primary-600);
 }
 
-/* Repeat Row */
+/* ==========================================================================
+   REPEAT ROW
+   ========================================================================== */
+
 .recurrence-repeat-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
 }
 
 .repeat-icon {
-  font-size: 1.2rem;
-  color: #6b7280;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
 }
 
 .recurrence-repeat-row label {
-  font-size: 1rem;
-  color: #374151;
-  font-weight: 500;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
 }
 
 .recurrence-interval-input {
   width: 60px;
-  padding: 6px 10px;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #1f2937;
-  font-size: 1rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-base);
   text-align: center;
 }
 
 .recurrence-interval-input:focus {
   outline: none;
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .recurrence-frequency-select {
-  padding: 6px 12px;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #1f2937;
-  font-size: 1rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-base);
   cursor: pointer;
   outline: none;
 }
 
 .recurrence-frequency-select:focus {
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .recurrence-frequency-select option {
-  background: white;
-  color: #1f2937;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
-/* Days of Week Section */
+/* ==========================================================================
+   DAYS OF WEEK SECTION
+   ========================================================================== */
+
 .recurrence-days-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .recurrence-days-grid {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .recurrence-day-circle {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
-  border: 1px solid #d1d5db;
-  background: #ffffff;
-  color: #374151;
-  font-size: 0.875rem;
-  font-weight: 500;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .recurrence-day-circle:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
 }
 
 .recurrence-day-circle.selected {
-  background: #1a73e8;
-  border-color: #1a73e8;
-  color: #ffffff;
+  background: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .recurrence-day-circle.selected:hover {
-  background: #1557b0;
-  border-color: #1557b0;
+  background: var(--color-primary-600);
+  border-color: var(--color-primary-600);
 }
 
-/* Summary Text */
+/* ==========================================================================
+   SUMMARY TEXT
+   ========================================================================== */
+
 .recurrence-summary-text {
-  font-size: 0.95rem;
-  color: #4b5563;
-  line-height: 1.6;
-  margin-bottom: 16px;
-  padding: 12px;
-  background: #f9fafb;
-  border-radius: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
   font-style: italic;
 }
 
-/* End Date Picker Section */
+/* ==========================================================================
+   END DATE PICKER SECTION
+   ========================================================================== */
+
 .recurrence-end-date-picker {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
 }
 
 .recurrence-end-date-picker label {
-  font-size: 1rem;
-  color: #374151;
+  font-size: var(--text-base);
+  color: var(--text-primary);
   min-width: 80px;
-  font-weight: 500;
+  font-weight: var(--font-medium);
 }
 
 .recurrence-end-date-input {
   flex: 1;
-  padding: 8px 12px;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #1f2937;
-  font-size: 1rem;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: var(--text-base);
   outline: none;
 }
 
 .recurrence-end-date-input:focus {
-  border-color: #1a73e8;
-  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 /* Calendar icon styling for end date */
 .recurrence-end-date-input::-webkit-calendar-picker-indicator {
-  background-color: #1a73e8;
-  color: white;
-  border-radius: 3px;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
   padding: 2px;
   opacity: 0.8;
   cursor: pointer;
@@ -469,14 +514,14 @@
 
 .recurrence-end-date-input::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
-  background-color: #1557b0;
+  background-color: var(--color-primary-600);
 }
 
 .recurrence-remove-end-btn {
   background: none;
   border: none;
-  color: #1a73e8;
-  font-size: 0.9rem;
+  color: var(--color-primary-500);
+  font-size: var(--text-sm);
   cursor: pointer;
   text-decoration: underline;
   padding: 0;
@@ -484,41 +529,47 @@
 }
 
 .recurrence-remove-end-btn:hover {
-  color: #1557b0;
+  color: var(--color-primary-600);
 }
 
-/* Add End Date Link */
+/* ==========================================================================
+   ADD END DATE LINK
+   ========================================================================== */
+
 .recurrence-add-end-wrapper {
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
-  margin-bottom: 16px;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+  margin-bottom: var(--space-4);
 }
 
 .recurrence-add-end {
   background: none;
   border: none;
-  color: #1a73e8;
-  font-size: 0.95rem;
+  color: var(--color-primary-500);
+  font-size: var(--text-sm);
   cursor: pointer;
   text-decoration: underline;
   padding: 0;
 }
 
 .recurrence-add-end:hover {
-  color: #1557b0;
+  color: var(--color-primary-600);
 }
 
-/* Ad Hoc Dates Section */
+/* ==========================================================================
+   AD HOC DATES SECTION
+   ========================================================================== */
+
 .adhoc-dates-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-default);
 }
 
 .adhoc-dates-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .adhoc-dates-group {
@@ -530,45 +581,45 @@
 }
 
 .adhoc-dates-group h4 {
-  margin: 0 0 8px 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #374151;
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
 }
 
 .adhoc-dates-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .adhoc-date-chip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  gap: 8px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  gap: var(--space-2);
 }
 
 .adhoc-date-chip.addition {
-  background: #e6f4ea;
-  color: #1e8e3e;
-  border: 1px solid #34a853;
+  background: var(--color-success-50);
+  color: var(--color-success-600);
+  border: 1px solid var(--color-success-500);
 }
 
 .adhoc-date-chip.exclusion {
-  background: #fce8e6;
-  color: #c5221f;
-  border: 1px solid #ea4335;
+  background: var(--color-error-50);
+  color: var(--color-error-500);
+  border: 1px solid var(--color-error-500);
 }
 
 .adhoc-date-chip button {
   background: none;
   border: none;
   color: inherit;
-  font-size: 1.2rem;
+  font-size: var(--text-lg);
   line-height: 1;
   cursor: pointer;
   padding: 0;
@@ -577,70 +628,76 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: background 0.2s;
+  border-radius: var(--radius-full);
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .adhoc-date-chip button:hover {
   background: rgba(0, 0, 0, 0.1);
 }
 
-/* Modal Footer */
+/* ==========================================================================
+   MODAL FOOTER
+   ========================================================================== */
+
 .recurrence-modal-footer {
-  padding: 16px 24px;
-  border-top: 1px solid #e5e7eb;
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-default);
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .recurrence-btn {
-  padding: 10px 24px;
+  padding: var(--space-3) var(--space-6);
   border: none;
-  border-radius: 6px;
-  font-size: 1rem;
-  font-weight: 500;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
 }
 
 .recurrence-btn-save {
-  background: #1a73e8;
-  color: white;
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
 }
 
 .recurrence-btn-save:hover {
-  background: #1557b0;
+  background: var(--color-primary-600);
 }
 
 .recurrence-btn-discard {
-  background: white;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 
 .recurrence-btn-discard:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
 }
 
 .recurrence-btn-remove {
-  background: white;
-  color: #6b7280;
-  border: 1px solid #d1d5db;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
 .recurrence-btn-remove:hover:not(:disabled) {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
 }
 
 .recurrence-btn-remove:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
-/* Responsive Design */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 900px) {
   .recurrence-modal {
     max-width: 100%;
@@ -656,9 +713,9 @@
   .recurrence-calendar-column {
     flex: 1;
     border-right: none;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border-default);
     padding-right: 0;
-    padding-bottom: 24px;
+    padding-bottom: var(--space-6);
   }
 
   .recurrence-config-column {
@@ -666,13 +723,13 @@
   }
 
   .recurrence-days-grid {
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .recurrence-day-circle {
     width: 36px;
     height: 36px;
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
   }
 }
 
@@ -686,7 +743,7 @@
   }
 
   .adhoc-dates-group {
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
   }
 
   .adhoc-dates-group:last-child {

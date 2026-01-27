@@ -1,50 +1,66 @@
-/* src/components/AttachmentsSection.css */
+/* ============================================================================
+   ATTACHMENTS SECTION - Emanuel Modern Design System
+   ============================================================================
+   File upload and attachment management with drag-and-drop support
+   ============================================================================ */
+
+/* ==========================================================================
+   MAIN CONTAINER
+   ========================================================================== */
 
 .attachments-section {
   width: 100%;
 }
 
+/* ==========================================================================
+   PLACEHOLDER STATE
+   ========================================================================== */
+
 .attachments-placeholder {
-  padding: 30px 20px;
+  padding: var(--space-8) var(--space-5);
   text-align: center;
-  background: #f9fafb;
-  border-radius: 8px;
-  border: 1px dashed #d1d5db;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-default);
 }
 
 .placeholder-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+  font-size: 3rem;
+  margin-bottom: var(--space-3);
   opacity: 0.5;
 }
 
 .placeholder-text {
-  color: #6b7280;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
+/* ==========================================================================
+   FILE UPLOAD ZONE
+   ========================================================================== */
+
 .file-upload-section {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .file-drop-zone {
-  border: 2px dashed #d1d5db;
-  border-radius: 8px;
-  padding: 24px;
+  border: 2px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   text-align: center;
   cursor: pointer;
-  transition: all 0.2s ease;
-  background: #f9fafb;
+  transition: var(--transition-all);
+  background: var(--bg-secondary);
 }
 
 .file-drop-zone:hover {
-  border-color: #1a73e8;
-  background: #f0f7ff;
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
 }
 
 .file-drop-zone.drag-over {
-  border-color: #1a73e8;
-  background: #e3f2fd;
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-100);
   border-style: solid;
 }
 
@@ -53,65 +69,74 @@
 }
 
 .drop-zone-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+  font-size: 3rem;
+  margin-bottom: var(--space-3);
   opacity: 0.6;
 }
 
 .drop-zone-text {
-  font-size: 16px;
-  color: #374151;
-  margin-bottom: 8px;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
 }
 
 .link-text {
-  color: #1a73e8;
+  color: var(--color-primary-500);
   text-decoration: underline;
 }
 
 .drop-zone-hint {
-  font-size: 13px;
-  color: #6b7280;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
+/* ==========================================================================
+   UPLOADING STATE
+   ========================================================================== */
+
 .uploading-files {
-  margin-top: 12px;
-  padding: 12px;
-  background: #f0f7ff;
-  border-radius: 6px;
-  border: 1px solid #bbdefb;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-info-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-info-200);
 }
 
 .uploading-file {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px;
-  color: #1565c0;
-  font-size: 14px;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  color: var(--color-info-600);
+  font-size: var(--text-sm);
 }
 
+/* ==========================================================================
+   ATTACHMENTS LIST
+   ========================================================================== */
+
 .attachments-list {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .attachments-header {
-  padding: 12px 16px;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 14px;
-  color: #374151;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
 }
 
 .attachment-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  transition: background 0.15s ease;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+  transition: background var(--duration-fast) var(--ease-in-out);
 }
 
 .attachment-item:last-child {
@@ -119,19 +144,19 @@
 }
 
 .attachment-item:hover {
-  background: #f9fafb;
+  background: var(--bg-secondary);
 }
 
 .attachment-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex: 1;
   min-width: 0;
 }
 
 .file-icon {
-  font-size: 24px;
+  font-size: var(--text-2xl);
   flex-shrink: 0;
 }
 
@@ -140,7 +165,7 @@
   background: none;
   border: none;
   padding: 0;
-  transition: transform 0.15s ease;
+  transition: transform var(--duration-fast) var(--ease-in-out);
 }
 
 .file-icon.clickable:hover {
@@ -153,23 +178,27 @@
 }
 
 .file-name {
-  font-size: 14px;
-  color: #1f2937;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-meta {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
 }
+
+/* ==========================================================================
+   ATTACHMENT ACTIONS
+   ========================================================================== */
 
 .attachment-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 
@@ -180,80 +209,87 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 18px;
-  padding: 4px;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  font-size: var(--text-lg);
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-all);
 }
 
 .download-button:hover {
-  background: #e3f2fd;
+  background: var(--color-info-50);
 }
 
 .remove-button:hover {
-  background: #fee;
+  background: var(--color-error-50);
 }
 
 /* Inline confirmation buttons */
 .cancel-delete-button,
 .confirm-delete-button {
-  font-size: 13px;
-  padding: 6px 12px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  font-weight: var(--font-medium);
   white-space: nowrap;
 }
 
 .cancel-delete-button {
-  background: #f3f4f6;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 
 .cancel-delete-button:hover {
-  background: #e5e7eb;
-  border-color: #9ca3af;
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
 }
 
 .confirm-delete-button {
-  background: #fee;
-  color: #dc2626;
-  border: 1px solid #fca5a5;
-  margin-left: 4px;
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-200);
+  margin-left: var(--space-1);
 }
 
 .confirm-delete-button:hover {
-  background: #fca5a5;
-  color: white;
-  border-color: #dc2626;
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  border-color: var(--color-error-600);
 }
 
+/* ==========================================================================
+   EMPTY STATE
+   ========================================================================== */
+
 .attachments-empty {
-  padding: 40px 20px;
+  padding: var(--space-10) var(--space-5);
   text-align: center;
-  color: #6b7280;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  background: #fafafa;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
 }
 
 .empty-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+  font-size: 3rem;
+  margin-bottom: var(--space-3);
   opacity: 0.4;
 }
 
 .empty-text {
-  font-size: 16px;
-  margin-bottom: 6px;
-  color: #374151;
+  font-size: var(--text-base);
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
 }
 
 .empty-hint {
-  font-size: 13px;
-  color: #9ca3af;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
 }
 
-/* Preview Modal */
+/* ==========================================================================
+   PREVIEW MODAL
+   ========================================================================== */
+
 .preview-modal-overlay {
   position: fixed;
   top: 0;
@@ -264,62 +300,62 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
-  padding: 20px;
+  z-index: var(--z-max);
+  padding: var(--space-5);
 }
 
 .preview-modal-content {
-  background: white;
-  border-radius: 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
   max-width: 90vw;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-2xl);
 }
 
 .preview-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-secondary);
 }
 
 .preview-modal-header h3 {
   margin: 0;
-  font-size: 16px;
-  color: #1f2937;
-  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
 }
 
 .close-preview-button {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: var(--text-2xl);
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-secondary);
   padding: 0;
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease;
+  transition: var(--transition-all);
 }
 
 .close-preview-button:hover {
-  background: #e5e7eb;
-  color: #1f2937;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .preview-modal-body {
   flex: 1;
   overflow: auto;
-  padding: 20px;
+  padding: var(--space-5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -329,33 +365,33 @@
   max-width: 100%;
   max-height: 70vh;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .preview-pdf {
   width: 100%;
   height: 70vh;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .preview-text {
   text-align: center;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .download-link {
-  color: #1a73e8;
+  color: var(--color-primary-500);
   background: none;
   border: none;
   cursor: pointer;
   text-decoration: underline;
-  font-size: 14px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-in-out);
 }
 
 .download-link:hover {
-  background: #f0f7ff;
+  background: var(--color-primary-50);
 }

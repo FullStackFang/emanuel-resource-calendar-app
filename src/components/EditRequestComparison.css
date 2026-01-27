@@ -1,4 +1,12 @@
-/* src/components/EditRequestComparison.css */
+/* ============================================================================
+   EDIT REQUEST COMPARISON - Emanuel Modern Design System
+   ============================================================================
+   Modal for comparing and reviewing edit requests
+   ============================================================================ */
+
+/* ==========================================================================
+   MODAL OVERLAY
+   ========================================================================== */
 
 .edit-request-comparison-overlay {
   position: fixed;
@@ -10,31 +18,34 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 20px;
-  z-index: 1000;
+  padding: var(--space-5);
+  z-index: var(--z-modal);
   overflow-y: auto;
 }
 
 .edit-request-comparison-modal {
-  background: white;
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
   width: 100%;
   max-width: 900px;
   max-height: 90vh;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  margin: 20px auto;
+  box-shadow: var(--shadow-xl);
+  margin: var(--space-5) auto;
   display: flex;
   flex-direction: column;
 }
 
-/* Header */
+/* ==========================================================================
+   HEADER
+   ========================================================================== */
+
 .edit-request-comparison-header {
   position: sticky;
   top: 0;
-  background: white;
-  padding: 20px 24px;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--bg-primary);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -44,319 +55,351 @@
 .edit-request-comparison-header .header-content {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .edit-request-comparison-header h2 {
   margin: 0;
-  font-size: 1.25rem;
-  color: #1a202c;
+  font-size: var(--text-xl);
+  font-family: var(--font-display);
+  color: var(--text-primary);
 }
 
 .edit-request-comparison-header .status-badge {
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
 }
 
 .status-pending {
-  background-color: #fef3cd;
-  color: #856404;
+  background-color: var(--color-warning-100);
+  color: var(--color-warning-700);
 }
 
 .status-approved {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: var(--color-success-100);
+  color: var(--color-success-700);
 }
 
 .status-rejected {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: var(--color-error-100);
+  color: var(--color-error-700);
 }
 
 .edit-request-comparison-header .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: var(--text-2xl);
   cursor: pointer;
-  color: #718096;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .edit-request-comparison-header .close-btn:hover {
-  background-color: #f7fafc;
-  color: #2d3748;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
-/* Body */
+/* ==========================================================================
+   BODY
+   ========================================================================== */
+
 .edit-request-comparison-body {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: var(--space-6);
 }
 
-/* Request Info Section */
+/* ==========================================================================
+   REQUEST INFO SECTION
+   ========================================================================== */
+
 .request-info-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .request-info-section h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  color: #2d3748;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .info-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .info-item label {
-  font-size: 0.75rem;
-  color: #718096;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
   text-transform: uppercase;
 }
 
 .info-item span {
-  font-size: 0.875rem;
-  color: #2d3748;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
 }
 
-/* Change Reason Section */
+/* ==========================================================================
+   CHANGE REASON SECTION
+   ========================================================================== */
+
 .change-reason-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .change-reason-section h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  color: #2d3748;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .reason-box {
-  background-color: #fffaf0;
-  border: 1px solid #ed8936;
-  border-radius: 6px;
-  padding: 16px;
-  color: #c05621;
-  font-size: 0.875rem;
-  line-height: 1.5;
+  background-color: var(--color-warning-50);
+  border: 1px solid var(--color-warning-500);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  color: var(--color-warning-700);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
-/* Comparison Section */
+/* ==========================================================================
+   COMPARISON SECTION
+   ========================================================================== */
+
 .comparison-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .comparison-section h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  color: #2d3748;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .comparison-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
 }
 
 .comparison-table th {
-  background-color: #f7fafc;
-  padding: 12px;
+  background-color: var(--bg-secondary);
+  padding: var(--space-3);
   text-align: left;
-  font-weight: 600;
-  color: #4a5568;
-  border-bottom: 2px solid #e2e8f0;
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-default);
 }
 
 .comparison-table td {
-  padding: 12px;
-  border-bottom: 1px solid #e2e8f0;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
   vertical-align: top;
 }
 
 .comparison-table .field-name {
-  font-weight: 500;
-  color: #2d3748;
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
   width: 20%;
 }
 
 .comparison-table .original-value {
-  color: #718096;
+  color: var(--text-secondary);
   width: 40%;
 }
 
 .comparison-table .proposed-value {
-  color: #2d3748;
-  font-weight: 500;
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
   width: 40%;
 }
 
 .comparison-table .changed-row {
-  background-color: #fffaf0;
+  background-color: var(--color-warning-50);
 }
 
 .comparison-table .changed-row .proposed-value {
-  color: #dd6b20;
+  color: var(--color-warning-600);
 }
 
 .no-changes-message {
-  color: #718096;
+  color: var(--text-secondary);
   font-style: italic;
-  padding: 16px;
-  background-color: #f7fafc;
-  border-radius: 6px;
+  padding: var(--space-4);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
   text-align: center;
 }
 
-/* All Fields Section (collapsible) */
+/* ==========================================================================
+   ALL FIELDS SECTION (COLLAPSIBLE)
+   ========================================================================== */
+
 .all-fields-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .all-fields-section summary {
   cursor: pointer;
-  padding: 12px;
-  background-color: #f7fafc;
-  border-radius: 6px;
-  color: #4a5568;
-  font-weight: 500;
+  padding: var(--space-3);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
   user-select: none;
 }
 
 .all-fields-section summary:hover {
-  background-color: #edf2f7;
+  background-color: var(--bg-tertiary);
 }
 
 .all-fields-section .all-fields-table {
-  margin-top: 12px;
+  margin-top: var(--space-3);
 }
 
-/* Review Notes Section */
+/* ==========================================================================
+   REVIEW NOTES SECTION
+   ========================================================================== */
+
 .review-notes-section {
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .review-notes-section h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  color: #2d3748;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .notes-box {
-  background-color: #f7fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 16px;
-  color: #4a5568;
-  font-size: 0.875rem;
-  line-height: 1.5;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
-/* Action Section */
+/* ==========================================================================
+   ACTION SECTION
+   ========================================================================== */
+
 .action-section {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 .approve-form h3,
 .reject-form h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  color: #2d3748;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e2e8f0;
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-base);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .approve-form textarea,
 .reject-form textarea {
   width: 100%;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 0.875rem;
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
   resize: vertical;
   box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--bg-primary);
 }
 
 .approve-form textarea:focus,
 .reject-form textarea:focus {
   outline: none;
-  border-color: #4299e1;
-  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
 .reject-form {
-  background-color: #fff5f5;
-  border: 1px solid #fc8181;
-  border-radius: 8px;
-  padding: 20px;
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-300);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
 }
 
 .reject-form p {
-  margin: 0 0 12px 0;
-  color: #c53030;
-  font-size: 0.875rem;
+  margin: 0 0 var(--space-3) 0;
+  color: var(--color-error-700);
+  font-size: var(--text-sm);
 }
 
 .reject-form textarea {
-  border-color: #fc8181;
+  border-color: var(--color-error-300);
 }
 
 .reject-form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .cancel-reject-btn {
-  padding: 8px 16px;
-  background-color: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  color: #4a5568;
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.875rem;
-  transition: background-color 0.2s;
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .cancel-reject-btn:hover {
-  background-color: #f7fafc;
+  background-color: var(--bg-secondary);
 }
 
 .confirm-reject-btn {
-  padding: 8px 16px;
-  background-color: #c53030;
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-error-600);
   border: none;
-  border-radius: 6px;
-  color: white;
+  border-radius: var(--radius-md);
+  color: var(--text-inverse);
   cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: background-color 0.2s;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .confirm-reject-btn:hover:not(:disabled) {
-  background-color: #9b2c2c;
+  background-color: var(--color-error-700);
 }
 
 .confirm-reject-btn:disabled {
@@ -364,43 +407,47 @@
   cursor: not-allowed;
 }
 
-/* Footer */
+/* ==========================================================================
+   FOOTER
+   ========================================================================== */
+
 .edit-request-comparison-footer {
-  padding: 16px 24px;
-  border-top: 1px solid #e2e8f0;
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--border-default);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  background: #f7fafc;
+  gap: var(--space-3);
+  background: var(--bg-secondary);
 }
 
 .edit-request-comparison-footer button {
-  padding: 10px 24px;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: var(--transition-all);
+  font-family: var(--font-body);
 }
 
 .reject-btn {
-  background-color: white;
-  border: 1px solid #e53e3e;
-  color: #e53e3e;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--color-error-500);
+  color: var(--color-error-500);
 }
 
 .reject-btn:hover {
-  background-color: #fff5f5;
+  background-color: var(--color-error-50);
 }
 
 .approve-btn {
-  background-color: #48bb78;
+  background-color: var(--color-success-500);
   border: none;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .approve-btn:hover:not(:disabled) {
-  background-color: #38a169;
+  background-color: var(--color-success-600);
 }
 
 .approve-btn:disabled {
@@ -409,31 +456,34 @@
 }
 
 .close-footer-btn {
-  background-color: #4a5568;
+  background-color: var(--text-secondary);
   border: none;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .close-footer-btn:hover {
-  background-color: #2d3748;
+  background-color: var(--text-primary);
 }
 
-/* Responsive */
+/* ==========================================================================
+   RESPONSIVE DESIGN
+   ========================================================================== */
+
 @media (max-width: 640px) {
   .edit-request-comparison-overlay {
-    padding: 10px;
+    padding: var(--space-3);
   }
 
   .edit-request-comparison-modal {
-    max-height: calc(100vh - 20px);
+    max-height: calc(100vh - var(--space-5));
   }
 
   .edit-request-comparison-header {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .edit-request-comparison-body {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .info-grid {
@@ -441,12 +491,12 @@
   }
 
   .comparison-table {
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
   }
 
   .comparison-table th,
   .comparison-table td {
-    padding: 8px;
+    padding: var(--space-2);
   }
 
   .edit-request-comparison-footer {

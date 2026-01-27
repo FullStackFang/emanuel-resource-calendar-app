@@ -1,6 +1,21 @@
+/* ============================================================================
+   LOADING SPINNER - Emanuel Modern Design System
+   ============================================================================
+   Centered loading spinner container
+   ============================================================================ */
+
 .loading-spinner-container {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
+  padding: var(--space-8);
+}
+
+.loading-spinner-container.fullscreen {
+  min-height: 100vh;
+}
+
+.loading-spinner-container.inline {
+  padding: var(--space-4);
 }
