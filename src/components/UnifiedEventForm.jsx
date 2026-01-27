@@ -737,6 +737,7 @@ export default function UnifiedEventForm({
   return (
     <UnifiedFormLayout
       title={formTitle}
+      status={reservation?.status}
       actions={actions}
       hasChanges={hasChanges}
       errors={{}}

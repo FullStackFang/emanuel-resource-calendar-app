@@ -45,6 +45,43 @@
   line-height: 1.5;
 }
 
+/* Status pill in form header */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-left: 12px;
+}
+
+.status-draft {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+}
+
+.status-pending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.status-approved {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.status-rejected {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.status-cancelled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
 .unsaved-changes-indicator {
   color: #f59e0b;
   font-size: 0.875rem;

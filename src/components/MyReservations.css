@@ -470,6 +470,13 @@
   border-color: #f87171;
 }
 
+/* Hover scale effect for all action buttons */
+.my-reservations .view-btn:hover:not(:disabled),
+.my-reservations .edit-btn:hover:not(:disabled),
+.my-reservations .delete-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
 .my-reservations .cancel-btn {
   background: #dc2626;
   color: white;

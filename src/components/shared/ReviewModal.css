@@ -52,13 +52,68 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 15px 20px;
+  padding: 12px 20px;
   background: white;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
   position: sticky;
   top: 0;
   z-index: 10;
   margin: -10px -10px 0 -10px; /* Offset modal padding */
+  gap: 24px;
+}
+
+/* Left side: Title + Status */
+.action-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0; /* Allow text truncation */
+}
+
+.action-bar-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status Pills - compact, clean design */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.status-pill.status-approved { background: #dcfce7; color: #166534; }
+.status-pill.status-pending { background: #fef3c7; color: #b45309; }
+.status-pill.status-draft { background: #f3f4f6; color: #6b7280; border: 1px dashed #d1d5db; }
+.status-pill.status-rejected { background: #fee2e2; color: #dc2626; }
+.status-pill.status-cancelled { background: #e5e7eb; color: #6b7280; }
+
+/* Form Toggle Button */
+.form-toggle-btn {
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+  color: #374151;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.form-toggle-btn:hover {
+  background: #e5e7eb;
 }
 
 /* Tab Navigation - Google Calendar Style */
@@ -104,7 +159,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
-  height: 36px;
+  flex-shrink: 0;
 }
 
 .review-actions > * {
@@ -113,17 +168,17 @@
 
 /* Action Buttons Base Styles */
 .action-btn {
-  padding: 0 16px !important;
+  padding: 0 14px !important;
   border: none;
   border-radius: 6px;
-  font-size: 0.875rem !important;
+  font-size: 0.8125rem !important;
   font-weight: 500 !important;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
   white-space: nowrap;
-  line-height: 36px !important;
-  height: 36px !important;
-  min-height: 36px !important;
+  line-height: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -132,7 +187,7 @@
 }
 
 .action-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -166,14 +221,14 @@
   background: #106ebe;
 }
 
-/* Delete Button */
+/* Delete Button - Subtle danger style */
 .delete-btn {
-  background: #f97316 !important;
-  color: white !important;
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
 }
 
 .delete-btn:hover:not(:disabled) {
-  background: #ea580c !important;
+  background: #fee2e2 !important;
 }
 
 /* Draft Button */
@@ -186,34 +241,35 @@
   background: #4f46e5;
 }
 
-/* Request Edit Button - solid style like other action buttons */
+/* Request Edit Button - secondary style */
 /* More specific selector to override DayEventPanel.css styles */
 .review-actions .request-edit-btn {
-  background: #0ea5e9 !important;
-  color: white !important;
+  background: #f3f4f6 !important;
+  color: #374151 !important;
   border: none !important;
-  padding: 0 16px !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  line-height: 36px !important;
+  padding: 0 14px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  line-height: 32px !important;
   border-radius: 6px !important;
-  font-size: 0.875rem !important;
+  font-size: 0.8125rem !important;
   margin-top: 0 !important;
 }
 
 .review-actions .request-edit-btn:hover:not(:disabled) {
-  background: #0284c7 !important;
+  background: #e5e7eb !important;
 }
 
-/* Cancel/Close Button */
+/* Cancel/Close Button - Ghost style */
 .cancel-btn {
-  background: #6b7280 !important;
-  color: white !important;
+  background: transparent !important;
+  color: #6b7280 !important;
   border: none !important;
 }
 
 .cancel-btn:hover {
-  background: #4b5563 !important;
+  background: #f3f4f6 !important;
+  color: #374151 !important;
 }
 
 /* Inline Confirmation Button Group */
@@ -222,7 +278,7 @@
   align-items: center;
   gap: 4px;
   position: relative;
-  height: 36px;
+  height: 32px;
   vertical-align: middle;
 }
 
@@ -326,19 +382,22 @@
   color: #6b7280;
 }
 
+.status-badge-action.status-draft {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px dashed #d1d5db;
+}
+
 /* Edit Request Mode Badge */
 .edit-request-mode-badge {
-  padding: 8px 16px;
-  border-radius: 16px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
-  color: #0369a1;
-  border: 1px solid #7dd3fc;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #dbeafe;
+  color: #1d4ed8;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  animation: pulse-subtle 2s ease-in-out infinite;
 }
 
 @keyframes pulse-subtle {
@@ -360,16 +419,14 @@
 
 /* Viewing Edit Request Badge */
 .edit-request-view-badge {
-  padding: 8px 16px;
-  border-radius: 16px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  color: #92400e;
-  border: 1px solid #fbbf24;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #b45309;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
 }
 
 /* View Edit Request Button */

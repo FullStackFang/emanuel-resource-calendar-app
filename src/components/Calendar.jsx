@@ -6598,7 +6598,7 @@
           showActionButtons={true}
           isAdmin={effectivePermissions.isAdmin}
           isRequesterOnly={!canEditEvents && !canApproveReservations}
-          itemStatus={reviewModal.currentItem?.status}
+          itemStatus={reviewModal.currentItem?.status || 'approved'}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
               ? '⚠️ Confirm Delete?'

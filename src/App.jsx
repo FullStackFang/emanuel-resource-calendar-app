@@ -517,7 +517,8 @@ function App() {
               <div style={{ zoom: 0.8 }}>
                 <ReviewModal
                   isOpen={showDraftModal}
-                  title="Edit Draft"
+                  title={draftPrefillData?.eventTitle ? `Edit Draft: ${draftPrefillData.eventTitle}` : 'Edit Draft'}
+                  itemStatus="draft"
                   mode="create"
                   onClose={() => {
                     // Check for unsaved changes

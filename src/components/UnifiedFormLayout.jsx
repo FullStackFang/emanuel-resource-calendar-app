@@ -22,6 +22,7 @@ import './UnifiedFormLayout.css';
  */
 const UnifiedFormLayout = ({
   title,
+  status, // Event status for display pill
   actions = [],
   sections = [],
   hasChanges = false,
@@ -319,6 +320,11 @@ const UnifiedFormLayout = ({
         <div className="unified-action-bar">
           <div className="action-bar-content">
             {title && <h2 className="form-title">{title}</h2>}
+            {status && (
+              <span className={`status-pill status-${status.toLowerCase()}`}>
+                Status: {status.charAt(0).toUpperCase() + status.slice(1)}
+              </span>
+            )}
             {hasChanges && (
               <span className="unsaved-changes-indicator" title="You have unsaved changes">
                 ● Unsaved changes

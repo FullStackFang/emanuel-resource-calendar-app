@@ -18,7 +18,7 @@ export default function MyReservations({ apiToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('drafts');
   const [page, setPage] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -443,7 +443,7 @@ export default function MyReservations({ apiToken }) {
                         onClick={() => handleEditDraft(reservation)}
                         disabled={deletingDraft}
                       >
-                        Continue
+                        Edit
                       </button>
                       <button
                         className="delete-btn"

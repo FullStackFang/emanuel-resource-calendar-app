@@ -120,6 +120,7 @@ export default function ReviewModal({
       case 'approved': return 'status-approved';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
+      case 'draft': return 'status-draft';
       default: return '';
     }
   };
@@ -171,30 +172,25 @@ export default function ReviewModal({
       <div className={modalClassName} style={inlineStyles}>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>
-              {title}
-            </h2>
+          <div className="action-bar-left">
+            <h2 className="action-bar-title">{title}</h2>
+
+            {/* Status badge - now on the left next to title */}
+            {itemStatus && !isEditRequestMode && !isViewingEditRequest && (
+              <span className={`status-pill ${getStatusClass(itemStatus)}`}>
+                {formatStatus(itemStatus)}
+              </span>
+            )}
 
             {/* Feature Flag Toggle */}
             {showFormToggle && onToggleForm && (
               <button
                 type="button"
+                className="form-toggle-btn"
                 onClick={onToggleForm}
-                style={{
-                  padding: '6px 12px',
-                  fontSize: '0.75rem',
-                  borderRadius: '4px',
-                  border: '1px solid #d1d5db',
-                  background: useUnifiedForm ? '#0078d4' : '#f3f4f6',
-                  color: useUnifiedForm ? 'white' : '#374151',
-                  cursor: 'pointer',
-                  fontWeight: '500',
-                  transition: 'all 0.2s'
-                }}
                 title={useUnifiedForm ? 'Switch to Legacy Form' : 'Switch to New Unified Form'}
               >
-                {useUnifiedForm ? '✨ New Form' : '📋 Legacy Form'}
+                {useUnifiedForm ? 'New Form' : 'Legacy Form'}
               </button>
             )}
           </div>
@@ -206,7 +202,7 @@ export default function ReviewModal({
               {isEditRequestMode ? (
                 <>
                   <span className="edit-request-mode-badge">
-                    ✏️ Edit Request Mode
+                    Edit Request Mode
                   </span>
                   <div className="confirm-button-group">
                     <button
@@ -216,7 +212,7 @@ export default function ReviewModal({
                       disabled={isSubmittingEditRequest || !hasChanges}
                       title={!hasChanges ? 'Make changes to submit' : 'Submit edit request for admin review'}
                     >
-                      {isSubmittingEditRequest ? 'Submitting...' : (isEditRequestConfirming ? '⚠️ Confirm Submit?' : '📝 Submit Edit Request')}
+                      {isSubmittingEditRequest ? 'Submitting...' : (isEditRequestConfirming ? 'Confirm Submit?' : 'Submit Edit Request')}
                     </button>
                     {isEditRequestConfirming && onCancelEditRequestConfirm && (
                       <button
@@ -239,18 +235,11 @@ export default function ReviewModal({
                 </>
               ) : (
                 <>
-                  {/* Status badge for requesters (view-only mode) */}
-                  {isRequesterOnly && itemStatus && !isEditRequestMode && !isViewingEditRequest && (
-                    <span className={`status-badge-action ${getStatusClass(itemStatus)}`}>
-                      Status: {formatStatus(itemStatus)}
-                    </span>
-                  )}
-
                   {/* Viewing Edit Request badge and toggle */}
                   {isViewingEditRequest && (
                     <>
                       <span className="edit-request-view-badge">
-                        📋 Viewing Edit Request
+                        Viewing Edit Request
                       </span>
                       <button
                         type="button"
@@ -270,7 +259,7 @@ export default function ReviewModal({
                             onClick={onApproveEditRequest}
                             disabled={isApprovingEditRequest}
                           >
-                            {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? '⚠️ Confirm Approve?' : '✓ Approve Edit')}
+                            {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? 'Confirm Approve?' : 'Approve Edit')}
                           </button>
                           {isEditRequestApproveConfirming && onCancelEditRequestApprove && (
                             <button
@@ -309,7 +298,7 @@ export default function ReviewModal({
                             onClick={onRejectEditRequest}
                             disabled={isRejectingEditRequest}
                           >
-                            {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? '⚠️ Confirm Reject?' : '✗ Reject Edit')}
+                            {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? 'Confirm Reject?' : 'Reject Edit')}
                           </button>
                           {isEditRequestRejectConfirming && onCancelEditRequestReject && (
                             <button
@@ -372,7 +361,7 @@ export default function ReviewModal({
                       disabled={loadingEditRequest}
                       title="Request changes to this approved event"
                     >
-                      {loadingEditRequest ? 'Checking...' : '✏️ Request Edit'}
+                      {loadingEditRequest ? 'Checking...' : 'Request Edit'}
                     </button>
                   )}
 
@@ -385,7 +374,7 @@ export default function ReviewModal({
                     onClick={onApprove}
                     disabled={isApproving}
                   >
-                    {isApproving ? 'Approving...' : (isApproveConfirming ? (approveButtonText || '⚠️ Confirm Approve?') : '✓ Approve')}
+                    {isApproving ? 'Approving...' : (isApproveConfirming ? (approveButtonText || 'Confirm Approve?') : 'Approve')}
                   </button>
                   {isApproveConfirming && onCancelApprove && (
                     <button
@@ -408,7 +397,7 @@ export default function ReviewModal({
                     className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
                     onClick={onReject}
                   >
-                    {isRejectConfirming ? '⚠️ Confirm Reject?' : '✗ Reject'}
+                    {isRejectConfirming ? 'Confirm Reject?' : 'Reject'}
                   </button>
                   {isRejectConfirming && onCancelReject && (
                     <button
@@ -433,7 +422,7 @@ export default function ReviewModal({
                     disabled={isDeleting}
                     title="Permanently delete this reservation (Admin only)"
                   >
-                    {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
+                    {isDeleting ? 'Deleting...' : (deleteButtonText || 'Delete')}
                   </button>
                   {isDeleteConfirming && onCancelDelete && (
                     <button
@@ -483,7 +472,7 @@ export default function ReviewModal({
                     disabled={!hasChanges || !isFormValid || isSaving}
                     title={!hasChanges ? 'Fill out the form to submit' : (!isFormValid ? 'Please fill all required fields' : '')}
                   >
-                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (saveButtonText || '⚠️ Confirm Submit?') : '📝 Submit Request')}
+                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (saveButtonText || 'Confirm Submit?') : 'Submit Request')}
                   </button>
                   {isSaveConfirming && onCancelSave && (
                     <button
@@ -509,7 +498,7 @@ export default function ReviewModal({
                     disabled={!hasChanges || !isFormValid || isSaving}
                     title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : '')}
                   >
-                    {isSaving ? 'Saving...' : (isSaveConfirming ? '⚠️ Confirm Save?' : (saveButtonText || '💾 Save'))}
+                    {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonText || 'Save'))}
                   </button>
                   {isSaveConfirming && onCancelSave && (
                     <button
@@ -535,7 +524,7 @@ export default function ReviewModal({
                     disabled={isDeleting}
                     title="Delete this event"
                   >
-                    {isDeleting ? 'Deleting...' : (deleteButtonText || '🗑️ Delete')}
+                    {isDeleting ? 'Deleting...' : (deleteButtonText || 'Delete')}
                   </button>
                   {isDeleteConfirming && onCancelDelete && (
                     <button
