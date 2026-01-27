@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -15,7 +16,22 @@ https: {
 */
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Sentry plugin for source map upload (only in production builds with auth token)
+    process.env.SENTRY_AUTH_TOKEN && sentryVitePlugin({
+      org: process.env.SENTRY_ORG || 'your-sentry-org',
+      project: process.env.SENTRY_PROJECT || 'emanuel-calendar',
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      sourcemaps: {
+        assets: './dist/**',
+      },
+      // Don't fail the build if source map upload fails
+      errorHandler: (err) => {
+        console.warn('Sentry source map upload warning:', err.message);
+      }
+    })
+  ].filter(Boolean),
   server: {
     port: 5173, // Standard Vite development port
     
@@ -44,6 +60,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // Enable source maps for Sentry error tracking
+    sourcemap: true,
     // Remove console statements in production
     minify: 'terser',
     terserOptions: {

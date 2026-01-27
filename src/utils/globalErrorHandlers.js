@@ -1,13 +1,12 @@
 /**
  * Global Error Handlers for Temple Emanuel Resource Calendar
- * Catches unhandled errors and promise rejections
+ * Simplified version - Sentry handles automatic error capture
+ * This module only handles UI notification (showing error modal)
  */
 
-import { reportError, normalizeError } from '../services/errorReportingService';
+import * as Sentry from '@sentry/react';
+import { normalizeError } from '../services/errorReportingService';
 import { logger } from './logger';
-
-// Token getter function (set during initialization)
-let getApiToken = null;
 
 // Error modal trigger function (set during initialization)
 let showErrorModal = null;
@@ -15,14 +14,13 @@ let showErrorModal = null;
 /**
  * Initialize global error handlers
  * @param {Object} options - Initialization options
- * @param {Function} options.getApiToken - Function to get current API token
+ * @param {Function} options.getApiToken - Function to get current API token (kept for backward compatibility)
  * @param {Function} options.onError - Callback when error occurs (for showing modal)
  */
 export function initializeGlobalErrorHandlers(options = {}) {
-  getApiToken = options.getApiToken || null;
   showErrorModal = options.onError || null;
 
-  // Handle uncaught errors
+  // Handle uncaught errors - Sentry auto-captures, we just show modal
   window.onerror = function(message, source, lineno, colno, error) {
     logger.error('Uncaught error:', { message, source, lineno, colno });
 
@@ -31,13 +29,26 @@ export function initializeGlobalErrorHandlers(options = {}) {
       severity: 'critical'
     });
 
-    handleError(errorInfo);
+    // Sentry captures automatically, but add extra context
+    if (error) {
+      Sentry.addBreadcrumb({
+        category: 'error',
+        message: `Uncaught error: ${message}`,
+        level: 'error',
+        data: { source, lineno, colno }
+      });
+    }
+
+    // Show error modal to user
+    if (showErrorModal) {
+      showErrorModal(errorInfo);
+    }
 
     // Return false to allow default browser error handling
     return false;
   };
 
-  // Handle unhandled promise rejections
+  // Handle unhandled promise rejections - Sentry auto-captures
   window.onunhandledrejection = function(event) {
     logger.error('Unhandled promise rejection:', event.reason);
 
@@ -46,50 +57,56 @@ export function initializeGlobalErrorHandlers(options = {}) {
       severity: 'critical'
     });
 
-    handleError(errorInfo);
+    // Add breadcrumb for context
+    Sentry.addBreadcrumb({
+      category: 'error',
+      message: `Unhandled rejection: ${event.reason?.message || event.reason}`,
+      level: 'error'
+    });
+
+    // Show error modal to user
+    if (showErrorModal) {
+      showErrorModal(errorInfo);
+    }
   };
 
-  logger.debug('Global error handlers initialized');
+  logger.debug('Global error handlers initialized (Sentry mode)');
 }
 
 /**
- * Handle an error - report and optionally show modal
- * @param {Object} errorInfo - Normalized error info
- */
-async function handleError(errorInfo) {
-  // Report to backend if we have a token
-  const token = getApiToken?.();
-  if (token) {
-    try {
-      const result = await reportError(errorInfo, token);
-      if (result.correlationId) {
-        errorInfo.correlationId = result.correlationId;
-      }
-    } catch (reportError) {
-      logger.error('Failed to report error:', reportError);
-    }
-  }
-
-  // Trigger error modal if handler is set
-  if (showErrorModal) {
-    showErrorModal(errorInfo);
-  }
-}
-
-/**
- * Manually report an error (can be called from anywhere)
+ * Manually report an error to Sentry (can be called from anywhere)
  * @param {Error|string|Object} error - Error to report
  * @param {Object} context - Additional context
+ * @returns {string|null} Sentry event ID
  */
-export async function reportGlobalError(error, context = {}) {
+export function reportGlobalError(error, context = {}) {
   const errorInfo = normalizeError(error, {
     errorType: context.errorType || 'manual_report',
     severity: context.severity || 'high',
     ...context
   });
 
-  await handleError(errorInfo);
-  return errorInfo;
+  // Capture with Sentry
+  const eventId = Sentry.captureException(
+    error instanceof Error ? error : new Error(errorInfo.message),
+    {
+      extra: {
+        ...context,
+        originalError: errorInfo
+      },
+      tags: {
+        errorType: context.errorType || 'manual_report',
+        severity: context.severity || 'high'
+      }
+    }
+  );
+
+  // Show error modal if handler is set
+  if (showErrorModal) {
+    showErrorModal({ ...errorInfo, eventId });
+  }
+
+  return eventId;
 }
 
 /**
@@ -98,7 +115,6 @@ export async function reportGlobalError(error, context = {}) {
 export function cleanupGlobalErrorHandlers() {
   window.onerror = null;
   window.onunhandledrejection = null;
-  getApiToken = null;
   showErrorModal = null;
 }
 

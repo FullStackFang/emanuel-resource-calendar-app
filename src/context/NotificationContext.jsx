@@ -4,7 +4,8 @@
  */
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { reportError, normalizeError } from '../services/errorReportingService';
+import * as Sentry from '@sentry/react';
+import { normalizeError } from '../services/errorReportingService';
 import { logger } from '../utils/logger';
 
 const NotificationContext = createContext(null);
@@ -167,60 +168,37 @@ export function NotificationProvider({ children }) {
     const message = extractErrorMessage(error, userMessage);
     const config = SEVERITY_CONFIG[severity];
 
-    // Log to backend for critical/high severity errors (unless skipped)
-    let correlationId = null;
+    // Log to Sentry for critical/high severity errors (unless skipped)
+    let eventId = null;
     if (config.autoLog && !skipLog) {
-      const apiToken = window.__apiToken;
-      if (apiToken) {
-        const normalizedError = normalizeError(error, {
-          errorType: 'handled_error',
-          severity,
-          context
-        });
-
-        reportError(normalizedError, apiToken)
-          .then(result => {
-            if (result.success) {
-              logger.debug(`Error logged to backend [${context}]:`, result.correlationId);
-              correlationId = result.correlationId;
-
-              // Trigger critical error callback with correlation ID
-              if (severity === 'critical' && criticalErrorCallbackRef.current) {
-                criticalErrorCallbackRef.current({
-                  message,
-                  context,
-                  severity,
-                  correlationId: result.correlationId,
-                  originalError: error
-                });
-              }
-            }
-          })
-          .catch(logError => {
-            logger.error('Failed to log error to backend:', logError);
-            // Still trigger callback even if logging failed
-            if (severity === 'critical' && criticalErrorCallbackRef.current) {
-              criticalErrorCallbackRef.current({
-                message,
-                context,
-                severity,
-                correlationId: null,
-                originalError: error
-              });
-            }
-          });
-      } else {
-        logger.warn('Cannot log error - no API token available');
-        // Trigger callback even without token
-        if (severity === 'critical' && criticalErrorCallbackRef.current) {
-          criticalErrorCallbackRef.current({
-            message,
+      // Capture with Sentry
+      eventId = Sentry.captureException(
+        error instanceof Error ? error : new Error(message),
+        {
+          extra: {
             context,
             severity,
-            correlationId: null,
-            originalError: error
-          });
+            userMessage
+          },
+          tags: {
+            errorType: 'handled_error',
+            severity,
+            context
+          }
         }
+      );
+
+      logger.debug(`Error captured by Sentry [${context}]:`, eventId);
+
+      // Trigger critical error callback with Sentry event ID
+      if (severity === 'critical' && criticalErrorCallbackRef.current) {
+        criticalErrorCallbackRef.current({
+          message,
+          context,
+          severity,
+          eventId,
+          originalError: error
+        });
       }
     } else if (severity === 'critical' && criticalErrorCallbackRef.current) {
       // Critical error but logging skipped - still trigger callback
@@ -228,7 +206,7 @@ export function NotificationProvider({ children }) {
         message,
         context,
         severity,
-        correlationId: null,
+        eventId: null,
         originalError: error
       });
     }

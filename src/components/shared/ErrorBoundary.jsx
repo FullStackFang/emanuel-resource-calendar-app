@@ -1,10 +1,12 @@
 /**
  * ErrorBoundary Component
  * Catches React component errors and provides a fallback UI
+ * Uses Sentry for automatic error capture
  */
 
 import React, { Component } from 'react';
-import { reportError, normalizeError } from '../../services/errorReportingService';
+import * as Sentry from '@sentry/react';
+import { normalizeError } from '../../services/errorReportingService';
 import { logger } from '../../utils/logger';
 import './ErrorBoundary.css';
 
@@ -15,8 +17,7 @@ class ErrorBoundary extends Component {
       hasError: false,
       error: null,
       errorInfo: null,
-      correlationId: null,
-      isReporting: false,
+      eventId: null, // Sentry event ID instead of correlationId
       reportSent: false
     };
   }
@@ -32,39 +33,30 @@ class ErrorBoundary extends Component {
 
     this.setState({ errorInfo });
 
-    // Report error to backend
-    this.reportErrorToBackend(error, errorInfo);
-  }
-
-  async reportErrorToBackend(error, errorInfo) {
-    const { apiToken, onError } = this.props;
-
-    this.setState({ isReporting: true });
-
-    const errorData = normalizeError(error, {
-      componentStack: errorInfo?.componentStack,
-      errorType: 'react_error',
-      severity: 'critical'
+    // Capture error with Sentry (Sentry auto-captures, but we add component context)
+    const eventId = Sentry.captureException(error, {
+      extra: {
+        componentStack: errorInfo.componentStack
+      },
+      tags: {
+        errorType: 'react_error',
+        boundary: 'ErrorBoundary'
+      }
     });
 
-    try {
-      if (apiToken) {
-        const result = await reportError(errorData, apiToken);
-        if (result.correlationId) {
-          this.setState({ correlationId: result.correlationId, reportSent: true });
-        }
-      }
-    } catch (reportErr) {
-      logger.error('Failed to report error from boundary:', reportErr);
-    } finally {
-      this.setState({ isReporting: false });
-    }
+    this.setState({ eventId, reportSent: true });
 
     // Trigger error modal callback if provided
+    const { onError } = this.props;
     if (onError) {
+      const errorData = normalizeError(error, {
+        componentStack: errorInfo?.componentStack,
+        errorType: 'react_error',
+        severity: 'critical'
+      });
       onError({
         ...errorData,
-        correlationId: this.state.correlationId
+        eventId
       });
     }
   }
@@ -74,7 +66,7 @@ class ErrorBoundary extends Component {
       hasError: false,
       error: null,
       errorInfo: null,
-      correlationId: null,
+      eventId: null,
       reportSent: false
     });
   };
@@ -85,13 +77,13 @@ class ErrorBoundary extends Component {
       onShowReportModal({
         error: this.state.error,
         componentStack: this.state.errorInfo?.componentStack,
-        correlationId: this.state.correlationId
+        eventId: this.state.eventId
       });
     }
   };
 
   render() {
-    const { hasError, error, errorInfo, correlationId, isReporting, reportSent } = this.state;
+    const { hasError, error, errorInfo, eventId, reportSent } = this.state;
     const { children, fallback } = this.props;
 
     if (hasError) {
@@ -100,7 +92,7 @@ class ErrorBoundary extends Component {
         return fallback({
           error,
           errorInfo,
-          correlationId,
+          eventId,
           onRetry: this.handleRetry,
           onReportIssue: this.handleReportIssue
         });
@@ -125,14 +117,10 @@ class ErrorBoundary extends Component {
               {reportSent && ' The error has been automatically reported to our team.'}
             </p>
 
-            {correlationId && (
+            {eventId && (
               <p className="error-boundary-correlation">
-                Reference: <code>{correlationId}</code>
+                Reference: <code>{eventId}</code>
               </p>
-            )}
-
-            {isReporting && (
-              <p className="error-boundary-reporting">Reporting error...</p>
             )}
 
             <div className="error-boundary-actions">

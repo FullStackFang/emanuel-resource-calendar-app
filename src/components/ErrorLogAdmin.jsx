@@ -1,49 +1,33 @@
 /**
  * ErrorLogAdmin Component
- * Admin dashboard for viewing and managing error logs
+ * Admin dashboard for viewing and managing user-submitted reports
+ * Note: Automatic errors are now handled by Sentry - see Sentry dashboard
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import * as Sentry from '@sentry/react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import './ErrorLogAdmin.css';
 
-// Severity badge colors
-const SEVERITY_COLORS = {
-  critical: '#dc2626',
-  high: '#ea580c',
-  medium: '#ca8a04',
-  low: '#16a34a'
-};
-
-// Source labels
-const SOURCE_LABELS = {
-  frontend: 'Frontend',
-  backend: 'Backend',
-  api: 'API',
-  graph_api: 'Graph API'
-};
-
-// Type labels
-const TYPE_LABELS = {
-  error: 'Error',
-  warning: 'Warning',
-  user_report: 'User Report'
+// Category labels for user reports
+const CATEGORY_LABELS = {
+  general: 'General',
+  bug: 'Bug Report',
+  feature: 'Feature Request',
+  performance: 'Performance Issue',
+  ui: 'UI/Display Issue',
+  other: 'Other'
 };
 
 function ErrorLogAdmin({ apiToken }) {
-  const [errors, setErrors] = useState([]);
+  const [reports, setReports] = useState([]);
   const [stats, setStats] = useState(null);
-  const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedError, setSelectedError] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   // Filter state
   const [filters, setFilters] = useState({
-    type: '',
-    severity: '',
-    source: '',
     reviewed: '',
     search: ''
   });
@@ -58,20 +42,23 @@ function ErrorLogAdmin({ apiToken }) {
   const [reviewResolution, setReviewResolution] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // Fetch error logs
-  const fetchErrors = useCallback(async () => {
+  // Sentry test state
+  const [testingFrontend, setTestingFrontend] = useState(false);
+  const [testingBackend, setTestingBackend] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  // Fetch user reports
+  const fetchReports = useCallback(async () => {
     if (!apiToken) return;
 
     setLoading(true);
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: '25'
+        limit: '25',
+        type: 'user_report' // Only fetch user reports
       });
 
-      if (filters.type) params.append('type', filters.type);
-      if (filters.severity) params.append('severity', filters.severity);
-      if (filters.source) params.append('source', filters.source);
       if (filters.reviewed) params.append('reviewed', filters.reviewed);
       if (filters.search) params.append('search', filters.search);
 
@@ -83,16 +70,16 @@ function ErrorLogAdmin({ apiToken }) {
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch error logs');
+        throw new Error('Failed to fetch reports');
       }
 
       const data = await response.json();
-      setErrors(data.errors || []);
+      setReports(data.errors || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
 
     } catch (error) {
-      logger.error('Error fetching error logs:', error);
+      logger.error('Error fetching reports:', error);
     } finally {
       setLoading(false);
     }
@@ -119,33 +106,11 @@ function ErrorLogAdmin({ apiToken }) {
     }
   }, [apiToken]);
 
-  // Fetch settings
-  const fetchSettings = useCallback(async () => {
-    if (!apiToken) return;
-
-    try {
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/error-settings`,
-        {
-          headers: { 'Authorization': `Bearer ${apiToken}` }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-      }
-    } catch (error) {
-      logger.error('Error fetching settings:', error);
-    }
-  }, [apiToken]);
-
   // Initial load
   useEffect(() => {
-    fetchErrors();
+    fetchReports();
     fetchStats();
-    fetchSettings();
-  }, [fetchErrors, fetchStats, fetchSettings]);
+  }, [fetchReports, fetchStats]);
 
   // Refetch on filter change
   useEffect(() => {
@@ -153,11 +118,11 @@ function ErrorLogAdmin({ apiToken }) {
   }, [filters]);
 
   // Mark as reviewed
-  const handleMarkReviewed = async (errorId, reviewed = true) => {
+  const handleMarkReviewed = async (reportId, reviewed = true) => {
     setIsReviewing(true);
     try {
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/error-logs/${errorId}/review`,
+        `${APP_CONFIG.API_BASE_URL}/admin/error-logs/${reportId}/review`,
         {
           method: 'PUT',
           headers: {
@@ -173,10 +138,9 @@ function ErrorLogAdmin({ apiToken }) {
       );
 
       if (response.ok) {
-        // Refresh data
-        fetchErrors();
+        fetchReports();
         fetchStats();
-        setSelectedError(null);
+        setSelectedReport(null);
         setReviewNotes('');
         setReviewResolution('');
       }
@@ -187,28 +151,70 @@ function ErrorLogAdmin({ apiToken }) {
     }
   };
 
-  // Update settings
-  const handleUpdateSettings = async (newSettings) => {
+  // Test Sentry frontend error
+  const testFrontendError = () => {
+    setTestingFrontend(true);
+    setTestResult(null);
+
+    try {
+      // Capture a test error to Sentry
+      const testError = new Error(`[TEST] Frontend Sentry test error - ${new Date().toISOString()}`);
+      Sentry.captureException(testError, {
+        tags: { test: true, source: 'ErrorLogAdmin' },
+        extra: { triggeredBy: 'Test Sentry Frontend button' }
+      });
+
+      setTestResult({
+        type: 'success',
+        message: 'Frontend test error sent to Sentry! Check your Sentry dashboard.'
+      });
+    } catch (err) {
+      setTestResult({
+        type: 'error',
+        message: `Failed to send test error: ${err.message}`
+      });
+    } finally {
+      setTestingFrontend(false);
+    }
+  };
+
+  // Test Sentry backend error
+  const testBackendError = async () => {
+    setTestingBackend(true);
+    setTestResult(null);
+
     try {
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/error-settings`,
+        `${APP_CONFIG.API_BASE_URL}/admin/test-sentry`,
         {
-          method: 'PUT',
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`
-          },
-          body: JSON.stringify(newSettings)
+          }
         }
       );
 
+      const data = await response.json();
+
       if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-        setShowSettings(false);
+        setTestResult({
+          type: 'success',
+          message: data.message || 'Backend test error sent to Sentry! Check your Sentry dashboard.'
+        });
+      } else {
+        setTestResult({
+          type: 'error',
+          message: data.error || 'Failed to trigger backend test error'
+        });
       }
-    } catch (error) {
-      logger.error('Error updating settings:', error);
+    } catch (err) {
+      setTestResult({
+        type: 'error',
+        message: `Failed to call backend: ${err.message}`
+      });
+    } finally {
+      setTestingBackend(false);
     }
   };
 
@@ -227,33 +233,27 @@ function ErrorLogAdmin({ apiToken }) {
   return (
     <div className="error-log-admin">
       <div className="error-log-header">
-        <h1>Error Logs</h1>
-        <button
-          className="error-log-settings-btn"
-          onClick={() => setShowSettings(true)}
-        >
-          Settings
-        </button>
+        <h1>User Reports</h1>
+        <p className="error-log-subtitle">
+          User-submitted feedback and issue reports.
+          For automatic error tracking, see the{' '}
+          <a
+            href="https://sentry.io"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sentry-link"
+          >
+            Sentry Dashboard
+          </a>
+        </p>
       </div>
 
       {/* Stats Cards */}
       {stats && (
         <div className="error-log-stats">
-          <div className="error-stat-card critical">
-            <div className="error-stat-value">{stats.bySeverity?.critical || 0}</div>
-            <div className="error-stat-label">Critical</div>
-          </div>
-          <div className="error-stat-card high">
-            <div className="error-stat-value">{stats.bySeverity?.high || 0}</div>
-            <div className="error-stat-label">High</div>
-          </div>
-          <div className="error-stat-card medium">
-            <div className="error-stat-value">{stats.bySeverity?.medium || 0}</div>
-            <div className="error-stat-label">Medium</div>
-          </div>
           <div className="error-stat-card user-reports">
-            <div className="error-stat-value">{stats.byType?.user_report || 0}</div>
-            <div className="error-stat-label">User Reports</div>
+            <div className="error-stat-value">{stats.total || 0}</div>
+            <div className="error-stat-label">Total Reports</div>
           </div>
           <div className="error-stat-card unreviewed">
             <div className="error-stat-value">{stats.unreviewedCount || 0}</div>
@@ -266,48 +266,38 @@ function ErrorLogAdmin({ apiToken }) {
         </div>
       )}
 
+      {/* Sentry Test Section */}
+      <div className="sentry-test-section">
+        <h3>Test Sentry Integration</h3>
+        <p className="sentry-test-description">
+          Send test errors to verify Sentry is configured correctly.
+          Check your <a href="https://sentry.io" target="_blank" rel="noopener noreferrer">Sentry dashboard</a> after clicking.
+        </p>
+        <div className="sentry-test-buttons">
+          <button
+            className="sentry-test-btn frontend"
+            onClick={testFrontendError}
+            disabled={testingFrontend}
+          >
+            {testingFrontend ? 'Sending...' : 'Test Frontend Error'}
+          </button>
+          <button
+            className="sentry-test-btn backend"
+            onClick={testBackendError}
+            disabled={testingBackend}
+          >
+            {testingBackend ? 'Sending...' : 'Test Backend Error'}
+          </button>
+        </div>
+        {testResult && (
+          <div className={`sentry-test-result ${testResult.type}`}>
+            {testResult.message}
+          </div>
+        )}
+      </div>
+
       {/* Filters */}
       <div className="error-log-filters">
-        <div className="error-filter-group">
-          <label>Type</label>
-          <select
-            value={filters.type}
-            onChange={e => setFilters({ ...filters, type: e.target.value })}
-          >
-            <option value="">All Types</option>
-            <option value="error">Error</option>
-            <option value="warning">Warning</option>
-            <option value="user_report">User Report</option>
-          </select>
-        </div>
-
-        <div className="error-filter-group">
-          <label>Severity</label>
-          <select
-            value={filters.severity}
-            onChange={e => setFilters({ ...filters, severity: e.target.value })}
-          >
-            <option value="">All Severities</option>
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-        </div>
-
-        <div className="error-filter-group">
-          <label>Source</label>
-          <select
-            value={filters.source}
-            onChange={e => setFilters({ ...filters, source: e.target.value })}
-          >
-            <option value="">All Sources</option>
-            <option value="frontend">Frontend</option>
-            <option value="backend">Backend</option>
-            <option value="api">API</option>
-          </select>
-        </div>
-
         <div className="error-filter-group">
           <label>Status</label>
           <select
@@ -324,62 +314,52 @@ function ErrorLogAdmin({ apiToken }) {
           <label>Search</label>
           <input
             type="text"
-            placeholder="Search message, correlation ID..."
+            placeholder="Search description, user email..."
             value={filters.search}
             onChange={e => setFilters({ ...filters, search: e.target.value })}
           />
         </div>
       </div>
 
-      {/* Error List */}
+      {/* Reports List */}
       <div className="error-log-table-container">
         {loading ? (
           <div className="error-log-loading">Loading...</div>
-        ) : errors.length === 0 ? (
-          <div className="error-log-empty">No errors found</div>
+        ) : reports.length === 0 ? (
+          <div className="error-log-empty">No user reports found</div>
         ) : (
           <table className="error-log-table">
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Severity</th>
-                <th>Source</th>
-                <th>Message</th>
+                <th>Category</th>
+                <th>Description</th>
                 <th>User</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {errors.map(error => (
+              {reports.map(report => (
                 <tr
-                  key={error._id}
-                  className={error.reviewed ? 'reviewed' : ''}
-                  onClick={() => setSelectedError(error)}
+                  key={report._id}
+                  className={report.reviewed ? 'reviewed' : ''}
+                  onClick={() => setSelectedReport(report)}
                 >
                   <td className="error-time">
-                    {formatTimestamp(error.createdAt)}
+                    {formatTimestamp(report.createdAt)}
                   </td>
                   <td>
-                    <span
-                      className="error-severity-badge"
-                      style={{ backgroundColor: SEVERITY_COLORS[error.severity] || '#6b7280' }}
-                    >
-                      {error.severity}
+                    <span className="error-category-badge">
+                      {CATEGORY_LABELS[report.userSelectedCategory] || report.userSelectedCategory || 'General'}
                     </span>
                   </td>
-                  <td>{SOURCE_LABELS[error.source] || error.source}</td>
-                  <td className="error-message-cell" title={error.message}>
-                    {truncate(error.message, 60)}
-                    {error.occurrenceCount > 1 && (
-                      <span className="error-occurrence-badge">
-                        x{error.occurrenceCount}
-                      </span>
-                    )}
+                  <td className="error-message-cell" title={report.userDescription || report.message}>
+                    {truncate(report.userDescription || report.message, 60)}
                   </td>
-                  <td>{error.userContext?.email || '-'}</td>
+                  <td>{report.userContext?.email || '-'}</td>
                   <td>
-                    {error.reviewed ? (
+                    {report.reviewed ? (
                       <span className="error-status reviewed">Reviewed</span>
                     ) : (
                       <span className="error-status unreviewed">Unreviewed</span>
@@ -390,7 +370,7 @@ function ErrorLogAdmin({ apiToken }) {
                       className="error-action-btn"
                       onClick={e => {
                         e.stopPropagation();
-                        setSelectedError(error);
+                        setSelectedReport(report);
                       }}
                     >
                       View
@@ -422,102 +402,68 @@ function ErrorLogAdmin({ apiToken }) {
         </div>
       )}
 
-      {/* Error Detail Modal */}
-      {selectedError && (
-        <div className="error-detail-modal-overlay" onClick={() => setSelectedError(null)}>
+      {/* Report Detail Modal */}
+      {selectedReport && (
+        <div className="error-detail-modal-overlay" onClick={() => setSelectedReport(null)}>
           <div className="error-detail-modal" onClick={e => e.stopPropagation()}>
             <button
               className="error-detail-close"
-              onClick={() => setSelectedError(null)}
+              onClick={() => setSelectedReport(null)}
             >
               &times;
             </button>
 
-            <h2>Error Details</h2>
+            <h2>User Report Details</h2>
 
             <div className="error-detail-section">
               <div className="error-detail-row">
-                <span className="error-detail-label">Correlation ID:</span>
-                <code>{selectedError.correlationId}</code>
+                <span className="error-detail-label">Reference ID:</span>
+                <code>{selectedReport.correlationId}</code>
               </div>
               <div className="error-detail-row">
-                <span className="error-detail-label">Severity:</span>
-                <span
-                  className="error-severity-badge"
-                  style={{ backgroundColor: SEVERITY_COLORS[selectedError.severity] }}
-                >
-                  {selectedError.severity}
+                <span className="error-detail-label">Category:</span>
+                <span className="error-category-badge">
+                  {CATEGORY_LABELS[selectedReport.userSelectedCategory] || selectedReport.userSelectedCategory || 'General'}
                 </span>
               </div>
               <div className="error-detail-row">
-                <span className="error-detail-label">Source:</span>
-                <span>{SOURCE_LABELS[selectedError.source] || selectedError.source}</span>
-              </div>
-              <div className="error-detail-row">
-                <span className="error-detail-label">Type:</span>
-                <span>{TYPE_LABELS[selectedError.type] || selectedError.type}</span>
-              </div>
-              <div className="error-detail-row">
-                <span className="error-detail-label">Time:</span>
-                <span>{formatTimestamp(selectedError.createdAt)}</span>
-              </div>
-              <div className="error-detail-row">
-                <span className="error-detail-label">Occurrences:</span>
-                <span>{selectedError.occurrenceCount || 1}</span>
+                <span className="error-detail-label">Submitted:</span>
+                <span>{formatTimestamp(selectedReport.createdAt)}</span>
               </div>
             </div>
 
             <div className="error-detail-section">
-              <h3>Message</h3>
-              <div className="error-detail-message">{selectedError.message}</div>
+              <h3>User Description</h3>
+              <div className="error-detail-message">
+                {selectedReport.userDescription || selectedReport.message || 'No description provided'}
+              </div>
             </div>
 
-            {selectedError.userDescription && (
+            {selectedReport.userContext && (
               <div className="error-detail-section">
-                <h3>User Description</h3>
-                <div className="error-detail-message">{selectedError.userDescription}</div>
-              </div>
-            )}
-
-            {selectedError.stack && (
-              <div className="error-detail-section">
-                <h3>Stack Trace</h3>
-                <pre className="error-detail-stack">{selectedError.stack}</pre>
-              </div>
-            )}
-
-            {selectedError.userContext && (
-              <div className="error-detail-section">
-                <h3>User Context</h3>
+                <h3>Submitted By</h3>
                 <div className="error-detail-row">
                   <span className="error-detail-label">Email:</span>
-                  <span>{selectedError.userContext.email || '-'}</span>
+                  <span>{selectedReport.userContext.email || '-'}</span>
                 </div>
                 <div className="error-detail-row">
                   <span className="error-detail-label">Name:</span>
-                  <span>{selectedError.userContext.name || '-'}</span>
+                  <span>{selectedReport.userContext.name || '-'}</span>
                 </div>
               </div>
             )}
 
-            {selectedError.browserContext && (
+            {selectedReport.browserContext && (
               <div className="error-detail-section">
                 <h3>Browser Context</h3>
                 <div className="error-detail-row">
                   <span className="error-detail-label">URL:</span>
-                  <span>{selectedError.browserContext.url || '-'}</span>
+                  <span>{selectedReport.browserContext.url || selectedReport.endpoint || '-'}</span>
                 </div>
                 <div className="error-detail-row">
-                  <span className="error-detail-label">User Agent:</span>
-                  <span className="error-detail-wrap">{selectedError.browserContext.userAgent || '-'}</span>
+                  <span className="error-detail-label">Browser:</span>
+                  <span className="error-detail-wrap">{selectedReport.browserContext.userAgent || '-'}</span>
                 </div>
-              </div>
-            )}
-
-            {selectedError.endpoint && (
-              <div className="error-detail-section">
-                <h3>Endpoint</h3>
-                <code>{selectedError.endpoint}</code>
               </div>
             )}
 
@@ -525,19 +471,19 @@ function ErrorLogAdmin({ apiToken }) {
             <div className="error-detail-section review-section">
               <h3>Review</h3>
 
-              {selectedError.reviewed ? (
+              {selectedReport.reviewed ? (
                 <div className="error-review-info">
-                  <p>Reviewed by: {selectedError.reviewedBy?.email || 'Unknown'}</p>
-                  <p>Reviewed at: {formatTimestamp(selectedError.reviewedAt)}</p>
-                  {selectedError.resolution && (
-                    <p>Resolution: {selectedError.resolution}</p>
+                  <p>Reviewed by: {selectedReport.reviewedBy?.email || 'Unknown'}</p>
+                  <p>Reviewed at: {formatTimestamp(selectedReport.reviewedAt)}</p>
+                  {selectedReport.resolution && (
+                    <p>Resolution: {selectedReport.resolution}</p>
                   )}
-                  {selectedError.notes && (
-                    <p>Notes: {selectedError.notes}</p>
+                  {selectedReport.notes && (
+                    <p>Notes: {selectedReport.notes}</p>
                   )}
                   <button
                     className="error-review-btn secondary"
-                    onClick={() => handleMarkReviewed(selectedError._id, false)}
+                    onClick={() => handleMarkReviewed(selectedReport._id, false)}
                     disabled={isReviewing}
                   >
                     Mark as Unreviewed
@@ -552,11 +498,11 @@ function ErrorLogAdmin({ apiToken }) {
                       onChange={e => setReviewResolution(e.target.value)}
                     >
                       <option value="">Select resolution...</option>
-                      <option value="fixed">Fixed</option>
+                      <option value="addressed">Addressed</option>
                       <option value="wont_fix">Won't Fix</option>
                       <option value="duplicate">Duplicate</option>
-                      <option value="cannot_reproduce">Cannot Reproduce</option>
-                      <option value="user_error">User Error</option>
+                      <option value="need_info">Need More Info</option>
+                      <option value="feature_request">Feature Request Logged</option>
                       <option value="investigating">Investigating</option>
                     </select>
                   </div>
@@ -565,117 +511,19 @@ function ErrorLogAdmin({ apiToken }) {
                     <textarea
                       value={reviewNotes}
                       onChange={e => setReviewNotes(e.target.value)}
-                      placeholder="Add notes about this error..."
+                      placeholder="Add notes about this report..."
                       rows={3}
                     />
                   </div>
                   <button
                     className="error-review-btn primary"
-                    onClick={() => handleMarkReviewed(selectedError._id, true)}
+                    onClick={() => handleMarkReviewed(selectedReport._id, true)}
                     disabled={isReviewing}
                   >
                     {isReviewing ? 'Saving...' : 'Mark as Reviewed'}
                   </button>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Settings Modal */}
-      {showSettings && settings && (
-        <div className="error-settings-modal-overlay" onClick={() => setShowSettings(false)}>
-          <div className="error-settings-modal" onClick={e => e.stopPropagation()}>
-            <button
-              className="error-settings-close"
-              onClick={() => setShowSettings(false)}
-            >
-              &times;
-            </button>
-
-            <h2>Error Notification Settings</h2>
-
-            <div className="error-settings-form">
-              <div className="error-settings-field">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={settings.notificationsEnabled}
-                    onChange={e => setSettings({ ...settings, notificationsEnabled: e.target.checked })}
-                  />
-                  Enable email notifications
-                </label>
-              </div>
-
-              <div className="error-settings-field">
-                <label>Notify on severity levels:</label>
-                <div className="error-settings-checkboxes">
-                  {['critical', 'high', 'medium', 'low'].map(sev => (
-                    <label key={sev}>
-                      <input
-                        type="checkbox"
-                        checked={settings.notifyOnSeverity?.includes(sev)}
-                        onChange={e => {
-                          const newSeverities = e.target.checked
-                            ? [...(settings.notifyOnSeverity || []), sev]
-                            : (settings.notifyOnSeverity || []).filter(s => s !== sev);
-                          setSettings({ ...settings, notifyOnSeverity: newSeverities });
-                        }}
-                      />
-                      {sev.charAt(0).toUpperCase() + sev.slice(1)}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="error-settings-field">
-                <label>Email cooldown (minutes):</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="1440"
-                  value={settings.emailCooldownMinutes || 15}
-                  onChange={e => setSettings({ ...settings, emailCooldownMinutes: parseInt(e.target.value) })}
-                />
-              </div>
-
-              <div className="error-settings-field">
-                <label>Daily email limit:</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="500"
-                  value={settings.dailyEmailLimit || 50}
-                  onChange={e => setSettings({ ...settings, dailyEmailLimit: parseInt(e.target.value) })}
-                />
-              </div>
-
-              <div className="error-settings-field">
-                <label>Log retention (days):</label>
-                <input
-                  type="number"
-                  min="7"
-                  max="365"
-                  value={settings.retentionDays || 90}
-                  onChange={e => setSettings({ ...settings, retentionDays: parseInt(e.target.value) })}
-                />
-              </div>
-
-              <div className="error-settings-actions">
-                <button
-                  className="error-settings-btn secondary"
-                  onClick={() => setShowSettings(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="error-settings-btn primary"
-                  onClick={() => handleUpdateSettings(settings)}
-                >
-                  Save Settings
-                </button>
-              </div>
             </div>
           </div>
         </div>

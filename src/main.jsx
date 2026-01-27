@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
+import * as Sentry from '@sentry/react';
 import App from './App';
 import { PublicClientApplication } from '@azure/msal-browser';
 import { MsalProvider } from '@azure/msal-react';
@@ -10,6 +11,29 @@ import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import './index.css'; // optional
+
+// Initialize Sentry FIRST (before any error handlers)
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'development',
+    release: import.meta.env.VITE_SENTRY_RELEASE || '1.0.0',
+    integrations: [
+      Sentry.browserTracingIntegration(),
+      Sentry.replayIntegration({
+        maskAllText: false,
+        blockAllMedia: false
+      }),
+    ],
+    // Performance monitoring
+    tracesSampleRate: import.meta.env.PROD ? 0.1 : 1.0, // 10% in prod, 100% in dev
+    // Session replay
+    replaysSessionSampleRate: 0.1, // 10% of sessions
+    replaysOnErrorSampleRate: 1.0, // 100% when error occurs
+    // Don't send errors in development unless DSN is explicitly set
+    enabled: import.meta.env.PROD || !!import.meta.env.VITE_SENTRY_DSN,
+  });
+}
 
 /**
  * CriticalErrorHandler - Manages ErrorReportModal for critical errors

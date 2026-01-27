@@ -1,6 +1,7 @@
 // api-server.js - Express API for MongoDB
 console.log('🚀 API SERVER FILE LOADED - CODE VERSION 2.0'); // Keep as console.log - runs before logger is imported
 const express = require('express');
+const Sentry = require('@sentry/node');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -21,6 +22,25 @@ const graphApiService = require('./services/graphApiService');
 const crypto = require('crypto');
 
 dotenv.config();
+
+// Initialize Sentry BEFORE creating Express app
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT || 'development',
+    release: process.env.SENTRY_RELEASE || '1.0.0',
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    // Don't capture expected 4xx errors
+    beforeSend(event, hint) {
+      const error = hint.originalException;
+      if (error && error.statusCode && error.statusCode < 500) {
+        return null; // Don't send 4xx errors to Sentry
+      }
+      return event;
+    }
+  });
+  console.log('✅ Sentry initialized for error tracking');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -57,6 +77,8 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 app.use(express.json());
+
+// Note: Sentry v8+ automatically instruments Express - no manual request handler needed
 
 // Request ID middleware - adds unique ID to each request for tracking
 app.use((req, res, next) => {
@@ -12971,10 +12993,8 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
 
     // Handle status filtering including drafts
     if (status === 'draft') {
-      // Drafts are only visible to owner (or admin)
-      if (!canViewAll) {
-        query['roomReservationData.requestedBy.userId'] = userId;
-      }
+      // Drafts are ALWAYS private - only visible to owner
+      query['roomReservationData.requestedBy.userId'] = userId;
       query.status = 'draft';
     } else if (status) {
       // Handle both 'pending' and legacy 'room-reservation-request' statuses
@@ -12988,13 +13008,16 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
         query['roomReservationData.requestedBy.userId'] = userId;
       }
     } else {
-      // No status filter - show all including drafts (but drafts only for owner)
+      // No status filter
       if (!canViewAll) {
-        // For non-admins: show their own reservations (all statuses including drafts)
+        // For non-admins: show their own reservations (all statuses)
         query['roomReservationData.requestedBy.userId'] = userId;
       } else {
-        // For admins: show all reservations including all drafts
-        // No additional filter needed
+        // For admins: show all non-draft reservations, but only their own drafts
+        query.$or = [
+          { status: { $ne: 'draft' } },
+          { status: 'draft', 'roomReservationData.requestedBy.userId': userId }
+        ];
       }
     }
 
@@ -20050,69 +20073,8 @@ app.post('/api/report-issue', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * POST /api/log-error - Log frontend error
- * Authenticated endpoint for frontend to report caught errors
- */
-app.post('/api/log-error', verifyToken, async (req, res) => {
-  try {
-    const { message, stack, componentStack, errorType, browserContext, currentUrl, severity } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: 'Error message is required' });
-    }
-
-    // Build user context from token
-    const userContext = {
-      userId: req.user.oid || req.user.userId,
-      email: req.user.preferred_username || req.user.email,
-      name: req.user.name || req.user.displayName
-    };
-
-    // Log the error
-    const errorDoc = await errorLoggingService.logError({
-      type: 'error',
-      severity: severity || 'high',
-      source: 'frontend',
-      message,
-      stack,
-      componentStack,
-      errorType: errorType || 'frontend_error',
-      endpoint: currentUrl
-    }, {
-      userContext,
-      browserContext,
-      requestId: req.requestId
-    });
-
-    if (!errorDoc) {
-      return res.status(500).json({ error: 'Failed to log error' });
-    }
-
-    // Check if we should notify admins (for critical errors)
-    if (!errorDoc.deduplicated) {
-      const settings = await errorLoggingService.getErrorSettings();
-      const shouldNotify = await errorLoggingService.shouldNotifyAdmin(errorDoc, settings);
-
-      if (shouldNotify) {
-        const adminPanelUrl = `${webAppURL}/admin/error-logs`;
-        const notifyResult = await emailService.sendErrorNotification(errorDoc, db, adminPanelUrl);
-        if (notifyResult.success) {
-          await errorLoggingService.markNotificationSent(errorDoc._id, errorDoc.fingerprint);
-        }
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      correlationId: errorDoc.correlationId
-    });
-
-  } catch (error) {
-    logger.error('Error logging frontend error:', error);
-    res.status(500).json({ error: 'Failed to log error' });
-  }
-});
+// NOTE: POST /api/log-error endpoint removed - Sentry handles automatic error capture
+// User reports still use POST /api/report-issue
 
 /**
  * GET /api/admin/error-logs - List error logs with filters
@@ -20182,6 +20144,57 @@ app.get('/api/admin/error-logs/stats', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching error stats:', error);
     res.status(500).json({ error: 'Failed to fetch error statistics' });
+  }
+});
+
+/**
+ * POST /api/admin/test-sentry - Test Sentry backend integration
+ * Admin-only endpoint - triggers a test error that Sentry should capture
+ */
+app.post('/api/admin/test-sentry', verifyToken, async (req, res) => {
+  try {
+    // Check admin permission
+    const userId = req.user.userId;
+    const userEmail = req.user.email || req.user.preferred_username || '';
+    const userDoc = await usersCollection.findOne({ userId });
+    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Check if Sentry is configured
+    if (!process.env.SENTRY_DSN) {
+      return res.status(400).json({
+        error: 'Sentry is not configured. Set SENTRY_DSN in your environment variables.'
+      });
+    }
+
+    // Capture a test error to Sentry
+    const testError = new Error(`[TEST] Backend Sentry test error - ${new Date().toISOString()}`);
+    testError.statusCode = 500; // Ensure it passes the beforeSend filter
+
+    Sentry.captureException(testError, {
+      tags: { test: true, source: 'test-sentry-endpoint' },
+      extra: {
+        triggeredBy: userEmail,
+        requestId: req.requestId
+      }
+    });
+
+    // Wait briefly for Sentry to process
+    await Sentry.flush(2000);
+
+    logger.log(`Sentry test error triggered by ${userEmail}`);
+
+    res.json({
+      success: true,
+      message: 'Backend test error sent to Sentry! Check your Sentry dashboard.',
+      requestId: req.requestId
+    });
+
+  } catch (error) {
+    logger.error('Error in test-sentry endpoint:', error);
+    res.status(500).json({ error: 'Failed to send test error to Sentry' });
   }
 });
 
@@ -20312,69 +20325,36 @@ app.put('/api/admin/error-settings', verifyToken, async (req, res) => {
 });
 
 // ============================================================================
-// ERROR LOGGING MIDDLEWARE (must be after all routes)
+// ERROR HANDLING MIDDLEWARE (must be after all routes)
 // ============================================================================
 
+// Sentry error handler - captures all errors to Sentry (must be before custom error handler)
+// Using Sentry v8+ API: setupExpressErrorHandler
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
 /**
- * Error logging middleware - logs unhandled errors to database
- * This catches errors thrown by route handlers
+ * Error response middleware - sends error response to client
+ * Sentry handles logging/alerting, this just formats the response
  */
-app.use(async (err, req, res, next) => {
-  // Build user context if available
-  let userContext = null;
-  if (req.user) {
-    userContext = {
-      userId: req.user.oid || req.user.userId,
-      email: req.user.preferred_username || req.user.email,
-      name: req.user.name || req.user.displayName
-    };
-  }
-
-  // Log the error
-  const errorDoc = await errorLoggingService.logError({
-    type: 'error',
-    severity: errorLoggingService.determineSeverity(err.statusCode || 500, err.name),
-    source: 'api',
-    message: err.message || 'Internal server error',
-    stack: err.stack,
-    endpoint: `${req.method} ${req.path}`,
-    statusCode: err.statusCode || 500
-  }, {
-    userContext,
-    requestId: req.requestId,
-    requestContext: {
-      method: req.method,
-      path: req.path,
-      query: req.query,
-      body: req.body
-    }
-  });
-
-  // Check if we should notify admins
-  if (errorDoc && !errorDoc.deduplicated) {
-    const settings = await errorLoggingService.getErrorSettings();
-    const shouldNotify = await errorLoggingService.shouldNotifyAdmin(errorDoc, settings);
-
-    if (shouldNotify) {
-      const adminPanelUrl = `${webAppURL}/admin/error-logs`;
-      const notifyResult = await emailService.sendErrorNotification(errorDoc, db, adminPanelUrl);
-      if (notifyResult.success) {
-        await errorLoggingService.markNotificationSent(errorDoc._id, errorDoc.fingerprint);
-      }
-    }
+app.use((err, req, res, next) => {
+  // Log error for server debugging (Sentry handles persistence/alerting)
+  logger.error(`Error in ${req.method} ${req.path}:`, err.message);
+  if (process.env.NODE_ENV !== 'production') {
+    logger.error('Stack:', err.stack);
   }
 
   // Send error response
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
     error: err.message || 'Internal server error',
-    requestId: req.requestId,
-    correlationId: errorDoc?.correlationId
+    requestId: req.requestId
   });
 });
 
 // ============================================================================
-// END ERROR LOGGING ENDPOINTS
+// END ERROR HANDLING
 // ============================================================================
 
 process.on('SIGINT', async () => {
