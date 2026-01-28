@@ -610,49 +610,24 @@
     */
     const renderModeToggle = () => {
       const demoStats = calendarDataService.getDemoDataStats();
-      
+
       return (
-        <div className="mode-toggle-container" style={{
-          padding: '12px 16px',
-          backgroundColor: '#f9fafb',
-          borderRadius: '8px',
-          border: '1px solid #e5e7eb',
-          marginBottom: '24px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '15px', flexWrap: 'wrap' }}>
+        <div className="mode-toggle-container">
+          <div className="mode-toggle-row">
             {/* Left side - Mode controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                
+            <div className="mode-toggle-controls">
+              <div className="mode-toggle-group">
                 <button
                   onClick={handleModeToggle}
-                  style={{
-                    padding: '8px 16px',
-                    backgroundColor: isDemoMode ? '#28a745' : '#0078d4',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}
+                  className={`mode-toggle-btn ${isDemoMode ? 'demo-mode' : 'api-mode'}`}
                 >
                   {isDemoMode ? '📊 Demo Mode' : '🌐 API Mode'}
                 </button>
               </div>
-              
+
               {!isDemoMode && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <label htmlFor="demo-upload" style={{
-                    padding: '6px 14px',
-                    backgroundColor: '#6c757d',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: '500'
-                  }}>
+                <div className="mode-toggle-group">
+                  <label htmlFor="demo-upload" className="upload-demo-label">
                     📁 Upload Demo Data
                   </label>
                   <input
@@ -661,14 +636,14 @@
                     accept=".json"
                     onChange={handleDemoDataUpload}
                     disabled={isUploadingDemo}
-                    style={{ display: 'none' }}
+                    className="upload-demo-input"
                   />
-                  {isUploadingDemo && <span>Uploading...</span>}
+                  {isUploadingDemo && <span className="upload-status">Uploading...</span>}
                 </div>
               )}
-              
+
               {isDemoMode && demoStats && (
-                <div style={{ fontSize: '0.9rem', color: '#6c757d' }}>
+                <div className="demo-stats">
                   📊 {demoStats.totalEvents} events loaded
                   {demoStats.year && ` | 📅 ${demoStats.year}`}
                   {demoStats.dateRange?.start && demoStats.dateRange?.end && (
@@ -679,28 +654,16 @@
             </div>
 
             {/* Right side - Action buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              {/* Cache Control Buttons (only show when API token is available) */}
+            <div className="mode-toggle-actions">
               <button
-                className="search-button"
+                className="search-export-btn"
                 onClick={() => setShowSearch(true)}
-                style={{
-                  padding: '8px 16px',
-                  border: 'none',
-                  borderRadius: '6px',
-                  backgroundColor: '#0078d4',
-                  color: 'white',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
               >
                 🔍 Search & Export
               </button>
-              <ExportToPdfButton 
-                events={filteredEvents} 
-                dateRange={dateRange} 
+              <ExportToPdfButton
+                events={filteredEvents}
+                dateRange={dateRange}
               />
             </div>
           </div>
@@ -6520,6 +6483,7 @@
             onViewInCalendar={handleViewInCalendar}
             onClose={() => setShowSearch(false)}
             outlookCategories={outlookCategories}
+            baseCategories={baseCategories}
             availableLocations={getDatabaseLocationNames()}
             dynamicLocations={dynamicLocations}
             onSaveEvent={handleSaveEvent}

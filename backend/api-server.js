@@ -6961,6 +6961,8 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       search,
       startDate,
       endDate,
+      categories: categories || 'not set',
+      locations: locations || 'not set',
       page: pageNum,
       limit: limitNum
     });
@@ -7006,7 +7008,92 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         query.$or = searchConditions;
       }
     }
-    
+
+    // Category filter - filter by categories array or graphData.categories or internalData.mecCategories
+    if (categories) {
+      const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
+      if (categoryList.length > 0) {
+        const categoryConditions = [];
+
+        // Check for "Uncategorized" special case
+        if (categoryList.includes('Uncategorized')) {
+          // Include events with no categories
+          categoryConditions.push({ categories: { $exists: false } });
+          categoryConditions.push({ categories: { $size: 0 } });
+          categoryConditions.push({ categories: null });
+          categoryConditions.push({
+            $and: [
+              { 'graphData.categories': { $exists: false } },
+              { 'internalData.mecCategories': { $exists: false } }
+            ]
+          });
+        }
+
+        // Filter out "Uncategorized" for actual category matching
+        const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
+        if (actualCategories.length > 0) {
+          // Match against top-level categories, graphData.categories, or internalData.mecCategories
+          categoryConditions.push({ categories: { $in: actualCategories } });
+          categoryConditions.push({ 'graphData.categories': { $in: actualCategories } });
+          categoryConditions.push({ 'internalData.mecCategories': { $in: actualCategories } });
+        }
+
+        if (categoryConditions.length > 0) {
+          // Combine with existing query using $and
+          if (query.$and) {
+            query.$and.push({ $or: categoryConditions });
+          } else if (query.$or) {
+            query.$and = [
+              { $or: query.$or },
+              { $or: categoryConditions }
+            ];
+            delete query.$or;
+          } else {
+            query.$or = categoryConditions;
+          }
+        }
+
+        logger.log('Category filter applied:', categoryList);
+      }
+    }
+
+    // Location filter - filter by locationDisplayName, locationDisplayNames, locations array, or locationCodes
+    if (locations) {
+      const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
+      if (locationList.length > 0) {
+        const locationConditions = locationList.map(loc => {
+          const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return {
+            $or: [
+              { locationDisplayName: { $regex: escapedLoc, $options: 'i' } },
+              { locationDisplayNames: { $regex: escapedLoc, $options: 'i' } },
+              { locations: { $in: [loc] } },
+              { locationCodes: { $in: [loc] } },
+              { 'graphData.location.displayName': { $regex: escapedLoc, $options: 'i' } }
+            ]
+          };
+        });
+
+        // Events must match at least one of the selected locations
+        const locationFilter = { $or: locationConditions };
+
+        // Combine with existing query using $and
+        if (query.$and) {
+          query.$and.push(locationFilter);
+        } else if (query.$or) {
+          query.$and = [
+            { $or: query.$or },
+            locationFilter
+          ];
+          delete query.$or;
+        } else {
+          query.$and = [locationFilter];
+        }
+
+        logger.log('Location filter applied:', locationList);
+      }
+    }
+
     // Get total count first
     logger.log('Final query (userId, calendarId, isDeleted):', {
       userId: query.userId,

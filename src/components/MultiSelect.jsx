@@ -1,26 +1,28 @@
-// Simplified MultiSelect component matching SingleSelect styling
+// src/components/MultiSelect.jsx
+// Multi-select dropdown component using Emanuel Modern Design System
 import React, { useState, useRef, useEffect } from 'react';
+import './MultiSelect.css';
 
-function MultiSelect({ 
-  options, 
-  selected, 
-  onChange, 
+function MultiSelect({
+  options,
+  selected,
+  onChange,
   label,
-  customHeight = '32px',
-  customPadding = '6px 8px'
+  customHeight,
+  customPadding
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState(selected);
   const dropdownRef = useRef(null);
   const triggerRef = useRef(null);
-  
+
   const prevSelectedRef = useRef(selected);
 
   // Only update localSelected when props.selected actually changes
   useEffect(() => {
-    const selectedChanged = 
+    const selectedChanged =
       JSON.stringify(prevSelectedRef.current) !== JSON.stringify(selected);
-    
+
     if (selectedChanged) {
       setLocalSelected(selected);
       prevSelectedRef.current = selected;
@@ -37,7 +39,7 @@ function MultiSelect({
         }
       }
     }
-    
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
@@ -51,10 +53,10 @@ function MultiSelect({
       event.preventDefault();
       event.stopPropagation();
     }
-    
-    setLocalSelected(prev => 
-      prev.includes(option) 
-        ? prev.filter(item => item !== option) 
+
+    setLocalSelected(prev =>
+      prev.includes(option)
+        ? prev.filter(item => item !== option)
         : [...prev, option]
     );
   };
@@ -82,7 +84,7 @@ function MultiSelect({
       event.preventDefault();
       event.stopPropagation();
     }
-    
+
     if (isOpen) {
       if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
         onChange(localSelected);
@@ -91,188 +93,99 @@ function MultiSelect({
     setIsOpen(!isOpen);
   };
 
+  const handleClear = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setLocalSelected([]);
+    if (onChange) {
+      onChange([]);
+    }
+  };
+
+  // Build trigger style with optional custom height/padding
+  const triggerStyle = {};
+  if (customHeight) triggerStyle.height = customHeight;
+  if (customPadding) triggerStyle.padding = customPadding;
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative', width: '100%', fontSize: '13px' }}>
+    <div ref={dropdownRef} className="multiselect-container">
       <button
         type="button"
         ref={triggerRef}
         onClick={toggleDropdown}
         onMouseDown={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          padding: customPadding,
-          border: '1px solid #dadce0',
-          borderRadius: '4px',
-          backgroundColor: '#f8f9fa',
-          color: '#3c4043',
-          textAlign: 'left',
-          cursor: 'pointer',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: '13px',
-          height: customHeight,
-          boxSizing: 'border-box'
-        }}
+        className="multiselect-trigger"
+        style={Object.keys(triggerStyle).length > 0 ? triggerStyle : undefined}
       >
-        <span style={{ color: localSelected.length === 0 ? '#9aa0a6' : '#3c4043' }}>
-          {localSelected.length === 0 
-            ? label || 'Select options' 
-            : localSelected.length === 1 
-              ? localSelected[0] 
+        <span className={`multiselect-trigger-text ${localSelected.length === 0 ? 'placeholder' : ''}`}>
+          {localSelected.length === 0
+            ? label || 'Select options'
+            : localSelected.length === 1
+              ? localSelected[0]
               : `${localSelected.length} selected`}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className="multiselect-trigger-actions">
           {localSelected.length > 0 && (
             <span
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setLocalSelected([]);
-                if (onChange) {
-                  onChange([]);
-                }
-              }}
-              style={{
-                cursor: 'pointer',
-                color: '#5f6368',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '2px'
-              }}
+              onClick={handleClear}
+              className="multiselect-clear"
               title="Clear all selections"
             >
               ×
             </span>
           )}
-          <span style={{ 
-            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.2s',
-            color: '#5f6368'
-          }}>
+          <span className={`multiselect-chevron ${isOpen ? 'open' : ''}`}>
             ▼
           </span>
         </div>
       </button>
-      
+
       {isOpen && (
-        <div
-          className="multiselect-dropdown"
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            backgroundColor: 'white',
-            border: '1px solid #dadce0',
-            borderRadius: '4px',
-            maxHeight: '200px',
-            overflowY: 'auto',
-            zIndex: 9999,
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            marginTop: '2px',
-            minWidth: '100%',
-            width: 'auto'
-          }}
-        >
+        <div className="multiselect-dropdown">
           {options.length === 0 ? (
-            <div style={{ 
-              padding: '12px', 
-              textAlign: 'center', 
-              color: '#666',
-              fontSize: '12px'
-            }}>
+            <div className="multiselect-empty">
               No options available
             </div>
           ) : (
             <>
               {/* All/None buttons */}
-              <div style={{ 
-                display: 'flex', 
-                gap: '4px', 
-                padding: '8px 12px', 
-                borderBottom: '1px solid #e0e0e0',
-                backgroundColor: '#f8f9fa'
-              }}>
+              <div className="multiselect-actions">
                 <button
                   onClick={selectAll}
                   onMouseDown={(e) => e.stopPropagation()}
-                  style={{
-                    flex: 1,
-                    padding: '4px 8px',
-                    backgroundColor: '#333',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 'normal'
-                  }}
+                  className="multiselect-action-btn"
                 >
                   All
                 </button>
                 <button
                   onClick={selectNone}
                   onMouseDown={(e) => e.stopPropagation()}
-                  style={{
-                    flex: 1,
-                    padding: '4px 8px',
-                    backgroundColor: '#333',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 'normal'
-                  }}
+                  className="multiselect-action-btn"
                 >
                   None
                 </button>
               </div>
-              
+
               {/* Options list */}
               {options.map((option) => (
-              <div
-                key={option}
-                onClick={(e) => toggleOption(option, e)}
-                onMouseDown={(e) => e.stopPropagation()}
-                style={{
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  backgroundColor: localSelected.includes(option) ? '#e8f0fe' : 'white',
-                  color: '#374151',
-                  borderBottom: '1px solid #f0f0f0',
-                  fontSize: '13px',
-                  transition: 'background-color 0.1s',
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  if (!localSelected.includes(option)) {
-                    e.target.style.backgroundColor = '#f5f5f5';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!localSelected.includes(option)) {
-                    e.target.style.backgroundColor = 'white';
-                  }
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={localSelected.includes(option)}
-                  onChange={() => {}} // Controlled by parent click
-                  style={{ marginRight: '8px', pointerEvents: 'none' }}
-                />
-                <span style={{ flex: 1, userSelect: 'none' }}>
-                  {option}
-                </span>
-              </div>
-            ))
-            }
-          </>
+                <div
+                  key={option}
+                  onClick={(e) => toggleOption(option, e)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className={`multiselect-option ${localSelected.includes(option) ? 'selected' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={localSelected.includes(option)}
+                    onChange={() => {}} // Controlled by parent click
+                    className="multiselect-checkbox"
+                  />
+                  <span className="multiselect-option-label">
+                    {option}
+                  </span>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}

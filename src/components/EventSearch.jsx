@@ -255,13 +255,14 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 }
 
 // The internal component that uses the query hooks
-function EventSearchInner({ 
-  graphToken, 
+function EventSearchInner({
+  graphToken,
   apiToken,
-  onEventSelect, 
-  onClose, 
-  outlookCategories, 
-  availableLocations, 
+  onEventSelect,
+  onClose,
+  outlookCategories,
+  baseCategories = [],
+  availableLocations,
   onSaveEvent,
   onViewInCalendar,
   selectedCalendarId,
@@ -809,11 +810,17 @@ function EventSearchInner({
             </div>
             
             <div className="filters-container">
-              {/* Category filter */}
+              {/* Category filter - use baseCategories from MongoDB (templeEvents__Categories) */}
               <div className="filter-section">
                 <label>Categories:</label>
-                <MultiSelect 
-                  options={[...new Set(['Uncategorized', ...outlookCategories.map(cat => cat.name)])]}
+                <MultiSelect
+                  options={[
+                    'Uncategorized',
+                    ...baseCategories
+                      .filter(cat => cat.active !== false && cat.name)
+                      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+                      .map(cat => cat.name)
+                  ]}
                   selected={selectedCategories}
                   onChange={handleCategoryChange}
                   customHeight="36px"

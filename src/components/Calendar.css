@@ -782,14 +782,142 @@
    MODE TOGGLE CONTAINER
    ========================================================================== */
 
-.mode-toggle-container .search-button:hover {
-  background-color: var(--bg-secondary) !important;
-  border-color: var(--text-secondary) !important;
+.mode-toggle-container {
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-default);
+  margin-bottom: var(--space-5);
 }
 
-.mode-toggle-container .add-event-button:hover {
-  background-color: var(--color-primary-600) !important;
-  border-color: var(--color-primary-600) !important;
+.mode-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.mode-toggle-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.mode-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Mode Toggle Button */
+.mode-toggle-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
+  transition: var(--transition-all);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mode-toggle-btn.api-mode {
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+}
+
+.mode-toggle-btn.api-mode:hover {
+  background-color: var(--color-primary-600);
+}
+
+.mode-toggle-btn.demo-mode {
+  background-color: var(--color-success-500);
+  color: var(--text-inverse);
+}
+
+.mode-toggle-btn.demo-mode:hover {
+  background-color: var(--color-success-600);
+}
+
+/* Upload Demo Button */
+.upload-demo-label {
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-neutral-500);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
+  transition: var(--transition-all);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.upload-demo-label:hover {
+  background-color: var(--color-neutral-600);
+}
+
+.upload-demo-input {
+  display: none;
+}
+
+.upload-status {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Demo Stats */
+.demo-stats {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Action Buttons Group */
+.mode-toggle-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Search & Export Button */
+.mode-toggle-container .search-export-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition-all);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mode-toggle-container .search-export-btn:hover {
+  background-color: var(--color-primary-600);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-primary);
+}
+
+.mode-toggle-container .search-export-btn:active {
+  background-color: var(--color-primary-700);
+  transform: translateY(0);
 }
 
 /* ==========================================================================
