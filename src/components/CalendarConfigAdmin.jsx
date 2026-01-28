@@ -189,14 +189,14 @@ export default function CalendarConfigAdmin({ apiToken }) {
 
       {error && (
         <div className="error-message">
-          <span className="error-icon">⚠️</span>
+          <span className="error-icon">!</span>
           {error}
         </div>
       )}
 
       {success && (
         <div className="success-message">
-          <span className="success-icon">✓</span>
+          <span className="success-icon">&#10003;</span>
           {success}
         </div>
       )}
@@ -309,8 +309,8 @@ export default function CalendarConfigAdmin({ apiToken }) {
 
           {selectedAllowedCalendars.length === 0 && (
             <div className="warning-message">
-              <span className="warning-icon">Warning:</span>
-              No calendars selected. All calendars will be shown if no allowed calendars are configured.
+              <span className="warning-icon">!</span>
+              <span>No calendars selected. All calendars will be shown if no allowed calendars are configured.</span>
             </div>
           )}
         </div>

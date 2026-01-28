@@ -63,6 +63,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState(null);
 
+  // Delete state
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
   // Edit request state
   const [editRequests, setEditRequests] = useState([]);
   const [editRequestsLoading, setEditRequestsLoading] = useState(false);
@@ -350,6 +354,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setCheckingConflicts(false);
     }
   };
+
+  // Stats calculation
+  const stats = useMemo(() => {
+    const pending = allReservations.filter(r => r.status === 'pending').length;
+    const approved = allReservations.filter(r => r.status === 'approved').length;
+    const rejected = allReservations.filter(r => r.status === 'rejected').length;
+    return {
+      total: allReservations.length,
+      pending,
+      approved,
+      rejected
+    };
+  }, [allReservations]);
 
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {
@@ -863,27 +880,49 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  const handleDelete = async (reservation) => {
-    // Confirm deletion
-    const confirmMessage = `Are you sure you want to permanently delete this reservation?\n\nEvent: ${reservation.eventTitle}\nRequester: ${reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}\n\nThis action cannot be undone.`;
-    
-    if (!window.confirm(confirmMessage)) {
-      return;
+  // First click sets confirm state, second click deletes
+  const handleDeleteClick = (reservation) => {
+    if (confirmDeleteId === reservation._id) {
+      // Already in confirm state, proceed with delete
+      handleDelete(reservation);
+    } else {
+      // First click - enter confirm state
+      setConfirmDeleteId(reservation._id);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setConfirmDeleteId(prev => prev === reservation._id ? null : prev);
+      }, 3000);
     }
-    
+  };
+
+  const handleDelete = async (reservation) => {
     try {
+      setDeletingId(reservation._id);
+      setConfirmDeleteId(null);
+
       logger.debug('🗑️ Starting reservation deletion:', {
         reservationId: reservation._id,
-        eventTitle: reservation.eventTitle
+        eventTitle: reservation.eventTitle,
+        hasGraphData: !!reservation.graphData?.id,
+        calendarId: reservation.calendarId
       });
 
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`, {
+      // Only include graphToken if the event has been synced to Graph (has calendarId)
+      const hasGraphData = reservation.calendarId || reservation.graphData?.id;
+
+      // Use unified events endpoint (reservations are stored in templeEvents__Events)
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`, {
         method: 'DELETE',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
-        }
+        },
+        body: JSON.stringify({
+          graphToken: hasGraphData ? graphToken : undefined,
+          calendarId: reservation.calendarId
+        })
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         logger.error('❌ Delete request failed:', response.status, errorText);
@@ -892,7 +931,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       const result = await response.json();
       logger.debug('✅ Reservation deleted successfully:', result);
-      
+
       // Remove from local state
       setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
 
@@ -900,15 +939,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setShowReviewModal(false);
       setSelectedReservation(null);
       setActionNotes('');
-      setError(`✅ Reservation "${result.eventTitle}" deleted successfully`);
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setError(''), 3000);
-      
+      showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
+
     } catch (err) {
       logger.error('❌ Error deleting reservation:', err);
-      logger.error('Error deleting reservation:', err);
-      setError(`Failed to delete reservation: ${err.message}`);
+      showError(err, { context: 'ReservationRequests.handleDelete', userMessage: 'Failed to delete reservation' });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -1015,14 +1052,75 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   return (
     <div className="reservation-requests">
-      <h1>Reservation Requests</h1>
-      
+      {/* Page Header */}
+      <div className="rr-page-header">
+        <div className="rr-header-content">
+          <h1>Reservation Requests</h1>
+          <p className="rr-header-subtitle">Review and manage room reservation requests</p>
+        </div>
+      </div>
+
+      {/* Stats Row */}
+      <div className="rr-stats-row">
+        <div className="rr-stat-card">
+          <div className="rr-stat-icon total">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </div>
+          <div className="rr-stat-content">
+            <h4>{stats.total}</h4>
+            <p>Total Requests</p>
+          </div>
+        </div>
+        <div className="rr-stat-card">
+          <div className="rr-stat-icon pending">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </div>
+          <div className="rr-stat-content">
+            <h4>{stats.pending}</h4>
+            <p>Pending</p>
+          </div>
+        </div>
+        <div className="rr-stat-card">
+          <div className="rr-stat-icon approved">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+              <polyline points="22 4 12 14.01 9 11.01" />
+            </svg>
+          </div>
+          <div className="rr-stat-content">
+            <h4>{stats.approved}</h4>
+            <p>Approved</p>
+          </div>
+        </div>
+        <div className="rr-stat-card">
+          <div className="rr-stat-icon rejected">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+          </div>
+          <div className="rr-stat-content">
+            <h4>{stats.rejected}</h4>
+            <p>Rejected</p>
+          </div>
+        </div>
+      </div>
+
       {error && (
         <div className="error-message">
-          ❌ {error}
+          {error}
         </div>
       )}
-      
+
       {/* Tab Navigation */}
       <div className="tabs-container">
         <div className="event-type-tabs">
@@ -1248,14 +1346,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                     </button>
                   )}
                   <button
-                    className="delete-btn"
+                    className={`delete-btn ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(reservation);
+                      handleDeleteClick(reservation);
                     }}
+                    disabled={deletingId === reservation._id}
                     title={`Delete reservation: ${reservation.eventTitle}`}
                   >
-                    🗑️
+                    {deletingId === reservation._id
+                      ? 'Deleting...'
+                      : confirmDeleteId === reservation._id
+                        ? 'Confirm?'
+                        : 'Delete'}
                   </button>
                 </td>
               </tr>

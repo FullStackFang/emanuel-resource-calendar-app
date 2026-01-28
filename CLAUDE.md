@@ -228,6 +228,73 @@ const event = await graphApiService.createCalendarEvent(
 - Reusable utility functions
 - Clear separation of concerns
 
+### UI Patterns
+
+#### Destructive Actions (Delete, Remove, Cancel)
+All destructive actions MUST follow this **in-button confirmation** pattern (NO browser dialogs like `window.confirm()`):
+
+1. **First click** - Button text changes to "Confirm?" with visual emphasis (red background, pulse animation)
+2. **Second click** - Performs the delete, button shows "Deleting..."
+3. **Auto-reset** - If not confirmed within 3 seconds, button resets to "Delete"
+4. **Disabled state** - Button disabled during the delete operation
+5. **Success feedback** - Use `showSuccess()` notification on completion
+6. **Error handling** - Use `showError()` notification on failure
+
+```javascript
+// Standard delete pattern with in-button confirmation
+const [deletingId, setDeletingId] = useState(null);
+const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+// First click sets confirm state, second click deletes
+const handleDeleteClick = (item) => {
+  if (confirmDeleteId === item._id) {
+    // Already in confirm state, proceed with delete
+    handleDelete(item);
+  } else {
+    // First click - enter confirm state
+    setConfirmDeleteId(item._id);
+    // Auto-reset after 3 seconds if not confirmed
+    setTimeout(() => {
+      setConfirmDeleteId(prev => prev === item._id ? null : prev);
+    }, 3000);
+  }
+};
+
+const handleDelete = async (item) => {
+  try {
+    setDeletingId(item._id);
+    setConfirmDeleteId(null);
+    await deleteApi(item._id);
+    showSuccess(`"${item.name}" deleted successfully`);
+    // Refresh data or remove from local state
+  } catch (err) {
+    showError(err, { context: 'ComponentName.handleDelete' });
+  } finally {
+    setDeletingId(null);
+  }
+};
+
+// Button JSX
+<button
+  className={`delete-btn ${confirmDeleteId === item._id ? 'confirm' : ''}`}
+  onClick={() => handleDeleteClick(item)}
+  disabled={deletingId === item._id}
+>
+  {deletingId === item._id
+    ? 'Deleting...'
+    : confirmDeleteId === item._id
+      ? 'Confirm?'
+      : 'Delete'}
+</button>
+
+// Required CSS for confirm state
+.delete-btn.confirm {
+  background: var(--color-error-500);
+  color: white;
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+```
+
 ## Event/Reservation Data Flow (SIMPLIFIED)
 
 The application uses a **centralized transform layer** for all event data transformation. When adding new fields to `templeEvents__Events`, you only need to update **2 places**.

@@ -9,7 +9,6 @@ import Calendar from './components/Calendar';
 import MySettings from './components/MySettings';
 import CalendarSelector from './components/CalendarSelector';
 import UserAdmin from './components/UserAdmin';
-import UnifiedEventsAdmin from './components/UnifiedEventsAdmin';
 import CategoryManagement from './components/CategoryManagement';
 import CalendarConfigAdmin from './components/CalendarConfigAdmin';
 import UnifiedEventForm from './components/UnifiedEventForm';
@@ -417,7 +416,6 @@ function App() {
                 <Route path="/settings" element={<Navigate to="/my-settings" replace />} />
                 <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
                 <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
-                <Route path="/admin/events" element={<UnifiedEventsAdmin apiToken={apiToken} graphToken={graphToken} />} />
                 <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
                 <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 

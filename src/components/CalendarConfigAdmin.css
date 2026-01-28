@@ -1,7 +1,8 @@
 /* ============================================================================
-   CALENDAR CONFIG ADMIN - Emanuel Modern Design System
+   CALENDAR CONFIG ADMIN - Editorial Dashboard Aesthetic
    ============================================================================
-   Configuration interface for calendar settings and allowed display calendars
+   Configuration interface for calendar settings with refined typography,
+   sophisticated visual hierarchy, and the signature gradient accent bar.
    ============================================================================ */
 
 /* ==========================================================================
@@ -9,420 +10,640 @@
    ========================================================================== */
 
 .calendar-config-admin {
-  padding: var(--space-5);
+  padding: var(--space-8);
   max-width: 1200px;
   margin: 0 auto;
+  background: linear-gradient(
+    180deg,
+    var(--color-neutral-50) 0%,
+    var(--bg-primary) 100%
+  );
+  min-height: 100%;
 }
 
 /* ==========================================================================
-   HEADER
+   HEADER - Editorial Dashboard Style
    ========================================================================== */
 
-.admin-header {
+.calendar-config-admin .admin-header {
   margin-bottom: var(--space-8);
-  border-bottom: 2px solid var(--border-default);
-  padding-bottom: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: none;
+  position: relative;
 }
 
-.admin-header h2 {
+.calendar-config-admin .admin-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 120px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-accent-500));
+  border-radius: var(--radius-full);
+}
+
+.calendar-config-admin .admin-header h2 {
   margin: 0 0 var(--space-2) 0;
   font-family: var(--font-display);
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   letter-spacing: var(--tracking-tight);
 }
 
-.admin-subtitle {
+.calendar-config-admin .admin-subtitle {
   margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 /* ==========================================================================
-   MESSAGES
+   MESSAGES - Refined Alerts
    ========================================================================== */
 
-.error-message {
-  background-color: var(--color-error-50);
-  border: 1px solid var(--color-error-100);
+.calendar-config-admin .error-message {
+  background: linear-gradient(135deg, var(--color-error-50) 0%, rgba(255, 255, 255, 0.8) 100%);
+  border: 1px solid var(--color-error-200);
+  border-left: 4px solid var(--color-error-500);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
-  margin-bottom: var(--space-5);
-  color: var(--color-error-500);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  color: var(--color-error-700);
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  box-shadow: var(--shadow-sm);
+  animation: slideIn 0.3s ease-out;
 }
 
-.error-icon {
-  font-size: var(--text-lg);
-}
-
-.success-message {
-  background-color: var(--color-success-50);
-  border: 1px solid var(--color-success-100);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
-  margin-bottom: var(--space-5);
-  color: var(--color-success-600);
+.calendar-config-admin .error-icon {
+  width: 20px;
+  height: 20px;
+  background: var(--color-error-500);
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-}
-
-.success-icon {
-  font-size: var(--text-lg);
+  justify-content: center;
+  color: white;
+  font-size: var(--text-xs);
   font-weight: var(--font-bold);
+  flex-shrink: 0;
 }
 
-.warning-message {
-  background-color: var(--color-warning-50);
-  border: 1px solid var(--color-warning-300);
+.calendar-config-admin .success-message {
+  background: linear-gradient(135deg, var(--color-success-50) 0%, rgba(255, 255, 255, 0.8) 100%);
+  border: 1px solid var(--color-success-200);
+  border-left: 4px solid var(--color-success-500);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  color: var(--color-success-700);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  box-shadow: var(--shadow-sm);
+  animation: slideIn 0.3s ease-out;
+}
+
+.calendar-config-admin .success-icon {
+  width: 20px;
+  height: 20px;
+  background: var(--color-success-500);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
+  flex-shrink: 0;
+}
+
+.calendar-config-admin .warning-message {
+  background: linear-gradient(135deg, var(--color-warning-50) 0%, rgba(255, 255, 255, 0.8) 100%);
+  border: 1px solid var(--color-warning-200);
+  border-left: 4px solid var(--color-warning-500);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
   margin-top: var(--space-4);
-  color: var(--color-warning-700);
+  color: var(--color-warning-800);
   font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
-.warning-message .warning-icon {
+.calendar-config-admin .warning-message .warning-icon {
+  width: 20px;
+  height: 20px;
+  background: var(--color-warning-500);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: var(--text-xs);
   font-weight: var(--font-bold);
-  margin-right: var(--space-2);
+  flex-shrink: 0;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ==========================================================================
-   SETTINGS PANEL
+   SETTINGS PANEL - Editorial Card Style
    ========================================================================== */
 
-.settings-panel {
+.calendar-config-admin .settings-panel {
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
-  padding: var(--space-6);
+  padding: var(--space-8);
   margin-bottom: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
 }
 
-.setting-group {
-  margin-bottom: var(--space-6);
+.calendar-config-admin .settings-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-accent-500));
 }
 
-.setting-group h3 {
-  margin: 0 0 var(--space-3) 0;
+.calendar-config-admin .setting-group {
+  margin-bottom: var(--space-8);
+}
+
+.calendar-config-admin .setting-group:last-child {
+  margin-bottom: 0;
+}
+
+.calendar-config-admin .setting-group h3 {
+  margin: 0 0 var(--space-2) 0;
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.setting-description {
+.calendar-config-admin .setting-group h3::before {
+  content: '';
+  width: 4px;
+  height: 20px;
+  background: linear-gradient(180deg, var(--color-primary-500), var(--color-accent-500));
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.calendar-config-admin .setting-description {
   color: var(--text-secondary);
   font-size: var(--text-sm);
-  margin: 0 0 var(--space-4) 0;
+  margin: 0 0 var(--space-5) 0;
   line-height: var(--leading-relaxed);
+  padding-left: calc(4px + var(--space-2));
 }
 
 /* ==========================================================================
    CALENDAR CONFIG ROW
    ========================================================================== */
 
-.calendar-config-row {
+.calendar-config-admin .calendar-config-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
+  gap: var(--space-5);
+  margin-bottom: var(--space-5);
 }
 
 @media (max-width: 768px) {
-  .calendar-config-row {
+  .calendar-config-admin .calendar-config-row {
     grid-template-columns: 1fr;
   }
 }
 
-.current-setting {
-  background: var(--bg-secondary);
+.calendar-config-admin .current-setting {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  transition: var(--transition-all);
+}
+
+.calendar-config-admin .current-setting:hover {
+  border-color: var(--color-primary-200);
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-config-admin .current-setting strong {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
 }
 
 /* ==========================================================================
-   CALENDAR BADGE
+   CALENDAR BADGE - Accent Style
    ========================================================================== */
 
-.calendar-badge {
-  background: var(--color-primary-500);
+.calendar-config-admin .calendar-badge {
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
   color: var(--text-inverse);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-lg);
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
   font-family: var(--font-mono);
   display: inline-block;
   max-width: 100%;
   word-break: break-all;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================
    CALENDAR SELECTOR
    ========================================================================== */
 
-.calendar-selector {
-  background: var(--bg-secondary);
+.calendar-config-admin .calendar-selector {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  transition: var(--transition-all);
 }
 
-.calendar-selector label {
+.calendar-config-admin .calendar-selector:hover {
+  border-color: var(--color-primary-200);
+  box-shadow: var(--shadow-sm);
+}
+
+.calendar-config-admin .calendar-selector label {
   display: block;
   margin-bottom: 0;
-  color: var(--text-primary);
-  font-weight: var(--font-medium);
-  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.calendar-dropdown {
+.calendar-config-admin .calendar-dropdown {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   font-family: var(--font-body);
   font-size: var(--text-sm);
-  border: 1px solid var(--border-default);
+  font-weight: var(--font-medium);
+  border: 2px solid var(--border-default);
   border-radius: var(--radius-lg);
   background: var(--bg-primary);
   color: var(--text-primary);
   cursor: pointer;
   transition: var(--transition-all);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B7280' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  padding-right: var(--space-10);
 }
 
-.calendar-dropdown option {
+.calendar-config-admin .calendar-dropdown option {
   color: var(--text-primary);
   background: var(--bg-primary);
+  padding: var(--space-2);
 }
 
-.calendar-dropdown:focus {
+.calendar-config-admin .calendar-dropdown:focus {
   outline: none;
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px var(--color-primary-100);
+  border-color: var(--color-primary-500);
+  box-shadow:
+    0 0 0 3px var(--color-primary-100),
+    var(--shadow-sm);
 }
 
-.calendar-dropdown:disabled {
+.calendar-config-admin .calendar-dropdown:hover:not(:disabled) {
+  border-color: var(--color-primary-300);
+}
+
+.calendar-config-admin .calendar-dropdown:disabled {
   background-color: var(--bg-tertiary);
   cursor: not-allowed;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 /* ==========================================================================
    CALENDAR DETAILS
    ========================================================================== */
 
-.calendar-details {
+.calendar-config-admin .calendar-details {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
-  margin-top: var(--space-3);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
 }
 
-.calendar-details strong {
+.calendar-config-admin .calendar-details strong {
   display: block;
-  margin-bottom: var(--space-1);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.calendar-id {
+.calendar-config-admin .calendar-id {
   display: block;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   word-break: break-all;
+  line-height: var(--leading-relaxed);
 }
 
 /* ==========================================================================
-   ACTION BUTTONS
+   ACTION BUTTONS - Editorial Style
    ========================================================================== */
 
-.action-buttons {
+.calendar-config-admin .action-buttons {
   display: flex;
   gap: var(--space-3);
-  margin-top: var(--space-6);
+  margin-top: var(--space-8);
   padding-top: var(--space-6);
   border-top: 1px solid var(--border-default);
 }
 
-.btn-primary,
-.btn-secondary {
-  padding: var(--space-2) var(--space-6);
+.calendar-config-admin .btn-primary,
+.calendar-config-admin .btn-secondary {
+  padding: var(--space-3) var(--space-6);
   border: none;
   border-radius: var(--radius-lg);
   font-family: var(--font-body);
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
   cursor: pointer;
   transition: var(--transition-all);
+  letter-spacing: 0.01em;
 }
 
-.btn-primary {
-  background-color: var(--color-primary-500);
+.calendar-config-admin .btn-primary {
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
   color: var(--text-inverse);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-600);
+.calendar-config-admin .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary-700) 100%);
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.btn-primary:disabled {
-  background-color: var(--color-neutral-400);
+.calendar-config-admin .btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.calendar-config-admin .btn-primary:disabled {
+  background: var(--color-neutral-300);
   cursor: not-allowed;
-  opacity: 0.5;
+  box-shadow: none;
+  transform: none;
 }
 
-.btn-secondary {
-  background-color: var(--color-neutral-500);
-  color: var(--text-inverse);
+.calendar-config-admin .btn-secondary {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
-.btn-secondary:hover:not(:disabled) {
-  background-color: var(--color-neutral-600);
+.calendar-config-admin .btn-secondary:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--color-neutral-300);
 }
 
-.btn-secondary:disabled {
+.calendar-config-admin .btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
 /* ==========================================================================
-   LAST MODIFIED
+   LAST MODIFIED - Subtle Footer
    ========================================================================== */
 
-.last-modified {
-  margin-top: var(--space-4);
+.calendar-config-admin .last-modified {
+  margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-default);
   color: var(--text-tertiary);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  font-style: italic;
 }
 
-.last-modified strong {
+.calendar-config-admin .last-modified strong {
   color: var(--text-secondary);
+  font-style: normal;
+  font-weight: var(--font-semibold);
 }
 
 /* ==========================================================================
-   INFO PANEL
+   INFO PANEL - Reference Card
    ========================================================================== */
 
-.info-panel {
+.calendar-config-admin .info-panel {
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
 }
 
-.info-panel h3 {
-  margin: 0 0 var(--space-3) 0;
+.calendar-config-admin .info-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-neutral-300), var(--color-neutral-400));
+}
+
+.calendar-config-admin .info-panel h3 {
+  margin: 0 0 var(--space-2) 0;
   font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
 }
 
-.info-panel p {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
+.calendar-config-admin .info-panel p {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
   margin: 0 0 var(--space-4) 0;
 }
 
-.info-panel code {
+.calendar-config-admin .info-panel code {
   background: var(--bg-tertiary);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  color: var(--color-primary-600);
 }
 
 /* ==========================================================================
-   CALENDAR LIST
+   CALENDAR LIST - Refined List Style
    ========================================================================== */
 
-.calendar-list {
+.calendar-config-admin .calendar-list {
   list-style: none;
   padding: 0;
   margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
 }
 
-.calendar-list li {
-  padding: var(--space-3);
+.calendar-config-admin .calendar-list li {
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: var(--bg-primary);
+  transition: var(--transition-all);
 }
 
-.calendar-list li:last-child {
+.calendar-config-admin .calendar-list li:last-child {
   border-bottom: none;
 }
 
-.calendar-list li.is-default {
-  background-color: var(--color-primary-50);
+.calendar-config-admin .calendar-list li:hover {
+  background: var(--bg-secondary);
 }
 
-.calendar-name {
+.calendar-config-admin .calendar-list li.is-default {
+  background: linear-gradient(135deg, var(--color-primary-50) 0%, var(--bg-primary) 100%);
+  border-left: 3px solid var(--color-primary-500);
+}
+
+.calendar-config-admin .calendar-list li.is-default:hover {
+  background: linear-gradient(135deg, var(--color-primary-100) 0%, var(--color-primary-50) 100%);
+}
+
+.calendar-config-admin .calendar-list .calendar-name {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-primary);
+  font-weight: var(--font-medium);
 }
 
-.default-badge {
-  background-color: var(--color-success-500);
+.calendar-config-admin .default-badge {
+  background: linear-gradient(135deg, var(--color-success-500) 0%, var(--color-success-600) 100%);
   color: var(--text-inverse);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
+  font-weight: var(--font-bold);
   text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 /* ==========================================================================
    ALLOWED DISPLAY CALENDARS SECTION
    ========================================================================== */
 
-.allowed-calendars-section {
-  margin-top: var(--space-6);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border-default);
+.calendar-config-admin .allowed-calendars-section {
+  margin-top: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: 2px solid var(--border-default);
 }
 
-.calendar-checkbox-list {
+.calendar-config-admin .calendar-checkbox-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-height: 300px;
+  max-height: 320px;
   overflow-y: auto;
-  padding: var(--space-3);
+  padding: var(--space-4);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  margin-bottom: var(--space-4);
+  border-radius: var(--radius-xl);
+  margin-bottom: var(--space-5);
 }
 
-.calendar-checkbox-item {
+/* Custom scrollbar for checkbox list */
+.calendar-config-admin .calendar-checkbox-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.calendar-config-admin .calendar-checkbox-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.calendar-config-admin .calendar-checkbox-list::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: var(--radius-full);
+}
+
+.calendar-config-admin .calendar-checkbox-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-400);
+}
+
+.calendar-config-admin .calendar-checkbox-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -430,36 +651,82 @@
   transition: var(--transition-all);
 }
 
-.calendar-checkbox-item:hover {
-  background-color: var(--color-primary-50);
+.calendar-config-admin .calendar-checkbox-item:hover {
+  background: linear-gradient(135deg, var(--color-primary-50) 0%, var(--bg-primary) 100%);
   border-color: var(--color-primary-200);
+  transform: translateX(2px);
 }
 
-.calendar-checkbox-item input[type="checkbox"] {
+.calendar-config-admin .calendar-checkbox-item input[type="checkbox"] {
   width: 18px;
   height: 18px;
   cursor: pointer;
   flex-shrink: 0;
   accent-color: var(--color-primary-500);
+  border-radius: var(--radius-sm);
 }
 
-.calendar-checkbox-item input[type="checkbox"]:disabled {
+.calendar-config-admin .calendar-checkbox-item input[type="checkbox"]:disabled {
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
-.calendar-checkbox-item .calendar-name {
+.calendar-config-admin .calendar-checkbox-item .calendar-name {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   flex: 1;
 }
 
-.currently-allowed-badge {
-  background-color: var(--color-primary-500);
-  color: var(--text-inverse);
+.calendar-config-admin .currently-allowed-badge {
+  background: linear-gradient(135deg, var(--color-primary-100) 0%, var(--color-primary-50) 100%);
+  color: var(--color-primary-700);
   padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: var(--font-bold);
   text-transform: uppercase;
+  letter-spacing: 0.05em;
   flex-shrink: 0;
+  border: 1px solid var(--color-primary-200);
+}
+
+/* ==========================================================================
+   LOADING STATE
+   ========================================================================== */
+
+.calendar-config-admin .loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+/* ==========================================================================
+   RESPONSIVE ADJUSTMENTS
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .calendar-config-admin {
+    padding: var(--space-4);
+  }
+
+  .calendar-config-admin .settings-panel,
+  .calendar-config-admin .info-panel {
+    padding: var(--space-5);
+  }
+
+  .calendar-config-admin .admin-header h2 {
+    font-size: var(--text-2xl);
+  }
+
+  .calendar-config-admin .action-buttons {
+    flex-direction: column;
+  }
+
+  .calendar-config-admin .btn-primary,
+  .calendar-config-admin .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
 }

@@ -15530,6 +15530,30 @@ app.get('/api/categories', async (req, res) => {
 });
 
 /**
+ * Shifts display orders to make room for a new/moved category
+ * @param {Collection} collection - MongoDB collection
+ * @param {number} targetOrder - The position where we want to insert
+ * @param {ObjectId|null} excludeId - ID to exclude (for updates, don't shift self)
+ */
+async function shiftCategoryDisplayOrders(collection, targetOrder, excludeId = null) {
+  const filter = {
+    active: true,
+    displayOrder: { $gte: targetOrder }
+  };
+
+  // Exclude the category being updated (so it doesn't shift itself)
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+
+  // Increment displayOrder for all categories at or after the target position
+  await collection.updateMany(
+    filter,
+    { $inc: { displayOrder: 1 } }
+  );
+}
+
+/**
  * Create a new event category
  */
 app.post('/api/categories', verifyToken, async (req, res) => {
@@ -15546,12 +15570,26 @@ app.post('/api/categories', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Category with this name already exists' });
     }
 
+    // Determine the display order to use
+    let requestedOrder = displayOrder;
+    if (requestedOrder === undefined || requestedOrder === null) {
+      // Get the next available display order (max + 1)
+      const maxOrderDoc = await categoriesCollection.findOne(
+        { active: true },
+        { sort: { displayOrder: -1 }, projection: { displayOrder: 1 } }
+      );
+      requestedOrder = maxOrderDoc ? (maxOrderDoc.displayOrder || 0) + 1 : 1;
+    } else {
+      // Shift existing categories at or after this position to make room
+      await shiftCategoryDisplayOrders(categoriesCollection, requestedOrder, null);
+    }
+
     const newCategory = {
       name: name.trim(),
       type: type || 'base',
       color: color || '#808080',
       description: description || '',
-      displayOrder: displayOrder || 999,
+      displayOrder: requestedOrder,
       active: true,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -15600,6 +15638,16 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // If displayOrder is changing, shift other categories to make room
+    if (displayOrder !== undefined) {
+      const currentCategory = await categoriesCollection.findOne({ _id: new ObjectId(id) });
+
+      if (currentCategory && currentCategory.displayOrder !== displayOrder) {
+        // Shift categories to make room at the new position
+        await shiftCategoryDisplayOrders(categoriesCollection, displayOrder, new ObjectId(id));
+      }
+    }
+
     const result = await categoriesCollection.findOneAndUpdate(
       { _id: new ObjectId(id) },
       { $set: updateData },
@@ -15618,7 +15666,7 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * Delete an event category (soft delete by setting active to false)
+ * Delete an event category (permanently removes from database)
  */
 app.delete('/api/categories/:id', verifyToken, async (req, res) => {
   try {
@@ -15628,20 +15676,46 @@ app.delete('/api/categories/:id', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Invalid category ID' });
     }
 
-    const result = await categoriesCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: { active: false, updatedAt: new Date() } },
-      { returnDocument: 'after' }
-    );
+    // First get the category to return in response
+    const category = await categoriesCollection.findOne({ _id: new ObjectId(id) });
 
-    if (!result) {
+    if (!category) {
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    res.json({ message: 'Category deleted successfully', category: result });
+    // Permanently delete the category
+    await categoriesCollection.deleteOne({ _id: new ObjectId(id) });
+
+    res.json({ message: 'Category deleted successfully', category });
   } catch (error) {
     logger.error('Error deleting category:', error);
     res.status(500).json({ error: 'Failed to delete category' });
+  }
+});
+
+/**
+ * Resequence category display orders to remove gaps
+ * Useful after deletions or to clean up inconsistent ordering
+ */
+app.post('/api/admin/categories/resequence', verifyToken, async (req, res) => {
+  try {
+    const categories = await categoriesCollection
+      .find({ active: true })
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    // Update each category with sequential display order
+    for (let i = 0; i < categories.length; i++) {
+      await categoriesCollection.updateOne(
+        { _id: categories[i]._id },
+        { $set: { displayOrder: i + 1, updatedAt: new Date() } }
+      );
+    }
+
+    res.json({ message: 'Categories resequenced successfully', count: categories.length });
+  } catch (error) {
+    logger.error('Error resequencing categories:', error);
+    res.status(500).json({ error: 'Failed to resequence categories' });
   }
 });
 

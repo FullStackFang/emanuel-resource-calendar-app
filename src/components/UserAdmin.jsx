@@ -1,13 +1,21 @@
 // src/components/UserAdmin.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
-import './Admin.css'; // Assuming you have similar styling for admin pages
 import APP_CONFIG from '../config/config';
+import './UserAdmin.css';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
-// const API_BASE_URL = 'https://emanuelnyc-services-api-c9efd3ajhserccff.canadacentral-01.azurewebsites.net/api';
-// const API_BASE_URL = 'http://localhost:3001/api';
+
+// Get initials from user name
+const getInitials = (name) => {
+  if (!name) return '?';
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) {
+    return words[0].substring(0, 2).toUpperCase();
+  }
+  return (words[0][0] + words[1][0]).toUpperCase();
+};
 
 export default function UserAdmin({ apiToken }) {
   const { accounts } = useMsal();
@@ -16,8 +24,7 @@ export default function UserAdmin({ apiToken }) {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [editingRows, setEditingRows] = useState({});
-  // New state for creating user
-  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [newUser, setNewUser] = useState({
     displayName: '',
     email: '',
@@ -32,7 +39,20 @@ export default function UserAdmin({ apiToken }) {
       isAdmin: false
     }
   });
-  
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    const total = users.length;
+    const admins = users.filter(u => u.preferences?.isAdmin).length;
+    const activeRecently = users.filter(u => {
+      if (!u.lastLogin) return false;
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      return new Date(u.lastLogin) > thirtyDaysAgo;
+    }).length;
+    return { total, admins, activeRecently };
+  }, [users]);
+
   // Fetch all users when component mounts
   useEffect(() => {
     const fetchUsers = async () => {
@@ -43,7 +63,6 @@ export default function UserAdmin({ apiToken }) {
       }
 
       try {
-        console.log('Fetching all users...');
         const response = await fetch(`${API_BASE_URL}/users`, {
           headers: {
             Authorization: `Bearer ${apiToken}`
@@ -55,7 +74,6 @@ export default function UserAdmin({ apiToken }) {
         }
 
         const data = await response.json();
-        console.log(`Retrieved ${data.length} users`);
         setUsers(data);
       } catch (err) {
         console.error('Error fetching users:', err);
@@ -81,7 +99,6 @@ export default function UserAdmin({ apiToken }) {
     setUsers(users.map(user => {
       if (user._id === userId) {
         if (field.includes('.')) {
-          // Handle nested fields (preferences)
           const [parent, child] = field.split('.');
           return {
             ...user,
@@ -91,7 +108,6 @@ export default function UserAdmin({ apiToken }) {
             }
           };
         } else {
-          // Handle top-level fields
           return {
             ...user,
             [field]: value
@@ -102,10 +118,9 @@ export default function UserAdmin({ apiToken }) {
     }));
   };
 
-  // New function to handle input changes for the new user form
+  // Handle input changes for the new user form
   const handleNewUserInputChange = (field, value) => {
     if (field.includes('.')) {
-      // Handle nested fields (preferences)
       const [parent, child] = field.split('.');
       setNewUser({
         ...newUser,
@@ -115,7 +130,6 @@ export default function UserAdmin({ apiToken }) {
         }
       });
     } else {
-      // Handle top-level fields
       setNewUser({
         ...newUser,
         [field]: value
@@ -131,7 +145,7 @@ export default function UserAdmin({ apiToken }) {
 
     try {
       const userToUpdate = users.find(user => user._id === userId);
-      
+
       const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
         method: 'PUT',
         headers: {
@@ -150,8 +164,7 @@ export default function UserAdmin({ apiToken }) {
       }
 
       const updatedUser = await response.json();
-      
-      // Update the user in the state
+
       setUsers(users.map(user => {
         if (user._id === updatedUser._id) {
           return updatedUser;
@@ -159,9 +172,7 @@ export default function UserAdmin({ apiToken }) {
         return user;
       }));
 
-      // Exit editing mode
       toggleEditing(userId);
-      
       setSuccessMessage(`User ${updatedUser.displayName} updated successfully.`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
@@ -172,26 +183,23 @@ export default function UserAdmin({ apiToken }) {
     }
   };
 
-  // New function to create a user
+  // Create a new user
   const createUser = async () => {
     setError(null);
     setSuccessMessage('');
     setLoading(true);
 
     try {
-      // Validate required fields
       if (!newUser.email || !newUser.displayName) {
         setError('Email and Display Name are required fields.');
         setLoading(false);
         return;
       }
 
-      // Create a properly formatted user object based on your API requirements
       const userToCreate = {
         email: newUser.email,
         displayName: newUser.displayName,
-        // Add this field which might be required by your API
-        userId: newUser.email.split('@')[0] + Date.now(), // Generate a unique userId
+        userId: newUser.email.split('@')[0] + Date.now(),
         preferences: {
           startOfWeek: newUser.preferences.startOfWeek || 'Sunday',
           defaultView: newUser.preferences.defaultView || 'week',
@@ -202,11 +210,8 @@ export default function UserAdmin({ apiToken }) {
           deleteEvents: newUser.preferences.deleteEvents ?? false,
           isAdmin: newUser.preferences.isAdmin ?? false
         },
-        // Add creation timestamp
         createdAt: new Date().toISOString()
       };
-
-      console.log('Creating user with data:', userToCreate);
 
       const response = await fetch(`${API_BASE_URL}/users`, {
         method: 'POST',
@@ -217,28 +222,20 @@ export default function UserAdmin({ apiToken }) {
         body: JSON.stringify(userToCreate)
       });
 
-      console.log('API response status:', response.status);
-
       if (!response.ok) {
-        // Try to get the error details from the response
         let errorMessage = 'Error creating user';
         try {
           const errorData = await response.json();
           errorMessage = errorData.error || `${errorMessage}: ${response.statusText}`;
-          console.error('Error response body:', errorData);
-        } catch (parseError) {
+        } catch {
           errorMessage = `${errorMessage}: ${response.statusText}`;
         }
         throw new Error(errorMessage);
       }
 
       const createdUser = await response.json();
-      console.log('User created successfully:', createdUser);
-
-      // Add the new user to the state
       setUsers([...users, createdUser]);
-      
-      // Reset the form and exit creating mode
+
       setNewUser({
         displayName: '',
         email: '',
@@ -253,8 +250,8 @@ export default function UserAdmin({ apiToken }) {
           isAdmin: false
         }
       });
-      setIsCreatingUser(false);
-      
+      setShowModal(false);
+
       setSuccessMessage(`User ${createdUser.displayName} created successfully.`);
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
@@ -265,7 +262,7 @@ export default function UserAdmin({ apiToken }) {
     }
   };
 
-  // Function to handle deleting a user
+  // Delete a user
   const handleDelete = async (userId) => {
     if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       return;
@@ -284,7 +281,6 @@ export default function UserAdmin({ apiToken }) {
         throw new Error(`Error deleting user: ${response.statusText}`);
       }
 
-      // Remove user from state
       setUsers(users.filter(user => user._id !== userId));
       setSuccessMessage('User deleted successfully.');
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -297,7 +293,6 @@ export default function UserAdmin({ apiToken }) {
     }
   };
 
-  // Get current user's email to identify them in the list
   const currentUserEmail = accounts.length > 0 ? accounts[0].username : '';
 
   if (loading && users.length === 0) {
@@ -305,183 +300,138 @@ export default function UserAdmin({ apiToken }) {
   }
 
   return (
-    <div className="admin-container">
-      <h2>User Management</h2>
-      
-      {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
-      
-      <div className="admin-actions">
-        <button 
-          className="create-user-button"
-          onClick={() => setIsCreatingUser(!isCreatingUser)}
-        >
-          {isCreatingUser ? 'Cancel' : '+ Add New User'}
+    <div className="user-admin">
+      {/* Page Header */}
+      <div className="user-admin-header">
+        <div className="user-admin-header-content">
+          <h2>User Management</h2>
+          <p className="user-admin-header-subtitle">
+            Manage user accounts and permissions
+          </p>
+        </div>
+        <button onClick={() => setShowModal(true)} className="add-user-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add User
         </button>
       </div>
-      
-      {/* New User Form */}
-      {isCreatingUser && (
-        <div className="new-user-form">
-          <h3>Create New User</h3>
-          <div className="form-row">
-            <div className="form-group">
-              <label htmlFor="newDisplayName">Display Name:</label>
-              <input
-                id="newDisplayName"
-                type="text"
-                value={newUser.displayName}
-                onChange={(e) => handleNewUserInputChange('displayName', e.target.value)}
-                placeholder="Display Name"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="newEmail">Email:</label>
-              <input
-                id="newEmail"
-                type="email"
-                value={newUser.email}
-                onChange={(e) => handleNewUserInputChange('email', e.target.value)}
-                placeholder="email@example.com"
-                required
-              />
-            </div>
+
+      {/* Stats Row */}
+      <div className="user-stats">
+        <div className="user-stat-card">
+          <div className="user-stat-icon total">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
           </div>
-          
-          <h4>Preferences</h4>
-          <div className="form-row">
-            <div className="form-group">
-              <label htmlFor="newDefaultView">Default View:</label>
-              <select
-                id="newDefaultView"
-                value={newUser.preferences.defaultView}
-                onChange={(e) => handleNewUserInputChange('preferences.defaultView', e.target.value)}
-              >
-                <option value="day">Day</option>
-                <option value="week">Week</option>
-                <option value="month">Month</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label htmlFor="newStartOfWeek">Start of Week:</label>
-              <select
-                id="newStartOfWeek"
-                value={newUser.preferences.startOfWeek}
-                onChange={(e) => handleNewUserInputChange('preferences.startOfWeek', e.target.value)}
-              >
-                <option value="Sunday">Sunday</option>
-                <option value="Monday">Monday</option>
-              </select>
-            </div>
-          </div>
-          
-          <div className="form-row">
-            <div className="form-group">
-              <label>Permissions:</label>
-              <div className="checkbox-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.createEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.createEvents', e.target.checked)}
-                  />
-                  Create Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.editEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.editEvents', e.target.checked)}
-                  />
-                  Edit Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.deleteEvents}
-                    onChange={(e) => handleNewUserInputChange('preferences.deleteEvents', e.target.checked)}
-                  />
-                  Delete Events
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={newUser.preferences.isAdmin}
-                    onChange={(e) => handleNewUserInputChange('preferences.isAdmin', e.target.checked)}
-                  />
-                  Admin Access
-                </label>
-              </div>
-            </div>
-          </div>
-          
-          <div className="form-actions">
-            <button 
-              className="save-button"
-              onClick={createUser}
-              disabled={loading}
-            >
-              {loading ? 'Creating...' : 'Create User'}
-            </button>
-            <button 
-              className="cancel-button"
-              onClick={() => setIsCreatingUser(false)}
-              disabled={loading}
-            >
-              Cancel
-            </button>
+          <div className="user-stat-content">
+            <h4>{stats.total}</h4>
+            <p>Total Users</p>
           </div>
         </div>
+
+        <div className="user-stat-card">
+          <div className="user-stat-icon admins">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 15l-2-2m0 0l2-2m-2 2h8" />
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 12a4 4 0 1 1 8 0 4 4 0 0 1-8 0z" />
+            </svg>
+          </div>
+          <div className="user-stat-content">
+            <h4>{stats.admins}</h4>
+            <p>Administrators</p>
+          </div>
+        </div>
+
+        <div className="user-stat-card">
+          <div className="user-stat-icon active">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
+          </div>
+          <div className="user-stat-content">
+            <h4>{stats.activeRecently}</h4>
+            <p>Active (30 days)</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      {error && (
+        <div className="error-message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          {error}
+        </div>
       )}
-      
-      <div className="admin-table-container">
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Default View</th>
-              <th>Start of Week</th>
-              <th>Permissions</th>
-              <th>Last Login</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.length === 0 ? (
-              <tr>
-                <td colSpan="7" className="no-results">No users found</td>
-              </tr>
-            ) : (
-              users.map(user => (
-                <tr key={user._id} className={user.email === currentUserEmail ? 'current-user-row' : ''}>
-                  <td>
-                    {editingRows[user._id] ? (
-                      <input
-                        type="text"
-                        value={user.displayName || ''}
-                        onChange={(e) => handleInputChange(user._id, 'displayName', e.target.value)}
-                        className="inline-edit-input"
-                      />
+
+      {successMessage && (
+        <div className="success-message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+          {successMessage}
+        </div>
+      )}
+
+      {/* Users Grid */}
+      {users.length > 0 ? (
+        <div className="users-grid">
+          {users.map((user) => {
+            const isCurrentUser = user.email === currentUserEmail;
+            const isEditing = editingRows[user._id];
+
+            return (
+              <div
+                key={user._id}
+                className={`user-card ${isCurrentUser ? 'current-user' : ''} ${isEditing ? 'editing' : ''}`}
+              >
+                <div className="user-card-header">
+                  <div className="user-avatar">
+                    {getInitials(user.displayName)}
+                  </div>
+                  <div className="user-card-info">
+                    {isEditing ? (
+                      <>
+                        <input
+                          type="text"
+                          value={user.displayName || ''}
+                          onChange={(e) => handleInputChange(user._id, 'displayName', e.target.value)}
+                          className="inline-edit-input"
+                          placeholder="Display Name"
+                        />
+                        <input
+                          type="email"
+                          value={user.email || ''}
+                          onChange={(e) => handleInputChange(user._id, 'email', e.target.value)}
+                          className="inline-edit-input"
+                          placeholder="Email"
+                        />
+                      </>
                     ) : (
-                      user.displayName || 'Unnamed User'
+                      <>
+                        <h3 className="user-card-name">
+                          {user.displayName || 'Unnamed User'}
+                          {isCurrentUser && <span className="you-badge">You</span>}
+                        </h3>
+                        <p className="user-card-email">{user.email}</p>
+                      </>
                     )}
-                  </td>
-                  <td>
-                    {editingRows[user._id] ? (
-                      <input
-                        type="email"
-                        value={user.email || ''}
-                        onChange={(e) => handleInputChange(user._id, 'email', e.target.value)}
-                        className="inline-edit-input"
-                      />
-                    ) : (
-                      user.email
-                    )}
-                  </td>
-                  <td>
-                    {editingRows[user._id] ? (
+                  </div>
+                </div>
+
+                <div className="user-card-details">
+                  <div className="user-detail-item">
+                    <span className="user-detail-label">Default View</span>
+                    {isEditing ? (
                       <select
                         value={user.preferences?.defaultView || 'week'}
                         onChange={(e) => handleInputChange(user._id, 'preferences.defaultView', e.target.value)}
@@ -492,11 +442,15 @@ export default function UserAdmin({ apiToken }) {
                         <option value="month">Month</option>
                       </select>
                     ) : (
-                      user.preferences?.defaultView || 'week'
+                      <span className="user-detail-value">
+                        {(user.preferences?.defaultView || 'week').charAt(0).toUpperCase() +
+                         (user.preferences?.defaultView || 'week').slice(1)}
+                      </span>
                     )}
-                  </td>
-                  <td>
-                    {editingRows[user._id] ? (
+                  </div>
+                  <div className="user-detail-item">
+                    <span className="user-detail-label">Week Starts</span>
+                    {isEditing ? (
                       <select
                         value={user.preferences?.startOfWeek || 'Sunday'}
                         onChange={(e) => handleInputChange(user._id, 'preferences.startOfWeek', e.target.value)}
@@ -506,96 +460,280 @@ export default function UserAdmin({ apiToken }) {
                         <option value="Monday">Monday</option>
                       </select>
                     ) : (
-                      user.preferences?.startOfWeek || 'Sunday'
+                      <span className="user-detail-value">
+                        {user.preferences?.startOfWeek || 'Sunday'}
+                      </span>
                     )}
-                  </td>
-                  <td>
-                    {editingRows[user._id] ? (
-                      <div className="inline-checkboxes">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.createEvents ?? true}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.createEvents', e.target.checked)}
-                          />
-                          Create
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.editEvents ?? true}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.editEvents', e.target.checked)}
-                          />
-                          Edit
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.deleteEvents ?? false}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.deleteEvents', e.target.checked)}
-                          />
+                  </div>
+                </div>
+
+                <div className="user-permissions">
+                  <span className="permissions-label">Permissions</span>
+                  {isEditing ? (
+                    <div className="permissions-checkboxes">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={user.preferences?.createEvents ?? true}
+                          onChange={(e) => handleInputChange(user._id, 'preferences.createEvents', e.target.checked)}
+                        />
+                        Create
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={user.preferences?.editEvents ?? true}
+                          onChange={(e) => handleInputChange(user._id, 'preferences.editEvents', e.target.checked)}
+                        />
+                        Edit
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={user.preferences?.deleteEvents ?? false}
+                          onChange={(e) => handleInputChange(user._id, 'preferences.deleteEvents', e.target.checked)}
+                        />
+                        Delete
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={user.preferences?.isAdmin ?? false}
+                          onChange={(e) => handleInputChange(user._id, 'preferences.isAdmin', e.target.checked)}
+                        />
+                        Admin
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="permissions-badges">
+                      {user.preferences?.createEvents && (
+                        <span className="permission-badge create">Create</span>
+                      )}
+                      {user.preferences?.editEvents && (
+                        <span className="permission-badge edit">Edit</span>
+                      )}
+                      {user.preferences?.deleteEvents && (
+                        <span className="permission-badge delete">Delete</span>
+                      )}
+                      {user.preferences?.isAdmin && (
+                        <span className="permission-badge admin">Admin</span>
+                      )}
+                      {!user.preferences?.createEvents &&
+                       !user.preferences?.editEvents &&
+                       !user.preferences?.deleteEvents &&
+                       !user.preferences?.isAdmin && (
+                        <span className="no-permissions">No permissions</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="user-last-login">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  Last login: {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}
+                </div>
+
+                <div className="user-card-actions">
+                  {isEditing ? (
+                    <>
+                      <button className="save-btn" onClick={() => saveChanges(user._id)}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        Save
+                      </button>
+                      <button className="cancel-btn" onClick={() => toggleEditing(user._id)}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="edit-btn" onClick={() => toggleEditing(user._id)}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        Edit
+                      </button>
+                      {!isCurrentUser && (
+                        <button className="delete-btn" onClick={() => handleDelete(user._id)}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
                           Delete
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={user.preferences?.isAdmin ?? false}
-                            onChange={(e) => handleInputChange(user._id, 'preferences.isAdmin', e.target.checked)}
-                          />
-                          Admin
-                        </label>
-                      </div>
-                    ) : (
-                      <ul className="permissions-list">
-                        {user.preferences?.createEvents && <li>Create</li>}
-                        {user.preferences?.editEvents && <li>Edit</li>}
-                        {user.preferences?.deleteEvents && <li>Delete</li>}
-                        {user.preferences?.isAdmin && <li>Admin</li>}
-                      </ul>
-                    )}
-                  </td>
-                  <td>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
-                  <td className="actions-cell">
-                    {editingRows[user._id] ? (
-                        <div className="button-group">
-                        <button 
-                            className="save-button"
-                            onClick={() => saveChanges(user._id)}
-                        >
-                            Save
                         </button>
-                        <button 
-                            className="cancel-button"
-                            onClick={() => toggleEditing(user._id)}
-                        >
-                            Cancel
-                        </button>
-                        </div>
-                    ) : (
-                        <div className="button-group">
-                        <button 
-                            className="edit-button"
-                            onClick={() => toggleEditing(user._id)}
-                        >
-                            Edit
-                        </button>
-                        {user.email !== currentUserEmail && (
-                            <button 
-                            className="delete-button"
-                            onClick={() => handleDelete(user._id)}
-                            >
-                            Delete
-                            </button>
-                        )}
-                        </div>
-                    )}
-                    </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="no-users">
+          <div className="empty-state-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <h3>No users yet</h3>
+          <p>Create your first user to get started</p>
+          <button onClick={() => setShowModal(true)} className="add-user-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Add Your First User
+          </button>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Create New User</h3>
+            </div>
+
+            <div className="modal-body">
+              <div className="form-section">
+                <h4 className="form-section-title">User Information</h4>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>
+                      Display Name <span className="required">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newUser.displayName}
+                      onChange={(e) => handleNewUserInputChange('displayName', e.target.value)}
+                      placeholder="John Smith"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>
+                      Email <span className="required">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={newUser.email}
+                      onChange={(e) => handleNewUserInputChange('email', e.target.value)}
+                      placeholder="john@example.com"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h4 className="form-section-title">Preferences</h4>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Default View</label>
+                    <select
+                      value={newUser.preferences.defaultView}
+                      onChange={(e) => handleNewUserInputChange('preferences.defaultView', e.target.value)}
+                    >
+                      <option value="day">Day</option>
+                      <option value="week">Week</option>
+                      <option value="month">Month</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Week Starts On</label>
+                    <select
+                      value={newUser.preferences.startOfWeek}
+                      onChange={(e) => handleNewUserInputChange('preferences.startOfWeek', e.target.value)}
+                    >
+                      <option value="Sunday">Sunday</option>
+                      <option value="Monday">Monday</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h4 className="form-section-title">Permissions</h4>
+                <div className="permissions-grid">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUser.preferences.createEvents}
+                      onChange={(e) => handleNewUserInputChange('preferences.createEvents', e.target.checked)}
+                    />
+                    <span className="permission-text">
+                      <span className="permission-name">Create Events</span>
+                      <span className="permission-desc">Can create new events</span>
+                    </span>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUser.preferences.editEvents}
+                      onChange={(e) => handleNewUserInputChange('preferences.editEvents', e.target.checked)}
+                    />
+                    <span className="permission-text">
+                      <span className="permission-name">Edit Events</span>
+                      <span className="permission-desc">Can modify existing events</span>
+                    </span>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUser.preferences.deleteEvents}
+                      onChange={(e) => handleNewUserInputChange('preferences.deleteEvents', e.target.checked)}
+                    />
+                    <span className="permission-text">
+                      <span className="permission-name">Delete Events</span>
+                      <span className="permission-desc">Can remove events</span>
+                    </span>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={newUser.preferences.isAdmin}
+                      onChange={(e) => handleNewUserInputChange('preferences.isAdmin', e.target.checked)}
+                    />
+                    <span className="permission-text">
+                      <span className="permission-name">Administrator</span>
+                      <span className="permission-desc">Full system access</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <div className="modal-actions">
+                <button
+                  className="cancel-btn"
+                  onClick={() => setShowModal(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="save-btn"
+                  onClick={createUser}
+                  disabled={loading}
+                >
+                  {loading ? 'Creating...' : 'Create User'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

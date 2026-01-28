@@ -135,15 +135,6 @@ export default function Navigation({ apiToken }) {
                 </li>
                 <li>
                   <NavLink
-                    to="/admin/events"
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    Unified Events Admin
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
                     to="/admin/locations"
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}

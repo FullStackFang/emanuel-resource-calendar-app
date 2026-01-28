@@ -291,19 +291,19 @@ export default function FeatureManagement({ apiToken }) {
                     {items.map(capability => (
                       <div key={capability._id} className="feature-card">
                         <div className="feature-actions">
-                          <button 
-                            className="action-btn edit-btn" 
+                          <button
+                            className="action-btn edit-btn"
                             onClick={() => handleEdit(capability, 'capability')}
                             title="Edit capability"
                           >
-                            ✏️
+                            Edit
                           </button>
-                          <button 
-                            className="action-btn delete-btn" 
+                          <button
+                            className="action-btn delete-btn"
                             onClick={() => handleDelete(capability, 'capability')}
                             title="Delete capability"
                           >
-                            🗑️
+                            Delete
                           </button>
                         </div>
                         <div className="feature-icon">{capability.icon}</div>
@@ -349,19 +349,19 @@ export default function FeatureManagement({ apiToken }) {
                     {items.map(service => (
                       <div key={service._id} className="feature-card">
                         <div className="feature-actions">
-                          <button 
-                            className="action-btn edit-btn" 
+                          <button
+                            className="action-btn edit-btn"
                             onClick={() => handleEdit(service, 'service')}
                             title="Edit service"
                           >
-                            ✏️
+                            Edit
                           </button>
-                          <button 
-                            className="action-btn delete-btn" 
+                          <button
+                            className="action-btn delete-btn"
                             onClick={() => handleDelete(service, 'service')}
                             title="Delete service"
                           >
-                            🗑️
+                            Delete
                           </button>
                         </div>
                         <div className="feature-icon">{service.icon}</div>
@@ -420,19 +420,19 @@ export default function FeatureManagement({ apiToken }) {
                       {category.active ? 'Active' : 'Inactive'}
                     </span>
                     <div className="category-actions">
-                      <button 
-                        className="action-btn edit-btn" 
+                      <button
+                        className="action-btn edit-btn"
                         onClick={() => handleEdit(category, 'category')}
                         title="Edit category"
                       >
-                        ✏️
+                        Edit
                       </button>
-                      <button 
-                        className="action-btn delete-btn" 
+                      <button
+                        className="action-btn delete-btn"
                         onClick={() => handleDelete(category, 'category')}
                         title="Delete category"
                       >
-                        🗑️
+                        Delete
                       </button>
                     </div>
                   </div>

@@ -7,57 +7,52 @@ import CalendarSelector from './CalendarSelector';
 import './CalendarHeader.css';
 
 /**
- * DatePickerButton component for calendar date selection
+ * Custom input component for DatePicker
+ * Shows the date and calendar icon, clicking opens the picker
  */
-const DatePickerButton = ({ currentDate, onDateChange, viewType }) => {
-  const [showPicker, setShowPicker] = React.useState(false);
-  const wrapperRef = React.useRef(null);
+const CustomDateInput = React.forwardRef(({ value, onClick }, ref) => (
+  <div className="date-picker-input-group" onClick={onClick} ref={ref}>
+    <span className="date-picker-display">{value}</span>
+    <span className="date-picker-calendar-btn" title="Open calendar picker">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12.667 2.667H3.333C2.597 2.667 2 3.264 2 4v9.333c0 .737.597 1.334 1.333 1.334h9.334c.736 0 1.333-.597 1.333-1.334V4c0-.736-.597-1.333-1.333-1.333z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M10.667 1.333v2.667M5.333 1.333v2.667M2 6.667h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </span>
+  </div>
+));
 
-  // Close picker when clicking outside
-  React.useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
-        setShowPicker(false);
-      }
-    };
-    if (showPicker) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showPicker]);
+CustomDateInput.displayName = 'CustomDateInput';
+
+/**
+ * DatePickerButton component for calendar date selection
+ * Uses react-datepicker with text input mode for proper date validation
+ */
+const DatePickerButton = ({ currentDate, onDateChange }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
 
   const handleDateSelect = (date) => {
-    onDateChange(date);
-    setShowPicker(false);
+    if (date) {
+      onDateChange(date);
+    }
   };
 
-  const formattedDate = currentDate.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-
   return (
-    <div className="date-picker-wrapper" ref={wrapperRef}>
-      <button
-        className="date-picker-input"
-        onClick={() => setShowPicker(!showPicker)}
-        title="Select date"
-      >
-        📅 {formattedDate}
-      </button>
-      {showPicker && (
-        <div className="date-picker-dropdown">
-          <DatePicker
-            selected={currentDate}
-            onChange={handleDateSelect}
-            inline
-            showMonthDropdown
-            showYearDropdown
-            dropdownMode="select"
-          />
-        </div>
-      )}
+    <div className="date-picker-wrapper">
+      <DatePicker
+        selected={currentDate}
+        onChange={handleDateSelect}
+        onCalendarOpen={() => setIsOpen(true)}
+        onCalendarClose={() => setIsOpen(false)}
+        customInput={<CustomDateInput />}
+        dateFormat="MMM d, yyyy"
+        showMonthDropdown
+        showYearDropdown
+        dropdownMode="select"
+        popperClassName="date-picker-popper"
+        popperPlacement="bottom-start"
+        showPopperArrow={false}
+      />
     </div>
   );
 };
