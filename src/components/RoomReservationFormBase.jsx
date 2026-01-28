@@ -252,17 +252,17 @@ export default function RoomReservationFormBase({
   // Use JSON.stringify for more reliable dependency tracking
   const servicesKey = JSON.stringify(initialData?.services || {});
   useEffect(() => {
-    console.log('🛎️ RoomReservationFormBase - services sync useEffect triggered');
-    console.log('🛎️ RoomReservationFormBase - initialData:', initialData);
-    console.log('🛎️ RoomReservationFormBase - initialData?.services:', initialData?.services);
-    console.log('🛎️ RoomReservationFormBase - servicesKey:', servicesKey);
+    logger.log('🛎️ RoomReservationFormBase - services sync useEffect triggered');
+    logger.log('🛎️ RoomReservationFormBase - initialData:', initialData);
+    logger.log('🛎️ RoomReservationFormBase - initialData?.services:', initialData?.services);
+    logger.log('🛎️ RoomReservationFormBase - servicesKey:', servicesKey);
     const newServices = initialData?.services;
     if (newServices && Object.keys(newServices).length > 0) {
-      console.log('🛎️ RoomReservationFormBase - Setting selectedServices to:', newServices);
+      logger.log('🛎️ RoomReservationFormBase - Setting selectedServices to:', newServices);
       setSelectedServices(newServices);
       selectedServicesRef.current = newServices;
     } else {
-      console.log('🛎️ RoomReservationFormBase - newServices is empty/undefined, NOT updating selectedServices');
+      logger.log('🛎️ RoomReservationFormBase - newServices is empty/undefined, NOT updating selectedServices');
     }
   }, [servicesKey]);
 
@@ -317,7 +317,7 @@ export default function RoomReservationFormBase({
   // Notify parent when hasChanges state changes
   // Note: callback intentionally excluded from deps to prevent render loop
   useEffect(() => {
-    console.log('[hasChanges useEffect] hasChanges =', hasChanges, ', callback exists:', !!onHasChangesChange);
+    logger.log('[hasChanges useEffect] hasChanges =', hasChanges, ', callback exists:', !!onHasChangesChange);
     if (onHasChangesChange) {
       onHasChangesChange(hasChanges);
     }
@@ -441,7 +441,7 @@ export default function RoomReservationFormBase({
   // Fetch series events when opening an event with eventSeriesId
   useEffect(() => {
     const fetchSeriesEvents = async () => {
-      console.log('🔍 Series Events Fetch - Initial Data:', {
+      logger.log('🔍 Series Events Fetch - Initial Data:', {
         hasEventSeriesId: !!initialData?.eventSeriesId,
         eventSeriesId: initialData?.eventSeriesId,
         eventId: initialData?.eventId,
@@ -449,7 +449,7 @@ export default function RoomReservationFormBase({
       });
 
       if (!initialData?.eventSeriesId) {
-        console.log('❌ No eventSeriesId in initialData, skipping series fetch');
+        logger.log('❌ No eventSeriesId in initialData, skipping series fetch');
         setSeriesEvents([]);
         return;
       }
@@ -475,7 +475,7 @@ export default function RoomReservationFormBase({
         }
 
         const data = await response.json();
-        console.log('✅ Series Events Fetched:', {
+        logger.log('✅ Series Events Fetched:', {
           count: data.events?.length || 0,
           events: data.events,
           fullResponse: data
@@ -517,7 +517,7 @@ export default function RoomReservationFormBase({
     // Use ref to check CURRENT value, not potentially stale closure value
     // This prevents overwriting checkDayAvailability results when rooms are selected
     if (assistantRoomsRef.current.length > 0) {
-      console.log('[checkAvailability] Skipping - assistant mode active');
+      logger.log('[checkAvailability] Skipping - assistant mode active');
       return;
     }
 
@@ -552,7 +552,7 @@ export default function RoomReservationFormBase({
       // Double-check BEFORE setting: rooms might have been selected while we were fetching
       // This prevents overwriting checkDayAvailability results during initialization race
       if (assistantRoomsRef.current.length > 0) {
-        console.log('[checkAvailability] Discarding response - assistant mode now active');
+        logger.log('[checkAvailability] Discarding response - assistant mode now active');
         return;
       }
 
@@ -611,7 +611,7 @@ export default function RoomReservationFormBase({
       if (thisRequestId === availabilityRequestId.current) {
         setAvailability(data);
       } else {
-        console.log('[checkDayAvailability] Ignoring stale response', { thisRequestId, currentId: availabilityRequestId.current });
+        logger.log('[checkDayAvailability] Ignoring stale response', { thisRequestId, currentId: availabilityRequestId.current });
       }
     } catch (err) {
       // Ignore abort errors - request was intentionally cancelled
@@ -655,7 +655,7 @@ export default function RoomReservationFormBase({
       // Skip if params haven't changed (prevents race condition from duplicate fetches)
       const roomIdsStr = roomIds.sort().join(',');
       if (lastFetchParamsRef.current.roomIds === roomIdsStr && lastFetchParamsRef.current.date === dateToCheck) {
-        console.log('[checkDayAvailability] Skipping duplicate fetch - params unchanged');
+        logger.log('[checkDayAvailability] Skipping duplicate fetch - params unchanged');
         return;
       }
 

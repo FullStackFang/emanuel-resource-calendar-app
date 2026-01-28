@@ -1,6 +1,7 @@
 // src/components/MultiDatePicker.jsx
 import React from 'react';
 import DatePicker from 'react-datepicker';
+import { logger } from '../utils/logger';
 import "react-datepicker/dist/react-datepicker.css";
 import './MultiDatePicker.css';
 
@@ -26,7 +27,7 @@ const MultiDatePicker = ({
 
   const [pendingEventId, setPendingEventId] = React.useState(null);
 
-  console.log('📅 MultiDatePicker Render:', {
+  logger.log('📅 MultiDatePicker Render:', {
     selectedDatesCount: selectedDates.length,
     seriesEventsCount: seriesEvents?.length || 0,
     hasSeriesEvents: !!(seriesEvents && seriesEvents.length > 0),

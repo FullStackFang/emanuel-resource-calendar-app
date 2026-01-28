@@ -1,6 +1,7 @@
 // src/components/EventSearchExport.jsx
 import React, { useState } from 'react';
 import { useNotification } from '../context/NotificationContext';
+import { logger } from '../utils/logger';
 import { jsPDF } from 'jspdf';
 
 const EventSearchExport = ({
@@ -60,7 +61,7 @@ const EventSearchExport = ({
         params.append('locations', locations.join(','));
       }
 
-      console.log('Export: Fetching all events from unified backend with params:', params.toString());
+      logger.log('Export: Fetching all events from unified backend with params:', params.toString());
 
       const response = await fetch(
         `${apiBaseUrl}/admin/unified/events?${params.toString()}`,
@@ -78,7 +79,7 @@ const EventSearchExport = ({
       }
 
       const data = await response.json();
-      console.log(`Export: Fetched ${data.events?.length || 0} events for export`);
+      logger.log(`Export: Fetched ${data.events?.length || 0} events for export`);
 
       // Transform unified events to match expected format for export
       const events = (data.events || []).map(event => {
@@ -350,7 +351,7 @@ const EventSearchExport = ({
     try {
       // Fetch ALL matching events (not just the loaded batch of 100)
       const allMatchingEvents = await fetchAllMatchingEvents();
-      console.log(`PDF Export: Fetched ${allMatchingEvents.length} events for export`);
+      logger.log(`PDF Export: Fetched ${allMatchingEvents.length} events for export`);
       // Create new PDF document
       const doc = new jsPDF();
 

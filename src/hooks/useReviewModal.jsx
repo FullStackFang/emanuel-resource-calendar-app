@@ -247,12 +247,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * Update editable data
    */
   const updateData = useCallback((updates) => {
-    console.log('[useReviewModal.updateData] Called with updates:', Object.keys(updates || {}));
+    logger.log('[useReviewModal.updateData] Called with updates:', Object.keys(updates || {}));
     setEditableData(prev => ({
       ...prev,
       ...updates
     }));
-    console.log('[useReviewModal.updateData] Setting hasChanges to true');
+    logger.log('[useReviewModal.updateData] Setting hasChanges to true');
     setHasChanges(true);
     // Reset delete confirmation when form data changes
     if (pendingDeleteConfirmation) {
@@ -381,7 +381,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           setIsApproving(false);
           return { success: false, error: 'Validation failed' };
         }
-        console.log('[handleApprove] Got LIVE form data from formDataGetter:', {
+        logger.log('[handleApprove] Got LIVE form data from formDataGetter:', {
           eventTitle: formData.eventTitle,
           eventDescription: formData.eventDescription?.substring(0, 50),
           startDateTime: formData.startDateTime,
@@ -390,7 +390,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           locations: formData.locations
         });
       } else {
-        console.log('[handleApprove] WARNING: formDataGetter not available');
+        logger.log('[handleApprove] WARNING: formDataGetter not available');
       }
 
       // Step 1: Save the form data to the existing record FIRST (if we have form data)
@@ -398,7 +398,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       if (formData) {
         try {
           const saveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
-          console.log('[handleApprove] Step 1: Saving form data to existing record:', currentItem._id);
+          logger.log('[handleApprove] Step 1: Saving form data to existing record:', currentItem._id);
 
           const saveResponse = await fetch(saveEndpoint, {
             method: 'PUT',
@@ -419,7 +419,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           }
 
           const saveResult = await saveResponse.json();
-          console.log('[handleApprove] Form data saved successfully:', saveResult);
+          logger.log('[handleApprove] Form data saved successfully:', saveResult);
         } catch (saveError) {
           logger.error('Failed to save form data before approval:', saveError);
           if (onError) onError(`Failed to save changes: ${saveError.message}`);
@@ -430,7 +430,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Step 2: Call approve endpoint which will create the Graph event from the saved data
       // The approve endpoint uses event.graphData which was just updated by the save
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`;
-      console.log('[handleApprove] Step 2: Calling approve endpoint');
+      logger.log('[handleApprove] Step 2: Calling approve endpoint');
 
       const response = await fetch(endpoint, {
         method: 'PUT',
@@ -536,7 +536,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     // Two-step confirmation: First click shows confirmation, second click deletes
     if (!pendingDeleteConfirmation) {
       // First click: Set pending confirmation state and return
-      console.log('DEBUG: Delete button first click - showing confirmation');
+      logger.log('DEBUG: Delete button first click - showing confirmation');
       setPendingDeleteConfirmation(true);
       setPendingApproveConfirmation(false); // Clear approve confirmation if any
       setPendingRejectConfirmation(false); // Clear reject confirmation if any
@@ -544,7 +544,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Second click: User confirmed, proceed with deletion
-    console.log('DEBUG: Delete button second click - deleting');
+    logger.log('DEBUG: Delete button second click - deleting');
     setPendingDeleteConfirmation(false); // Reset confirmation state
     setIsDeleting(true);
     try {

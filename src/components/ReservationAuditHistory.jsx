@@ -12,7 +12,7 @@ const ReservationAuditHistory = ({ reservationId, apiToken, refreshTrigger }) =>
 
   useEffect(() => {
     if (reservationId && apiToken) {
-      console.log('🔄 Fetching audit history (refreshTrigger:', refreshTrigger, ')');
+      logger.log('🔄 Fetching audit history (refreshTrigger:', refreshTrigger, ')');
       fetchAuditHistory();
     }
   }, [reservationId, apiToken, refreshTrigger]);

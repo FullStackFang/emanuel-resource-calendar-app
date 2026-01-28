@@ -15,6 +15,8 @@ const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens } = require('./utils/authUtils');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const ApiError = require('./utils/ApiError');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -4956,20 +4958,39 @@ app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
 
 /**
  * NEW: Get room reservation request events (dedicated endpoint)
- * GET /api/room-reservation-events?limit=1000
+ * GET /api/room-reservation-events?page=1&limit=20&status=pending
+ *
+ * Query params:
+ *   - page: Page number (default: 1)
+ *   - limit: Items per page (default: 20, max: 100)
+ *   - status: Filter by status ('pending', 'approved', 'rejected', 'cancelled', or 'all')
  */
 app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
   logger.log('===== /api/room-reservation-events endpoint hit =====');
   try {
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, status } = req.query;
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Build query for room reservations (all statuses: pending, approved, rejected)
+    // Validate and sanitize pagination params
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+
+    // Build query for room reservations
     const query = {
       isDeleted: { $ne: true },
       roomReservationData: { $exists: true, $ne: null }
     };
+
+    // Add status filter if provided (and not 'all')
+    if (status && status !== 'all') {
+      // Handle 'pending' status which may include legacy 'room-reservation-request'
+      if (status === 'pending') {
+        query.status = { $in: ['pending', 'room-reservation-request'] };
+      } else {
+        query.status = status;
+      }
+    }
 
     // Check if user can view all reservations
     const user = await usersCollection.findOne({ userId });
@@ -4984,25 +5005,27 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
 
     logger.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
 
-    // Execute query (no sort due to Cosmos DB index limitations)
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Execute query with pagination
+    const skip = (pageNum - 1) * limitNum;
     const events = await unifiedEventsCollection
       .find(query)
+      .sort({ _id: -1 }) // Newest first (ObjectId contains timestamp)
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .toArray();
 
     const totalCount = await unifiedEventsCollection.countDocuments(query);
 
-    logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
+    logger.log('📊 Query results:', { totalCount, returnedCount: events.length, page: pageNum, limit: limitNum });
 
     res.json({
       events,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: limitNum,
         totalCount,
-        totalPages: Math.ceil(totalCount / parseInt(limit))
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasMore: pageNum * limitNum < totalCount
       }
     });
 
@@ -13149,15 +13172,16 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       lastDraftSaved: event.lastDraftSaved
     }));
 
-    const total = await unifiedEventsCollection.countDocuments(query);
+    const totalCount = await unifiedEventsCollection.countDocuments(query);
 
     res.json({
       reservations,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
+        totalCount,
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasMore: pageNum * limitNum < totalCount
       }
     });
   } catch (error) {
@@ -20492,30 +20516,18 @@ app.put('/api/admin/error-settings', verifyToken, async (req, res) => {
 // ERROR HANDLING MIDDLEWARE (must be after all routes)
 // ============================================================================
 
+// 404 handler - catches requests to undefined routes
+app.use(notFoundHandler);
+
 // Sentry error handler - captures all errors to Sentry (must be before custom error handler)
 // Using Sentry v8+ API: setupExpressErrorHandler
 if (process.env.SENTRY_DSN) {
   Sentry.setupExpressErrorHandler(app);
 }
 
-/**
- * Error response middleware - sends error response to client
- * Sentry handles logging/alerting, this just formats the response
- */
-app.use((err, req, res, next) => {
-  // Log error for server debugging (Sentry handles persistence/alerting)
-  logger.error(`Error in ${req.method} ${req.path}:`, err.message);
-  if (process.env.NODE_ENV !== 'production') {
-    logger.error('Stack:', err.stack);
-  }
-
-  // Send error response
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    error: err.message || 'Internal server error',
-    requestId: req.requestId
-  });
-});
+// Global error handler - standardized error responses
+// Returns consistent JSON format: { error, code, details?, requestId }
+app.use(errorHandler);
 
 // ============================================================================
 // END ERROR HANDLING

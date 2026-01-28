@@ -599,7 +599,7 @@ export default function CSVImport({ apiToken, availableCalendars = [] }) {
           type="file"
           accept=".csv"
           onChange={handleFileInputChange}
-          style={{ display: 'none' }}
+          className="hidden-input"
           disabled={importing}
         />
         

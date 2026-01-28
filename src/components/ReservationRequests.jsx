@@ -24,6 +24,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [page, setPage] = useState(1);
   const [actionNotes, setActionNotes] = useState('');
 
+  // Server-side pagination state
+  const [pagination, setPagination] = useState({
+    totalCount: 0,
+    totalPages: 0,
+    hasMore: false
+  });
+  const PAGE_SIZE = 20;
+
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
   const [createCalendarEvent, setCreateCalendarEvent] = useState(true);
@@ -90,9 +98,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Load all reservations once on mount
   useEffect(() => {
     if (apiToken) {
-      loadAllReservations();
+      loadReservations(1, activeTab);
     }
-  }, [apiToken]);
+  }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadCalendarSettings = async () => {
     try {
@@ -123,55 +131,72 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     };
   }, [holdTimer]);
 
-  const loadAllReservations = async () => {
+  const loadReservations = useCallback(async (pageNum = 1, status = activeTab) => {
     try {
       setLoading(true);
       setError('');
 
-      // Load ONLY from templeEvents__Events (new unified system)
-      const newEventsResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservation-events?limit=1000`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
+      // Build URL with pagination and status filter
+      const params = new URLSearchParams({
+        page: pageNum.toString(),
+        limit: PAGE_SIZE.toString()
       });
 
-      if (!newEventsResponse.ok) {
+      // Add status filter (server understands 'all' to mean no filter)
+      if (status && status !== 'all') {
+        params.append('status', status);
+      }
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservation-events?${params.toString()}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiToken}`
+          }
+        }
+      );
+
+      if (!response.ok) {
         throw new Error('Failed to load room reservation events');
       }
 
-      // Parse response
-      const newData = await newEventsResponse.json();
+      const data = await response.json();
 
       // Transform events using shared utility (single source of truth)
-      const transformedNewEvents = transformEventsToFlatStructure(newData.events || []);
+      const transformedEvents = transformEventsToFlatStructure(data.events || []);
 
       logger.debug('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
-        eventId: transformedNewEvents?.[0]?.eventId,
-        hasEventSeriesId: !!transformedNewEvents?.[0]?.eventSeriesId,
-        eventSeriesId: transformedNewEvents?.[0]?.eventSeriesId,
-        seriesIndex: transformedNewEvents?.[0]?.seriesIndex,
-        seriesLength: transformedNewEvents?.[0]?.seriesLength
-      });
-
-      // Sort by submission date (newest first)
-      transformedNewEvents.sort((a, b) => {
-        const dateA = new Date(a.submittedAt || 0);
-        const dateB = new Date(b.submittedAt || 0);
-        return dateB - dateA;
+        eventId: transformedEvents?.[0]?.eventId,
+        hasEventSeriesId: !!transformedEvents?.[0]?.eventSeriesId,
+        eventSeriesId: transformedEvents?.[0]?.eventSeriesId,
+        seriesIndex: transformedEvents?.[0]?.seriesIndex,
+        seriesLength: transformedEvents?.[0]?.seriesLength
       });
 
       logger.info('Loaded room reservation events:', {
-        count: transformedNewEvents.length
+        count: transformedEvents.length,
+        page: data.pagination?.page,
+        totalCount: data.pagination?.totalCount
       });
 
-      setAllReservations(transformedNewEvents);
+      setAllReservations(transformedEvents);
+      setPagination({
+        totalCount: data.pagination?.totalCount || 0,
+        totalPages: data.pagination?.totalPages || 0,
+        hasMore: data.pagination?.hasMore || false
+      });
     } catch (err) {
       logger.error('Error loading reservations:', err);
       setError('Failed to load reservation requests');
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiToken, activeTab]);
+
+  // Legacy alias for compatibility
+  const loadAllReservations = useCallback(() => {
+    return loadReservations(page, activeTab);
+  }, [loadReservations, page, activeTab]);
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -355,38 +380,29 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Stats calculation
-  const stats = useMemo(() => {
-    const pending = allReservations.filter(r => r.status === 'pending').length;
-    const approved = allReservations.filter(r => r.status === 'approved').length;
-    const rejected = allReservations.filter(r => r.status === 'rejected').length;
-    return {
-      total: allReservations.length,
-      pending,
-      approved,
-      rejected
-    };
-  }, [allReservations]);
+  // Stats - shows count for current filter/page
+  const stats = useMemo(() => ({
+    total: pagination.totalCount,
+    showing: allReservations.length
+  }), [pagination.totalCount, allReservations.length]);
 
-  // Client-side filtering with memoization
-  const filteredReservations = useMemo(() => {
-    if (activeTab === 'all') {
-      return allReservations;
-    }
-    return allReservations.filter(reservation => reservation.status === activeTab);
-  }, [allReservations, activeTab]);
+  // With server-side pagination, allReservations IS the paginated result
+  // No client-side filtering needed - server handles it
+  const paginatedReservations = allReservations;
+  const totalPages = pagination.totalPages;
 
-  // Pagination for filtered results
-  const itemsPerPage = 20;
-  const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
-  const startIndex = (page - 1) * itemsPerPage;
-  const paginatedReservations = filteredReservations.slice(startIndex, startIndex + itemsPerPage);
-
-  // Reset page when tab changes
-  const handleTabChange = (newTab) => {
+  // Handle tab changes - reload data with new status filter
+  const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
     setPage(1);
-  };
+    loadReservations(1, newTab);
+  }, [loadReservations]);
+
+  // Handle page changes
+  const handlePageChange = useCallback((newPage) => {
+    setPage(newPage);
+    loadReservations(newPage, activeTab);
+  }, [loadReservations, activeTab]);
 
   // Open review modal (using ReviewModal component)
   const openReviewModal = async (reservation) => {
@@ -1380,15 +1396,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {activeTab !== 'edit-requests' && totalPages > 1 && (
         <div className="pagination">
           <button
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
+            disabled={page === 1 || loading}
+            onClick={() => handlePageChange(page - 1)}
           >
             Previous
           </button>
-          <span className="page-info">Page {page} of {totalPages}</span>
+          <span className="page-info">
+            Page {page} of {totalPages}
+            {stats.total > 0 && ` (${stats.total} total)`}
+          </span>
           <button
-            disabled={page === totalPages}
-            onClick={() => setPage(page + 1)}
+            disabled={page === totalPages || loading}
+            onClick={() => handlePageChange(page + 1)}
           >
             Next
           </button>

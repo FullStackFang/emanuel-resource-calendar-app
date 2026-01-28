@@ -1,6 +1,7 @@
 // src/components/AttachmentsSection.jsx
 import React, { useState, useEffect } from 'react';
 import { useNotification } from '../context/NotificationContext';
+import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import './AttachmentsSection.css';
 
@@ -76,7 +77,7 @@ export default function AttachmentsSection({
           : `/reservations/${resourceId}/attachments`;
 
         // Debug logging to verify correct URL construction
-        console.log('🔍 [AttachmentsSection] Upload Debug:', {
+        logger.log('🔍 [AttachmentsSection] Upload Debug:', {
           'API_BASE_URL': APP_CONFIG.API_BASE_URL,
           'endpoint': endpoint,
           'fullURL': `${APP_CONFIG.API_BASE_URL}${endpoint}`,
@@ -284,7 +285,7 @@ export default function AttachmentsSection({
             multiple
             accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md"
             onChange={(e) => handleFileSelect(e.target.files)}
-            style={{ display: 'none' }}
+            className="hidden-input"
           />
 
           {/* Uploading Files Progress */}

@@ -171,9 +171,9 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
 
       const analysis = await response.json();
 
-      console.log('[CSVImportWithCalendar] Analysis result:', analysis);
-      console.log('[CSVImportWithCalendar] Headers:', analysis.columns);
-      console.log('[CSVImportWithCalendar] Sample data:', analysis.samples);
+      logger.log('[CSVImportWithCalendar] Analysis result:', analysis);
+      logger.log('[CSVImportWithCalendar] Headers:', analysis.columns);
+      logger.log('[CSVImportWithCalendar] Sample data:', analysis.samples);
 
       setCsvHeaders(analysis.columns || []);
       setCsvSampleData(Object.values(analysis.samples || {}));
@@ -194,7 +194,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
   };
 
   const autoMapFields = (headers) => {
-    console.log('[CSVImportWithCalendar] Auto-mapping with headers:', headers);
+    logger.log('[CSVImportWithCalendar] Auto-mapping with headers:', headers);
     const mappings = {};
 
     // Exact mapping for Resource Scheduler CSV columns (based on actual file)
@@ -220,7 +220,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       }
     });
 
-    console.log('[CSVImportWithCalendar] Final mappings:', mappings);
+    logger.log('[CSVImportWithCalendar] Final mappings:', mappings);
     setFieldMappings(mappings);
     setAutoMapped(Object.keys(mappings).length > 0);
   };
@@ -257,9 +257,9 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       return;
     }
 
-    console.log('[CSVImportWithCalendar] Field mappings before validation:', fieldMappings);
-    console.log('[CSVImportWithCalendar] Required fields:', requiredFields);
-    console.log('[CSVImportWithCalendar] Mapped fields:', mappedFields);
+    logger.log('[CSVImportWithCalendar] Field mappings before validation:', fieldMappings);
+    logger.log('[CSVImportWithCalendar] Required fields:', requiredFields);
+    logger.log('[CSVImportWithCalendar] Mapped fields:', mappedFields);
 
     setStepsCompleted(prev => new Set([...prev, 'mapping']));
     setCurrentStep('preview');
@@ -277,7 +277,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       formData.append('csvFile', selectedFile);
       formData.append('fieldMappings', JSON.stringify(fieldMappings));
 
-      console.log('[CSVImportWithCalendar] Sending preview request with mappings:', fieldMappings);
+      logger.log('[CSVImportWithCalendar] Sending preview request with mappings:', fieldMappings);
 
       const response = await fetch(`${API_BASE_URL}/admin/csv-import/preview`, {
         method: 'POST',
@@ -291,10 +291,10 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
       }
 
       const preview = await response.json();
-      console.log('[CSVImportWithCalendar] Preview result:', preview);
-      console.log('[CSVImportWithCalendar] Preview totalRows:', preview.totalRows);
-      console.log('[CSVImportWithCalendar] Preview validRows:', preview.validRows);
-      console.log('[CSVImportWithCalendar] Preview errorsFound:', preview.errorsFound);
+      logger.log('[CSVImportWithCalendar] Preview result:', preview);
+      logger.log('[CSVImportWithCalendar] Preview totalRows:', preview.totalRows);
+      logger.log('[CSVImportWithCalendar] Preview validRows:', preview.validRows);
+      logger.log('[CSVImportWithCalendar] Preview errorsFound:', preview.errorsFound);
       setPreviewData(preview);
 
       setStepsCompleted(prev => new Set([...prev, 'preview']));
@@ -439,7 +439,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
               type="file"
               accept=".csv"
               onChange={(e) => handleFileSelect(e.target.files[0])}
-              style={{ display: 'none' }}
+              className="hidden-input"
             />
 
             {analyzing && <LoadingSpinner minHeight={100} size={40} />}
@@ -518,7 +518,7 @@ export default function CSVImportWithCalendar({ apiToken, graphToken }) {
         {currentStep === 'mapping' && (
           <div className="import-step-content">
             <h3>Map CSV Fields</h3>
-            {console.log('[CSVImportWithCalendar] Rendering mapping step - csvHeaders:', csvHeaders, 'fieldMappings:', fieldMappings)}
+            {logger.log('[CSVImportWithCalendar] Rendering mapping step - csvHeaders:', csvHeaders, 'fieldMappings:', fieldMappings)}
             {autoMapped && (
               <p className="success-message">✓ Auto-mapped {Object.keys(fieldMappings).length} fields</p>
             )}

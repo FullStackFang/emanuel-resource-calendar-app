@@ -32,14 +32,16 @@ export default function Navigation({ apiToken }) {
 
   const fetchPendingCount = async () => {
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
+      // Use pagination endpoint with limit=1 to efficiently get just the count
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?status=pending&limit=1`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
       });
       if (response.ok) {
         const data = await response.json();
-        const pending = (data.reservations || []).filter(r => r.status === 'pending').length;
+        // Use totalCount from pagination metadata if available, otherwise count from array
+        const pending = data.pagination?.totalCount ?? (data.reservations || []).length;
         setPendingCount(pending);
       }
     } catch (err) {

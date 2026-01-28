@@ -1,4 +1,5 @@
 // src/services/userPreferencesService.jsx
+import { logger } from '../utils/logger';
 
 /**
  * A simple service for persisting user preferences to
@@ -74,7 +75,7 @@ const ensureOfficeReady = () =>
   
       // Set each updated key
       Object.entries(updates).forEach(([key, value]) => {
-        console.log(`Saving preference: ${key} = ${value}`);
+        logger.log(`Saving preference: ${key} = ${value}`);
         settings.set(key, value);
       });
   

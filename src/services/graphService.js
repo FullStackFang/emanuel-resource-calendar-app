@@ -3,6 +3,7 @@
 // This allows the app to use application permissions, so users don't need individual calendar access
 
 import APP_CONFIG from '../config/config';
+import { logger } from '../utils/logger';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
@@ -293,7 +294,7 @@ export const updateLinkedEvent = async (userId, sourceEventId, sourceEventData, 
   } catch (error) {
     // 404 means no linked event found
     if (error.status === 404) {
-      console.log('No linked event found for', sourceEventId);
+      logger.log('No linked event found for', sourceEventId);
       return null;
     }
     console.error("Error updating linked event:", error);
@@ -321,7 +322,7 @@ export const deleteLinkedEvent = async (userId, eventId, calendarId = null) => {
   } catch (error) {
     // 404 means event already deleted - treat as success
     if (error.status === 404) {
-      console.log('Linked event already deleted:', eventId);
+      logger.log('Linked event already deleted:', eventId);
       return true;
     }
     console.error("Error deleting linked event:", error);

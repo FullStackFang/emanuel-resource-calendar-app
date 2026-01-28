@@ -1302,7 +1302,7 @@
         }
 
         // DEBUG: Log what we received from backend
-        console.log('🔍 DEBUG loadResult:', {
+        logger.log('🔍 DEBUG loadResult:', {
           hasEvents: !!loadResult.events,
           eventsLength: loadResult.events?.length,
           source: loadResult.source,
@@ -1444,8 +1444,8 @@
           calendarDebug.logEventsLoaded(selectedCalendarId, selectedCalendarName, eventsToDisplay);
 
           // DEBUG: Log event details before setting state
-          console.log('🔍 DEBUG: Setting allEvents with', eventsToDisplay.length, 'events');
-          console.log('🔍 DEBUG: First event sample:', eventsToDisplay[0] ? {
+          logger.log('🔍 DEBUG: Setting allEvents with', eventsToDisplay.length, 'events');
+          logger.log('🔍 DEBUG: First event sample:', eventsToDisplay[0] ? {
             subject: eventsToDisplay[0].subject,
             start: eventsToDisplay[0].start,
             categories: eventsToDisplay[0].categories,
@@ -2805,7 +2805,7 @@
       });
 
       // Log filter summary
-      console.log(`🔍 FILTER DEBUG: allEvents=${allEvents.length}, filtered=${sorted.length}, selectedCategories=${selectedCategories.length}/${dynamicCategories.length}, selectedLocations=${selectedLocations.length}/${dynamicLocations.length}`);
+      logger.log(`🔍 FILTER DEBUG: allEvents=${allEvents.length}, filtered=${sorted.length}, selectedCategories=${selectedCategories.length}/${dynamicCategories.length}, selectedLocations=${selectedLocations.length}/${dynamicLocations.length}`);
 
       if (allEvents.length > 0 && sorted.length !== allEvents.length) {
         logger.info(`\n🔍 FILTER SUMMARY`);
@@ -4327,7 +4327,7 @@
     const handleEventReviewModalSave = useCallback(async () => {
       const { mode: originalMode, event: reservationData } = eventReviewModal;
 
-      console.log('Form data being saved:', reservationData);
+      logger.log('Form data being saved:', reservationData);
 
       if (!reservationData) {
         logger.error('No event data available to save');

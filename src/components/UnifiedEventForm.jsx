@@ -182,19 +182,19 @@ export default function UnifiedEventForm({
         calendarOwner: prefill.calendarOwner || null
       };
 
-      console.log('📋 UnifiedEventForm prefill - received prefill:', prefill);
-      console.log('📋 UnifiedEventForm prefill - prefill.categories:', prefill.categories);
-      console.log('📋 UnifiedEventForm prefill - prefill.services:', prefill.services);
-      console.log('📋 UnifiedEventForm prefill - mappedData:', mappedData);
-      console.log('📋 UnifiedEventForm prefill - mappedData.categories:', mappedData.categories);
-      console.log('📋 UnifiedEventForm prefill - mappedData.services:', mappedData.services);
+      logger.log('📋 UnifiedEventForm prefill - received prefill:', prefill);
+      logger.log('📋 UnifiedEventForm prefill - prefill.categories:', prefill.categories);
+      logger.log('📋 UnifiedEventForm prefill - prefill.services:', prefill.services);
+      logger.log('📋 UnifiedEventForm prefill - mappedData:', mappedData);
+      logger.log('📋 UnifiedEventForm prefill - mappedData.categories:', mappedData.categories);
+      logger.log('📋 UnifiedEventForm prefill - mappedData.services:', mappedData.services);
 
-      console.log('📋 UnifiedEventForm prefill - BEFORE setInitialData, current initialData:', initialData);
+      logger.log('📋 UnifiedEventForm prefill - BEFORE setInitialData, current initialData:', initialData);
       setInitialData(prev => {
         const newData = { ...prev, ...mappedData };
-        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, prev:', prev);
-        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData:', newData);
-        console.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData.categories:', newData.categories);
+        logger.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, prev:', prev);
+        logger.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData:', newData);
+        logger.log('📋 UnifiedEventForm prefill - INSIDE setInitialData, newData.categories:', newData.categories);
         return newData;
       });
       setHasAutoFilled(true);
@@ -241,7 +241,7 @@ export default function UnifiedEventForm({
   // Initialize form data from reservation or event based on mode using shared transformer
   useEffect(() => {
     if (mode === 'reservation' && reservation) {
-      console.log('📋 Initializing form data from reservation:', {
+      logger.log('📋 Initializing form data from reservation:', {
         id: reservation._id,
         startDateTime: reservation.startDateTime,
         endDateTime: reservation.endDateTime
@@ -254,7 +254,7 @@ export default function UnifiedEventForm({
         setOriginalChangeKey(transformedData.changeKey || reservation.changeKey);
       }
     } else if (mode === 'event' && event) {
-      console.log('📋 Initializing form data from event:', {
+      logger.log('📋 Initializing form data from event:', {
         id: event.id,
         subject: event.subject
       });
@@ -400,7 +400,7 @@ export default function UnifiedEventForm({
 
   // Save changes (reservation mode)
   const handleSaveChanges = useCallback(async () => {
-    console.log('💾 Save button clicked');
+    logger.log('💾 Save button clicked');
 
     const formData = formDataRef.current ? formDataRef.current() : {};
     const validateTimes = validateRef.current ? validateRef.current() : (() => true);
@@ -451,7 +451,7 @@ export default function UnifiedEventForm({
       }
 
       const result = await response.json();
-      console.log('✅ Save successful:', result);
+      logger.log('✅ Save successful:', result);
 
       setOriginalChangeKey(result.changeKey);
       setHasChanges(false);

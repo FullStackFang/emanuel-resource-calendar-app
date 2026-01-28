@@ -1,5 +1,6 @@
 // src/components/CalendarSelector.jsx
 import React from 'react';
+import { logger } from '../utils/logger';
 import './CalendarSelector.css';
 
 /**
@@ -25,7 +26,7 @@ function CalendarSelector({ selectedCalendarId, availableCalendars, onCalendarCh
     <select
       value={selectedCalendarId || ''}
       onChange={(e) => {
-        console.log('[CalendarSelector] onChange:', {
+        logger.log('[CalendarSelector] onChange:', {
           currentValue: selectedCalendarId,
           newValue: e.target.value,
           changingCalendar

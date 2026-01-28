@@ -1,5 +1,6 @@
 // Calendar Debug Logging Utility
 // This utility provides toggleable debug logging for calendar operations
+import { logger } from './logger';
 
 class CalendarDebugLogger {
   constructor() {
@@ -22,7 +23,7 @@ class CalendarDebugLogger {
     this.isEnabled = true;
     try {
       localStorage.setItem('calendarDebugMode', 'true');
-      console.log('🔍 Calendar debug mode ENABLED');
+      logger.log('🔍 Calendar debug mode ENABLED');
     } catch (error) {
       console.error('Failed to save debug state:', error);
     }
@@ -33,7 +34,7 @@ class CalendarDebugLogger {
     this.isEnabled = false;
     try {
       localStorage.setItem('calendarDebugMode', 'false');
-      console.log('🔍 Calendar debug mode DISABLED');
+      logger.log('🔍 Calendar debug mode DISABLED');
     } catch (error) {
       console.error('Failed to save debug state:', error);
     }
@@ -57,14 +58,14 @@ class CalendarDebugLogger {
     const toCalendar = availableCalendars?.find(c => c.id === to);
     
     console.group('📅 Calendar Change');
-    console.log('From:', fromCalendar?.name || from || 'none');
-    console.log('To:', toCalendar?.name || to || 'none');
-    console.log('Available calendars:', availableCalendars?.map(c => ({ name: c.name, id: c.id })));
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('From:', fromCalendar?.name || from || 'none');
+    logger.log('To:', toCalendar?.name || to || 'none');
+    logger.log('Available calendars:', availableCalendars?.map(c => ({ name: c.name, id: c.id })));
+    logger.log('Timestamp:', new Date().toISOString());
     console.groupEnd();
     
     // Also log with a clear, visible message
-    console.log(`🔄 SWITCHING TO CALENDAR: ${toCalendar?.name || to} (ID: ${to?.substring(0, 20)}...)`);
+    logger.log(`🔄 SWITCHING TO CALENDAR: ${toCalendar?.name || to} (ID: ${to?.substring(0, 20)}...)`);
   }
 
   // Log calendar events loaded
@@ -72,14 +73,14 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
     
     console.group('📄 Events Loaded');
-    console.log('Calendar:', calendarName || calendarId);
-    console.log('Event count:', events?.length || 0);
-    console.log('Events:', events?.map(e => ({ subject: e.subject, start: e.start, calendarId: e.calendarId })));
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('Calendar:', calendarName || calendarId);
+    logger.log('Event count:', events?.length || 0);
+    logger.log('Events:', events?.map(e => ({ subject: e.subject, start: e.start, calendarId: e.calendarId })));
+    logger.log('Timestamp:', new Date().toISOString());
     console.groupEnd();
     
     // Also log with a clear, visible message
-    console.log(`📊 LOADED EVENTS FROM: ${calendarName || calendarId} - Count: ${events?.length || 0} events`);
+    logger.log(`📊 LOADED EVENTS FROM: ${calendarName || calendarId} - Count: ${events?.length || 0} events`);
   }
 
   // Log event loading
@@ -93,16 +94,16 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
 
     console.group('✅ Events Loaded');
-    console.log('Calendar ID:', calendarId);
-    console.log('Event count:', eventCount);
-    console.log('Duration:', duration, 'ms');
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('Calendar ID:', calendarId);
+    logger.log('Event count:', eventCount);
+    logger.log('Duration:', duration, 'ms');
+    logger.log('Timestamp:', new Date().toISOString());
 
     // Log detailed timing breakdown if available
     if (Object.keys(this.loadTimings).length > 0) {
       console.group('⏱️ Timing Breakdown');
       for (const [phase, timing] of Object.entries(this.loadTimings)) {
-        console.log(`${phase}: ${timing.duration}ms`);
+        logger.log(`${phase}: ${timing.duration}ms`);
       }
       console.groupEnd();
     }
@@ -162,13 +163,13 @@ class CalendarDebugLogger {
     const summary = this.getTimingSummary();
 
     console.group('⏱️ Load Performance Summary');
-    console.log(`Total: ${summary.totalDuration}ms`);
+    logger.log(`Total: ${summary.totalDuration}ms`);
 
     for (const [phase, data] of Object.entries(summary.phases)) {
       const metaStr = Object.keys(data.metadata).length > 0
         ? ` (${JSON.stringify(data.metadata)})`
         : '';
-      console.log(`  ${phase}: ${data.duration}ms${metaStr}`);
+      logger.log(`  ${phase}: ${data.duration}ms${metaStr}`);
     }
 
     console.groupEnd();
@@ -179,10 +180,10 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
     
     console.group('❌ Calendar Error');
-    console.log('Operation:', operation);
-    console.log('Error:', error);
-    console.log('Context:', context);
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('Operation:', operation);
+    logger.log('Error:', error);
+    logger.log('Context:', context);
+    logger.log('Timestamp:', new Date().toISOString());
     console.trace();
     console.groupEnd();
   }
@@ -192,10 +193,10 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
     
     console.group('🔄 State Change');
-    console.log('State:', stateName);
-    console.log('Old value:', oldValue);
-    console.log('New value:', newValue);
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('State:', stateName);
+    logger.log('Old value:', oldValue);
+    logger.log('New value:', newValue);
+    logger.log('Timestamp:', new Date().toISOString());
     console.groupEnd();
   }
 
@@ -204,10 +205,10 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
     
     console.group('🌐 API Call');
-    console.log('Endpoint:', endpoint);
-    console.log('Method:', method);
-    console.log('Parameters:', params);
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('Endpoint:', endpoint);
+    logger.log('Method:', method);
+    logger.log('Parameters:', params);
+    logger.log('Timestamp:', new Date().toISOString());
     console.groupEnd();
   }
 
@@ -216,10 +217,10 @@ class CalendarDebugLogger {
     if (!this.isEnabled) return;
     
     console.group('💾 Cache Operation');
-    console.log('Operation:', operation);
-    console.log('Calendar ID:', calendarId);
-    console.log('Result:', result);
-    console.log('Timestamp:', new Date().toISOString());
+    logger.log('Operation:', operation);
+    logger.log('Calendar ID:', calendarId);
+    logger.log('Result:', result);
+    logger.log('Timestamp:', new Date().toISOString());
     console.groupEnd();
   }
 }
@@ -246,7 +247,7 @@ if (typeof window !== 'undefined') {
   
   // Show help
   window.calendarDebugHelp = () => {
-    console.log(`
+    logger.log(`
 🔍 Calendar Debug Commands:
 - window.enableCalendarDebug()  - Enable detailed calendar switching logs
 - window.disableCalendarDebug() - Disable detailed logs

@@ -1317,7 +1317,7 @@ function EventForm({
                 multiple
                 accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md"
                 onChange={(e) => handleFileSelect(e.target.files)}
-                style={{ display: 'none' }}
+                className="hidden-input"
               />
 
               {/* Uploading Files */}

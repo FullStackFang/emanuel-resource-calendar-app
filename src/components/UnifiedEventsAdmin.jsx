@@ -719,16 +719,16 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
 
   // Analyze locations in migration preview (console export)
   const analyzeLocationsInPreview = async (previewData = null) => {
-    console.log('🔄 Starting location analysis...');
+    logger.log('🔄 Starting location analysis...');
     
     const currentPreview = previewData || migrationPreview;
     if (!currentPreview) {
-      console.log('❌ No migration preview available');
+      logger.log('❌ No migration preview available');
       return;
     }
 
     try {
-      console.log('📡 Fetching location analysis with includeEvents: true');
+      logger.log('📡 Fetching location analysis with includeEvents: true');
       const response = await fetch(`${API_BASE_URL}/admin/migration/preview`, {
         method: 'POST',
         headers: getAuthHeadersWithGraph(),
@@ -747,25 +747,25 @@ export default function UnifiedEventsAdmin({ apiToken, graphToken }) {
       }
 
       const previewWithLocations = await response.json();
-      console.log('📥 Received preview response:', previewWithLocations);
+      logger.log('📥 Received preview response:', previewWithLocations);
       
       if (previewWithLocations.locationAnalysis) {
-        console.log('✅ Location analysis found, exporting to console');
+        logger.log('✅ Location analysis found, exporting to console');
         
         // Export detailed analysis to console only
-        console.log('📍 LOCATION ANALYSIS FOR MIGRATION:', previewWithLocations.locationAnalysis);
+        logger.log('📍 LOCATION ANALYSIS FOR MIGRATION:', previewWithLocations.locationAnalysis);
         console.table(previewWithLocations.locationAnalysis.summary);
         if (previewWithLocations.locationAnalysis.locations.new.length > 0) {
-          console.log('🆕 NEW LOCATIONS:', previewWithLocations.locationAnalysis.locations.new);
+          logger.log('🆕 NEW LOCATIONS:', previewWithLocations.locationAnalysis.locations.new);
         }
         if (previewWithLocations.locationAnalysis.locations.ambiguous.length > 0) {
-          console.log('❓ AMBIGUOUS LOCATIONS:', previewWithLocations.locationAnalysis.locations.ambiguous);
+          logger.log('❓ AMBIGUOUS LOCATIONS:', previewWithLocations.locationAnalysis.locations.ambiguous);
         }
         if (previewWithLocations.locationAnalysis.locations.existing.length > 0) {
-          console.log('✅ EXISTING LOCATIONS:', previewWithLocations.locationAnalysis.locations.existing);
+          logger.log('✅ EXISTING LOCATIONS:', previewWithLocations.locationAnalysis.locations.existing);
         }
       } else {
-        console.log('❌ No locationAnalysis property in response');
+        logger.log('❌ No locationAnalysis property in response');
       }
       
     } catch (err) {

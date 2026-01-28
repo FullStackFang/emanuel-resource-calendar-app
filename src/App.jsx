@@ -6,11 +6,10 @@ import { loginRequest, apiRequest } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
 import Calendar from './components/Calendar';
-import MySettings from './components/MySettings';
 import CalendarSelector from './components/CalendarSelector';
 import UnifiedEventForm from './components/UnifiedEventForm';
-import MyReservations from './components/MyReservations';
 import ReviewModal from './components/shared/ReviewModal';
+import LoadingSpinner from './components/shared/LoadingSpinner';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { useReviewModal } from './hooks/useReviewModal';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
@@ -25,8 +24,12 @@ import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
 import './App.css';
 
-// Lazy load admin-only components to reduce initial bundle size
-// These components are only loaded when accessed by admin users
+// Lazy load components to reduce initial bundle size
+// These components are only loaded when their routes are accessed
+const MySettings = lazy(() => import('./components/MySettings'));
+const MyReservations = lazy(() => import('./components/MyReservations'));
+
+// Admin-only components - loaded when accessed by admin users
 const UserAdmin = lazy(() => import('./components/UserAdmin'));
 const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
 const CalendarConfigAdmin = lazy(() => import('./components/CalendarConfigAdmin'));
@@ -217,13 +220,13 @@ function App() {
         _id: draft._id
       };
 
-      console.log('📂 Opening draft - raw draft data:', draft);
-      console.log('📂 Opening draft - draft.categories:', draft.categories);
-      console.log('📂 Opening draft - draft.mecCategories:', draft.mecCategories);
-      console.log('📂 Opening draft - draft.services:', draft.services);
-      console.log('📂 Opening draft - prefillData:', prefillData);
-      console.log('📂 Opening draft - prefillData.categories:', prefillData.categories);
-      console.log('📂 Opening draft - prefillData.services:', prefillData.services);
+      logger.log('📂 Opening draft - raw draft data:', draft);
+      logger.log('📂 Opening draft - draft.categories:', draft.categories);
+      logger.log('📂 Opening draft - draft.mecCategories:', draft.mecCategories);
+      logger.log('📂 Opening draft - draft.services:', draft.services);
+      logger.log('📂 Opening draft - prefillData:', prefillData);
+      logger.log('📂 Opening draft - prefillData.categories:', prefillData.categories);
+      logger.log('📂 Opening draft - prefillData.services:', prefillData.services);
 
       setDraftId(draft._id);
       setDraftPrefillData(prefillData);
@@ -402,7 +405,7 @@ function App() {
             >
               <RoomProvider apiToken={apiToken}>
               <Navigation apiToken={apiToken} />
-              <Suspense fallback={<div className="loading-fallback">Loading...</div>}>
+              <Suspense fallback={<LoadingSpinner minHeight={200} />}>
                 <Routes>
                   <Route path="/" element={
                     <Calendar
@@ -454,7 +457,7 @@ function App() {
               </button>
 
               {/* AI Chat Reservation Modal - wrapped with zoom to match calendar page scaling */}
-              <div style={{ zoom: 0.8 }}>
+              <div className="scale-80">
                 <ReviewModal
                   isOpen={showReservationModal}
                   title="Add Event - AI Assistant"
@@ -518,7 +521,7 @@ function App() {
               </div>
 
               {/* Draft Edit Modal - for editing drafts from MyReservations */}
-              <div style={{ zoom: 0.8 }}>
+              <div className="scale-80">
                 <ReviewModal
                   isOpen={showDraftModal}
                   title={draftPrefillData?.eventTitle ? `Edit Draft: ${draftPrefillData.eventTitle}` : 'Edit Draft'}
@@ -553,12 +556,12 @@ function App() {
                     setSavingDraftInProgress(true);
                     try {
                       // Debug: log what we're saving
-                      console.log('🔍 Draft save - draftPrefillData:', draftPrefillData);
-                      console.log('🔍 Draft save - draftFormData:', draftFormData);
-                      console.log('🔍 Draft save - draftFormData?.categories:', draftFormData?.categories);
-                      console.log('🔍 Draft save - merged formData:', formData);
-                      console.log('🔍 Draft save - formData.categories:', formData.categories);
-                      console.log('🔍 Draft save - formData.mecCategories:', formData.mecCategories);
+                      logger.log('🔍 Draft save - draftPrefillData:', draftPrefillData);
+                      logger.log('🔍 Draft save - draftFormData:', draftFormData);
+                      logger.log('🔍 Draft save - draftFormData?.categories:', draftFormData?.categories);
+                      logger.log('🔍 Draft save - merged formData:', formData);
+                      logger.log('🔍 Draft save - formData.categories:', formData.categories);
+                      logger.log('🔍 Draft save - formData.mecCategories:', formData.mecCategories);
 
                       // Build draft payload
                       const payload = {
@@ -596,11 +599,11 @@ function App() {
                         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
                         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
 
-                      console.log('🔍 Draft save - sending payload:', payload);
-                      console.log('🔍 Draft save - payload.categories:', payload.categories);
-                      console.log('🔍 Draft save - payload.services:', payload.services);
-                      console.log('🔍 Draft save - endpoint:', endpoint);
-                      console.log('🔍 Draft save - method:', draftId ? 'PUT' : 'POST');
+                      logger.log('🔍 Draft save - sending payload:', payload);
+                      logger.log('🔍 Draft save - payload.categories:', payload.categories);
+                      logger.log('🔍 Draft save - payload.services:', payload.services);
+                      logger.log('🔍 Draft save - endpoint:', endpoint);
+                      logger.log('🔍 Draft save - method:', draftId ? 'PUT' : 'POST');
 
                       const response = await fetch(endpoint, {
                         method: draftId ? 'PUT' : 'POST',
@@ -611,7 +614,7 @@ function App() {
                         body: JSON.stringify(payload)
                       });
 
-                      console.log('🔍 Draft save - response status:', response.status);
+                      logger.log('🔍 Draft save - response status:', response.status);
 
                       if (!response.ok) {
                         const errorText = await response.text();
@@ -620,7 +623,7 @@ function App() {
                       }
 
                       const result = await response.json();
-                      console.log('🔍 Draft save - success result:', result);
+                      logger.log('🔍 Draft save - success result:', result);
                       if (!draftId) {
                         setDraftId(result._id);
                       }
@@ -791,16 +794,16 @@ function App() {
                     onIsSavingChange={setDraftIsSaving}
                     onSaveFunctionReady={(fn) => setDraftSaveFunction(() => fn)}
                     onDataChange={(updatedData) => {
-                      console.log('🔄 Draft onDataChange received:', updatedData);
-                      console.log('🔄 Draft onDataChange - categories:', updatedData?.categories);
-                      console.log('🔄 Draft onDataChange - services:', updatedData?.services);
+                      logger.log('🔄 Draft onDataChange received:', updatedData);
+                      logger.log('🔄 Draft onDataChange - categories:', updatedData?.categories);
+                      logger.log('🔄 Draft onDataChange - services:', updatedData?.services);
                       setDraftFormData(prev => {
                         const merged = {
                           ...(prev || draftPrefillData || {}),
                           ...updatedData
                         };
-                        console.log('🔄 Draft onDataChange - merged result:', merged);
-                        console.log('🔄 Draft onDataChange - merged.categories:', merged?.categories);
+                        logger.log('🔄 Draft onDataChange - merged result:', merged);
+                        logger.log('🔄 Draft onDataChange - merged.categories:', merged?.categories);
                         return merged;
                       });
                     }}
