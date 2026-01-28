@@ -129,6 +129,29 @@
   transition: var(--transition-all);
   flex: 0 0 auto;
   min-width: 200px;
+  position: relative;
+  overflow: hidden;
+}
+
+.location-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.location-stat-card.total::before {
+  background: linear-gradient(90deg, var(--color-primary-400), var(--color-primary-600));
+}
+
+.location-stat-card.reservable::before {
+  background: linear-gradient(90deg, var(--color-success-500), var(--color-success-600));
+}
+
+.location-stat-card.unassigned::before {
+  background: linear-gradient(90deg, var(--color-warning-500), var(--color-warning-600));
 }
 
 .location-stat-card:hover {

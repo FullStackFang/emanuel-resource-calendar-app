@@ -115,7 +115,26 @@ const DayEventPanel = memo(({
                   if (other.eventId === event.eventId || other.id === event.id) return false;
                   const otherStart = new Date(other.start?.dateTime || other.startDateTime);
                   const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-                  return eventStart < otherEnd && eventEnd > otherStart;
+                  const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
+
+                  if (!timeOverlaps) return false;
+
+                  // When grouped by categories, only same physical location = conflict
+                  if (groupBy === 'categories') {
+                    const eventLocation = event.location?.displayName || '';
+                    const otherLocation = other.location?.displayName || '';
+
+                    // Only consider it a conflict if both have the same specific physical location
+                    const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
+                    const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
+
+                    // No conflict unless both have the same specific location
+                    if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
+                      return false;
+                    }
+                  }
+
+                  return true;
                 });
 
                 const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);

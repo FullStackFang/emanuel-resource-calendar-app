@@ -92,47 +92,45 @@
 }
 
 /* ==========================================================================
-   TABS - Refined Pill Style
+   TABS - Editorial Pill Style
    ========================================================================== */
 
 .feature-management .tabs {
   display: flex;
   gap: var(--space-2);
-  flex-wrap: wrap;
-  align-items: center;
-  padding: var(--space-2);
+  margin: var(--space-6) 0 0 0;
+  padding: var(--space-1);
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-full);
   width: fit-content;
   margin-bottom: var(--space-8);
 }
 
 .feature-management .tab {
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-6);
+  background-color: transparent;
   border: none;
-  background: transparent;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-full);
   cursor: pointer;
+  transition: var(--transition-all);
+  color: var(--text-secondary);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
-  color: var(--text-secondary);
-  transition: all var(--duration-normal) var(--ease-out);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  white-space: nowrap;
 }
 
 .feature-management .tab:hover {
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background-color: var(--bg-tertiary);
 }
 
 .feature-management .tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-sm);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
+  font-weight: var(--font-semibold);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================
@@ -946,6 +944,11 @@
     width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .feature-management .tab {
+    padding: var(--space-2) var(--space-4);
+    white-space: nowrap;
   }
 
   .feature-management-grid {

@@ -126,6 +126,29 @@
   align-items: center;
   gap: var(--space-4);
   transition: var(--transition-all);
+  position: relative;
+  overflow: hidden;
+}
+
+.user-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.user-stat-card.total::before {
+  background: linear-gradient(90deg, var(--color-primary-400), var(--color-primary-600));
+}
+
+.user-stat-card.admins::before {
+  background: linear-gradient(90deg, var(--color-accent-400), var(--color-accent-600));
+}
+
+.user-stat-card.active::before {
+  background: linear-gradient(90deg, var(--color-success-500), var(--color-success-600));
 }
 
 .user-stat-card:hover {

@@ -466,6 +466,11 @@
   color: var(--text-inverse) !important;
 }
 
+/* Hide inline time by default - shown only in compact modes */
+.event-time-inline {
+  display: none;
+}
+
 .event-block-header {
   display: flex;
   align-items: center;
@@ -518,6 +523,105 @@
   border-radius: var(--radius-sm);
   align-self: flex-start;
   margin-top: auto;
+}
+
+/* ==========================================================================
+   COMPACT EVENT BLOCKS (35-100px height, ~40min to 2 hours)
+   Horizontal layout with time on the right side of the title
+   ========================================================================== */
+
+.event-block.compact {
+  padding: var(--space-1) var(--space-2);
+}
+
+.event-block.compact .event-block-content {
+  gap: 0;
+  justify-content: flex-start;
+}
+
+.event-block.compact .event-block-header {
+  flex-wrap: nowrap;
+}
+
+.event-block.compact .event-time-inline {
+  display: block;
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  color: var(--text-inverse) !important;
+  opacity: 0.9;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.event-block.compact .event-time {
+  display: none;
+}
+
+.event-block.compact .event-organizer {
+  display: none;
+}
+
+.event-block.compact .event-title {
+  font-size: var(--text-xs);
+}
+
+.event-block.compact .event-icon {
+  font-size: var(--text-xs);
+}
+
+.event-block.compact .event-status {
+  display: none;
+}
+
+/* ==========================================================================
+   VERY COMPACT EVENT BLOCKS (<35px height, ~40min or less)
+   Minimal single-line layout with smaller fonts
+   ========================================================================== */
+
+.event-block.very-compact {
+  padding: 2px var(--space-2);
+}
+
+.event-block.very-compact .event-block-content {
+  gap: 0;
+  justify-content: flex-start;
+}
+
+.event-block.very-compact .event-block-header {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.event-block.very-compact .event-time-inline {
+  display: block;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: var(--font-medium);
+  color: var(--text-inverse) !important;
+  opacity: 0.85;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.event-block.very-compact .event-time {
+  display: none;
+}
+
+.event-block.very-compact .event-organizer {
+  display: none;
+}
+
+.event-block.very-compact .event-title {
+  font-size: 10px;
+}
+
+.event-block.very-compact .event-icon {
+  font-size: 10px;
+}
+
+.event-block.very-compact .event-status {
+  display: none;
 }
 
 /* ==========================================================================

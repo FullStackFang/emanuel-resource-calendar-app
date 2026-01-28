@@ -1062,7 +1062,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       {/* Stats Row */}
       <div className="rr-stats-row">
-        <div className="rr-stat-card">
+        <div className="rr-stat-card total">
           <div className="rr-stat-icon total">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -1076,7 +1076,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <p>Total Requests</p>
           </div>
         </div>
-        <div className="rr-stat-card">
+        <div className="rr-stat-card pending">
           <div className="rr-stat-icon pending">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
@@ -1088,7 +1088,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <p>Pending</p>
           </div>
         </div>
-        <div className="rr-stat-card">
+        <div className="rr-stat-card approved">
           <div className="rr-stat-icon approved">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
@@ -1100,7 +1100,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <p>Approved</p>
           </div>
         </div>
-        <div className="rr-stat-card">
+        <div className="rr-stat-card rejected">
           <div className="rr-stat-icon rejected">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />

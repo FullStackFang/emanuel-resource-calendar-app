@@ -206,10 +206,29 @@ const WeekView = memo(({
                     const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
 
                     const overlapping = allEvents.filter(other => {
-                      if (other.eventId === event.eventId) return false;
+                      if (other.eventId === event.eventId || other.id === event.id) return false;
                       const otherStart = new Date(other.start?.dateTime || other.startDateTime);
                       const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
-                      return eventStart < otherEnd && eventEnd > otherStart;
+                      const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
+
+                      if (!timeOverlaps) return false;
+
+                      // When grouped by categories, only same physical location = conflict
+                      if (groupBy === 'categories') {
+                        const eventLocation = event.location?.displayName || '';
+                        const otherLocation = other.location?.displayName || '';
+
+                        // Only consider it a conflict if both have the same specific physical location
+                        const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
+                        const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
+
+                        // No conflict unless both have the same specific location
+                        if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
+                          return false;
+                        }
+                      }
+
+                      return true;
                     });
 
                     const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
@@ -376,10 +395,10 @@ const WeekView = memo(({
                                 🔄
                               </div>
                             )}
-                            <div style={{ lineHeight: '1.2', marginTop: overlapCount > 0 || isParentEvent ? '10px' : '0' }}>
+                            <div style={{ lineHeight: '1.3', marginTop: overlapCount > 0 || isParentEvent ? '10px' : '0' }}>
                               <div style={{
-                                fontSize: viewType === 'month' ? '8px' : '9px',
-                                color: '#666',
+                                fontSize: viewType === 'month' ? '10px' : '11px',
+                                color: '#555',
                                 fontWeight: '500',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -388,9 +407,9 @@ const WeekView = memo(({
                                 {timeDisplay}
                               </div>
                               <div style={{
-                                fontSize: viewType === 'month' ? '9px' : '10px',
+                                fontSize: viewType === 'month' ? '11px' : '12px',
                                 fontWeight: '600',
-                                marginTop: '1px',
+                                marginTop: '2px',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap'
@@ -400,9 +419,9 @@ const WeekView = memo(({
                             </div>
                             {event.calendarId && event.calendarId !== 'primary' && (
                               <div className="calendar-source" style={{
-                                fontSize: '7px',
+                                fontSize: '9px',
                                 opacity: 0.8,
-                                marginTop: '1px'
+                                marginTop: '2px'
                               }}>
                                 {event.calendarName}
                               </div>

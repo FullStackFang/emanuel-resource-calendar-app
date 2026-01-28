@@ -95,8 +95,6 @@
   left: 0;
   right: 0;
   height: 3px;
-  opacity: 0;
-  transition: opacity var(--duration-normal) var(--ease-out);
 }
 
 .rr-stat-card:hover {
@@ -105,25 +103,22 @@
   border-color: var(--border-default);
 }
 
-.rr-stat-card:hover::before {
-  opacity: 1;
-}
 
 /* Card accent colors */
-.rr-stat-card:has(.rr-stat-icon.total)::before {
+.rr-stat-card.total::before {
   background: linear-gradient(90deg, var(--color-primary-400), var(--color-primary-600));
 }
 
-.rr-stat-card:has(.rr-stat-icon.pending)::before {
-  background: linear-gradient(90deg, var(--color-warning-400), var(--color-warning-600));
+.rr-stat-card.pending::before {
+  background: linear-gradient(90deg, var(--color-warning-500), var(--color-warning-600));
 }
 
-.rr-stat-card:has(.rr-stat-icon.approved)::before {
-  background: linear-gradient(90deg, var(--color-success-400), var(--color-success-600));
+.rr-stat-card.approved::before {
+  background: linear-gradient(90deg, var(--color-success-500), var(--color-success-600));
 }
 
-.rr-stat-card:has(.rr-stat-icon.rejected)::before {
-  background: linear-gradient(90deg, var(--color-error-400), var(--color-error-600));
+.rr-stat-card.rejected::before {
+  background: linear-gradient(90deg, var(--color-error-500), var(--color-error-600));
 }
 
 .rr-stat-icon {
@@ -266,7 +261,7 @@
 }
 
 /* ==========================================================================
-   TAB NAVIGATION - Refined Pill Style
+   TAB NAVIGATION - Editorial Pill Style
    ========================================================================== */
 
 .tabs-container {
@@ -276,25 +271,24 @@
 .event-type-tabs {
   display: flex;
   gap: var(--space-2);
-  flex-wrap: wrap;
-  align-items: center;
-  padding: var(--space-2);
+  margin: var(--space-6) 0 0 0;
+  padding: var(--space-1);
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-full);
   width: fit-content;
 }
 
 .event-type-tab {
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-6);
+  background-color: transparent;
   border: none;
-  background: transparent;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-full);
   cursor: pointer;
+  transition: var(--transition-all);
+  color: var(--text-secondary);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
-  color: var(--text-secondary);
-  transition: all var(--duration-normal) var(--ease-out);
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -303,13 +297,16 @@
 
 .event-type-tab:hover {
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background-color: var(--bg-tertiary);
 }
 
 .event-type-tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-sm);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
+  font-weight: var(--font-semibold);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .event-type-tab .count {
@@ -321,12 +318,12 @@
   border-radius: var(--radius-full);
   min-width: 24px;
   text-align: center;
-  transition: all var(--duration-normal) var(--ease-out);
+  transition: var(--transition-all);
 }
 
 .event-type-tab.active .count {
-  background: var(--color-primary-100);
-  color: var(--color-primary-700);
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-inverse);
 }
 
 /* Edit Requests Tab Accent */
@@ -336,11 +333,11 @@
 }
 
 .event-type-tab.edit-requests-tab.active {
-  background: var(--color-info-50);
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
 }
 
 .event-type-tab.edit-requests-tab.active .count {
-  background: var(--color-info-500);
+  background: rgba(255, 255, 255, 0.2);
   color: var(--text-inverse);
 }
 
@@ -1667,17 +1664,8 @@
    ========================================================================== */
 
 /* Edit Requests Tab */
-.event-type-tab.edit-requests-tab {
-  border: 1px solid transparent;
-}
-
 .event-type-tab.edit-requests-tab:hover {
-  background: var(--color-info-50);
-}
-
-.event-type-tab.edit-requests-tab.active {
-  background: var(--color-info-50);
-  border-color: var(--color-info-200);
+  background-color: var(--color-info-50);
 }
 
 /* Edit Requests Table */
@@ -1752,10 +1740,6 @@
    ========================================================================== */
 
 @media (max-width: 1200px) {
-  .rr-stats-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
   .reservations-table-container {
     overflow-x: auto;
   }
@@ -1775,7 +1759,11 @@
   .event-type-tabs {
     width: 100%;
     overflow-x: auto;
-    padding-bottom: var(--space-1);
+  }
+
+  .event-type-tab {
+    padding: var(--space-2) var(--space-4);
+    white-space: nowrap;
   }
 }
 
@@ -1841,11 +1829,13 @@
 
   .event-type-tabs {
     flex-direction: column;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
+    width: 100%;
   }
 
   .event-type-tab {
     width: 100%;
     justify-content: space-between;
+    border-radius: var(--radius-lg);
   }
 }

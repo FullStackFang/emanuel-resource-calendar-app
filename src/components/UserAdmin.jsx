@@ -319,7 +319,7 @@ export default function UserAdmin({ apiToken }) {
 
       {/* Stats Row */}
       <div className="user-stats">
-        <div className="user-stat-card">
+        <div className="user-stat-card total">
           <div className="user-stat-icon total">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -334,7 +334,7 @@ export default function UserAdmin({ apiToken }) {
           </div>
         </div>
 
-        <div className="user-stat-card">
+        <div className="user-stat-card admins">
           <div className="user-stat-icon admins">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 15l-2-2m0 0l2-2m-2 2h8" />
@@ -348,7 +348,7 @@ export default function UserAdmin({ apiToken }) {
           </div>
         </div>
 
-        <div className="user-stat-card">
+        <div className="user-stat-card active">
           <div className="user-stat-icon active">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2" />

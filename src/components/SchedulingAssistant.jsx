@@ -1055,7 +1055,7 @@ export default function SchedulingAssistant({
       <div
         key={`${block.id}-${block.roomIndex}`}
         data-event-id={block.id}
-        className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isUserEvent ? 'user-event' : ''} ${isCurrentReservation ? 'current-event' : ''}`}
+        className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isUserEvent ? 'user-event' : ''} ${isCurrentReservation ? 'current-event' : ''} ${block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''}`}
         style={{
           top: `${top}px`,
           height: `${block.height}px`,
@@ -1078,6 +1078,9 @@ export default function SchedulingAssistant({
           <div className="event-block-header">
             <span className="event-icon">{lockedIcon}{concurrentIcon}{currentEventLabel}{conflictIndicator}{eventIcon}</span>
             <span className="event-title">{block.title}</span>
+            <span className="event-time-inline">
+              {formatTime(block.startTime)} - {formatTime(block.endTime)}
+            </span>
             {/* Navigation button for locked reservations */}
             {isLocked && block.type === 'reservation' && onLockedEventClick && (
               <button

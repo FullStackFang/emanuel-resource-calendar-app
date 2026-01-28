@@ -128,6 +128,29 @@
   transition: var(--transition-all);
   flex: 0 0 auto;
   min-width: 200px;
+  position: relative;
+  overflow: hidden;
+}
+
+.category-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.category-stat-card.total::before {
+  background: linear-gradient(90deg, var(--color-primary-400), var(--color-primary-600));
+}
+
+.category-stat-card.base::before {
+  background: linear-gradient(90deg, var(--color-info-500), var(--color-info-600));
+}
+
+.category-stat-card.dynamic::before {
+  background: linear-gradient(90deg, var(--color-accent-400), var(--color-accent-600));
 }
 
 .category-stat-card:hover {

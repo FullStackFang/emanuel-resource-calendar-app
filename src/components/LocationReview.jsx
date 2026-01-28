@@ -349,7 +349,7 @@ export default function LocationReview({ apiToken }) {
 
       {/* Stats Row */}
       <div className="location-stats">
-        <div className="location-stat-card">
+        <div className="location-stat-card total">
           <div className="location-stat-icon total">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
@@ -362,7 +362,7 @@ export default function LocationReview({ apiToken }) {
           </div>
         </div>
 
-        <div className="location-stat-card">
+        <div className="location-stat-card reservable">
           <div className="location-stat-icon reservable">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />

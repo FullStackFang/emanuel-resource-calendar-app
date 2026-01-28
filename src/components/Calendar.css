@@ -541,7 +541,7 @@
   position: relative;
   background-color: var(--color-primary-50);
   border-left: 3px solid var(--color-primary-500);
-  padding: var(--space-1) var(--space-1);
+  padding: var(--space-2) var(--space-2);
   margin-bottom: var(--space-1);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
@@ -552,6 +552,7 @@
   text-overflow: ellipsis;
   z-index: 2;
   box-shadow: var(--shadow-sm);
+  min-height: 42px;
 }
 
 .event-item:hover {
