@@ -25,7 +25,7 @@ This document outlines a phased approach to refactoring the Emanuel Resource Cal
 **Dependencies**: None
 
 ### Task 1.1: Fix Insecure Admin Check
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed (2026-01-28)
 
 **Description**: Replace email string matching with database-stored admin flag. Currently, `userEmail.includes('admin')` allows any email containing "admin" (e.g., `attacker@admin.com`) to pass as admin.
 
@@ -49,7 +49,7 @@ const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWi
 ---
 
 ### Task 1.2: Remove Token Logging
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed (2026-01-28)
 
 **Description**: Remove all token logging from production code. Even partial tokens should not be logged as they can be used for replay attacks.
 
@@ -73,7 +73,7 @@ logger.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
 ---
 
 ### Task 1.3: Remove Global Token Exposure
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed (2026-01-28)
 
 **Description**: Remove `window.__apiToken` which exposes the API token to any JavaScript running on the page, including potential XSS attacks.
 
@@ -96,7 +96,7 @@ window.__apiToken = apiToken;
 ---
 
 ### Task 1.4: Implement Rate Limiting
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed (2026-01-28)
 
 **Description**: Add rate limiting to protect public and authenticated endpoints from abuse.
 
@@ -197,7 +197,7 @@ window.__apiToken = apiToken;
 ---
 
 ### Task 2.4: Remove Deprecated MongoDB Options
-- [ ] **Status**: Not Started
+- [x] **Status**: Completed (2026-01-28)
 
 **Description**: Remove deprecated MongoDB connection options that are now default behavior.
 
@@ -490,10 +490,10 @@ const newEventsResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservati
 ### Phase 1: Critical Security Fixes
 | Task | Status | Complexity |
 |------|--------|------------|
-| 1.1 Fix Insecure Admin Check | Not Started | Low |
-| 1.2 Remove Token Logging | Not Started | Low |
-| 1.3 Remove Global Token Exposure | Not Started | Low |
-| 1.4 Implement Rate Limiting | Not Started | Medium |
+| 1.1 Fix Insecure Admin Check | **Completed** | Low |
+| 1.2 Remove Token Logging | **Completed** | Low |
+| 1.3 Remove Global Token Exposure | **Completed** | Low |
+| 1.4 Implement Rate Limiting | **Completed** | Medium |
 
 ### Phase 2: Backend Architecture
 | Task | Status | Complexity |
@@ -501,7 +501,7 @@ const newEventsResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservati
 | 2.1 Split api-server.js | Not Started | High |
 | 2.2 Add Input Validation | Not Started | High |
 | 2.3 Standardize Error Handling | Not Started | Medium |
-| 2.4 Remove Deprecated MongoDB Options | Not Started | Low |
+| 2.4 Remove Deprecated MongoDB Options | **Completed** | Low |
 
 ### Phase 3: Frontend Architecture
 | Task | Status | Complexity |

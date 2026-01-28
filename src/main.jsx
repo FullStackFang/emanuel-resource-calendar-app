@@ -7,6 +7,7 @@ import { MsalProvider } from '@azure/msal-react';
 import { msalConfig } from './config/authConfig';
 import ErrorBoundary from './components/shared/ErrorBoundary';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import ToastNotification from './components/shared/ToastNotification';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
@@ -41,6 +42,7 @@ if (import.meta.env.VITE_SENTRY_DSN) {
  */
 function CriticalErrorHandler() {
   const { setCriticalErrorCallback } = useNotification();
+  const { apiToken } = useAuth();
   const [criticalError, setCriticalError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -67,7 +69,7 @@ function CriticalErrorHandler() {
       isOpen={isModalOpen}
       onClose={handleClose}
       error={criticalError}
-      apiToken={window.__apiToken}
+      apiToken={apiToken}
     />
   );
 }
@@ -75,9 +77,8 @@ function CriticalErrorHandler() {
 const msalInstance = new PublicClientApplication(msalConfig);
 
 // Initialize global error handlers early
-// Token getter will be set from App.jsx when available
+// Uses window.__showErrorModal callback set by App.jsx
 initializeGlobalErrorHandlers({
-  getApiToken: () => window.__apiToken || null,
   onError: (errorInfo) => {
     // Trigger the global error modal setter if available
     if (window.__showErrorModal) {
@@ -90,13 +91,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   // Uncomment Strictmode for Production
   //<React.StrictMode>
     <ErrorBoundary>
-      <NotificationProvider>
-        <MsalProvider instance={msalInstance}>
-          <App />
-        </MsalProvider>
-        <ToastNotification />
-        <CriticalErrorHandler />
-      </NotificationProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <MsalProvider instance={msalInstance}>
+            <App />
+          </MsalProvider>
+          <ToastNotification />
+          <CriticalErrorHandler />
+        </NotificationProvider>
+      </AuthProvider>
     </ErrorBoundary>
   //</React.StrictMode>
 );

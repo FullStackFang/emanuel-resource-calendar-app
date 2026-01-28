@@ -13,6 +13,8 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens } = require('./utils/authUtils');
+const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -77,6 +79,11 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 app.use(express.json());
+
+// Rate limiting middleware
+// Apply stricter limits to public endpoints, standard limits to authenticated endpoints
+app.use('/api/public', publicLimiter);
+app.use('/api', standardLimiter);
 
 // Note: Sentry v8+ automatically instruments Express - no manual request handler needed
 
@@ -167,8 +174,6 @@ app.use((req, res, next) => {
 // MongoDB Connection
 const connectionString = process.env.MONGODB_CONNECTION_STRING;
 const client = new MongoClient(connectionString, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
   serverSelectionTimeoutMS: 5000,
   maxPoolSize: 10
 });
@@ -1769,20 +1774,7 @@ const verifyToken = async (req, res, next) => {
     }
     
     const token = authHeader.split(' ')[1];
-    logger.log('Token received (first 20 chars):', token.substring(0, 20) + '...');
-    
-    // Decode token to inspect it (for debugging)
-    try {
-      const tokenParts = token.split('.');
-      if (tokenParts.length === 3) {
-        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
-        logger.log('Token audience:', payload.aud);
-        logger.log('Expected audience:', APP_ID);
-      }
-    } catch (e) {
-      logger.error('Error decoding token:', e);
-    }
-    
+
     // Get the signing key
     const getKey = (header, callback) => {
       msalJwksClient.getSigningKey(header.kid, (err, key) => {
@@ -4590,13 +4582,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
     const userEmail = req.user.email;
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
-                    user?.permissions?.canViewAllReservations || userEmail?.includes('admin');
+    const isAdminUser = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
+                    user?.permissions?.canViewAllReservations || isAdmin(user, userEmail);
 
-    logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdmin: ${isAdmin}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);
+    logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdminUser: ${isAdminUser}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);
     logger.log(`[PENDING] User roles: ${JSON.stringify(user?.roles)}, permissions: ${JSON.stringify(user?.permissions)}`);
 
-    if (isAdmin) {
+    if (isAdminUser) {
       const pendingQuery = {
         isDeleted: { $ne: true },
         status: 'pending'
@@ -4775,7 +4767,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
       // Check if user can view all reservations
       const user = await usersCollection.findOne({ userId });
-      const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+      const canViewAll = canViewAllReservations(user, userEmail);
 
       logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
@@ -4822,14 +4814,14 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     // Check if user is admin/approver to also show pending reservations
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
-                    user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    const isAdminUser = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
+                    user?.permissions?.canViewAllReservations || isAdmin(user, userEmail);
 
-    logger.debug(`[PENDING] User ${userEmail} isAdmin: ${isAdmin}, startDate: ${startDate}, endDate: ${endDate}`);
+    logger.debug(`[PENDING] User ${userEmail} isAdminUser: ${isAdminUser}, startDate: ${startDate}, endDate: ${endDate}`);
 
     // Fetch pending room reservations for admins
     let pendingReservations = [];
-    if (isAdmin) {
+    if (isAdminUser) {
       const pendingQuery = {
         isDeleted: { $ne: true },
         status: 'pending'
@@ -4981,7 +4973,7 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
 
     // Check if user can view all reservations
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    const canViewAll = canViewAllReservations(user, userEmail);
 
     logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
@@ -6205,9 +6197,9 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
         if (reservation) {
           // Check if user is admin or requester
           const user = await usersCollection.findOne({ email: userId });
-          const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+          const isAdminUser = isAdmin(user, userId);
           const isRequester = reservation.requesterEmail === userId;
-          hasPermission = isAdmin || isRequester;
+          hasPermission = isAdminUser || isRequester;
         }
       }
     }
@@ -6287,10 +6279,10 @@ app.post('/api/reservations/:reservationId/attachments', verifyToken, attachment
 
     // Check if user has permission (admin or is the requester)
     const user = await usersCollection.findOne({ email: userId });
-    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isAdminUser = isAdmin(user, userId);
     const isRequester = reservation.requesterEmail === userId;
 
-    if (!isAdmin && !isRequester) {
+    if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied - you do not have permission to upload attachments to this reservation' });
     }
 
@@ -6397,10 +6389,10 @@ app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req,
 
     // Check if user has permission (admin or is the requester)
     const user = await usersCollection.findOne({ email: userId });
-    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isAdminUser = isAdmin(user, userId);
     const isRequester = reservation.requesterEmail === userId;
 
-    if (!isAdmin && !isRequester) {
+    if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -6457,10 +6449,10 @@ app.delete('/api/reservations/:reservationId/attachments/:attachmentId', verifyT
 
     // Check if user has permission (admin or is the requester)
     const user = await usersCollection.findOne({ email: userId });
-    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    const isAdminUser = isAdmin(user, userId);
     const isRequester = reservation.requesterEmail === userId;
 
-    if (!isAdmin && !isRequester) {
+    if (!isAdminUser && !isRequester) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -6678,9 +6670,9 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -6734,9 +6726,9 @@ app.put('/api/admin/calendar-settings', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -6840,9 +6832,9 @@ app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) =>
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -13070,7 +13062,7 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
 
     // Check if user can view all reservations or just their own
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const canViewAll = canViewAllReservations(user, userEmail);
 
     // Build query for unified events with roomReservationData
     let query = {
@@ -13196,7 +13188,7 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
 
     // Check permissions
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const canViewAll = canViewAllReservations(user, userEmail);
 
     if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
@@ -13266,7 +13258,7 @@ app.get('/api/room-reservations/:id/audit-history', verifyToken, async (req, res
 
     // Check permissions
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    const canViewAll = canViewAllReservations(user, userEmail);
 
     if (!canViewAll && event.roomReservationData?.requestedBy?.userId !== userId) {
       return res.status(403).json({ error: 'Access denied' });
@@ -13640,8 +13632,9 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
 
 /**
  * Generate a reservation token for guest access (authenticated users only)
+ * Rate limited to 10 requests per 15 minutes (sensitive operation)
  */
-app.post('/api/room-reservations/generate-token', verifyToken, async (req, res) => {
+app.post('/api/room-reservations/generate-token', sensitiveLimiter, verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
@@ -13649,7 +13642,7 @@ app.post('/api/room-reservations/generate-token', verifyToken, async (req, res) 
     
     // Check permissions
     const user = await usersCollection.findOne({ userId });
-    const canGenerate = user?.permissions?.canGenerateReservationTokens || userEmail.includes('admin');
+    const canGenerate = canGenerateReservationTokens(user, userEmail);
     
     if (!canGenerate) {
       return res.status(403).json({ error: 'Insufficient permissions to generate tokens' });
@@ -13708,9 +13701,9 @@ app.post('/api/admin/rooms', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -13760,9 +13753,9 @@ app.put('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -13824,9 +13817,9 @@ app.get('/api/admin/locations', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -13857,9 +13850,9 @@ app.post('/api/admin/locations/merge', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -13972,9 +13965,9 @@ app.post('/api/admin/locations/:id/aliases', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -14016,9 +14009,9 @@ app.get('/api/admin/locations/unassigned-strings', verifyToken, async (req, res)
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14098,9 +14091,9 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14211,9 +14204,9 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14311,9 +14304,9 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14397,9 +14390,9 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14513,9 +14506,9 @@ app.get('/api/admin/locations/:id/event-count', verifyToken, async (req, res) =>
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14549,9 +14542,9 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14706,9 +14699,9 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -14751,9 +14744,9 @@ app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (re
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14818,9 +14811,9 @@ app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14877,9 +14870,9 @@ app.get('/api/admin/room-reservations/:id/check-conflicts', verifyToken, async (
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -14915,9 +14908,9 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -15084,9 +15077,9 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -15262,9 +15255,9 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -15371,9 +15364,9 @@ app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => 
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -15420,9 +15413,9 @@ app.put('/api/admin/room-reservations/:id/sync', verifyToken, async (req, res) =
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -15814,9 +15807,9 @@ app.post('/api/admin/room-capability-types', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -15873,9 +15866,9 @@ app.post('/api/admin/event-service-types', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -15933,9 +15926,9 @@ app.post('/api/admin/feature-categories', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -15989,9 +15982,9 @@ app.put('/api/admin/feature-categories/:id', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16053,9 +16046,9 @@ app.delete('/api/admin/feature-categories/:id', verifyToken, async (req, res) =>
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16108,9 +16101,9 @@ app.put('/api/admin/room-capability-types/:id', verifyToken, async (req, res) =>
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16175,9 +16168,9 @@ app.delete('/api/admin/room-capability-types/:id', verifyToken, async (req, res)
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16213,9 +16206,9 @@ app.put('/api/admin/event-service-types/:id', verifyToken, async (req, res) => {
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16281,9 +16274,9 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
     
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
     
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -16938,9 +16931,9 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -17216,9 +17209,9 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -17805,9 +17798,9 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -17906,9 +17899,9 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -18164,9 +18157,9 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -18387,9 +18380,9 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19278,9 +19271,9 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19496,7 +19489,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     // Check if user can view all reservations (match old endpoint logic)
     const user = await usersCollection.findOne({ userId });
-    const canViewAll = user?.permissions?.canViewAllReservations || userEmail.includes('admin');
+    const canViewAll = canViewAllReservations(user, userEmail);
 
     // Non-admin users can only see their own requests
     if (!canViewAll && status === 'room-reservation-request') {
@@ -19554,9 +19547,9 @@ app.get('/api/admin/email/config', verifyToken, async (req, res) => {
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19600,9 +19593,9 @@ app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19665,9 +19658,9 @@ app.post('/api/admin/email/test', verifyToken, async (req, res) => {
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19741,9 +19734,9 @@ app.get('/api/admin/email/templates', verifyToken, async (req, res) => {
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19767,9 +19760,9 @@ app.get('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19798,9 +19791,9 @@ app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19857,9 +19850,9 @@ app.post('/api/admin/email/templates/:templateId/preview', verifyToken, async (r
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -19883,9 +19876,9 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
 
     // Admin check
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    const isAdmin = user?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
+    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdmin) {
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20257,8 +20250,8 @@ app.get('/api/admin/error-logs', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20304,8 +20297,8 @@ app.get('/api/admin/error-logs/stats', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20328,8 +20321,8 @@ app.post('/api/admin/test-sentry', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20379,8 +20372,8 @@ app.get('/api/admin/error-logs/:id', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20407,8 +20400,8 @@ app.put('/api/admin/error-logs/:id/review', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20448,8 +20441,8 @@ app.get('/api/admin/error-settings', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -20472,8 +20465,8 @@ app.put('/api/admin/error-settings', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username || '';
     const userDoc = await usersCollection.findOne({ userId });
-    const isAdmin = userDoc?.isAdmin || userEmail.includes('admin') || userEmail.endsWith('@emanuelnyc.org');
-    if (!isAdmin) {
+    const isAdminUser = isAdmin(userDoc, userEmail);
+    if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 

@@ -19,6 +19,7 @@ import { TimezoneProvider } from './context/TimezoneContext';
 import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
 import { useNotification } from './context/NotificationContext';
+import { useAuth } from './context/AuthContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
@@ -38,8 +39,8 @@ const AIChat = lazy(() => import('./components/AIChat'));
 
 function App() {
   const { showError, showWarning } = useNotification();
+  const { apiToken, setApiToken } = useAuth();
   const [graphToken, setGraphToken] = useState(null);
-  const [apiToken, setApiToken] = useState(null);
   const [signedOut, setSignedOut] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const { instance } = useMsal();
@@ -76,19 +77,18 @@ function App() {
   const [pendingError, setPendingError] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
 
-  // Expose API token and error modal setter globally for error handlers
+  // Expose error modal setter globally for error handlers
+  // Note: API token is now securely managed via AuthContext
   useEffect(() => {
-    window.__apiToken = apiToken;
     window.__showErrorModal = (errorInfo) => {
       setPendingError(errorInfo);
       setShowErrorModal(true);
     };
 
     return () => {
-      window.__apiToken = null;
       window.__showErrorModal = null;
     };
-  }, [apiToken]);
+  }, []);
 
   // Handle calendar change
   const handleCalendarChange = useCallback((newCalendarId) => {
