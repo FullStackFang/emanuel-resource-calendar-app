@@ -14,6 +14,7 @@ import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import { extractTextFromHtml } from '../utils/textUtils';
+import { usePermissions } from '../hooks/usePermissions';
 import './RoomReservationForm.css';
 
 /**
@@ -99,10 +100,8 @@ export default function RoomReservationFormBase({
     teardownTime: '',
     setupNotes: '',
     doorNotes: '',
-    eventNotes: '',
     attendeeCount: '',
     requestedRooms: [],
-    specialRequirements: '',
     setupTimeMinutes: 0,
     teardownTimeMinutes: 0,
     contactEmail: '',
@@ -272,6 +271,7 @@ export default function RoomReservationFormBase({
   }, [selectedServices]);
 
   const { rooms, loading: roomsLoading } = useRooms();
+  const { canEditField } = usePermissions();
 
   // Refs to prevent unnecessary re-initialization of form data
   const isInitializedRef = useRef(false);
@@ -980,6 +980,11 @@ export default function RoomReservationFormBase({
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
   // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
   const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
+
+  // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
+  // even on published events. Only respect isViewingEditRequest - readOnly doesn't apply
+  // because department-based editing is a special override for these specific fields.
+  const internalNotesBaseDisabled = isViewingEditRequest;
 
   // Whether to show diff highlighting (both edit request mode and viewing edit request)
   const showDiffMode = isEditRequestMode || isViewingEditRequest;
@@ -1840,18 +1845,38 @@ export default function RoomReservationFormBase({
           <section className="form-section">
             <h2>Additional Information</h2>
 
-            {/* Special Requirements */}
-            <div className="form-group full-width" style={{ marginBottom: '20px' }}>
-              <label htmlFor="specialRequirements">Special Requirements</label>
-              <textarea
-                id="specialRequirements"
-                name="specialRequirements"
-                value={formData.specialRequirements}
-                onChange={handleInputChange}
-                rows="2"
-                disabled={fieldsDisabled}
-                placeholder="Additional notes or special setup requirements..."
-              />
+            {/* Internal Notes Section (Staff Use Only) */}
+            <div className="internal-notes-section" style={{ marginBottom: '20px' }}>
+              <h4 style={{ color: '#333', marginBottom: '8px', fontSize: '1rem' }}>🔒 Internal Notes</h4>
+              <div className="internal-notes-disclaimer" style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#64748b' }}>
+                These notes are for internal staff coordination and will not be visible to the requester.
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label htmlFor="setupNotes">Setup Notes (Maintenance)</label>
+                <textarea
+                  id="setupNotes"
+                  name="setupNotes"
+                  value={formData.setupNotes}
+                  onChange={handleInputChange}
+                  rows="2"
+                  disabled={internalNotesBaseDisabled || !canEditField('setupNotes')}
+                  placeholder="Notes for setup crew..."
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="doorNotes">Door/Access Notes (Security)</label>
+                <textarea
+                  id="doorNotes"
+                  name="doorNotes"
+                  value={formData.doorNotes}
+                  onChange={handleInputChange}
+                  rows="2"
+                  disabled={internalNotesBaseDisabled || !canEditField('doorNotes')}
+                  placeholder="Notes about door/access requirements..."
+                />
+              </div>
             </div>
 
             {/* Admin Notes (Review mode only) */}
@@ -2061,53 +2086,6 @@ export default function RoomReservationFormBase({
                   </div>
                 </div>
               )}
-            </section>
-
-            {/* Internal Notes Section (Staff Use Only) */}
-            <section className="form-section internal-notes-section">
-              <h2>🔒 Internal Notes</h2>
-              <div className="internal-notes-disclaimer" style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#64748b' }}>
-                These notes are for internal staff coordination and will not be visible to the requester.
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label htmlFor="setupNotes">Setup Notes</label>
-                <textarea
-                  id="setupNotes"
-                  name="setupNotes"
-                  value={formData.setupNotes}
-                  onChange={handleInputChange}
-                  rows="2"
-                  disabled={fieldsDisabled}
-                  placeholder="Notes for setup crew..."
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label htmlFor="doorNotes">Door/Access Notes</label>
-                <textarea
-                  id="doorNotes"
-                  name="doorNotes"
-                  value={formData.doorNotes}
-                  onChange={handleInputChange}
-                  rows="2"
-                  disabled={fieldsDisabled}
-                  placeholder="Notes about door/access requirements..."
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="eventNotes">Event Notes</label>
-                <textarea
-                  id="eventNotes"
-                  name="eventNotes"
-                  value={formData.eventNotes}
-                  onChange={handleInputChange}
-                  rows="2"
-                  disabled={fieldsDisabled}
-                  placeholder="General event notes..."
-                />
-              </div>
             </section>
           </div>
         </div>

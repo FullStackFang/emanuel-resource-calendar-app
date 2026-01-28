@@ -13,7 +13,7 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, getPermissions, getDepartmentEditableFields } = require('./utils/authUtils');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
@@ -2782,7 +2782,7 @@ app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
   try {
     // Check if user is admin
     const user = await usersCollection.findOne({ userId: req.user.userId });
-    if (!user?.preferences?.isAdmin && !user?.isAdmin) {
+    if (!isAdmin(user, req.user.email)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
@@ -4581,14 +4581,12 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       }
     }
 
-    // STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
+    /// STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
     const userEmail = req.user.email;
     const user = await usersCollection.findOne({ userId });
-    const isAdminUser = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
-                    user?.permissions?.canViewAllReservations || isAdmin(user, userEmail);
+    const isAdminUser = canViewAllReservations(user, userEmail);
 
     logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdminUser: ${isAdminUser}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);
-    logger.log(`[PENDING] User roles: ${JSON.stringify(user?.roles)}, permissions: ${JSON.stringify(user?.permissions)}`);
 
     if (isAdminUser) {
       const pendingQuery = {
@@ -4816,8 +4814,7 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     // Check if user is admin/approver to also show pending reservations
     const user = await usersCollection.findOne({ userId });
-    const isAdminUser = user?.roles?.includes('admin') || user?.roles?.includes('approver') ||
-                    user?.permissions?.canViewAllReservations || isAdmin(user, userEmail);
+    const isAdminUser = canViewAllReservations(user, userEmail);
 
     logger.debug(`[PENDING] User ${userEmail} isAdminUser: ${isAdminUser}, startDate: ${startDate}, endDate: ${endDate}`);
 
@@ -11172,6 +11169,26 @@ app.get('/api/version', (req, res) => {
   });
 });
 
+// Get current user's permissions
+app.get('/api/users/me/permissions', verifyToken, async (req, res) => {
+  try {
+    // Try to find user by userId first, then by email (for backward compatibility)
+    let user = await usersCollection.findOne({ userId: req.user.userId });
+    if (!user) {
+      user = await usersCollection.findOne({ email: req.user.email });
+    }
+    const permissions = getPermissions(user, req.user.email);
+    res.json({
+      userId: req.user.userId,
+      email: req.user.email,
+      ...permissions
+    });
+  } catch (error) {
+    logger.error('Error getting user permissions:', error);
+    res.status(500).json({ error: 'Failed to retrieve permissions' });
+  }
+});
+
 // Get current user (using MSAL token)
 app.get('/api/users/current', verifyToken, async (req, res) => {
   try {
@@ -11391,23 +11408,29 @@ app.get('/api/users/email/:email', verifyToken, async (req, res) => {
   }
 });
 
-// Create a new user - NOW PROTECTED
+// Create a new user - ADMIN ONLY
 app.post('/api/users', verifyToken, async (req, res) => {
   try {
+    // Check admin permission
+    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    if (!isAdmin(requestingUser, req.user.email)) {
+      return res.status(403).json({ error: 'Admin access required to create users' });
+    }
+
     const userData = req.body;
-    
+
     // Check if user with this email already exists
     const existingUser = await usersCollection.findOne({ email: userData.email });
     if (existingUser) {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
-    
+
     // Add timestamps
     userData.createdAt = new Date();
     userData.updatedAt = new Date();
-    
+
     const result = await usersCollection.insertOne(userData);
-    
+
     // Return the created user with the generated ID
     const createdUser = await usersCollection.findOne({ _id: result.insertedId });
     res.status(201).json(createdUser);
@@ -11417,24 +11440,30 @@ app.post('/api/users', verifyToken, async (req, res) => {
   }
 });
 
-// Update a user - NOW PROTECTED
+// Update a user - ADMIN ONLY
 app.put('/api/users/:id', verifyToken, async (req, res) => {
   try {
+    // Check admin permission
+    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    if (!isAdmin(requestingUser, req.user.email)) {
+      return res.status(403).json({ error: 'Admin access required to update users' });
+    }
+
     const id = req.params.id;
     const updates = req.body;
-    
+
     // Update the timestamp
     updates.updatedAt = new Date();
-    
+
     const result = await usersCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updates }
     );
-    
+
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Return the updated user
     const updatedUser = await usersCollection.findOne({ _id: new ObjectId(id) });
     res.status(200).json(updatedUser);
@@ -11444,16 +11473,22 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
   }
 });
 
-// Delete a user - NOW PROTECTED
+// Delete a user - ADMIN ONLY
 app.delete('/api/users/:id', verifyToken, async (req, res) => {
   try {
+    // Check admin permission
+    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    if (!isAdmin(requestingUser, req.user.email)) {
+      return res.status(403).json({ error: 'Admin access required to delete users' });
+    }
+
     const id = req.params.id;
     const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
-    
+
     if (result.deletedCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.status(200).json({ message: 'User deleted successfully' });
   } catch (error) {
     logger.error('Error deleting user:', error);
@@ -15547,27 +15582,62 @@ app.get('/api/categories', async (req, res) => {
 });
 
 /**
- * Shifts display orders to make room for a new/moved category
+ * Shifts display orders to make room for a new/moved category.
+ * Only shifts categories that need to be shifted - stops at the first gap.
+ *
+ * Example: If positions 20, 22, 23 exist and we insert at 21, no shifting needed.
+ * If we insert at 20, only shift 20->21 (stop there since 21 was empty).
+ *
  * @param {Collection} collection - MongoDB collection
  * @param {number} targetOrder - The position where we want to insert
  * @param {ObjectId|null} excludeId - ID to exclude (for updates, don't shift self)
  */
 async function shiftCategoryDisplayOrders(collection, targetOrder, excludeId = null) {
-  const filter = {
-    active: true,
-    displayOrder: { $gte: targetOrder }
-  };
-
-  // Exclude the category being updated (so it doesn't shift itself)
+  // Build filter to exclude the category being updated
+  const baseFilter = { active: true };
   if (excludeId) {
-    filter._id = { $ne: excludeId };
+    baseFilter._id = { $ne: excludeId };
   }
 
-  // Increment displayOrder for all categories at or after the target position
-  await collection.updateMany(
-    filter,
-    { $inc: { displayOrder: 1 } }
-  );
+  // Check if target position is already occupied
+  const targetOccupied = await collection.findOne({
+    ...baseFilter,
+    displayOrder: targetOrder
+  });
+
+  // If no category at target position, no shifting needed
+  if (!targetOccupied) {
+    return;
+  }
+
+  // Find all categories at or after target position, sorted by displayOrder
+  const categoriesToCheck = await collection
+    .find({ ...baseFilter, displayOrder: { $gte: targetOrder } })
+    .sort({ displayOrder: 1 })
+    .toArray();
+
+  // Find the contiguous block that needs shifting (stop at first gap)
+  const idsToShift = [];
+  let expectedOrder = targetOrder;
+
+  for (const cat of categoriesToCheck) {
+    if (cat.displayOrder === expectedOrder) {
+      // This position is occupied and contiguous, need to shift it
+      idsToShift.push(cat._id);
+      expectedOrder++;
+    } else {
+      // Found a gap - stop here, remaining categories don't need shifting
+      break;
+    }
+  }
+
+  // Only shift the contiguous block
+  if (idsToShift.length > 0) {
+    await collection.updateMany(
+      { _id: { $in: idsToShift } },
+      { $inc: { displayOrder: 1 } }
+    );
+  }
 }
 
 /**
@@ -18390,6 +18460,115 @@ app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) =>
 
 // ============================================================================
 // END EDIT REQUEST ENDPOINTS
+// ============================================================================
+
+// ============================================================================
+// DEPARTMENT-SPECIFIC FIELD EDIT ENDPOINT
+// ============================================================================
+
+/**
+ * Edit specific fields for department users (security/maintenance)
+ * PUT /api/events/:id/department-fields
+ *
+ * Allows users with a department assignment to edit only their permitted fields.
+ * - Security: doorOpenTime, doorCloseTime, doorNotes
+ * - Maintenance: setupTime, teardownTime, setupNotes, eventNotes, setupTimeMinutes, teardownTimeMinutes
+ *
+ * Approvers and admins can still use the regular PUT /api/admin/events/:id endpoint.
+ */
+app.put('/api/events/:id/department-fields', verifyToken, async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const updates = req.body;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Get user and their department permissions
+    const user = await usersCollection.findOne({ userId });
+    const allowedFields = getDepartmentEditableFields(user);
+
+    if (allowedFields.length === 0) {
+      return res.status(403).json({
+        error: 'No department edit permissions',
+        message: 'Your account is not assigned to a department that can edit events'
+      });
+    }
+
+    // Get event to verify it exists
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(eventId) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Filter updates to only allowed fields
+    const filteredUpdates = {};
+    const rejectedFields = [];
+
+    for (const [field, value] of Object.entries(updates)) {
+      if (allowedFields.includes(field)) {
+        filteredUpdates[field] = value;
+      } else {
+        rejectedFields.push(field);
+      }
+    }
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      return res.status(400).json({
+        error: 'No valid fields to update',
+        message: 'None of the provided fields are allowed for your department',
+        rejectedFields,
+        allowedFields
+      });
+    }
+
+    // Apply the filtered updates
+    const result = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          ...filteredUpdates,
+          updatedAt: new Date(),
+          lastModifiedBy: userEmail,
+          lastModifiedByDepartment: user.department
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Log to audit history
+    await eventAuditHistoryCollection.insertOne({
+      eventId: event.eventId || eventId,
+      documentId: new ObjectId(eventId),
+      action: 'department_edit',
+      department: user.department,
+      changedFields: Object.keys(filteredUpdates),
+      changedValues: filteredUpdates,
+      changedBy: userEmail,
+      userId: userId,
+      timestamp: new Date()
+    });
+
+    logger.log(`Department edit by ${user.department} user (${userEmail}):`, {
+      eventId,
+      changedFields: Object.keys(filteredUpdates)
+    });
+
+    res.json({
+      success: true,
+      updatedFields: Object.keys(filteredUpdates),
+      rejectedFields: rejectedFields.length > 0 ? rejectedFields : undefined
+    });
+  } catch (error) {
+    logger.error('Error updating department fields:', error);
+    res.status(500).json({ error: 'Failed to update event' });
+  }
+});
+
+// ============================================================================
+// END DEPARTMENT-SPECIFIC FIELD EDIT ENDPOINT
 // ============================================================================
 
 /**

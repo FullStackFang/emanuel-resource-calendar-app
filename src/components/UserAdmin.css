@@ -591,6 +591,32 @@
   border-color: var(--color-error-300);
 }
 
+.user-admin .delete-btn.confirm {
+  background: var(--color-error-500);
+  color: white;
+  border-color: var(--color-error-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.user-admin .delete-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.user-admin .delete-btn .spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .user-admin .save-btn {
   background: linear-gradient(135deg, var(--color-success-500), var(--color-success-600));
   color: var(--text-inverse);
@@ -1012,3 +1038,230 @@
 .user-card:nth-child(6) { animation-delay: 250ms; }
 .user-card:nth-child(7) { animation-delay: 300ms; }
 .user-card:nth-child(8) { animation-delay: 350ms; }
+
+/* ==========================================================================
+   ROLE SELECTOR STYLES
+   ========================================================================== */
+
+.role-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.role-select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.role-select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.role-description {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Role badges by type */
+.permission-badge.viewer {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-700);
+}
+
+.permission-badge.requester {
+  background: var(--color-info-100);
+  color: var(--color-info-700);
+}
+
+.permission-badge.approver {
+  background: var(--color-success-100);
+  color: var(--color-success-700);
+}
+
+/* Modal role selection styles */
+.role-selection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.role-select-modal {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.role-select-modal:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.role-description-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.role-capabilities {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.role-capabilities h5 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.role-capabilities ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  list-style: disc;
+}
+
+.role-capabilities li {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.role-capabilities li:last-child {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
+   DEPARTMENT SECTION STYLES
+   ========================================================================== */
+
+.user-department {
+  margin-bottom: var(--space-4);
+}
+
+.department-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.department-select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.department-select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.department-description {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Department badges */
+.permission-badge.department-security {
+  background: linear-gradient(135deg, var(--color-warning-100), var(--color-warning-200));
+  color: var(--color-warning-800);
+}
+
+.permission-badge.department-maintenance {
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+  color: #3730a3;
+}
+
+.permission-badge.no-department {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-500);
+  font-style: italic;
+}
+
+/* Modal department selection styles */
+.department-selection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.department-select-modal {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  width: 100%;
+}
+
+.department-select-modal:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.department-description-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.department-capabilities {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-top: var(--space-2);
+}
+
+.department-capabilities h5 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.department-capabilities ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  list-style: disc;
+}
+
+.department-capabilities li {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.department-capabilities li:last-child {
+  margin-bottom: 0;
+}

@@ -54,6 +54,7 @@ export default function CategoryManagement({ apiToken }) {
   // Button confirmation states: 'idle' | 'confirming' | 'saving'
   const [saveButtonState, setSaveButtonState] = useState('idle');
   const [deleteButtonState, setDeleteButtonState] = useState('idle');
+  const [resequencing, setResequencing] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -94,6 +95,32 @@ export default function CategoryManagement({ apiToken }) {
       setError(err.message || 'Failed to load categories');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResequence = async () => {
+    try {
+      setResequencing(true);
+      setError('');
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/categories/resequence`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to resequence categories: ${response.status}`);
+      }
+
+      // Reload categories to show updated order
+      await loadCategories();
+    } catch (err) {
+      logger.error('Error resequencing categories:', err);
+      setError(err.message || 'Failed to resequence categories');
+    } finally {
+      setResequencing(false);
     }
   };
 
@@ -269,12 +296,26 @@ export default function CategoryManagement({ apiToken }) {
             Organize and customize event categories for your calendar
           </p>
         </div>
-        <button onClick={handleAddNew} className="add-category-btn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          Add Category
-        </button>
+        <div className="category-header-actions">
+          <button
+            onClick={handleResequence}
+            className="resequence-btn"
+            disabled={resequencing || categories.length === 0}
+            title="Remove gaps in display order numbering"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M3 12h18M3 18h18" />
+              <path d="M7 3v3M7 18v3M17 3v3M17 18v3" />
+            </svg>
+            {resequencing ? 'Resequencing...' : 'Resequence'}
+          </button>
+          <button onClick={handleAddNew} className="add-category-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Add Category
+          </button>
+        </div>
       </div>
 
       {/* Stats Row */}

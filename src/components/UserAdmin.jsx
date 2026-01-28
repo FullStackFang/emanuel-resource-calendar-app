@@ -7,6 +7,30 @@ import './UserAdmin.css';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
+// Role definitions matching backend permissionUtils.js
+const ROLES = {
+  viewer: { name: 'Viewer', description: 'View calendar only' },
+  requester: { name: 'Requester', description: 'Submit & manage own requests' },
+  approver: { name: 'Approver', description: 'Manage all events & requests' },
+  admin: { name: 'Admin', description: 'Full system access' }
+};
+
+// Department definitions for specialized field editing
+const DEPARTMENTS = {
+  '': { name: 'None', description: 'No department-specific edit access' },
+  security: { name: 'Security', description: 'Can edit door times on events' },
+  maintenance: { name: 'Maintenance', description: 'Can edit setup/teardown times' }
+};
+
+// Derive role from legacy fields for backward compatibility
+const deriveRole = (user) => {
+  if (user.role) return user.role;
+  if (user.isAdmin === true || user.preferences?.isAdmin === true) return 'admin';
+  if (user.permissions?.canViewAllReservations === true) return 'approver';
+  if (user.preferences?.createEvents === true || user.preferences?.editEvents === true) return 'requester';
+  return 'viewer';
+};
+
 // Get initials from user name
 const getInitials = (name) => {
   if (!name) return '?';
@@ -24,26 +48,26 @@ export default function UserAdmin({ apiToken }) {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [editingRows, setEditingRows] = useState({});
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [newUser, setNewUser] = useState({
     displayName: '',
     email: '',
+    role: 'viewer',
+    department: '',
     preferences: {
       startOfWeek: 'Sunday',
       defaultView: 'week',
       defaultGroupBy: 'categories',
-      preferredZoomLevel: 100,
-      createEvents: false,
-      editEvents: false,
-      deleteEvents: false,
-      isAdmin: false
+      preferredZoomLevel: 100
     }
   });
 
-  // Calculate stats
+  // Calculate stats - now using role-based counting
   const stats = useMemo(() => {
     const total = users.length;
-    const admins = users.filter(u => u.preferences?.isAdmin).length;
+    const admins = users.filter(u => deriveRole(u) === 'admin').length;
     const activeRecently = users.filter(u => {
       if (!u.lastLogin) return false;
       const thirtyDaysAgo = new Date();
@@ -155,6 +179,8 @@ export default function UserAdmin({ apiToken }) {
         body: JSON.stringify({
           displayName: userToUpdate.displayName,
           email: userToUpdate.email,
+          role: userToUpdate.role || deriveRole(userToUpdate),
+          department: userToUpdate.department || null,
           preferences: userToUpdate.preferences
         })
       });
@@ -200,15 +226,13 @@ export default function UserAdmin({ apiToken }) {
         email: newUser.email,
         displayName: newUser.displayName,
         userId: newUser.email.split('@')[0] + Date.now(),
+        role: newUser.role || 'viewer',
+        department: newUser.department || null,
         preferences: {
           startOfWeek: newUser.preferences.startOfWeek || 'Sunday',
           defaultView: newUser.preferences.defaultView || 'week',
           defaultGroupBy: newUser.preferences.defaultGroupBy || 'categories',
-          preferredZoomLevel: newUser.preferences.preferredZoomLevel || 100,
-          createEvents: newUser.preferences.createEvents ?? true,
-          editEvents: newUser.preferences.editEvents ?? true,
-          deleteEvents: newUser.preferences.deleteEvents ?? false,
-          isAdmin: newUser.preferences.isAdmin ?? false
+          preferredZoomLevel: newUser.preferences.preferredZoomLevel || 100
         },
         createdAt: new Date().toISOString()
       };
@@ -239,15 +263,13 @@ export default function UserAdmin({ apiToken }) {
       setNewUser({
         displayName: '',
         email: '',
+        role: 'viewer',
+        department: '',
         preferences: {
           startOfWeek: 'Sunday',
           defaultView: 'week',
           defaultGroupBy: 'categories',
-          preferredZoomLevel: 100,
-          createEvents: true,
-          editEvents: true,
-          deleteEvents: false,
-          isAdmin: false
+          preferredZoomLevel: 100
         }
       });
       setShowModal(false);
@@ -262,14 +284,27 @@ export default function UserAdmin({ apiToken }) {
     }
   };
 
-  // Delete a user
-  const handleDelete = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      return;
+  // Handle delete button click - two-step confirmation
+  const handleDeleteClick = (userId) => {
+    if (confirmDeleteId === userId) {
+      // Already in confirm state, proceed with delete
+      handleDelete(userId);
+    } else {
+      // First click - enter confirm state
+      setConfirmDeleteId(userId);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setConfirmDeleteId(prev => prev === userId ? null : prev);
+      }, 3000);
     }
+  };
 
+  // Delete a user (called after confirmation)
+  const handleDelete = async (userId) => {
     try {
-      setLoading(true);
+      setDeletingId(userId);
+      setConfirmDeleteId(null);
+
       const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
         method: 'DELETE',
         headers: {
@@ -281,7 +316,7 @@ export default function UserAdmin({ apiToken }) {
         throw new Error(`Error deleting user: ${response.statusText}`);
       }
 
-      setUsers(users.filter(user => user._id !== userId));
+      setUsers(prevUsers => prevUsers.filter(user => user._id !== userId));
       setSuccessMessage('User deleted successfully.');
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
@@ -289,7 +324,7 @@ export default function UserAdmin({ apiToken }) {
       setError('Failed to delete user. Please try again.');
       setTimeout(() => setError(null), 3000);
     } finally {
-      setLoading(false);
+      setDeletingId(null);
     }
   };
 
@@ -468,61 +503,60 @@ export default function UserAdmin({ apiToken }) {
                 </div>
 
                 <div className="user-permissions">
-                  <span className="permissions-label">Permissions</span>
+                  <span className="permissions-label">Role</span>
                   {isEditing ? (
-                    <div className="permissions-checkboxes">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={user.preferences?.createEvents ?? true}
-                          onChange={(e) => handleInputChange(user._id, 'preferences.createEvents', e.target.checked)}
-                        />
-                        Create
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={user.preferences?.editEvents ?? true}
-                          onChange={(e) => handleInputChange(user._id, 'preferences.editEvents', e.target.checked)}
-                        />
-                        Edit
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={user.preferences?.deleteEvents ?? false}
-                          onChange={(e) => handleInputChange(user._id, 'preferences.deleteEvents', e.target.checked)}
-                        />
-                        Delete
-                      </label>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={user.preferences?.isAdmin ?? false}
-                          onChange={(e) => handleInputChange(user._id, 'preferences.isAdmin', e.target.checked)}
-                        />
-                        Admin
-                      </label>
+                    <div className="role-selector">
+                      <select
+                        value={user.role || deriveRole(user)}
+                        onChange={(e) => handleInputChange(user._id, 'role', e.target.value)}
+                        className="role-select"
+                      >
+                        {Object.entries(ROLES).map(([key, { name, description }]) => (
+                          <option key={key} value={key} title={description}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="role-description">
+                        {ROLES[user.role || deriveRole(user)]?.description}
+                      </span>
                     </div>
                   ) : (
                     <div className="permissions-badges">
-                      {user.preferences?.createEvents && (
-                        <span className="permission-badge create">Create</span>
-                      )}
-                      {user.preferences?.editEvents && (
-                        <span className="permission-badge edit">Edit</span>
-                      )}
-                      {user.preferences?.deleteEvents && (
-                        <span className="permission-badge delete">Delete</span>
-                      )}
-                      {user.preferences?.isAdmin && (
-                        <span className="permission-badge admin">Admin</span>
-                      )}
-                      {!user.preferences?.createEvents &&
-                       !user.preferences?.editEvents &&
-                       !user.preferences?.deleteEvents &&
-                       !user.preferences?.isAdmin && (
-                        <span className="no-permissions">No permissions</span>
+                      <span className={`permission-badge ${deriveRole(user)}`}>
+                        {ROLES[deriveRole(user)]?.name || 'Viewer'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="user-department">
+                  <span className="permissions-label">Department</span>
+                  {isEditing ? (
+                    <div className="department-selector">
+                      <select
+                        value={user.department || ''}
+                        onChange={(e) => handleInputChange(user._id, 'department', e.target.value || null)}
+                        className="department-select"
+                      >
+                        {Object.entries(DEPARTMENTS).map(([key, { name, description }]) => (
+                          <option key={key} value={key} title={description}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="department-description">
+                        {DEPARTMENTS[user.department || '']?.description}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="permissions-badges">
+                      {user.department ? (
+                        <span className={`permission-badge department-${user.department}`}>
+                          {DEPARTMENTS[user.department]?.name || user.department}
+                        </span>
+                      ) : (
+                        <span className="permission-badge no-department">None</span>
                       )}
                     </div>
                   )}
@@ -563,11 +597,28 @@ export default function UserAdmin({ apiToken }) {
                         Edit
                       </button>
                       {!isCurrentUser && (
-                        <button className="delete-btn" onClick={() => handleDelete(user._id)}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          </svg>
-                          Delete
+                        <button
+                          className={`delete-btn ${confirmDeleteId === user._id ? 'confirm' : ''}`}
+                          onClick={() => handleDeleteClick(user._id)}
+                          disabled={deletingId === user._id}
+                        >
+                          {deletingId === user._id ? (
+                            <>
+                              <svg className="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+                              </svg>
+                              Deleting...
+                            </>
+                          ) : confirmDeleteId === user._id ? (
+                            'Confirm?'
+                          ) : (
+                            <>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              </svg>
+                              Delete
+                            </>
+                          )}
                         </button>
                       )}
                     </>
@@ -663,52 +714,89 @@ export default function UserAdmin({ apiToken }) {
               </div>
 
               <div className="form-section">
-                <h4 className="form-section-title">Permissions</h4>
-                <div className="permissions-grid">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={newUser.preferences.createEvents}
-                      onChange={(e) => handleNewUserInputChange('preferences.createEvents', e.target.checked)}
-                    />
-                    <span className="permission-text">
-                      <span className="permission-name">Create Events</span>
-                      <span className="permission-desc">Can create new events</span>
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={newUser.preferences.editEvents}
-                      onChange={(e) => handleNewUserInputChange('preferences.editEvents', e.target.checked)}
-                    />
-                    <span className="permission-text">
-                      <span className="permission-name">Edit Events</span>
-                      <span className="permission-desc">Can modify existing events</span>
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={newUser.preferences.deleteEvents}
-                      onChange={(e) => handleNewUserInputChange('preferences.deleteEvents', e.target.checked)}
-                    />
-                    <span className="permission-text">
-                      <span className="permission-name">Delete Events</span>
-                      <span className="permission-desc">Can remove events</span>
-                    </span>
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={newUser.preferences.isAdmin}
-                      onChange={(e) => handleNewUserInputChange('preferences.isAdmin', e.target.checked)}
-                    />
-                    <span className="permission-text">
-                      <span className="permission-name">Administrator</span>
-                      <span className="permission-desc">Full system access</span>
-                    </span>
-                  </label>
+                <h4 className="form-section-title">Role</h4>
+                <div className="role-selection">
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => handleNewUserInputChange('role', e.target.value)}
+                    className="role-select-modal"
+                  >
+                    {Object.entries(ROLES).map(([key, { name }]) => (
+                      <option key={key} value={key}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="role-description-text">
+                    {ROLES[newUser.role]?.description}
+                  </p>
+                  <div className="role-capabilities">
+                    <h5>Role capabilities:</h5>
+                    <ul>
+                      {newUser.role === 'viewer' && (
+                        <li>View calendar events</li>
+                      )}
+                      {newUser.role === 'requester' && (
+                        <>
+                          <li>View calendar events</li>
+                          <li>Submit and manage own reservation requests</li>
+                        </>
+                      )}
+                      {newUser.role === 'approver' && (
+                        <>
+                          <li>View calendar events</li>
+                          <li>Submit and manage own reservation requests</li>
+                          <li>Approve/reject all reservations</li>
+                          <li>Create, edit, and delete published events</li>
+                        </>
+                      )}
+                      {newUser.role === 'admin' && (
+                        <>
+                          <li>All approver capabilities</li>
+                          <li>Access Admin modules (Users, Categories, Locations)</li>
+                          <li>Full system configuration access</li>
+                        </>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h4 className="form-section-title">Department (Optional)</h4>
+                <div className="department-selection">
+                  <select
+                    value={newUser.department || ''}
+                    onChange={(e) => handleNewUserInputChange('department', e.target.value || null)}
+                    className="department-select-modal"
+                  >
+                    {Object.entries(DEPARTMENTS).map(([key, { name }]) => (
+                      <option key={key} value={key}>{name}</option>
+                    ))}
+                  </select>
+                  <p className="department-description-text">
+                    {DEPARTMENTS[newUser.department || '']?.description}
+                  </p>
+                  {newUser.department && (
+                    <div className="department-capabilities">
+                      <h5>Department can edit:</h5>
+                      <ul>
+                        {newUser.department === 'security' && (
+                          <>
+                            <li>Door open time</li>
+                            <li>Door close time</li>
+                            <li>Door notes</li>
+                          </>
+                        )}
+                        {newUser.department === 'maintenance' && (
+                          <>
+                            <li>Setup time</li>
+                            <li>Teardown time</li>
+                            <li>Setup notes</li>
+                            <li>Event notes</li>
+                          </>
+                        )}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
+import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import UnifiedFormLayout from './UnifiedFormLayout';
@@ -91,6 +92,7 @@ export default function UnifiedEventForm({
   const location = useLocation();
   const { accounts } = useMsal();
   const { showError, showWarning } = useNotification();
+  const { isAdmin } = usePermissions();
 
   // Handle resubmit mode from navigation state
   useEffect(() => {
@@ -856,7 +858,7 @@ export default function UnifiedEventForm({
           }
         }}
         readOnly={mode === 'event' ? readOnly : false}
-        isAdmin={true}
+        isAdmin={isAdmin}
         reservationStatus={mode === 'reservation' ? reservation?.status : null}
         currentReservationId={mode === 'reservation' ? reservation?._id : null}
         onLockedEventClick={onLockedEventClick}

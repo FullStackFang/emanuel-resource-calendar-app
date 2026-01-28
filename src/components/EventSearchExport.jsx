@@ -686,7 +686,15 @@ const EventSearchExport = ({
         let rowHeight = 8;
         const eventTitle = event.subject || 'Untitled Event';
         const wrappedTitle = doc.splitTextToSize(eventTitle, colWidths[5] - 4);
-        rowHeight = Math.max(rowHeight, wrappedTitle.length * 3.5 + 4);
+
+        // Pre-calculate description for row height (trim whitespace)
+        const bodyText = (event.bodyPreview || event.body?.content || '').trim();
+        const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, colWidths[5] - 4) : [];
+
+        // Calculate height: title lines + description lines + padding
+        const titleHeight = wrappedTitle.length * 3.5;
+        const bodyHeight = wrappedBody.length * 3;
+        rowHeight = Math.max(rowHeight, titleHeight + bodyHeight + 4);
 
         // Add extra height for stacked times
         if (showMaintenanceTimes || showSecurityTimes) {
@@ -808,17 +816,13 @@ const EventSearchExport = ({
         doc.setTextColor(...colors.primary);
         doc.text(wrappedTitle, colPositions[5] + 2, y);
 
-        // Description preview
-        const bodyText = event.bodyPreview || event.body?.content || '';
-        if (bodyText.trim()) {
+        // Description - show full text (wrappedBody was pre-calculated for row height)
+        if (wrappedBody.length > 0) {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(fontSize.tiny);
           doc.setTextColor(...colors.muted);
-          const wrappedBody = doc.splitTextToSize(bodyText, colWidths[5] - 4);
           const bodyY = y + wrappedTitle.length * 3.5;
-          if (wrappedBody[0]) {
-            doc.text(wrappedBody[0] + (wrappedBody.length > 1 ? '...' : ''), colPositions[5] + 2, bodyY);
-          }
+          doc.text(wrappedBody, colPositions[5] + 2, bodyY);
         }
 
         y += rowHeight;

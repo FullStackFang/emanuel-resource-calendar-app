@@ -171,8 +171,8 @@
       allEventsRef.current = allEvents;
     }, [allEvents]);
 
-    // UI state
-    const [groupBy, setGroupBy] = useState('locations');
+    // UI state - defaults match userPermissions defaults until preferences load
+    const [groupBy, setGroupBy] = useState('categories');
     const [viewType, setViewType] = useState('week');
     const [zoomLevel, setZoomLevel] = useState(100);
     const [selectedFilter, setSelectedFilter] = useState(''); 
@@ -1709,8 +1709,19 @@
             isAdmin: isAdmin,
           };
           
-          // TEMPORARY: Don't overwrite test permissions
-          // setUserPermissions(permissions);
+          // Apply user permissions from database
+          setUserPermissions(permissions);
+
+          // Also update the UI state variables from loaded preferences
+          if (data.preferences?.defaultGroupBy) {
+            setGroupBy(data.preferences.defaultGroupBy);
+          }
+          if (data.preferences?.defaultView) {
+            setViewType(data.preferences.defaultView);
+          }
+          if (data.preferences?.preferredZoomLevel) {
+            setZoomLevel(data.preferences.preferredZoomLevel);
+          }
           if (data.preferences?.preferredTimeZone) {
             setUserTimezone(data.preferences.preferredTimeZone);
           }
