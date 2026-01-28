@@ -144,15 +144,6 @@ export default function Navigation({ apiToken }) {
                 </li>
                 <li>
                   <NavLink
-                    to="/booking"
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    ✨ External Form (Unified)
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
                     to="/admin/reservation-requests"
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}
