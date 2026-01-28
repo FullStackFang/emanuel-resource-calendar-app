@@ -52,8 +52,8 @@ This redesign applies principles from three strategic frameworks:
 
 | Layer | Technology | Strategic Purpose |
 |-------|------------|-------------------|
-| Frontend | React SPA with Vite | User interface for exceptions and oversight |
-| UI Framework | Microsoft Fluent UI | Consistent enterprise experience |
+| Frontend | React 19 SPA with Vite | User interface for exceptions and oversight |
+| UI Framework | Custom CSS + Design Tokens | Lightweight, consistent enterprise experience |
 | Authentication | Azure AD / MSAL | Identity and permission foundation |
 | Data Fetching | TanStack Query | Efficient caching and real-time sync |
 | **Agent Orchestration** | **Node.js Agent Runtime** | **Centralized agent coordination** |
@@ -101,6 +101,73 @@ This redesign applies principles from three strategic frameworks:
 │   └── ...
 └── ...
 ```
+
+### Performance Optimizations
+
+The application implements several performance optimizations to reduce initial load time and improve user experience:
+
+#### Code Splitting (Vite)
+
+Heavy libraries are separated into lazy-loaded chunks via `vite.config.js`:
+
+```javascript
+rollupOptions: {
+  output: {
+    manualChunks: {
+      'pdf': ['jspdf', 'jspdf-autotable'],      // ~357KB - loaded only during exports
+      'editor': ['react-quill-new'],             // ~222KB - loaded only when editing
+      'auth': ['@azure/msal-browser', '@azure/msal-react'],  // ~253KB - separate chunk
+      'vendor': ['react', 'react-dom', 'react-router-dom']   // ~40KB - cacheable
+    }
+  }
+}
+```
+
+#### Lazy-Loaded Admin Components
+
+Admin-only components are loaded on-demand using `React.lazy()`, reducing the initial bundle for non-admin users:
+
+```javascript
+// src/App.jsx - Admin components loaded only when accessed
+const UserAdmin = lazy(() => import('./components/UserAdmin'));
+const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
+const CalendarConfigAdmin = lazy(() => import('./components/CalendarConfigAdmin'));
+const LocationReview = lazy(() => import('./components/LocationReview'));
+const ReservationRequests = lazy(() => import('./components/ReservationRequests'));
+const FeatureManagement = lazy(() => import('./components/FeatureManagement'));
+const EmailTestAdmin = lazy(() => import('./components/EmailTestAdmin'));
+const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
+const AIChat = lazy(() => import('./components/AIChat'));
+```
+
+#### Memoized Context Values
+
+React contexts use `useMemo` to prevent unnecessary re-renders:
+
+- `RoleSimulationContext.jsx` - Memoized permission state
+- `TimezoneContext.jsx` - Memoized timezone preferences
+
+#### Extended Cache TTL
+
+Static data queries use 30-minute cache TTL (increased from 5 minutes):
+
+```javascript
+// useLocationsQuery.js, useCategoriesQuery.js
+staleTime: 30 * 60 * 1000  // 30 minutes - locations/categories rarely change
+```
+
+#### Build Output
+
+After optimizations, the production build separates concerns efficiently:
+
+| Chunk | Size (gzip) | Load Condition |
+|-------|-------------|----------------|
+| index.js | ~388KB | Always (core app) |
+| vendor.js | ~14KB | Always (React core) |
+| auth.js | ~63KB | Always (authentication) |
+| pdf.js | ~116KB | On PDF export only |
+| editor.js | ~65KB | On event form edit only |
+| Admin chunks | ~5-11KB each | On admin route access only |
 
 ---
 

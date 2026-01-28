@@ -113,8 +113,11 @@
 
     // Use TanStack Query for categories - provides automatic caching and background refresh
     const queryClient = useQueryClient();
-    const { data: baseCategories = [] } = useBaseCategoriesQuery(apiToken);
-    const { data: outlookCategories = [] } = useOutlookCategoriesQuery(apiToken, APP_CONFIG.DEFAULT_DISPLAY_CALENDAR);
+    const { data: baseCategories = [], isLoading: baseCategoriesLoading } = useBaseCategoriesQuery(apiToken);
+    const { data: outlookCategories = [], isLoading: outlookCategoriesLoading } = useOutlookCategoriesQuery(apiToken, APP_CONFIG.DEFAULT_DISPLAY_CALENDAR);
+
+    // Combined categories loading state
+    const categoriesLoading = baseCategoriesLoading || outlookCategoriesLoading;
 
     // Track last summary time to prevent duplicate summaries
     const lastSummaryTimeRef = useRef(0);
@@ -6065,7 +6068,8 @@
       // Get loading status text
       const loadingText = (() => {
         if (loadingState.user) return "Loading user profile...";
-        if (loadingState.categories) return "Loading categories...";
+        if (loadingState.categories || categoriesLoading) return "Loading categories...";
+        if (locationsLoading) return "Loading locations...";
         if (loadingState.extensions) return "Loading extensions...";
         if (loadingState.events) return "Loading calendar events...";
         return "Loading your calendar...";
@@ -6093,7 +6097,7 @@
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        {(loading || initializing || locationsLoading) && <LoadingOverlay/>}
+        {(loading || initializing || locationsLoading || categoriesLoading) && <LoadingOverlay/>}
         
         {/* Calendar Header */}
         <CalendarHeader

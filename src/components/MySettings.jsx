@@ -212,11 +212,19 @@ export default function MySettings({ apiToken }) {
   }
 
   return (
-    <div className="settings-container">
-      <h2>My Settings</h2>
-      {error && <div className="error-message">{error}</div>}
-      {successMessage && <div className="success-message">{successMessage}</div>}
-      <form onSubmit={handleSubmit}>
+    <div className="settings-page">
+      {/* Page Header - Editorial Style */}
+      <div className="settings-header">
+        <div className="settings-header-content">
+          <h1>My Profile</h1>
+          <p className="settings-header-subtitle">Manage your account and calendar preferences</p>
+        </div>
+      </div>
+
+      <div className="settings-container">
+        {error && <div className="error-message">{error}</div>}
+        {successMessage && <div className="success-message">{successMessage}</div>}
+        <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="displayName">Display Name:</label>
           <input
@@ -318,6 +326,7 @@ export default function MySettings({ apiToken }) {
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 }

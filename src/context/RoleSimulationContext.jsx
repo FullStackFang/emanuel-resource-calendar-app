@@ -1,5 +1,5 @@
 // src/context/RoleSimulationContext.jsx
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 
 // Storage key for localStorage persistence
@@ -139,8 +139,8 @@ export function RoleSimulationProvider({ children }) {
     return DEFAULT_PERMISSIONS;
   }, [simulatedRole]);
 
-  // Context value
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // Simulation state
     simulatedRole,
     isSimulating: simulatedRole !== null,
@@ -158,7 +158,7 @@ export function RoleSimulationProvider({ children }) {
 
     // Role templates for UI
     roleTemplates: ROLE_TEMPLATES
-  };
+  }), [simulatedRole, isActualAdmin, startSimulation, endSimulation, getEffectivePermissions]);
 
   return (
     <RoleSimulationContext.Provider value={value}>

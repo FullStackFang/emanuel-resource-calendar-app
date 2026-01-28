@@ -78,7 +78,7 @@ export const useBaseCategoriesQuery = (apiToken) => {
   return useQuery({
     queryKey: BASE_CATEGORIES_QUERY_KEY,
     queryFn: () => fetchBaseCategories(apiToken),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 60 * 1000, // 30 minutes - categories rarely change
     enabled: !!apiToken, // Only fetch when token is available
   });
 };
@@ -94,7 +94,7 @@ export const useOutlookCategoriesQuery = (apiToken, userId) => {
   return useQuery({
     queryKey: [...OUTLOOK_CATEGORIES_QUERY_KEY, userId],
     queryFn: () => fetchOutlookCategories(apiToken, userId),
-    staleTime: 10 * 60 * 1000, // 10 minutes - Outlook categories change less frequently
+    staleTime: 30 * 60 * 1000, // 30 minutes - Outlook categories rarely change
     enabled: !!apiToken && !!userId, // Only fetch when both token and userId are available
   });
 };

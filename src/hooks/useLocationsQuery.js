@@ -42,7 +42,7 @@ export const useLocationsQuery = (apiToken) => {
   return useQuery({
     queryKey: LOCATIONS_QUERY_KEY,
     queryFn: () => fetchLocations(apiToken),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 60 * 1000, // 30 minutes - locations rarely change
     // No token required for locations endpoint
     enabled: true,
   });

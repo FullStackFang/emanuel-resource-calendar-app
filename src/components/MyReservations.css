@@ -9,18 +9,97 @@
    ========================================================================== */
 
 .my-reservations {
-  padding: var(--space-6);
+  padding: var(--space-8) var(--space-6);
   max-width: 1400px;
   margin: 0 auto;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, var(--color-neutral-50) 0%, transparent 400px),
+    var(--bg-primary);
 }
 
+/* ==========================================================================
+   PAGE HEADER - Editorial Style
+   ========================================================================== */
+
+.my-reservations-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.my-reservations-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 120px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-accent-500));
+  border-radius: var(--radius-full);
+}
+
+.my-reservations-header-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.my-reservations-header h1,
 .my-reservations h1 {
+  margin: 0;
   font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--font-medium);
   color: var(--text-primary);
-  margin-bottom: var(--space-6);
-  font-size: var(--text-2xl);
-  font-weight: var(--font-normal);
   letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.my-reservations-header-subtitle {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--text-tertiary);
+  margin: 0;
+  font-weight: var(--font-normal);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.new-reservation-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  color: var(--text-inverse);
+  border: none;
+  border-radius: var(--radius-xl);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  transition: var(--transition-all);
+  box-shadow: var(--shadow-primary);
+}
+
+.new-reservation-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgb(59 110 184 / 0.35);
+}
+
+.new-reservation-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.new-reservation-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* ==========================================================================

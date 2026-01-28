@@ -70,6 +70,21 @@ export default defineConfig({
         drop_debugger: true,     // Remove debugger statements
         pure_funcs: ['console.log', 'console.debug', 'console.info']  // Additional safety
       }
+    },
+    // Code splitting configuration for better caching and reduced initial load
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // PDF libraries - loaded only when exporting
+          'pdf': ['jspdf', 'jspdf-autotable'],
+          // Rich text editor - loaded only when editing events
+          'editor': ['react-quill-new'],
+          // Authentication - needed early but can be separate chunk
+          'auth': ['@azure/msal-browser', '@azure/msal-react'],
+          // Core vendor libraries
+          'vendor': ['react', 'react-dom', 'react-router-dom']
+        }
+      }
     }
   }
 })

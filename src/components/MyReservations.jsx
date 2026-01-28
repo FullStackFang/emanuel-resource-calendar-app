@@ -281,8 +281,25 @@ export default function MyReservations({ apiToken }) {
 
   return (
     <div className="my-reservations">
-      <h1>My Room Reservations</h1>
-      
+      {/* Page Header - Editorial Style */}
+      <div className="my-reservations-header">
+        <div className="my-reservations-header-content">
+          <h1>My Reservations</h1>
+          <p className="my-reservations-header-subtitle">Track and manage your room reservation requests</p>
+        </div>
+        <button
+          className="new-reservation-btn"
+          onClick={() => navigate('/booking')}
+          disabled={!canSubmitReservation}
+          title={!canSubmitReservation ? 'You do not have permission to submit reservations' : 'Create a new reservation request'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14"></path>
+          </svg>
+          New Reservation
+        </button>
+      </div>
+
       {error && (
         <div className="error-message">
           ❌ {error}

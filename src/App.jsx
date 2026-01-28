@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
@@ -8,17 +8,8 @@ import AppHeader from './components/AppHeader';
 import Calendar from './components/Calendar';
 import MySettings from './components/MySettings';
 import CalendarSelector from './components/CalendarSelector';
-import UserAdmin from './components/UserAdmin';
-import CategoryManagement from './components/CategoryManagement';
-import CalendarConfigAdmin from './components/CalendarConfigAdmin';
 import UnifiedEventForm from './components/UnifiedEventForm';
 import MyReservations from './components/MyReservations';
-import LocationReview from './components/LocationReview';
-import ReservationRequests from './components/ReservationRequests';
-import FeatureManagement from './components/FeatureManagement';
-import EmailTestAdmin from './components/EmailTestAdmin';
-import ErrorLogAdmin from './components/ErrorLogAdmin';
-import AIChat from './components/AIChat';
 import ReviewModal from './components/shared/ReviewModal';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { useReviewModal } from './hooks/useReviewModal';
@@ -32,6 +23,18 @@ import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
 import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
 import './App.css';
+
+// Lazy load admin-only components to reduce initial bundle size
+// These components are only loaded when accessed by admin users
+const UserAdmin = lazy(() => import('./components/UserAdmin'));
+const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
+const CalendarConfigAdmin = lazy(() => import('./components/CalendarConfigAdmin'));
+const LocationReview = lazy(() => import('./components/LocationReview'));
+const ReservationRequests = lazy(() => import('./components/ReservationRequests'));
+const FeatureManagement = lazy(() => import('./components/FeatureManagement'));
+const EmailTestAdmin = lazy(() => import('./components/EmailTestAdmin'));
+const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
+const AIChat = lazy(() => import('./components/AIChat'));
 
 function App() {
   const { showError, showWarning } = useNotification();
@@ -399,45 +402,49 @@ function App() {
             >
               <RoomProvider apiToken={apiToken}>
               <Navigation apiToken={apiToken} />
-              <Routes>
-                <Route path="/" element={
-                  <Calendar 
-                    apiToken={apiToken} 
-                    graphToken={graphToken}
-                    selectedCalendarId={selectedCalendarId}
-                    setSelectedCalendarId={setSelectedCalendarId}
-                    availableCalendars={availableCalendars}
-                    setAvailableCalendars={setAvailableCalendars}
-                    changingCalendar={changingCalendar}
-                    setChangingCalendar={setChangingCalendar}
-                    showRegistrationTimes={showRegistrationTimes}
-                  />
-                } />  
-                <Route path="/settings" element={<Navigate to="/my-settings" replace />} />
-                <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
-                <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
-                <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
-                <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
+              <Suspense fallback={<div className="loading-fallback">Loading...</div>}>
+                <Routes>
+                  <Route path="/" element={
+                    <Calendar
+                      apiToken={apiToken}
+                      graphToken={graphToken}
+                      selectedCalendarId={selectedCalendarId}
+                      setSelectedCalendarId={setSelectedCalendarId}
+                      availableCalendars={availableCalendars}
+                      setAvailableCalendars={setAvailableCalendars}
+                      changingCalendar={changingCalendar}
+                      setChangingCalendar={setChangingCalendar}
+                      showRegistrationTimes={showRegistrationTimes}
+                    />
+                  } />
+                  <Route path="/settings" element={<Navigate to="/my-settings" replace />} />
+                  <Route path="/my-settings" element={<MySettings apiToken={apiToken} />} />
+                  <Route path="/admin/users" element={<UserAdmin apiToken={apiToken} />} />
+                  <Route path="/admin/categories" element={<CategoryManagement apiToken={apiToken} />} />
+                  <Route path="/admin/calendar-config" element={<CalendarConfigAdmin apiToken={apiToken} />} />
 
-                {/* Unified Event Form Routes */}
-                <Route path="/booking" element={<UnifiedEventForm mode="create" apiToken={apiToken} />} />
-                <Route path="/booking/public/:token" element={<UnifiedEventForm mode="create" isPublic={true} />} />
+                  {/* Unified Event Form Routes */}
+                  <Route path="/booking" element={<UnifiedEventForm mode="create" apiToken={apiToken} />} />
+                  <Route path="/booking/public/:token" element={<UnifiedEventForm mode="create" isPublic={true} />} />
 
-                <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
-                <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
-                <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
-                <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
-                <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
-                <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+                  <Route path="/my-reservations" element={<MyReservations apiToken={apiToken} />} />
+                  <Route path="/admin/locations" element={<LocationReview apiToken={apiToken} />} />
+                  <Route path="/admin/reservation-requests" element={<ReservationRequests apiToken={apiToken} graphToken={graphToken} />} />
+                  <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
+                  <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
+                  <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
 
-              {/* AI Chat */}
-              <AIChat
-                isOpen={showAIChat}
-                onClose={() => setShowAIChat(false)}
-                apiToken={apiToken}
-              />
+              {/* AI Chat - lazy loaded */}
+              <Suspense fallback={null}>
+                <AIChat
+                  isOpen={showAIChat}
+                  onClose={() => setShowAIChat(false)}
+                  apiToken={apiToken}
+                />
+              </Suspense>
               <button
                 className="ai-chat-fab"
                 onClick={() => setShowAIChat(true)}

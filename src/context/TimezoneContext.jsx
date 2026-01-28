@@ -1,5 +1,5 @@
 // src/contexts/TimezoneContext.jsx
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { DEFAULT_TIMEZONE, getSafeTimezone } from '../utils/timezoneUtils';
 import { logger } from '../utils/logger';
 
@@ -154,23 +154,23 @@ export const TimezoneProvider = ({
     }
   }, [apiToken, apiBaseUrl, loadUserTimezone]);
 
-  // Context value
-  const contextValue = {
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
     // State
     userTimezone,
     isLoading,
     error,
-    
+
     // Actions
     setUserTimezone: handleTimezoneChange,
     updateTimezonePreference,
-    
+
     // Utilities
     getSafeTimezone: (tz) => getSafeTimezone(tz || userTimezone),
-    
+
     // API status
     hasApiAccess: Boolean(apiToken && apiBaseUrl)
-  };
+  }), [userTimezone, isLoading, error, handleTimezoneChange, updateTimezonePreference, apiToken, apiBaseUrl]);
 
   return (
     <TimezoneContext.Provider value={contextValue}>
