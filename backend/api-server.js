@@ -7153,6 +7153,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         categories: 1, isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
         setupTime: 1, teardownTime: 1, doorOpenTime: 1, doorCloseTime: 1,
         setupMinutes: 1, teardownMinutes: 1,
+        setupNotes: 1, doorNotes: 1, eventNotes: 1,
         'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
         'graphData.location': 1, 'graphData.categories': 1, 'graphData.organizer': 1, 'graphData.bodyPreview': 1
       });
@@ -7212,6 +7213,10 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         doorCloseTime: event.doorCloseTime,
         setupMinutes: event.setupMinutes,
         teardownMinutes: event.teardownMinutes,
+        // Internal notes
+        setupNotes: event.setupNotes || '',
+        doorNotes: event.doorNotes || '',
+        eventNotes: event.eventNotes || '',
         // Location fields
         location: event.location || event.locationDisplayName || event.graphData?.location?.displayName,
         locationDisplayName: event.locationDisplayName,

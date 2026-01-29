@@ -117,7 +117,10 @@ const EventSearchExport = ({
           teardownTime: event.teardownTime || timingSource.teardownTime || '',
           // Security times (door open/close)
           doorOpenTime: event.doorOpenTime || timingSource.doorOpenTime || '',
-          doorCloseTime: event.doorCloseTime || timingSource.doorCloseTime || ''
+          doorCloseTime: event.doorCloseTime || timingSource.doorCloseTime || '',
+          // Internal notes
+          setupNotes: event.roomReservationData?.internalNotes?.setupNotes || event.internalData?.setupNotes || event.setupNotes || '',
+          doorNotes: event.roomReservationData?.internalNotes?.doorNotes || event.internalData?.doorNotes || event.doorNotes || ''
         };
       });
 
@@ -543,15 +546,19 @@ const EventSearchExport = ({
       // TABLE DESIGN
       // ========================================
       const hasExtraTimes = showMaintenanceTimes || showSecurityTimes;
+      const hasNotes = showMaintenanceTimes || showSecurityTimes;
 
       // Column configuration with proportional widths
+      // Removed DAY column, notes stacked vertically under event description
+      // Large gaps between TIME/LOCATION and CATEGORY/EVENT for clear separation
       const colConfig = [
-        { name: 'DATE', width: 0.11 },
-        { name: 'DAY', width: 0.06 },
-        { name: 'TIME', width: hasExtraTimes ? 0.14 : 0.11 },
-        { name: 'LOCATION', width: 0.17 },
-        { name: 'CATEGORY', width: 0.14 },
-        { name: 'EVENT', width: hasExtraTimes ? 0.38 : 0.41 },
+        { name: 'DATE', width: 0.06 },
+        { name: 'TIME', width: hasExtraTimes ? 0.11 : 0.09 },
+        { name: '', width: 0.08 },  // Gap between TIME and LOCATION
+        { name: 'LOCATION', width: 0.14 },
+        { name: 'CATEGORY', width: 0.10 },
+        { name: '', width: 0.06 },  // Gap between CATEGORY and EVENT
+        { name: hasNotes ? 'EVENT & INTERNAL NOTES' : 'EVENT', width: hasNotes ? 0.45 : 0.47 },
       ];
 
       // Calculate actual column positions
@@ -577,7 +584,9 @@ const EventSearchExport = ({
         doc.setTextColor(255, 255, 255);
 
         colConfig.forEach((col, idx) => {
-          doc.text(col.name, colPositions[idx] + 2, y);
+          if (col.name) { // Skip empty spacer columns
+            doc.text(col.name, colPositions[idx] + 2, y);
+          }
         });
 
         return y + 6;
@@ -682,21 +691,36 @@ const EventSearchExport = ({
           weekday: 'short'
         });
 
-        // Calculate row height
+        // Calculate row height - EVENT column is index 6 (after two spacers at indices 2 and 5)
+        const eventColIdx = 6;
+        const eventColWidth = colWidths[eventColIdx];
+        // Full width for stacked content (title, description, notes)
+        const contentWidth = eventColWidth - 4;
+
         let rowHeight = 8;
         const eventTitle = event.subject || 'Untitled Event';
-        const wrappedTitle = doc.splitTextToSize(eventTitle, colWidths[5] - 4);
+        const wrappedTitle = doc.splitTextToSize(eventTitle, contentWidth);
 
         // Pre-calculate description for row height (trim whitespace)
         const bodyText = (event.bodyPreview || event.body?.content || '').trim();
-        const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, colWidths[5] - 4) : [];
+        const wrappedBody = bodyText ? doc.splitTextToSize(bodyText, contentWidth) : [];
 
-        // Calculate height: title lines + description lines + padding
+        // Pre-calculate notes for row height (stacked vertically below description)
+        const wrappedSetupNotes = (showMaintenanceTimes && event.setupNotes)
+          ? doc.splitTextToSize(`Setup: ${event.setupNotes}`, contentWidth)
+          : [];
+        const wrappedDoorNotes = (showSecurityTimes && event.doorNotes)
+          ? doc.splitTextToSize(`Door/Access: ${event.doorNotes}`, contentWidth)
+          : [];
+
+        // Calculate height: all content stacked vertically with spacing
         const titleHeight = wrappedTitle.length * 3.5;
-        const bodyHeight = wrappedBody.length * 3;
-        rowHeight = Math.max(rowHeight, titleHeight + bodyHeight + 4);
+        const bodyHeight = wrappedBody.length > 0 ? (wrappedBody.length * 3) + 2 : 0; // +2 for spacing after
+        const setupNotesHeight = wrappedSetupNotes.length > 0 ? (wrappedSetupNotes.length * 3) + 2 : 0; // +2 for spacing after
+        const doorNotesHeight = wrappedDoorNotes.length * 3;
+        rowHeight = Math.max(rowHeight, titleHeight + bodyHeight + setupNotesHeight + doorNotesHeight + 4);
 
-        // Add extra height for stacked times
+        // Add extra height for stacked times in TIME column
         if (showMaintenanceTimes || showSecurityTimes) {
           let extraLines = 0;
           if (showMaintenanceTimes && (event.setupTime || event.teardownTime)) extraLines++;
@@ -762,14 +786,10 @@ const EventSearchExport = ({
           doc.text(dateStr, colPositions[0] + 2, y);
         }
 
-        // Day column
-        doc.setTextColor(...colors.secondary);
-        doc.text(dayOfWeek, colPositions[1] + 2, y);
-
-        // Time column with stacked extras
+        // Time column with stacked extras (column index 1, was 2)
         doc.setTextColor(...colors.primary);
         const timeStr = `${formatTime(event.start.dateTime)} - ${formatTime(event.end.dateTime)}`;
-        doc.text(timeStr, colPositions[2] + 2, y);
+        doc.text(timeStr, colPositions[1] + 2, y);
 
         let timeY = y + 3.5;
         if (showMaintenanceTimes) {
@@ -781,7 +801,7 @@ const EventSearchExport = ({
             const maintStr = setupStr && teardownStr
               ? `Setup ${setupStr} / TD ${teardownStr}`
               : setupStr ? `Setup ${setupStr}` : `TD ${teardownStr}`;
-            doc.text(maintStr, colPositions[2] + 2, timeY);
+            doc.text(maintStr, colPositions[1] + 2, timeY);
             timeY += 3;
           }
         }
@@ -794,35 +814,57 @@ const EventSearchExport = ({
             const secStr = doorOpenStr && doorCloseStr
               ? `Doors ${doorOpenStr} - ${doorCloseStr}`
               : doorOpenStr ? `Open ${doorOpenStr}` : `Close ${doorCloseStr}`;
-            doc.text(secStr, colPositions[2] + 2, timeY);
+            doc.text(secStr, colPositions[1] + 2, timeY);
           }
         }
 
-        // Location column
+        // Location column (column index 3, after spacer at index 2)
         doc.setFontSize(fontSize.small);
         doc.setTextColor(...colors.secondary);
         const locationText = event.location?.displayName || '—';
         const wrappedLocation = doc.splitTextToSize(locationText, colWidths[3] - 4);
         doc.text(wrappedLocation, colPositions[3] + 2, y);
 
-        // Category column
+        // Category column (column index 4)
         const categoryText = event.categories?.[0] || '—';
         const wrappedCategory = doc.splitTextToSize(categoryText, colWidths[4] - 4);
         doc.text(wrappedCategory, colPositions[4] + 2, y);
 
-        // Event column
+        // Event column (column index 6) - all content stacked vertically
+        const eventColX = colPositions[eventColIdx];
+        let contentY = y;
+
+        // Event title (bold)
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(fontSize.small);
         doc.setTextColor(...colors.primary);
-        doc.text(wrappedTitle, colPositions[5] + 2, y);
+        doc.text(wrappedTitle, eventColX + 2, contentY);
+        contentY += wrappedTitle.length * 3.5;
 
-        // Description - show full text (wrappedBody was pre-calculated for row height)
+        // Description below title (with spacing)
         if (wrappedBody.length > 0) {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(fontSize.tiny);
           doc.setTextColor(...colors.muted);
-          const bodyY = y + wrappedTitle.length * 3.5;
-          doc.text(wrappedBody, colPositions[5] + 2, bodyY);
+          doc.text(wrappedBody, eventColX + 2, contentY);
+          contentY += (wrappedBody.length * 3) + 2; // +2 for spacing
+        }
+
+        // Setup Notes (gold/bronze color, with spacing)
+        if (showMaintenanceTimes && event.setupNotes) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(fontSize.tiny);
+          doc.setTextColor(...colors.warning);
+          doc.text(wrappedSetupNotes, eventColX + 2, contentY);
+          contentY += (wrappedSetupNotes.length * 3) + 2; // +2 for spacing
+        }
+
+        // Door Notes (green/teal color)
+        if (showSecurityTimes && event.doorNotes) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(fontSize.tiny);
+          doc.setTextColor(...colors.success);
+          doc.text(wrappedDoorNotes, eventColX + 2, contentY);
         }
 
         y += rowHeight;
