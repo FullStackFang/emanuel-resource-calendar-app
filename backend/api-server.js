@@ -187,7 +187,7 @@ let unifiedEventsCollection; // New unified collection
 let calendarDeltasCollection; // Delta token storage
 // roomsCollection removed - DEPRECATED, using locationsCollection instead
 let locationsCollection; // Unified locations from events (includes reservable rooms)
-let roomReservationsCollection; // Room reservation requests
+// unifiedEventsCollection removed - DEPRECATED, using unifiedEventsCollection instead
 let reservationTokensCollection; // Guest access tokens
 let roomCapabilityTypesCollection; // Configurable room capability definitions
 
@@ -449,32 +449,29 @@ async function createLocationIndexes() {
  */
 async function createRoomReservationIndexes() {
   try {
-    logger.log('Creating room reservation indexes...');
-    
-    // Index for finding reservations by requester
-    await roomReservationsCollection.createIndex(
-      { requesterId: 1, submittedAt: -1 },
-      { name: "requester_submissions", background: true }
+    logger.log('Creating room reservation indexes on unified events collection...');
+
+    // Index for finding reservations by requester (now in roomReservationData)
+    await unifiedEventsCollection.createIndex(
+      { 'roomReservationData.requestedBy.userId': 1, 'roomReservationData.submittedAt': -1 },
+      { name: "reservation_requester_submissions", background: true, sparse: true }
     );
-    
+
     // Index for finding reservations by status
-    await roomReservationsCollection.createIndex(
-      { status: 1, submittedAt: -1 },
-      { name: "status_date", background: true }
+    await unifiedEventsCollection.createIndex(
+      { status: 1, 'roomReservationData.submittedAt': -1 },
+      { name: "reservation_status_date", background: true, sparse: true }
     );
-    
-    // Index for finding reservations by date range
-    await roomReservationsCollection.createIndex(
-      { startDateTime: 1, endDateTime: 1 },
-      { name: "datetime_range", background: true }
+
+    // Index for finding reservations by date range (unified events already have this)
+    // No additional index needed - existing startDateTime/endDateTime indexes work
+
+    // Index for finding reservations by room (roomReservationData.requestedRooms)
+    await unifiedEventsCollection.createIndex(
+      { 'roomReservationData.requestedRooms': 1, startDateTime: 1 },
+      { name: "reservation_rooms_datetime", background: true, sparse: true }
     );
-    
-    // Index for finding reservations by room
-    await roomReservationsCollection.createIndex(
-      { requestedRooms: 1, startDateTime: 1 },
-      { name: "rooms_datetime", background: true }
-    );
-    
+
     logger.log('Room reservation indexes created successfully');
   } catch (error) {
     logger.error('Error creating room reservation indexes:', error);
@@ -1547,7 +1544,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       query._id = { $ne: new ObjectId(excludeId) };
     }
 
-    const conflicts = await roomReservationsCollection.find(query).toArray();
+    const conflicts = await unifiedEventsCollection.find(query).toArray();
 
     // Get incoming event's concurrent permission (defaults to false)
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
@@ -1698,7 +1695,7 @@ async function connectToDatabase() {
     calendarDeltasCollection = db.collection('templeEvents__CalendarDeltas'); // Delta token storage
     // roomsCollection removed - DEPRECATED, using locationsCollection instead
     locationsCollection = db.collection('templeEvents__Locations'); // Unified locations for events AND reservable rooms
-    roomReservationsCollection = db.collection('templeEvents__RoomReservations'); // Room reservation requests
+    // unifiedEventsCollection removed - DEPRECATED, room reservations now stored in unifiedEventsCollection (templeEvents__Events)
     reservationTokensCollection = db.collection('templeEvents__ReservationTokens'); // Guest access tokens
     roomCapabilityTypesCollection = db.collection('templeEvents__RoomCapabilityTypes'); // Configurable room capability definitions
     eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
@@ -4098,9 +4095,13 @@ function getCalendarOwnerFromConfig(calendarId) {
 async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null) {
   try {
     // Simple query using top-level fields only (no complex $or conditions)
+    // Filter out deleted events and non-displayable statuses (cancelled, rejected, pending, deleted, draft)
     const query = {
       isDeleted: { $ne: true },
-      calendarOwner: calendarOwner.toLowerCase()
+      calendarOwner: calendarOwner.toLowerCase(),
+      // Only show published/approved events on the calendar
+      // Exclude: cancelled, rejected, pending, deleted, draft, room-reservation-request
+      status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] }
     };
 
     // Simple date range filter using top-level startDateTime/endDateTime
@@ -4109,11 +4110,11 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       query.endDateTime = { $gt: startDate.toISOString() };
     }
 
-    logger.debug('Simple query:', JSON.stringify(query));
+    logger.debug('Calendar events query:', JSON.stringify(query));
 
     const events = await unifiedEventsCollection.find(query).toArray();
-    logger.debug(`Found ${events.length} events for ${calendarOwner || userId}`);
-    
+    logger.debug(`Found ${events.length} displayable events for ${calendarOwner || userId}`);
+
     return events;
   } catch (error) {
     logger.error('Error getting unified events:', error);
@@ -4966,6 +4967,7 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
   logger.log('===== /api/room-reservation-events endpoint hit =====');
   try {
     const { page = 1, limit = 20, status } = req.query;
+    logger.log('📥 Request params:', { page, limit, status, rawQuery: req.query });
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
@@ -4974,18 +4976,32 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
 
     // Build query for room reservations
-    const query = {
-      isDeleted: { $ne: true },
-      roomReservationData: { $exists: true, $ne: null }
-    };
+    let query = {};
 
-    // Add status filter if provided (and not 'all')
-    if (status && status !== 'all') {
-      // Handle 'pending' status which may include legacy 'room-reservation-request'
-      if (status === 'pending') {
-        query.status = { $in: ['pending', 'room-reservation-request'] };
-      } else {
-        query.status = status;
+    // Handle deleted status specially - include ALL deleted events (not just reservations)
+    if (status === 'deleted') {
+      // For deleted tab, show ALL deleted events (reservations AND direct events)
+      query = {
+        $or: [
+          { status: 'deleted' },
+          { isDeleted: true }
+        ]
+      };
+    } else {
+      // For other statuses, only show room reservations
+      query = {
+        isDeleted: { $ne: true },
+        roomReservationData: { $exists: true, $ne: null }
+      };
+
+      // Add status filter if provided (and not 'all')
+      if (status && status !== 'all') {
+        // Handle 'pending' status which may include legacy 'room-reservation-request'
+        if (status === 'pending') {
+          query.status = { $in: ['pending', 'room-reservation-request'] };
+        } else {
+          query.status = status;
+        }
       }
     }
 
@@ -4996,7 +5012,8 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
     logger.log('👤 User info:', { userId, userEmail, canViewAll });
 
     // Non-admin users can only see their own requests
-    if (!canViewAll) {
+    // Exception: For 'deleted' status, approvers/admins see ALL deleted events (no user filter)
+    if (!canViewAll && status !== 'deleted') {
       query['roomReservationData.requestedBy.userId'] = userId;
     }
 
@@ -5029,6 +5046,60 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error fetching room reservation events:', error);
     res.status(500).json({ error: 'Failed to fetch room reservation events' });
+  }
+});
+
+/**
+ * Get counts for each status (for Approval Queue tab badges)
+ * GET /api/room-reservation-events/counts
+ */
+app.get('/api/room-reservation-events/counts', verifyToken, async (req, res) => {
+  try {
+    // Base query for room reservations (non-deleted)
+    const baseQuery = {
+      isDeleted: { $ne: true },
+      roomReservationData: { $exists: true, $ne: null }
+    };
+
+    // Count each status in parallel
+    const [allCount, pendingCount, approvedCount, rejectedCount, deletedCount] = await Promise.all([
+      // All (non-deleted room reservations)
+      unifiedEventsCollection.countDocuments(baseQuery),
+      // Pending
+      unifiedEventsCollection.countDocuments({
+        ...baseQuery,
+        status: { $in: ['pending', 'room-reservation-request'] }
+      }),
+      // Approved
+      unifiedEventsCollection.countDocuments({
+        ...baseQuery,
+        status: 'approved'
+      }),
+      // Rejected
+      unifiedEventsCollection.countDocuments({
+        ...baseQuery,
+        status: 'rejected'
+      }),
+      // Deleted (ALL deleted events, not just reservations)
+      unifiedEventsCollection.countDocuments({
+        $or: [
+          { status: 'deleted' },
+          { isDeleted: true }
+        ]
+      })
+    ]);
+
+    res.json({
+      all: allCount,
+      pending: pendingCount,
+      approved: approvedCount,
+      rejected: rejectedCount,
+      deleted: deletedCount
+    });
+
+  } catch (error) {
+    logger.error('Error fetching reservation counts:', error);
+    res.status(500).json({ error: 'Failed to fetch counts' });
   }
 });
 
@@ -5403,6 +5474,14 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         createdByEmail: req.user.email,
         createdByName: req.user.name || req.user.email,
         createdSource: 'unified-form',
+        status: 'published',
+        statusHistory: [{
+          status: 'published',
+          changedAt: new Date(),
+          changedBy: req.user.userId,
+          changedByEmail: req.user.email,
+          reason: 'Event created via unified form'
+        }],
         lastAccessedAt: new Date(),
         syncedAt: new Date()
       };
@@ -5818,6 +5897,14 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
           createdByEmail: req.user.email,
           createdByName: req.user.name || req.user.email,
           createdSource: 'batch-create',
+          status: 'published',
+          statusHistory: [{
+            status: 'published',
+            changedAt: new Date(),
+            changedBy: req.user.userId,
+            changedByEmail: req.user.email,
+            reason: 'Event created via batch create'
+          }],
           lastAccessedAt: new Date(),
           syncedAt: new Date()
         };
@@ -6210,7 +6297,7 @@ app.get('/api/files/:fileId', verifyToken, async (req, res) => {
 
       if (attachment) {
         // Verify user has access to the reservation
-        const reservation = await roomReservationsCollection.findOne({
+        const reservation = await unifiedEventsCollection.findOne({
           _id: new ObjectId(attachment.reservationId)
         });
 
@@ -6289,7 +6376,7 @@ app.post('/api/reservations/:reservationId/attachments', verifyToken, attachment
     });
 
     // Verify reservation exists and user has permission (admin or owner)
-    const reservation = await roomReservationsCollection.findOne({
+    const reservation = await unifiedEventsCollection.findOne({
       _id: new ObjectId(reservationId)
     });
 
@@ -6399,7 +6486,7 @@ app.get('/api/reservations/:reservationId/attachments', verifyToken, async (req,
     logger.debug(`Fetching attachments for reservation ${reservationId}`, { userId });
 
     // Verify reservation exists and user has permission
-    const reservation = await roomReservationsCollection.findOne({
+    const reservation = await unifiedEventsCollection.findOne({
       _id: new ObjectId(reservationId)
     });
 
@@ -6459,7 +6546,7 @@ app.delete('/api/reservations/:reservationId/attachments/:attachmentId', verifyT
     logger.debug(`Deleting attachment ${attachmentId} for reservation ${reservationId}`, { userId });
 
     // Verify reservation exists and user has permission
-    const reservation = await roomReservationsCollection.findOne({
+    const reservation = await unifiedEventsCollection.findOne({
       _id: new ObjectId(reservationId)
     });
 
@@ -11913,7 +12000,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     const rooms = await locationsCollection.find(locationQuery).toArray();
 
     // Get ALL events from unifiedEventsCollection (includes both room reservations and calendar events)
-    // Note: roomReservationsCollection is deprecated - all events are now in unifiedEventsCollection
+    // Note: unifiedEventsCollection is deprecated - all events are now in unifiedEventsCollection
     const roomObjectIds = rooms.map(room => room._id);
     // Also create string versions for events that store locations as strings (unified form events)
     const roomIdStrings = roomObjectIds.map(id => id.toString());
@@ -12326,8 +12413,8 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
     // Generate changeKey for the new reservation
     reservation.changeKey = generateChangeKey(reservation);
 
-    const result = await roomReservationsCollection.insertOne(reservation);
-    const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
+    const result = await unifiedEventsCollection.insertOne(reservation);
+    const createdReservation = await unifiedEventsCollection.findOne({ _id: result.insertedId });
 
     // Log audit entry for reservation creation
     await logReservationAudit({
@@ -12812,6 +12899,7 @@ app.delete('/api/room-reservations/draft/:id', verifyToken, async (req, res) => 
   try {
     const draftId = req.params.id;
     const userId = req.user.userId;
+    const userEmail = req.user.email;
 
     // Find the existing draft
     const draft = await unifiedEventsCollection.findOne({
@@ -12828,14 +12916,52 @@ app.delete('/api/room-reservations/draft/:id', verifyToken, async (req, res) => 
       return res.status(403).json({ error: 'You can only delete your own drafts' });
     }
 
-    await unifiedEventsCollection.deleteOne({ _id: new ObjectId(draftId) });
+    let graphDeleted = false;
 
-    logger.log('Draft reservation deleted:', {
+    // Delete from Graph API if draft has graphData (unlikely but possible)
+    if (draft.graphData?.id && draft.calendarOwner) {
+      try {
+        logger.log('Deleting draft from Graph API:', { graphId: draft.graphData.id, calendarOwner: draft.calendarOwner });
+        await graphApiService.deleteCalendarEvent(draft.calendarOwner, draft.calendarId || null, draft.graphData.id);
+        graphDeleted = true;
+        logger.log('Graph API delete successful');
+      } catch (graphError) {
+        logger.warn('Failed to delete draft from Graph API (continuing with soft delete):', graphError.message);
+      }
+    }
+
+    // Soft delete the draft
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(draftId) },
+      {
+        $set: {
+          status: 'deleted',
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: userId,
+          deletedByEmail: userEmail,
+          lastModified: new Date(),
+          lastModifiedBy: userEmail
+        },
+        $push: {
+          statusHistory: {
+            status: 'deleted',
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Draft deleted by owner'
+          }
+        }
+      }
+    );
+
+    logger.log('Draft soft-deleted:', {
       draftId,
-      requester: req.user.email
+      requester: userEmail,
+      graphDeleted
     });
 
-    res.json({ success: true, message: 'Draft deleted successfully' });
+    res.json({ success: true, message: 'Draft deleted successfully', status: 'deleted', graphDeleted });
   } catch (error) {
     logger.error('Error deleting draft reservation:', error);
     res.status(500).json({ error: 'Failed to delete draft reservation' });
@@ -13076,8 +13202,8 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
     // Generate changeKey for the new reservation
     reservation.changeKey = generateChangeKey(reservation);
 
-    const result = await roomReservationsCollection.insertOne(reservation);
-    const createdReservation = await roomReservationsCollection.findOne({ _id: result.insertedId });
+    const result = await unifiedEventsCollection.insertOne(reservation);
+    const createdReservation = await unifiedEventsCollection.findOne({ _id: result.insertedId });
 
     // Log audit entry for guest reservation creation
     await logReservationAudit({
@@ -13112,7 +13238,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
 /**
  * Get room reservations (filtered by permissions)
- * Now queries unified events collection (templeEvents__Events) instead of legacy roomReservationsCollection
+ * Now queries unified events collection (templeEvents__Events) instead of legacy unifiedEventsCollection
  * Includes draft support: users can see their own drafts, admins can see all drafts
  */
 app.get('/api/room-reservations', verifyToken, async (req, res) => {
@@ -13129,17 +13255,40 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
 
     // Build query for unified events with roomReservationData
     let query = {
-      isDeleted: { $ne: true },
       roomReservationData: { $exists: true, $ne: null }
     };
 
-    // Handle status filtering including drafts
+    // Handle status filtering including drafts and deleted
     if (status === 'draft') {
       // Drafts are ALWAYS private - only visible to owner
+      query.isDeleted = { $ne: true };
       query['roomReservationData.requestedBy.userId'] = userId;
       query.status = 'draft';
+    } else if (status === 'deleted') {
+      // For deleted, show user's own deleted events (both reservations AND direct events)
+      // Remove roomReservationData requirement since direct events don't have it
+      query = {
+        $or: [
+          { status: 'deleted' },
+          { isDeleted: true }
+        ]
+      };
+      // Filter by ownership - either roomReservationData.requestedBy.userId OR createdBy
+      if (!canViewAll) {
+        query.$and = [
+          query.$or ? { $or: query.$or } : {},
+          {
+            $or: [
+              { 'roomReservationData.requestedBy.userId': userId },
+              { createdBy: userId }
+            ]
+          }
+        ];
+        delete query.$or; // Move to $and
+      }
     } else if (status) {
       // Handle both 'pending' and legacy 'room-reservation-request' statuses
+      query.isDeleted = { $ne: true };
       if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
       } else {
@@ -13150,14 +13299,16 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
         query['roomReservationData.requestedBy.userId'] = userId;
       }
     } else {
-      // No status filter
+      // No status filter - exclude deleted and drafts (unless own drafts for admin)
+      query.isDeleted = { $ne: true };
       if (!canViewAll) {
-        // For non-admins: show their own reservations (all statuses)
+        // For non-admins: show their own reservations (all statuses except deleted)
         query['roomReservationData.requestedBy.userId'] = userId;
+        query.status = { $ne: 'deleted' };
       } else {
-        // For admins: show all non-draft reservations, but only their own drafts
+        // For admins: show all non-draft, non-deleted reservations, but only their own drafts
         query.$or = [
-          { status: { $ne: 'draft' } },
+          { status: { $nin: ['draft', 'deleted'] } },
           { status: 'draft', 'roomReservationData.requestedBy.userId': userId }
         ];
       }
@@ -13165,7 +13316,7 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
 
     const skip = (pageNum - 1) * limitNum;
 
-    // Query unified events collection instead of legacy roomReservationsCollection
+    // Query unified events collection instead of legacy unifiedEventsCollection
     // Note: Using _id for sorting as it's always indexed and provides chronological order for ObjectIds
     const events = await unifiedEventsCollection
       .find(query)
@@ -14770,7 +14921,7 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     }
     
     // Check if room has active reservations
-    const activeReservations = await roomReservationsCollection.countDocuments({
+    const activeReservations = await unifiedEventsCollection.countDocuments({
       requestedRooms: { $in: [id] },
       status: { $in: ['pending', 'approved'] },
       endDateTime: { $gte: new Date() }
@@ -14815,7 +14966,7 @@ app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (re
     }
 
     // Get current reservation/event from unified events collection
-    // (Room reservations are now stored in templeEvents__Events, not the legacy roomReservationsCollection)
+    // (Room reservations are now stored in templeEvents__Events, not the legacy unifiedEventsCollection)
     const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
@@ -14882,7 +15033,7 @@ app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (
     }
 
     // Get current reservation/event from unified events collection
-    // (Room reservations are now stored in templeEvents__Events, not the legacy roomReservationsCollection)
+    // (Room reservations are now stored in templeEvents__Events, not the legacy unifiedEventsCollection)
     const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
@@ -14941,7 +15092,7 @@ app.get('/api/admin/room-reservations/:id/check-conflicts', verifyToken, async (
     }
 
     // Get the reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -14979,7 +15130,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
     }
 
     // Get current reservation
-    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!currentReservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -15072,7 +15223,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
     updateDoc.$set.lastModifiedBy = userEmail;
 
     // Perform the update
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(id) },
       updateDoc,
       { returnDocument: 'after' }
@@ -15088,7 +15239,7 @@ app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
 
     // Generate new changeKey
     const newChangeKey = generateChangeKey(updatedReservation);
-    await roomReservationsCollection.updateOne(
+    await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: { changeKey: newChangeKey } }
     );
@@ -15148,7 +15299,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
     }
 
     // Get the current reservation to determine revision number
-    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!currentReservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -15221,7 +15372,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
       }
     };
 
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(id), status: 'pending' },
       updateDoc,
       { returnDocument: 'after' }
@@ -15233,7 +15384,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
 
     // Generate new changeKey after approval
     const newChangeKey = generateChangeKey(result.value);
-    await roomReservationsCollection.updateOne(
+    await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: { changeKey: newChangeKey } }
     );
@@ -15265,7 +15416,7 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
         
         // Update the reservation with calendar event information
         if (calendarEventResult.success) {
-          await roomReservationsCollection.updateOne(
+          await unifiedEventsCollection.updateOne(
             { _id: new ObjectId(id) },
             {
               $set: {
@@ -15330,7 +15481,7 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
     }
 
     // Get the current reservation to determine revision number
-    const currentReservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!currentReservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -15379,7 +15530,7 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
       }
     };
 
-    const result = await roomReservationsCollection.findOneAndUpdate(
+    const result = await unifiedEventsCollection.findOneAndUpdate(
       { _id: new ObjectId(id), status: 'pending' },
       updateDoc,
       { returnDocument: 'after' }
@@ -15391,7 +15542,7 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
 
     // Generate new changeKey after rejection
     const newChangeKey = generateChangeKey(result.value);
-    await roomReservationsCollection.updateOne(
+    await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: { changeKey: newChangeKey } }
     );
@@ -15425,43 +15576,82 @@ app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => 
     const userId = req.user.userId;
     const userEmail = req.user.email;
     const { id } = req.params;
-    
+
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
     const isAdminUser = isAdmin(user, userEmail);
-    
+
     if (!isAdminUser) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
-    // Get the reservation to check if it exists and for logging
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
-    if (!reservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
+
+    // Get the event to check if it exists and for Graph deletion
+    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
     }
-    
-    // Delete the reservation
-    const result = await roomReservationsCollection.deleteOne({ _id: new ObjectId(id) });
-    
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Reservation not found' });
+
+    let graphDeleted = false;
+
+    // Delete from Graph API if event has graphData
+    if (event.graphData?.id && event.calendarOwner) {
+      try {
+        logger.log('Deleting event from Graph API:', { graphId: event.graphData.id, calendarOwner: event.calendarOwner });
+        await graphApiService.deleteCalendarEvent(event.calendarOwner, event.calendarId || null, event.graphData.id);
+        graphDeleted = true;
+        logger.log('Graph API delete successful');
+      } catch (graphError) {
+        logger.warn('Failed to delete from Graph API (continuing with soft delete):', graphError.message);
+      }
     }
-    
-    logger.log('Room reservation deleted:', { 
-      reservationId: id, 
-      eventTitle: reservation.eventTitle,
+
+    // Soft delete the event
+    const result = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: 'deleted',
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: userId,
+          deletedByEmail: userEmail,
+          lastModified: new Date(),
+          lastModifiedBy: userEmail
+        },
+        $push: {
+          statusHistory: {
+            status: 'deleted',
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Deleted by admin'
+          }
+        }
+      }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    logger.log('Event soft-deleted:', {
+      eventId: id,
+      eventTitle: event.eventTitle || event.graphData?.subject,
       deletedBy: userEmail,
-      originalStatus: reservation.status
+      originalStatus: event.status,
+      graphDeleted
     });
-    
-    res.json({ 
-      message: 'Reservation deleted successfully', 
+
+    res.json({
+      message: 'Event deleted successfully',
       deletedId: id,
-      eventTitle: reservation.eventTitle
+      eventTitle: event.eventTitle || event.graphData?.subject,
+      status: 'deleted',
+      graphDeleted
     });
   } catch (error) {
-    logger.error('Error deleting reservation:', error);
-    res.status(500).json({ error: 'Failed to delete reservation' });
+    logger.error('Error deleting event:', error);
+    res.status(500).json({ error: 'Failed to delete event' });
   }
 });
 
@@ -15484,7 +15674,7 @@ app.put('/api/admin/room-reservations/:id/sync', verifyToken, async (req, res) =
     }
     
     // Get the reservation
-    const reservation = await roomReservationsCollection.findOne({ _id: new ObjectId(id) });
+    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found' });
     }
@@ -15505,7 +15695,7 @@ app.put('/api/admin/room-reservations/:id/sync', verifyToken, async (req, res) =
       
       // Update the reservation with calendar event information if successful
       if (calendarEventResult.success) {
-        await roomReservationsCollection.updateOne(
+        await unifiedEventsCollection.updateOne(
           { _id: new ObjectId(id) },
           {
             $set: {
@@ -17503,8 +17693,13 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Original event not found' });
     }
 
-    // Check if the event is approved (can only request edits on approved events)
-    if (originalEvent.status !== 'approved') {
+    // Check if the event is approved/published (can only request edits on approved events)
+    // Unified events from Graph don't have a status field - they're implicitly "published"
+    // Room reservations have an explicit status field
+    const hasExplicitStatus = originalEvent.status !== undefined;
+    const isApproved = hasExplicitStatus ? originalEvent.status === 'approved' : true; // No status = published
+
+    if (!isApproved) {
       return res.status(400).json({
         error: 'Edit requests can only be submitted for approved events',
         currentStatus: originalEvent.status
@@ -19637,34 +19832,56 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Step 3: Hard delete the event from MongoDB
-    logger.log('🔄 Deleting from MongoDB...');
-    const deleteResult = await unifiedEventsCollection.deleteOne(
-      { _id: new ObjectId(id) }
+    // Step 3: Soft delete the event from MongoDB (set status to 'deleted' and isDeleted flag)
+    logger.log('🔄 Soft-deleting from MongoDB...');
+    const deleteResult = await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: 'deleted',
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: userId,
+          deletedByEmail: userEmail,
+          lastModified: new Date(),
+          lastModifiedBy: userEmail
+        },
+        $push: {
+          statusHistory: {
+            status: 'deleted',
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Deleted by admin'
+          }
+        }
+      }
     );
 
-    logger.log('📊 MongoDB delete result:', {
-      deletedCount: deleteResult.deletedCount
+    logger.log('📊 MongoDB soft-delete result:', {
+      modifiedCount: deleteResult.modifiedCount
     });
 
-    if (deleteResult.deletedCount === 0) {
+    if (deleteResult.modifiedCount === 0) {
       logger.log('❌ Event not found in MongoDB for deletion');
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    logger.log('✅ Event deleted from MongoDB');
-    logger.info('Internal event deleted:', {
+    logger.log('✅ Event soft-deleted from MongoDB');
+    logger.info('Internal event soft-deleted:', {
       mongoId: id,
       eventId: event.eventId,
       graphDeleted,
-      deletedBy: userEmail
+      deletedBy: userEmail,
+      newStatus: 'deleted'
     });
 
     logger.log('========== DELETE COMPLETE ==========\n');
     res.json({
       success: true,
       message: 'Event deleted successfully',
-      graphDeleted
+      graphDeleted,
+      status: 'deleted'
     });
 
   } catch (error) {

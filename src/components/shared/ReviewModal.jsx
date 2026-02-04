@@ -66,6 +66,9 @@ export default function ReviewModal({
   onCancelApprove = null,
   isRejectConfirming = false,
   onCancelReject = null,
+  isRejecting = false,
+  rejectionReason = '',
+  onRejectionReasonChange = null,
   // Draft-related props
   isDraft = false,
   onSaveDraft = null,
@@ -182,6 +185,13 @@ export default function ReviewModal({
               </span>
             )}
 
+            {/* Edit Request Mode badge - on left next to title */}
+            {isEditRequestMode && (
+              <span className="edit-request-mode-badge">
+                Edit Request Mode
+              </span>
+            )}
+
             {/* Feature Flag Toggle */}
             {showFormToggle && onToggleForm && (
               <button
@@ -201,9 +211,6 @@ export default function ReviewModal({
               {/* Edit Request Mode Actions */}
               {isEditRequestMode ? (
                 <>
-                  <span className="edit-request-mode-badge">
-                    Edit Request Mode
-                  </span>
                   <div className="confirm-button-group">
                     <button
                       type="button"
@@ -391,13 +398,31 @@ export default function ReviewModal({
 
               {/* Reject button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onReject && (
-                <div className="confirm-button-group">
+                <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {isRejectConfirming && (
+                    <input
+                      type="text"
+                      placeholder="Rejection reason (required)"
+                      value={rejectionReason}
+                      onChange={(e) => onRejectionReasonChange?.(e.target.value)}
+                      disabled={isRejecting}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--color-error-300, #f87171)',
+                        fontSize: '0.875rem',
+                        minWidth: '200px'
+                      }}
+                      autoFocus
+                    />
+                  )}
                   <button
                     type="button"
                     className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
                     onClick={onReject}
+                    disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim())}
                   >
-                    {isRejectConfirming ? 'Confirm Reject?' : 'Reject'}
+                    {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
                   </button>
                   {isRejectConfirming && onCancelReject && (
                     <button
@@ -456,7 +481,8 @@ export default function ReviewModal({
                   type="button"
                   className="action-btn approve-btn"
                   onClick={onSubmitDraft}
-                  disabled={isSaving || savingDraft}
+                  disabled={isSaving || savingDraft || !isFormValid}
+                  title={!isFormValid ? 'Please fill all required fields' : undefined}
                 >
                   {isSaving ? 'Submitting...' : 'Submit for Approval'}
                 </button>

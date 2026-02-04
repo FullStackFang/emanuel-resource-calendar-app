@@ -15,7 +15,7 @@ import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
   // Permission check for Approver/Admin role
-  const { canApproveReservations, isAdmin } = usePermissions();
+  const { canApproveReservations, isAdmin, permissionsLoading } = usePermissions();
   const { showError, showSuccess, showWarning } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +31,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     hasMore: false
   });
   const PAGE_SIZE = 20;
+
+  // Tab counts (fetched separately for accurate badge numbers)
+  const [tabCounts, setTabCounts] = useState({
+    all: 0,
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+    deleted: 0
+  });
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -99,8 +108,28 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   useEffect(() => {
     if (apiToken) {
       loadReservations(1, activeTab);
+      loadTabCounts();
     }
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch tab counts for accurate badge numbers
+  const loadTabCounts = async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservation-events/counts`, {
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (response.ok) {
+        const counts = await response.json();
+        setTabCounts(counts);
+      }
+    } catch (err) {
+      logger.error('Error loading tab counts:', err);
+      // Silently fail - counts will just show 0
+    }
+  };
 
   const loadCalendarSettings = async () => {
     try {
@@ -380,11 +409,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Stats - shows count for current filter/page
-  const stats = useMemo(() => ({
-    total: pagination.totalCount,
-    showing: allReservations.length
-  }), [pagination.totalCount, allReservations.length]);
 
   // With server-side pagination, allReservations IS the paginated result
   // No client-side filtering needed - server handles it
@@ -837,17 +861,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       }
       
       // Update local state
-      setAllReservations(prev => prev.map(r => 
-        r._id === reservation._id 
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id
           ? { ...r, status: 'approved', actionDate: new Date(), calendarEventId: calendarEventResult?.eventId }
           : r
       ));
-      
+
+      // Refresh tab counts
+      loadTabCounts();
+
       setSelectedReservation(null);
       setActionNotes('');
       setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
       setCreateCalendarEvent(true);
-      
+
       // Clear success message after 5 seconds
       setTimeout(() => setError(''), 5000);
       
@@ -880,14 +907,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       });
       
       if (!response.ok) throw new Error('Failed to reject reservation');
-      
+
       // Update local state
-      setAllReservations(prev => prev.map(r => 
-        r._id === reservation._id 
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id
           ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: actionNotes }
           : r
       ));
-      
+
+      // Refresh tab counts
+      loadTabCounts();
+
       setSelectedReservation(null);
       setActionNotes('');
     } catch (err) {
@@ -950,6 +980,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       // Remove from local state
       setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
+
+      // Refresh tab counts
+      loadTabCounts();
 
       // Close the review modal
       setShowReviewModal(false);
@@ -1046,9 +1079,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       case 'approved': return 'status-approved';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
+      case 'deleted': return 'status-deleted';
       default: return '';
     }
   };
+
+  // Show loading while permissions are being determined
+  if (permissionsLoading) {
+    return <LoadingSpinner />;
+  }
 
   // Access control - only Approvers and Admins can view this page
   if (!canApproveReservations) {
@@ -1071,63 +1110,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {/* Page Header */}
       <div className="rr-page-header">
         <div className="rr-header-content">
-          <h1>Reservation Requests</h1>
-          <p className="rr-header-subtitle">Review and manage room reservation requests</p>
-        </div>
-      </div>
-
-      {/* Stats Row */}
-      <div className="rr-stats-row">
-        <div className="rr-stat-card total">
-          <div className="rr-stat-icon total">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-          </div>
-          <div className="rr-stat-content">
-            <h4>{stats.total}</h4>
-            <p>Total Requests</p>
-          </div>
-        </div>
-        <div className="rr-stat-card pending">
-          <div className="rr-stat-icon pending">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-          </div>
-          <div className="rr-stat-content">
-            <h4>{stats.pending}</h4>
-            <p>Pending</p>
-          </div>
-        </div>
-        <div className="rr-stat-card approved">
-          <div className="rr-stat-icon approved">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <div className="rr-stat-content">
-            <h4>{stats.approved}</h4>
-            <p>Approved</p>
-          </div>
-        </div>
-        <div className="rr-stat-card rejected">
-          <div className="rr-stat-icon rejected">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="15" y1="9" x2="9" y2="15" />
-              <line x1="9" y1="9" x2="15" y2="15" />
-            </svg>
-          </div>
-          <div className="rr-stat-content">
-            <h4>{stats.rejected}</h4>
-            <p>Rejected</p>
-          </div>
+          <h1>Approval Queue</h1>
+          <p className="rr-header-subtitle">Review and manage reservation requests</p>
         </div>
       </div>
 
@@ -1145,28 +1129,28 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onClick={() => handleTabChange('all')}
           >
             All Requests
-            <span className="count">({allReservations.length})</span>
+            <span className="count">({tabCounts.all})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'pending' ? 'active' : ''}`}
             onClick={() => handleTabChange('pending')}
           >
             Pending
-            <span className="count">({allReservations.filter(r => r.status === 'pending').length})</span>
+            <span className="count">({tabCounts.pending})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'approved' ? 'active' : ''}`}
             onClick={() => handleTabChange('approved')}
           >
             Approved
-            <span className="count">({allReservations.filter(r => r.status === 'approved').length})</span>
+            <span className="count">({tabCounts.approved})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}
             onClick={() => handleTabChange('rejected')}
           >
             Rejected
-            <span className="count">({allReservations.filter(r => r.status === 'rejected').length})</span>
+            <span className="count">({tabCounts.rejected})</span>
           </button>
           <button
             className={`event-type-tab edit-requests-tab ${activeTab === 'edit-requests' ? 'active' : ''}`}
@@ -1174,6 +1158,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           >
             Edit Requests
             <span className="count">({editRequests.filter(r => r.status === 'pending').length})</span>
+          </button>
+          <button
+            className={`event-type-tab deleted-tab ${activeTab === 'deleted' ? 'active' : ''}`}
+            onClick={() => handleTabChange('deleted')}
+          >
+            Deleted
+            <span className="count">({tabCounts.deleted})</span>
           </button>
         </div>
       </div>
@@ -1386,6 +1377,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           <div className="no-reservations">
             {activeTab === 'all'
               ? 'No reservation requests found.'
+              : activeTab === 'deleted'
+              ? 'No deleted events found.'
               : `No ${activeTab} reservation requests found.`}
           </div>
         )}

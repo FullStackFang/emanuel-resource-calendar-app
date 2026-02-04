@@ -470,6 +470,12 @@
   color: var(--color-neutral-600);
 }
 
+.my-reservations .status-deleted {
+  background: var(--color-neutral-200);
+  color: var(--color-neutral-500);
+  text-decoration: line-through;
+}
+
 .my-reservations .status-draft {
   background: var(--color-neutral-100);
   color: var(--color-neutral-600);

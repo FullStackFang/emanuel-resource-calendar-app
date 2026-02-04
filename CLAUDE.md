@@ -24,6 +24,32 @@ npm start          # Start production server
 node generateCert.js  # Creates self-signed certs in /certs folder
 ```
 
+### Migration Scripts
+When creating migration scripts in the backend directory, use these conventions:
+
+**Environment Variables:**
+```javascript
+const { MongoClient } = require('mongodb');
+require('dotenv').config();
+
+const MONGODB_URI = process.env.MONGODB_CONNECTION_STRING || 'mongodb://localhost:27017';
+const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
+```
+
+**Standard Pattern:**
+- Support `--dry-run` flag to preview changes without modifying data
+- Support `--verify` flag to check migration status
+- Always show before/after counts
+- Make scripts idempotent (safe to run multiple times)
+
+**Running Scripts:**
+```bash
+cd backend
+node <script-name>.js --dry-run    # Preview changes
+node <script-name>.js              # Apply changes
+node <script-name>.js --verify     # Verify results
+```
+
 ## Architecture Overview
 
 This is a Temple Events Calendar application with Microsoft 365 integration, consisting of:
@@ -48,13 +74,13 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
   - `templeEvents__Locations`: Location and room data (replaces templeEvents__Rooms)
     - Locations with `isReservable: true` are available for room reservations
     - Also stores event locations from Graph API with alias management
-  - `templeEvents__RoomReservations`: Room reservation requests
   - `templeEvents__ReservationTokens`: Guest access tokens for public forms
   - `templeEvents__EventAttachments`: File attachments for events (GridFS)
   - `templeEvents__EventAuditHistory`: Event change tracking and audit logs
   - **DEPRECATED**: `templeEvents__Rooms` (migrated to templeEvents__Locations)
   - **DEPRECATED**: `templeEvents__InternalEvents` (consolidated into templeEvents__Events)
   - **DEPRECATED**: `templeEvents__EventCache` (consolidated into templeEvents__Events)
+  - **DEPRECATED**: `templeEvents__RoomReservations` (consolidated into templeEvents__Events with roomReservationData)
 - **Authentication**: JWT validation with JWKS
 
 ### Key Services
@@ -205,6 +231,34 @@ const event = await graphApiService.createCalendarEvent(
 3. **Token Generation UI**: Staff interface for creating guest access tokens
 
 ## Development Best Practices
+
+### Before Writing Any Code
+
+Follow this verification-first workflow for all code changes:
+
+1. **State verification method** - Before implementing, describe how you will verify the change works (unit test, integration test, bash command, browser check, API call, etc.)
+2. **Write the test first** - Create the test or verification script that will confirm the implementation is correct
+3. **Implement the code** - Write the actual implementation
+4. **Run verification and iterate** - Execute the test/verification and continue iterating until it passes
+
+**Example workflow:**
+```
+User: "Add a 'deleted' status tab to MyReservations"
+
+1. Verification method: "I will verify by running the existing test suite
+   and checking that the component renders the new tab with correct filtering"
+
+2. Write test first:
+   - Add test case for 'deleted' tab rendering
+   - Add test case for filtering reservations by 'deleted' status
+   - Add test case for excluding 'deleted' from 'All Requests' count
+
+3. Implement: Update MyReservations.jsx and MyReservations.css
+
+4. Run: `npm test -- --grep "MyReservations"` and iterate until green
+```
+
+This ensures changes are verifiable and reduces back-and-forth debugging.
 
 ### State Management
 - Use React Context for global state (user preferences, timezone)

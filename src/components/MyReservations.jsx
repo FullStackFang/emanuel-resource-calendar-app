@@ -13,7 +13,7 @@ import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
   const navigate = useNavigate();
-  const { canSubmitReservation } = usePermissions();
+  const { canSubmitReservation, permissionsLoading } = usePermissions();
   const { showWarning } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -78,11 +78,15 @@ export default function MyReservations({ apiToken }) {
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {
     if (activeTab === 'all') {
-      // 'all' shows everything except drafts by default
-      return allReservations.filter(r => r.status !== 'draft');
+      // 'all' shows everything except drafts and deleted by default
+      return allReservations.filter(r => r.status !== 'draft' && r.status !== 'deleted');
     }
     if (activeTab === 'drafts') {
       return allReservations.filter(r => r.status === 'draft');
+    }
+    if (activeTab === 'published_edit') {
+      // Filter by shadowState for published events with pending edits
+      return allReservations.filter(r => r.shadowState === 'Published_Edit');
     }
     return allReservations.filter(reservation => reservation.status === activeTab);
   }, [allReservations, activeTab]);
@@ -258,10 +262,16 @@ export default function MyReservations({ apiToken }) {
       case 'approved': return 'status-approved';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
+      case 'deleted': return 'status-deleted';
       case 'draft': return 'status-draft';
       default: return '';
     }
   };
+
+  // Show loading while permissions are being determined
+  if (permissionsLoading) {
+    return <LoadingSpinner />;
+  }
 
   // Access control - hide for Viewer role
   if (!canSubmitReservation) {
@@ -321,7 +331,7 @@ export default function MyReservations({ apiToken }) {
             onClick={() => handleTabChange('all')}
           >
             All Requests
-            <span className="count">({allReservations.filter(r => r.status !== 'draft').length})</span>
+            <span className="count">({allReservations.filter(r => r.status !== 'draft' && r.status !== 'deleted').length})</span>
           </button>
           <button
             className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
@@ -350,6 +360,13 @@ export default function MyReservations({ apiToken }) {
           >
             Cancelled
             <span className="count">({allReservations.filter(r => r.status === 'cancelled').length})</span>
+          </button>
+          <button
+            className={`tab ${activeTab === 'deleted' ? 'active' : ''}`}
+            onClick={() => handleTabChange('deleted')}
+          >
+            Deleted
+            <span className="count">({allReservations.filter(r => r.status === 'deleted').length})</span>
           </button>
         </div>
       </div>
@@ -490,6 +507,8 @@ export default function MyReservations({ apiToken }) {
               ? "You haven't submitted any reservation requests yet."
               : activeTab === 'drafts'
               ? "You don't have any saved drafts."
+              : activeTab === 'deleted'
+              ? "You don't have any deleted reservations."
               : `You don't have any ${activeTab} reservation requests.`}
           </div>
         )}

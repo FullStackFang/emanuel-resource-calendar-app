@@ -6590,6 +6590,9 @@
           onCancelApprove={reviewModal.cancelApproveConfirmation}
           isRejectConfirming={reviewModal.pendingRejectConfirmation}
           onCancelReject={reviewModal.cancelRejectConfirmation}
+          isRejecting={reviewModal.isRejecting}
+          rejectionReason={reviewModal.rejectionReason}
+          onRejectionReasonChange={reviewModal.setRejectionReason}
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}

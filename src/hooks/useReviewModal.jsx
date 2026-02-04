@@ -35,6 +35,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [pendingApproveConfirmation, setPendingApproveConfirmation] = useState(false);
   const [pendingRejectConfirmation, setPendingRejectConfirmation] = useState(false);
 
+  // Rejection reason state (for inline rejection reason input)
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [isRejecting, setIsRejecting] = useState(false);
+
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
 
@@ -477,10 +481,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   /**
    * Reject the reservation/event
-   * Uses two-step inline confirmation
+   * Uses two-step inline confirmation with rejection reason input
+   * @param {string} [reasonOverride] - Optional reason override (if not provided, uses rejectionReason state)
    */
-  const handleReject = useCallback(async (reason) => {
-    // Two-step confirmation: First click shows confirmation, second click rejects
+  const handleReject = useCallback(async (reasonOverride) => {
+    // Use provided reason or fall back to state
+    const reason = typeof reasonOverride === 'string' ? reasonOverride : rejectionReason;
+
+    // Two-step confirmation: First click shows confirmation input, second click rejects
     if (!pendingRejectConfirmation) {
       setPendingRejectConfirmation(true);
       setPendingApproveConfirmation(false); // Clear approve confirmation if any
@@ -489,13 +497,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Second click: User confirmed, proceed with rejection
-    setPendingRejectConfirmation(false);
-
     if (!currentItem || !reason?.trim()) {
       const message = 'Please provide a reason for rejection';
       if (onError) onError(message);
       return { success: false, error: message };
     }
+
+    setIsRejecting(true);
+    setPendingRejectConfirmation(false);
 
     try {
       // All events (including pending reservations) are now stored in templeEvents__Events
@@ -508,7 +517,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason: reason.trim() })
       });
 
       if (!response.ok) {
@@ -516,6 +525,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
+      setRejectionReason(''); // Clear the reason after successful rejection
       if (onSuccess) onSuccess(result);
       await closeModal();
       return { success: true, data: result };
@@ -523,8 +533,18 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       logger.error('Error rejecting:', error);
       if (onError) onError(error.message);
       return { success: false, error: error.message };
+    } finally {
+      setIsRejecting(false);
     }
-  }, [currentItem, apiToken, onSuccess, onError, closeModal, pendingRejectConfirmation]);
+  }, [currentItem, apiToken, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation]);
+
+  /**
+   * Cancel the pending reject confirmation
+   */
+  const cancelRejectConfirmation = useCallback(() => {
+    setPendingRejectConfirmation(false);
+    setRejectionReason('');
+  }, []);
 
   /**
    * Delete the event (Graph event or internal event)
@@ -595,9 +615,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingApproveConfirmation(false);
   }, []);
 
-  const cancelRejectConfirmation = useCallback(() => {
-    setPendingRejectConfirmation(false);
-  }, []);
+  // Note: cancelRejectConfirmation is defined earlier (after handleReject)
+  // to include clearing the rejection reason
 
   const cancelSaveConfirmation = useCallback(() => {
     setPendingSaveConfirmation(false);
@@ -834,6 +853,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     isSaving,
     isDeleting,
     isApproving,
+    isRejecting,
     holdError,
     reviewHold,
     pendingDeleteConfirmation,
@@ -842,6 +862,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     pendingSaveConfirmation,
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
+
+    // Rejection reason state (for inline input)
+    rejectionReason,
+    setRejectionReason,
 
     // Draft-specific state
     isDraft,

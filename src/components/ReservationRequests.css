@@ -341,6 +341,25 @@
   color: var(--text-inverse);
 }
 
+/* Deleted Tab Accent */
+.event-type-tab.deleted-tab .count {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-600);
+}
+
+.event-type-tab.deleted-tab:hover {
+  background-color: var(--color-neutral-100);
+}
+
+.event-type-tab.deleted-tab.active {
+  background: linear-gradient(135deg, var(--color-neutral-500) 0%, var(--color-neutral-600) 100%);
+}
+
+.event-type-tab.deleted-tab.active .count {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-inverse);
+}
+
 /* ==========================================================================
    RESERVATIONS TABLE - Editorial Data Grid
    ========================================================================== */
@@ -754,6 +773,17 @@
 
 .status-cancelled::before {
   background: var(--color-neutral-400);
+}
+
+.status-deleted {
+  background: var(--color-neutral-200);
+  color: var(--text-tertiary);
+  border: 1px solid var(--color-neutral-300);
+  text-decoration: line-through;
+}
+
+.status-deleted::before {
+  background: var(--color-neutral-500);
 }
 
 /* Priority badges */

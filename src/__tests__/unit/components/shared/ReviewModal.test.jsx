@@ -1,0 +1,107 @@
+// src/__tests__/unit/components/shared/ReviewModal.test.jsx
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+
+// Mock LoadingSpinner to avoid react-loader-spinner issues in tests
+vi.mock('../../../../components/shared/LoadingSpinner', () => ({
+  default: () => <div data-testid="loading-spinner">Loading...</div>
+}));
+
+// Mock DraftSaveDialog
+vi.mock('../../../../components/shared/DraftSaveDialog', () => ({
+  default: () => null
+}));
+
+import ReviewModal from '../../../../components/shared/ReviewModal';
+
+describe('ReviewModal', () => {
+  const defaultProps = {
+    isOpen: true,
+    title: 'Test Modal',
+    onClose: vi.fn(),
+  };
+
+  describe('Submit for Approval button (draft mode)', () => {
+    it('should be disabled when isFormValid is false', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={false}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('should be enabled when isFormValid is true', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      expect(submitButton).not.toBeDisabled();
+    });
+
+    it('should be disabled when isSaving is true', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+          isSaving={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /submitting/i });
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('should be disabled when savingDraft is true', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={true}
+          savingDraft={true}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('should show helpful title when disabled due to invalid form', () => {
+      render(
+        <ReviewModal
+          {...defaultProps}
+          isDraft={true}
+          onSubmitDraft={vi.fn()}
+          isFormValid={false}
+        >
+          <div>Content</div>
+        </ReviewModal>
+      );
+
+      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      expect(submitButton).toHaveAttribute('title', expect.stringContaining('required'));
+    });
+  });
+});

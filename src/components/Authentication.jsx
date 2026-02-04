@@ -1,5 +1,6 @@
 // src/components/Authentication.jsx
 import React, { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '../config/authConfig';
 import { useRoleSimulationSafe, ROLE_TEMPLATES } from '../context/RoleSimulationContext';
@@ -124,6 +125,9 @@ function Authentication({ onSignIn, onSignOut }) {
             </div>
           )}
 
+          <Link to="/my-settings" className="my-profile-link">
+            My Profile
+          </Link>
           <button onClick={handleLogout} className="logout-button">
             Sign Out
           </button>

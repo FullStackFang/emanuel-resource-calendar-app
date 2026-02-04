@@ -99,20 +99,14 @@ export default function Navigation({ apiToken }) {
           </li>
         )}
 
-        {/* Reservation Requests - visible for Approver (when not full Admin) */}
-        {canApproveReservations && !isAdmin && (
+        {/* Approval Queue - visible for Approvers and Admins */}
+        {canApproveReservations && (
           <li>
             <NavLink to="/admin/reservation-requests" className={({ isActive }) => isActive ? 'active' : ''}>
-              Reservation Requests
+              Approval Queue
             </NavLink>
           </li>
         )}
-
-        <li>
-          <NavLink to="/my-settings" className={({ isActive }) => isActive ? 'active' : ''}>
-            My Profile
-          </NavLink>
-        </li>
 
         {/* Admin dropdown - only visible for Admin role */}
         {isAdmin && (
@@ -142,15 +136,6 @@ export default function Navigation({ apiToken }) {
                     onClick={handleDropdownLinkClick}
                   >
                     Location Management
-                  </NavLink>
-                </li>
-                <li>
-                  <NavLink
-                    to="/admin/reservation-requests"
-                    className={({ isActive }) => isActive ? 'active' : ''}
-                    onClick={handleDropdownLinkClick}
-                  >
-                    Reservation Requests
                   </NavLink>
                 </li>
                 <li>
