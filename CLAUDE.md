@@ -312,69 +312,98 @@ This ensures changes are verifiable and reduces back-and-forth debugging.
 
 ### UI Patterns
 
-#### Destructive Actions (Delete, Remove, Cancel)
-All destructive actions MUST follow this **in-button confirmation** pattern (NO browser dialogs like `window.confirm()`):
+#### Button Action Standard (ALL Significant Actions)
+**ALL significant button actions** (delete, restore, cancel, approve, reject, etc.) MUST follow this **in-button confirmation** pattern. This provides consistent UX across the entire application. **NO browser dialogs like `window.confirm()`**.
 
-1. **First click** - Button text changes to "Confirm?" with visual emphasis (red background, pulse animation)
-2. **Second click** - Performs the delete, button shows "Deleting..."
-3. **Auto-reset** - If not confirmed within 3 seconds, button resets to "Delete"
-4. **Disabled state** - Button disabled during the delete operation
-5. **Success feedback** - Use `showSuccess()` notification on completion
-6. **Error handling** - Use `showError()` notification on failure
+1. **First click** - Button text changes to "Confirm?" with visual emphasis (colored background, pulse animation)
+2. **Second click** - Performs the action, button shows "[Action]ing..." (e.g., "Deleting...", "Restoring...")
+3. **Auto-reset** - If not confirmed within 3 seconds, button resets to original text
+4. **Disabled state** - Button disabled during the operation
+5. **Success feedback** - Use `showSuccess()` toast notification on completion
+6. **Error handling** - Use `showError()` toast notification on failure
+
+**Color by action type:**
+- Destructive (delete, cancel): `var(--color-error-500)` (red)
+- Constructive (restore, approve): `var(--color-success-500)` (green)
+- Neutral (reject, update): `var(--color-warning-500)` or `var(--color-info-500)`
 
 ```javascript
-// Standard delete pattern with in-button confirmation
-const [deletingId, setDeletingId] = useState(null);
-const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+// Standard action pattern with in-button confirmation
+const [actionId, setActionId] = useState(null);
+const [confirmActionId, setConfirmActionId] = useState(null);
 
-// First click sets confirm state, second click deletes
-const handleDeleteClick = (item) => {
-  if (confirmDeleteId === item._id) {
-    // Already in confirm state, proceed with delete
-    handleDelete(item);
+// First click sets confirm state, second click performs action
+const handleActionClick = (item) => {
+  if (confirmActionId === item._id) {
+    // Already in confirm state, proceed with action
+    handleAction(item);
   } else {
     // First click - enter confirm state
-    setConfirmDeleteId(item._id);
+    setConfirmActionId(item._id);
     // Auto-reset after 3 seconds if not confirmed
     setTimeout(() => {
-      setConfirmDeleteId(prev => prev === item._id ? null : prev);
+      setConfirmActionId(prev => prev === item._id ? null : prev);
     }, 3000);
   }
 };
 
-const handleDelete = async (item) => {
+const handleAction = async (item) => {
   try {
-    setDeletingId(item._id);
-    setConfirmDeleteId(null);
-    await deleteApi(item._id);
-    showSuccess(`"${item.name}" deleted successfully`);
-    // Refresh data or remove from local state
+    setActionId(item._id);
+    setConfirmActionId(null);
+    await performAction(item._id);
+    showSuccess(`"${item.name}" action completed`);
+    // Update local state
   } catch (err) {
-    showError(err, { context: 'ComponentName.handleDelete' });
+    showError(err, { context: 'ComponentName.handleAction' });
   } finally {
-    setDeletingId(null);
+    setActionId(null);
   }
 };
 
-// Button JSX
+// Button JSX (example: Restore)
 <button
-  className={`delete-btn ${confirmDeleteId === item._id ? 'confirm' : ''}`}
-  onClick={() => handleDeleteClick(item)}
-  disabled={deletingId === item._id}
+  className={`restore-btn ${confirmActionId === item._id ? 'confirm' : ''}`}
+  onClick={() => handleActionClick(item)}
+  disabled={actionId === item._id}
 >
-  {deletingId === item._id
-    ? 'Deleting...'
-    : confirmDeleteId === item._id
+  {actionId === item._id
+    ? 'Restoring...'
+    : confirmActionId === item._id
       ? 'Confirm?'
-      : 'Delete'}
+      : 'Restore'}
 </button>
 
-// Required CSS for confirm state
-.delete-btn.confirm {
-  background: var(--color-error-500);
+// Required CSS for confirm state (adjust color per action type)
+.action-btn.confirm {
+  background: var(--color-success-500); /* or error-500 for destructive */
   color: white;
   animation: pulse-confirm 1s ease-in-out infinite;
 }
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+```
+
+#### Actions That Require In-Button Confirmation
+The following action types MUST use the in-button confirmation pattern above:
+- **Delete** / **Remove** - Destructive, uses red confirm state
+- **Restore** - Constructive, uses green confirm state
+- **Cancel** - Destructive, uses red confirm state
+- **Approve** / **Reject** - Significant state change, uses appropriate color
+- **Submit** - When submitting for review/approval
+
+#### Actions That DON'T Require Confirmation
+Simple navigation or non-destructive actions can skip confirmation:
+- **Edit** / **View Details** - Opens a form/modal
+- **Close** / **Cancel** (modal close) - Just closes UI
+- **Save Draft** - Non-destructive, can be undone
+
+#### Toast Notification Import
+```javascript
+const { showSuccess, showError, showWarning } = useNotification();
 ```
 
 ## Event/Reservation Data Flow (SIMPLIFIED)

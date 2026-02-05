@@ -347,6 +347,19 @@
   border-color: var(--color-error-300);
 }
 
+/* In-button confirmation state for destructive actions */
+.mr-btn-danger.confirm {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  border-color: var(--color-error-600);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
 .mr-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -741,6 +754,16 @@
   border-top: 1px solid var(--border-default);
 }
 
+/* When cancel-confirm-group is present, let it expand and push Close to the right */
+.my-reservations .modal-actions:has(.cancel-confirm-group) {
+  justify-content: space-between;
+}
+
+/* Close button shouldn't shrink */
+.my-reservations .modal-actions .close-btn {
+  flex-shrink: 0;
+}
+
 .my-reservations .pending-edit-notice {
   padding: var(--space-2) var(--space-3);
   background: var(--color-info-100, #dbeafe);
@@ -777,6 +800,68 @@
   cursor: not-allowed;
 }
 
+/* Cancel Confirmation Group - inline input pattern */
+.my-reservations .cancel-confirm-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.my-reservations .cancel-reason-input {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-error-300);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-all);
+}
+
+/* Keep confirm button from shrinking */
+.my-reservations .cancel-confirm-group .confirm-cancel-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.my-reservations .cancel-reason-input:focus {
+  outline: none;
+  border-color: var(--color-error-500);
+  box-shadow: 0 0 0 3px var(--color-error-100);
+}
+
+.my-reservations .cancel-reason-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.my-reservations .confirm-cancel-btn.confirming {
+  background: var(--color-error-600);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.my-reservations .cancel-confirm-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-neutral-200);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.my-reservations .cancel-confirm-x:hover {
+  background: var(--color-neutral-300);
+  color: var(--text-primary);
+}
+
 .my-reservations .close-btn {
   background: var(--bg-primary);
   color: var(--text-secondary);
@@ -795,6 +880,33 @@
 
 .my-reservations .edit-request-btn:hover {
   background: var(--color-info-600);
+}
+
+.my-reservations .restore-btn {
+  background: var(--color-success-500);
+  color: var(--text-inverse);
+  padding: var(--space-2) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.my-reservations .restore-btn:hover:not(:disabled) {
+  background: var(--color-success-600);
+}
+
+.my-reservations .restore-btn.confirm {
+  background: var(--color-success-600);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.my-reservations .restore-btn:disabled {
+  background: var(--color-neutral-300);
+  cursor: not-allowed;
 }
 
 /* ==========================================================================
@@ -839,11 +951,30 @@
 
   .my-reservations .modal-actions {
     flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .my-reservations .cancel-confirm-group {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .my-reservations .cancel-reason-input {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .my-reservations .cancel-confirm-x {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
   }
 
   .my-reservations .confirm-cancel-btn,
   .my-reservations .close-btn,
-  .my-reservations .edit-request-btn {
+  .my-reservations .edit-request-btn,
+  .my-reservations .restore-btn {
     width: 100%;
   }
 }

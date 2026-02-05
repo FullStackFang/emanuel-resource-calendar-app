@@ -233,6 +233,16 @@ async function createEventCacheIndexes() {
 }
 
 /**
+ * Check if error is a Cosmos DB stuck metadata error (safe to ignore)
+ * This occurs when collection metadata gets into a bad state, usually from
+ * interrupted operations. The indexes typically already exist.
+ */
+function isCosmosDBStuckMetadataError(error) {
+  return error?.message?.includes('Detected stuck collection metadata') ||
+         (error?.code === 1 && error?.codeName === 'InternalError');
+}
+
+/**
  * Create indexes for the unified events collection for optimal performance
  */
 async function createUnifiedEventIndexes() {
@@ -363,6 +373,8 @@ async function createUnifiedEventIndexes() {
     // The indexes are already present from previous deployments, so this error is safe to suppress
     if (error.code === 67 || error.codeName === 'CannotCreateIndex') {
       logger.log('Unified event indexes already exist (expected behavior on Azure Cosmos DB)');
+    } else if (isCosmosDBStuckMetadataError(error)) {
+      logger.warn('Skipping unified event indexes - Cosmos DB metadata temporarily stuck (indexes likely already exist)');
     } else {
       logger.error('Error creating unified event indexes:', error);
     }
@@ -474,7 +486,11 @@ async function createRoomReservationIndexes() {
 
     logger.log('Room reservation indexes created successfully');
   } catch (error) {
-    logger.error('Error creating room reservation indexes:', error);
+    if (isCosmosDBStuckMetadataError(error)) {
+      logger.warn('Skipping room reservation indexes - Cosmos DB metadata temporarily stuck (indexes likely already exist)');
+    } else {
+      logger.error('Error creating room reservation indexes:', error);
+    }
   }
 }
 
@@ -13045,6 +13061,86 @@ app.delete('/api/room-reservations/draft/:id', verifyToken, async (req, res) => 
 });
 
 /**
+ * Restore a deleted reservation to its previous status
+ */
+app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Find the deleted reservation
+    const reservation = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      status: 'deleted'
+    });
+
+    if (!reservation) {
+      return res.status(404).json({ error: 'Deleted reservation not found' });
+    }
+
+    // Validate ownership using calendarData.requesterEmail
+    if (reservation.calendarData?.requesterEmail !== userEmail) {
+      return res.status(403).json({ error: 'You can only restore your own reservations' });
+    }
+
+    // Find the previous status from statusHistory (before 'deleted')
+    const statusHistory = reservation.statusHistory || [];
+    let previousStatus = 'draft'; // Default fallback
+
+    // Find the last non-deleted status
+    for (let i = statusHistory.length - 1; i >= 0; i--) {
+      if (statusHistory[i].status !== 'deleted') {
+        previousStatus = statusHistory[i].status;
+        break;
+      }
+    }
+
+    // Restore the reservation
+    await unifiedEventsCollection.updateOne(
+      { _id: new ObjectId(reservationId) },
+      {
+        $set: {
+          status: previousStatus,
+          isDeleted: false,
+          lastModified: new Date(),
+          lastModifiedBy: userEmail
+        },
+        $unset: {
+          deletedAt: '',
+          deletedBy: '',
+          deletedByEmail: ''
+        },
+        $push: {
+          statusHistory: {
+            status: previousStatus,
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Restored by owner'
+          }
+        }
+      }
+    );
+
+    logger.log('Reservation restored:', {
+      reservationId,
+      previousStatus,
+      restoredBy: userEmail
+    });
+
+    res.json({
+      success: true,
+      message: 'Reservation restored successfully',
+      status: previousStatus
+    });
+  } catch (error) {
+    logger.error('Error restoring reservation:', error);
+    res.status(500).json({ error: 'Failed to restore reservation' });
+  }
+});
+
+/**
  * Submit a room reservation request using a token (guest users)
  */
 app.post('/api/room-reservations/public/:token', async (req, res) => {
@@ -13344,85 +13440,40 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const { status, page = 1, limit: queryLimit = 20 } = req.query;
+    const { status, page = 1, limit: queryLimit = 20, includeDeleted } = req.query;
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(queryLimit) || 20;
+    const shouldIncludeDeleted = includeDeleted === 'true';
 
     // Check if user can view all reservations or just their own
     const user = await usersCollection.findOne({ userId });
     const canViewAll = canViewAllReservations(user, userEmail);
 
-    // Build query for unified events with roomReservationData
+    // Build query - use calendarData.requesterEmail for ownership, top-level status for filtering
     let query = {
       roomReservationData: { $exists: true, $ne: null }
     };
 
-    // Helper function to build ownership filter using createdBy (primary) with fallback to requestedBy
-    const buildOwnershipFilter = () => ({
-      $or: [
-        { createdBy: userId },
-        { 'roomReservationData.requestedBy.userId': userId }
-      ]
-    });
+    // Ownership filter using calendarData.requesterEmail (consistent field)
+    if (!canViewAll) {
+      query['calendarData.requesterEmail'] = userEmail;
+    }
 
-    // Handle status filtering including drafts and deleted
+    // Status filtering using top-level status field
     if (status === 'draft') {
-      // Drafts are ALWAYS private - only visible to owner
-      query.isDeleted = { $ne: true };
-      query.$and = [buildOwnershipFilter()];
       query.status = 'draft';
     } else if (status === 'deleted') {
-      // For deleted, show user's own deleted events (both reservations AND direct events)
-      // Remove roomReservationData requirement since direct events don't have it
-      query = {
-        $or: [
-          { status: 'deleted' },
-          { isDeleted: true }
-        ]
-      };
-      // Filter by ownership - either roomReservationData.requestedBy.userId OR createdBy
-      if (!canViewAll) {
-        query.$and = [
-          query.$or ? { $or: query.$or } : {},
-          {
-            $or: [
-              { 'roomReservationData.requestedBy.userId': userId },
-              { createdBy: userId }
-            ]
-          }
-        ];
-        delete query.$or; // Move to $and
-      }
+      query.status = 'deleted';
+    } else if (status === 'pending') {
+      query.status = { $in: ['pending', 'room-reservation-request'] };
+    } else if (status === 'approved' || status === 'published') {
+      query.status = 'approved';
     } else if (status) {
-      // Handle both 'pending' and legacy 'room-reservation-request' statuses
-      query.isDeleted = { $ne: true };
-      if (status === 'pending') {
-        query.status = { $in: ['pending', 'room-reservation-request'] };
-      } else if (status === 'approved' || status === 'published') {
-        // Published = approved (handle both terms for backward compatibility)
-        query.status = 'approved';
-      } else {
-        query.status = status;
-      }
-
-      if (!canViewAll) {
-        // Use createdBy as primary ownership field with requestedBy fallback
-        query.$and = query.$and || [];
-        query.$and.push(buildOwnershipFilter());
-      }
+      query.status = status;
     } else {
-      // No status filter - exclude deleted and drafts (unless own drafts for admin)
-      query.isDeleted = { $ne: true };
-      if (!canViewAll) {
-        // For non-admins: show their own reservations (all statuses except deleted)
-        query.$and = [buildOwnershipFilter()];
-        query.status = { $ne: 'deleted' };
-      } else {
-        // For admins: show all non-draft, non-deleted reservations, but only their own drafts
-        query.$or = [
-          { status: { $nin: ['draft', 'deleted'] } },
-          { status: 'draft', $or: [{ createdBy: userId }, { 'roomReservationData.requestedBy.userId': userId }] }
-        ];
+      // No status filter - include all statuses for client-side filtering when includeDeleted=true
+      if (!shouldIncludeDeleted) {
+        query.status = { $nin: ['deleted'] };
       }
     }
 

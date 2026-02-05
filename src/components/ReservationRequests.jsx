@@ -23,23 +23,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
   const [actionNotes, setActionNotes] = useState('');
-
-  // Server-side pagination state
-  const [pagination, setPagination] = useState({
-    totalCount: 0,
-    totalPages: 0,
-    hasMore: false
-  });
   const PAGE_SIZE = 20;
-
-  // Tab counts (fetched separately for accurate badge numbers)
-  const [tabCounts, setTabCounts] = useState({
-    all: 0,
-    pending: 0,
-    published: 0,  // 'approved' status displayed as 'Published'
-    cancelled: 0,
-    deleted: 0
-  });
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -74,7 +58,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [forceApprove, setForceApprove] = useState(false);
 
   // Feature flag: Toggle between old and new review form
-  const [useUnifiedForm, setUseUnifiedForm] = useState(false);
+  // Default to UnifiedEventForm to match the draft edit form in MyReservations
+  const [useUnifiedForm, setUseUnifiedForm] = useState(true);
 
   // Review modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -83,6 +68,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Delete state
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Approval confirmation state (for ReviewModal)
+  const [isApproving, setIsApproving] = useState(false);
+  const [isApproveConfirming, setIsApproveConfirming] = useState(false);
+
+  // Rejection confirmation state (for ReviewModal)
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [isRejectConfirming, setIsRejectConfirming] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  // Delete confirmation state (for ReviewModal - separate from card delete)
+  const [isModalDeleting, setIsModalDeleting] = useState(false);
+  const [isModalDeleteConfirming, setIsModalDeleteConfirming] = useState(false);
 
   // Edit request state
   const [editRequests, setEditRequests] = useState([]);
@@ -107,36 +105,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Load all reservations once on mount
   useEffect(() => {
     if (apiToken) {
-      loadReservations(1, activeTab);
-      loadTabCounts();
+      loadReservations();
     }
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch tab counts for accurate badge numbers
-  const loadTabCounts = async () => {
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservation-events/counts`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
-
-      if (response.ok) {
-        const counts = await response.json();
-        // Map 'approved' from backend to 'published' for display
-        setTabCounts({
-          all: counts.all || 0,
-          pending: counts.pending || 0,
-          published: counts.approved || 0,  // Backend returns 'approved', we display as 'published'
-          cancelled: counts.cancelled || 0,
-          deleted: counts.deleted || 0
-        });
-      }
-    } catch (err) {
-      logger.error('Error loading tab counts:', err);
-      // Silently fail - counts will just show 0
-    }
-  };
 
   const loadCalendarSettings = async () => {
     try {
@@ -167,26 +138,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     };
   }, [holdTimer]);
 
-  const loadReservations = useCallback(async (pageNum = 1, status = activeTab) => {
+  const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
 
-      // Build URL with pagination and status filter
-      const params = new URLSearchParams({
-        page: pageNum.toString(),
-        limit: PAGE_SIZE.toString()
-      });
-
-      // Add status filter (server understands 'all' to mean no filter)
-      // Map 'published' tab to 'approved' status for API call
-      if (status && status !== 'all') {
-        const apiStatus = status === 'published' ? 'approved' : status;
-        params.append('status', apiStatus);
-      }
-
+      // Load all reservations at once (small dataset, <100 items typically)
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/room-reservation-events?${params.toString()}`,
+        `${APP_CONFIG.API_BASE_URL}/room-reservation-events?limit=1000`,
         {
           headers: {
             'Authorization': `Bearer ${apiToken}`
@@ -212,29 +171,51 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       });
 
       logger.info('Loaded room reservation events:', {
-        count: transformedEvents.length,
-        page: data.pagination?.page,
-        totalCount: data.pagination?.totalCount
+        count: transformedEvents.length
       });
 
       setAllReservations(transformedEvents);
-      setPagination({
-        totalCount: data.pagination?.totalCount || 0,
-        totalPages: data.pagination?.totalPages || 0,
-        hasMore: data.pagination?.hasMore || false
-      });
     } catch (err) {
       logger.error('Error loading reservations:', err);
       setError('Failed to load reservation requests');
     } finally {
       setLoading(false);
     }
-  }, [apiToken, activeTab]);
+  }, [apiToken]);
 
   // Legacy alias for compatibility
   const loadAllReservations = useCallback(() => {
-    return loadReservations(page, activeTab);
-  }, [loadReservations, page, activeTab]);
+    return loadReservations();
+  }, [loadReservations]);
+
+  // Client-side filtering based on active tab
+  const filteredReservations = useMemo(() => {
+    if (activeTab === 'all') {
+      return allReservations.filter(r => r.status !== 'deleted' && !r.isDeleted);
+    }
+    if (activeTab === 'pending') {
+      return allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
+    }
+    if (activeTab === 'published') {
+      return allReservations.filter(r => r.status === 'approved');
+    }
+    if (activeTab === 'cancelled') {
+      return allReservations.filter(r => r.status === 'cancelled');
+    }
+    if (activeTab === 'deleted') {
+      return allReservations.filter(r => r.status === 'deleted' || r.isDeleted);
+    }
+    return allReservations.filter(r => r.status === activeTab);
+  }, [allReservations, activeTab]);
+
+  // Compute tab counts client-side
+  const statusCounts = useMemo(() => ({
+    all: allReservations.filter(r => r.status !== 'deleted' && !r.isDeleted).length,
+    pending: allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
+    published: allReservations.filter(r => r.status === 'approved').length,
+    cancelled: allReservations.filter(r => r.status === 'cancelled').length,
+    deleted: allReservations.filter(r => r.status === 'deleted' || r.isDeleted).length,
+  }), [allReservations]);
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -415,23 +396,21 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   };
 
 
-  // With server-side pagination, allReservations IS the paginated result
-  // No client-side filtering needed - server handles it
-  const paginatedReservations = allReservations;
-  const totalPages = pagination.totalPages;
+  // Client-side pagination
+  const totalPages = Math.ceil(filteredReservations.length / PAGE_SIZE);
+  const startIndex = (page - 1) * PAGE_SIZE;
+  const paginatedReservations = filteredReservations.slice(startIndex, startIndex + PAGE_SIZE);
 
-  // Handle tab changes - reload data with new status filter
+  // Handle tab changes - no API call, filtering is client-side
   const handleTabChange = useCallback((newTab) => {
     setActiveTab(newTab);
     setPage(1);
-    loadReservations(1, newTab);
-  }, [loadReservations]);
+  }, []);
 
-  // Handle page changes
+  // Handle page changes - no API call, pagination is client-side
   const handlePageChange = useCallback((newPage) => {
     setPage(newPage);
-    loadReservations(newPage, activeTab);
-  }, [loadReservations, activeTab]);
+  }, []);
 
   // Open review modal (using ReviewModal component)
   const openReviewModal = async (reservation) => {
@@ -508,6 +487,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setCreateCalendarEvent(true);
     setConflicts([]);
     setForceApprove(false);
+    // Reset confirmation states
+    setIsApproveConfirming(false);
+    setIsRejectConfirming(false);
+    setRejectionReason('');
+    setIsModalDeleteConfirming(false);
   };
 
   // =========================================================================
@@ -769,8 +753,25 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
   
+  // Handle approve click - two-click confirmation pattern
+  const handleApproveClick = (reservation) => {
+    if (isApproveConfirming) {
+      // Already in confirm state, proceed with approve
+      handleApprove(reservation);
+    } else {
+      // First click - enter confirm state
+      setIsApproveConfirming(true);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setIsApproveConfirming(false);
+      }, 3000);
+    }
+  };
+
   const handleApprove = async (reservation) => {
     try {
+      setIsApproving(true);
+      setIsApproveConfirming(false);
       logger.debug('🚀 Starting reservation approval process:', {
         reservationId: reservation._id,
         eventTitle: reservation.eventTitle,
@@ -872,9 +873,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           : r
       ));
 
-      // Refresh tab counts
-      loadTabCounts();
-
       setSelectedReservation(null);
       setActionNotes('');
       setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -886,17 +884,37 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } catch (err) {
       logger.error('❌ Error in approval process:', err);
       logger.error('Error approving reservation:', err);
-      setError(`Failed to approve reservation: ${err.message}`);
+      showError(err, { context: 'ReservationRequests.handleApprove', userMessage: 'Failed to approve reservation' });
+    } finally {
+      setIsApproving(false);
     }
   };
-  
-  const handleReject = async (reservation) => {
-    if (!actionNotes.trim()) {
-      showWarning('Please provide a reason for rejection');
-      return;
+
+  // Handle reject click - two-click confirmation pattern with reason input
+  const handleRejectClick = (reservation) => {
+    if (isRejectConfirming) {
+      // Already in confirm state, check for reason and proceed
+      if (!rejectionReason.trim()) {
+        showWarning('Please provide a reason for rejection');
+        return;
+      }
+      handleReject(reservation);
+    } else {
+      // First click - enter confirm state (shows reason input)
+      setIsRejectConfirming(true);
+      // Auto-reset after 10 seconds if not confirmed (longer for typing reason)
+      setTimeout(() => {
+        setIsRejectConfirming(false);
+        setRejectionReason('');
+      }, 10000);
     }
-    
+  };
+
+  const handleReject = async (reservation) => {
     try {
+      setIsRejecting(true);
+      setIsRejectConfirming(false);
+
       // Use new endpoint for unified events, old endpoint for legacy reservations
       const rejectEndpoint = reservation._isNewUnifiedEvent
         ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/reject`
@@ -908,26 +926,92 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason: actionNotes })
+        body: JSON.stringify({ reason: rejectionReason })
       });
-      
+
       if (!response.ok) throw new Error('Failed to reject reservation');
 
       // Update local state
       setAllReservations(prev => prev.map(r =>
         r._id === reservation._id
-          ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: actionNotes }
+          ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: rejectionReason }
           : r
       ));
 
-      // Refresh tab counts
-      loadTabCounts();
-
       setSelectedReservation(null);
-      setActionNotes('');
+      setRejectionReason('');
+      showSuccess(`Reservation "${reservation.eventTitle}" rejected`);
     } catch (err) {
       logger.error('Error rejecting reservation:', err);
-      setError('Failed to reject reservation');
+      showError(err, { context: 'ReservationRequests.handleReject', userMessage: 'Failed to reject reservation' });
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
+  // Handle modal delete click - two-click confirmation pattern (separate from card delete)
+  const handleModalDeleteClick = (reservation) => {
+    if (isModalDeleteConfirming) {
+      // Already in confirm state, proceed with delete
+      handleModalDelete(reservation);
+    } else {
+      // First click - enter confirm state
+      setIsModalDeleteConfirming(true);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setIsModalDeleteConfirming(false);
+      }, 3000);
+    }
+  };
+
+  const handleModalDelete = async (reservation) => {
+    try {
+      setIsModalDeleting(true);
+      setIsModalDeleteConfirming(false);
+
+      logger.debug('🗑️ Starting reservation deletion from modal:', {
+        reservationId: reservation._id,
+        eventTitle: reservation.eventTitle
+      });
+
+      // Only include graphToken if the event has been synced to Graph (has calendarId)
+      const hasGraphData = reservation.calendarId || reservation.graphData?.id;
+
+      // Use unified events endpoint
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({
+          graphToken: hasGraphData ? graphToken : undefined,
+          calendarId: reservation.calendarId
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to delete reservation: ${response.status} ${errorText}`);
+      }
+
+      // Update local state - mark as deleted
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id
+          ? { ...r, status: 'deleted', isDeleted: true }
+          : r
+      ));
+
+      // Close the review modal
+      setShowReviewModal(false);
+      setSelectedReservation(null);
+      showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
+
+    } catch (err) {
+      logger.error('❌ Error deleting reservation from modal:', err);
+      showError(err, { context: 'ReservationRequests.handleModalDelete', userMessage: 'Failed to delete reservation' });
+    } finally {
+      setIsModalDeleting(false);
     }
   };
 
@@ -983,11 +1067,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       const result = await response.json();
       logger.debug('✅ Reservation deleted successfully:', result);
 
-      // Remove from local state
-      setAllReservations(prev => prev.filter(r => r._id !== reservation._id));
-
-      // Refresh tab counts
-      loadTabCounts();
+      // Update local state - mark as deleted instead of removing (for deleted tab)
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id
+          ? { ...r, status: 'deleted', isDeleted: true }
+          : r
+      ));
 
       // Close the review modal
       setShowReviewModal(false);
@@ -1112,35 +1197,35 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onClick={() => handleTabChange('all')}
           >
             All Requests
-            <span className="count">({tabCounts.all})</span>
+            <span className="count">({statusCounts.all})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'pending' ? 'active' : ''}`}
             onClick={() => handleTabChange('pending')}
           >
             Pending
-            <span className="count">({tabCounts.pending})</span>
+            <span className="count">({statusCounts.pending})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'published' ? 'active' : ''}`}
             onClick={() => handleTabChange('published')}
           >
             Published
-            <span className="count">({tabCounts.published})</span>
+            <span className="count">({statusCounts.published})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'cancelled' ? 'active' : ''}`}
             onClick={() => handleTabChange('cancelled')}
           >
             Canceled
-            <span className="count">({tabCounts.cancelled})</span>
+            <span className="count">({statusCounts.cancelled})</span>
           </button>
           <button
             className={`event-type-tab deleted-tab ${activeTab === 'deleted' ? 'active' : ''}`}
             onClick={() => handleTabChange('deleted')}
           >
             Deleted
-            <span className="count">({tabCounts.deleted})</span>
+            <span className="count">({statusCounts.deleted})</span>
           </button>
         </div>
       </div>
@@ -1280,7 +1365,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           </button>
           <span className="page-info">
             Page {page} of {totalPages}
-            {pagination.totalCount > 0 && ` (${pagination.totalCount} total)`}
+            {filteredReservations.length > 0 && ` (${filteredReservations.length} total)`}
           </span>
           <button
             disabled={page === totalPages || loading}
@@ -1307,14 +1392,15 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       {/* Review Modal (using ReviewModal component) - for regular reservations */}
       {showReviewModal && selectedReservation && (
+        <div className="scale-80">
         <ReviewModal
           isOpen={showReviewModal}
           title={`Review ${selectedReservation.eventTitle || 'Reservation Request'}`}
           onClose={closeReviewModal}
-          onApprove={() => handleApprove(selectedReservation)}
-          onReject={() => handleReject(selectedReservation)}
+          onApprove={() => handleApproveClick(selectedReservation)}
+          onReject={() => handleRejectClick(selectedReservation)}
           onSave={handleSaveChanges}
-          onDelete={() => handleDelete(selectedReservation)}
+          onDelete={() => handleModalDeleteClick(selectedReservation)}
           isPending={selectedReservation?.status === 'pending'}
           hasChanges={hasChanges}
           isFormValid={isFormValid}
@@ -1322,17 +1408,36 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           showFormToggle={true}
           useUnifiedForm={useUnifiedForm}
           onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}
+          // Approval confirmation state
+          isApproving={isApproving}
+          isApproveConfirming={isApproveConfirming}
+          onCancelApprove={() => setIsApproveConfirming(false)}
+          // Rejection confirmation state
+          isRejecting={isRejecting}
+          isRejectConfirming={isRejectConfirming}
+          onCancelReject={() => {
+            setIsRejectConfirming(false);
+            setRejectionReason('');
+          }}
+          rejectionReason={rejectionReason}
+          onRejectionReasonChange={setRejectionReason}
+          // Delete confirmation state
+          isDeleting={isModalDeleting}
+          isDeleteConfirming={isModalDeleteConfirming}
+          onCancelDelete={() => setIsModalDeleteConfirming(false)}
         >
           {useUnifiedForm ? (
             <UnifiedEventForm
               mode="reservation"
               reservation={selectedReservation}
               apiToken={apiToken}
+              hideActionBar={true}
               onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
               onReject={(notes) => handleReject(selectedReservation)}
               onCancel={closeReviewModal}
               onSave={handleSaveChanges}
               onHasChangesChange={setHasChanges}
+              onFormValidChange={setIsFormValid}
               onIsSavingChange={setIsSaving}
               onSaveFunctionReady={handleSaveFunctionReady}
               onLockedEventClick={handleLockedEventClick}
@@ -1359,6 +1464,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             />
           )}
         </ReviewModal>
+        </div>
       )}
     </div>
   );

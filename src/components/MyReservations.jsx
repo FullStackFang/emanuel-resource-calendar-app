@@ -15,7 +15,7 @@ import './MyReservations.css';
 export default function MyReservations({ apiToken }) {
   const navigate = useNavigate();
   const { canSubmitReservation, permissionsLoading } = usePermissions();
-  const { showWarning } = useNotification();
+  const { showWarning, showSuccess, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,7 +24,11 @@ export default function MyReservations({ apiToken }) {
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
-  const [deletingDraft, setDeletingDraft] = useState(false);
+  const [isCancelConfirming, setIsCancelConfirming] = useState(false);
+  const [deletingDraftId, setDeletingDraftId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [restoringId, setRestoringId] = useState(null);
+  const [confirmRestoreId, setConfirmRestoreId] = useState(null);
 
   // Edit request state
   const [editRequestReservation, setEditRequestReservation] = useState(null);
@@ -57,8 +61,8 @@ export default function MyReservations({ apiToken }) {
       setLoading(true);
       setError('');
       
-      // Load all user's reservations (API automatically filters by user)
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000`, {
+      // Load all user's reservations including deleted (API automatically filters by user)
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000&includeDeleted=true`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
@@ -137,14 +141,35 @@ export default function MyReservations({ apiToken }) {
     setPage(1);
   };
   
-  const handleCancelRequest = async (reservation) => {
-    if (!cancelReason.trim()) {
-      showWarning('Please provide a reason for cancellation');
-      return;
+  // Handle cancel click - two-click confirmation pattern with inline reason input
+  const handleCancelClick = (reservation) => {
+    if (isCancelConfirming) {
+      // Already in confirm state, check for reason and proceed
+      if (!cancelReason.trim()) {
+        showWarning('Please enter a cancellation reason');
+        return;
+      }
+      handleCancelRequest(reservation);
+    } else {
+      // First click - enter confirm state (shows reason input)
+      setIsCancelConfirming(true);
+      // Auto-reset after 15 seconds if not confirmed (longer for typing reason)
+      setTimeout(() => {
+        setIsCancelConfirming(prev => {
+          if (prev) {
+            setCancelReason('');
+          }
+          return false;
+        });
+      }, 15000);
     }
-    
+  };
+
+  const handleCancelRequest = async (reservation) => {
     try {
       setCancelling(true);
+      setIsCancelConfirming(false);
+
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/cancel`, {
         method: 'PUT',
         headers: {
@@ -153,21 +178,22 @@ export default function MyReservations({ apiToken }) {
         },
         body: JSON.stringify({ reason: cancelReason })
       });
-      
+
       if (!response.ok) throw new Error('Failed to cancel reservation');
-      
+
       // Update local state
-      setAllReservations(prev => prev.map(r => 
-        r._id === reservation._id 
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id
           ? { ...r, status: 'cancelled', actionDate: new Date(), cancelReason: cancelReason }
           : r
       ));
-      
+
       setSelectedReservation(null);
       setCancelReason('');
+      showSuccess(`"${reservation.eventTitle}" has been cancelled`);
     } catch (err) {
       logger.error('Error cancelling reservation:', err);
-      setError('Failed to cancel reservation request');
+      showError(err, { context: 'MyReservations.handleCancelRequest' });
     } finally {
       setCancelling(false);
     }
@@ -192,14 +218,26 @@ export default function MyReservations({ apiToken }) {
     }));
   };
 
-  // Handle delete draft
-  const handleDeleteDraft = async (draft) => {
-    if (!window.confirm('Are you sure you want to delete this draft? This cannot be undone.')) {
-      return;
+  // Handle delete draft - first click shows confirm, second click deletes
+  const handleDeleteClick = (draft) => {
+    if (confirmDeleteId === draft._id) {
+      // Already in confirm state, proceed with delete
+      handleDeleteDraft(draft);
+    } else {
+      // First click - enter confirm state
+      setConfirmDeleteId(draft._id);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setConfirmDeleteId(prev => prev === draft._id ? null : prev);
+      }, 3000);
     }
+  };
 
+  const handleDeleteDraft = async (draft) => {
     try {
-      setDeletingDraft(true);
+      setDeletingDraftId(draft._id);
+      setConfirmDeleteId(null);
+
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draft._id}`, {
         method: 'DELETE',
         headers: {
@@ -209,14 +247,62 @@ export default function MyReservations({ apiToken }) {
 
       if (!response.ok) throw new Error('Failed to delete draft');
 
-      // Remove draft from local state
-      setAllReservations(prev => prev.filter(r => r._id !== draft._id));
+      // Update status to 'deleted' so counts update correctly (draft -1, deleted +1)
+      setAllReservations(prev => prev.map(r =>
+        r._id === draft._id ? { ...r, status: 'deleted' } : r
+      ));
       setSelectedReservation(null);
+      showSuccess(`"${draft.eventTitle || 'Draft'}" moved to deleted`);
     } catch (err) {
       logger.error('Error deleting draft:', err);
-      setError('Failed to delete draft');
+      showError(err, { context: 'MyReservations.handleDeleteDraft' });
     } finally {
-      setDeletingDraft(false);
+      setDeletingDraftId(null);
+    }
+  };
+
+  // Handle restore - first click shows confirm, second click restores
+  const handleRestoreClick = (reservation) => {
+    if (confirmRestoreId === reservation._id) {
+      // Already in confirm state, proceed with restore
+      handleRestore(reservation);
+    } else {
+      // First click - enter confirm state
+      setConfirmRestoreId(reservation._id);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setConfirmRestoreId(prev => prev === reservation._id ? null : prev);
+      }, 3000);
+    }
+  };
+
+  const handleRestore = async (reservation) => {
+    try {
+      setRestoringId(reservation._id);
+      setConfirmRestoreId(null);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/restore`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to restore reservation');
+
+      const result = await response.json();
+
+      // Update local state with restored status
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id ? { ...r, status: result.status } : r
+      ));
+      setSelectedReservation(null);
+      showSuccess(`"${reservation.eventTitle}" restored to ${result.status}`);
+    } catch (err) {
+      logger.error('Error restoring reservation:', err);
+      showError(err, { context: 'MyReservations.handleRestore' });
+    } finally {
+      setRestoringId(null);
     }
   };
 
@@ -414,16 +500,20 @@ export default function MyReservations({ apiToken }) {
                       <button
                         className="mr-btn mr-btn-primary"
                         onClick={() => handleEditDraft(reservation)}
-                        disabled={deletingDraft}
+                        disabled={deletingDraftId === reservation._id}
                       >
                         Edit
                       </button>
                       <button
-                        className="mr-btn mr-btn-danger"
-                        onClick={() => handleDeleteDraft(reservation)}
-                        disabled={deletingDraft}
+                        className={`mr-btn mr-btn-danger ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
+                        onClick={() => handleDeleteClick(reservation)}
+                        disabled={deletingDraftId === reservation._id}
                       >
-                        Delete
+                        {deletingDraftId === reservation._id
+                          ? 'Deleting...'
+                          : confirmDeleteId === reservation._id
+                            ? 'Confirm?'
+                            : 'Delete'}
                       </button>
                     </>
                   ) : (
@@ -649,29 +739,42 @@ export default function MyReservations({ apiToken }) {
             {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
               <CommunicationHistory reservation={selectedReservation} />
             )}
-            
-            {selectedReservation.status === 'pending' && (
-              <div className="cancel-section">
-                <label htmlFor="cancelReason">Reason for Cancellation:</label>
-                <textarea
-                  id="cancelReason"
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  rows="3"
-                  placeholder="Please provide a reason for cancelling this reservation request..."
-                />
-              </div>
-            )}
-            
+
             <div className="modal-actions">
               {selectedReservation.status === 'pending' && (
-                <button
-                  className="confirm-cancel-btn"
-                  onClick={() => handleCancelRequest(selectedReservation)}
-                  disabled={cancelling}
-                >
-                  {cancelling ? 'Cancelling...' : 'Cancel Request'}
-                </button>
+                <div className="cancel-confirm-group">
+                  {isCancelConfirming && (
+                    <input
+                      type="text"
+                      className="cancel-reason-input"
+                      placeholder="Cancellation reason (required)"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      disabled={cancelling}
+                      autoFocus
+                    />
+                  )}
+                  <button
+                    className={`confirm-cancel-btn ${isCancelConfirming ? 'confirming' : ''}`}
+                    onClick={() => handleCancelClick(selectedReservation)}
+                    disabled={cancelling || (isCancelConfirming && !cancelReason.trim())}
+                  >
+                    {cancelling ? 'Cancelling...' : (isCancelConfirming ? 'Confirm Cancel?' : 'Cancel Request')}
+                  </button>
+                  {isCancelConfirming && (
+                    <button
+                      type="button"
+                      className="cancel-confirm-x"
+                      onClick={() => {
+                        setIsCancelConfirming(false);
+                        setCancelReason('');
+                      }}
+                      title="Cancel"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
               {selectedReservation.status === 'approved' && !selectedReservation.pendingEditRequest?.status && (
                 <button
@@ -696,11 +799,26 @@ export default function MyReservations({ apiToken }) {
                   Resubmit
                 </button>
               )}
+              {selectedReservation.status === 'deleted' && (
+                <button
+                  className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirm' : ''}`}
+                  onClick={() => handleRestoreClick(selectedReservation)}
+                  disabled={restoringId === selectedReservation._id}
+                  title="Restore this reservation to its previous status"
+                >
+                  {restoringId === selectedReservation._id
+                    ? 'Restoring...'
+                    : confirmRestoreId === selectedReservation._id
+                      ? 'Confirm?'
+                      : 'Restore'}
+                </button>
+              )}
               <button
                 className="close-btn"
                 onClick={() => {
                   setSelectedReservation(null);
                   setCancelReason('');
+                  setIsCancelConfirming(false);
                 }}
                 disabled={cancelling}
               >
