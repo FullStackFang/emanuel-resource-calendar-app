@@ -66,6 +66,29 @@
   const categories = [
   ];
 
+  /**
+   * Helper: Get field value from event with calendarData priority
+   * After migration, fields are stored in calendarData. This helper reads from
+   * calendarData first, falling back to top-level for backward compatibility.
+   *
+   * @param {Object} event - The event object
+   * @param {string} field - The field name to retrieve
+   * @param {*} defaultValue - Default value if field not found
+   * @returns {*} The field value from appropriate source or default
+   */
+  function getEventField(event, field, defaultValue = undefined) {
+    if (!event) return defaultValue;
+    // Check calendarData first (authoritative after migration)
+    if (event.calendarData?.[field] !== undefined) {
+      return event.calendarData[field];
+    }
+    // Fallback to top-level for backward compatibility
+    if (event[field] !== undefined) {
+      return event[field];
+    }
+    return defaultValue;
+  }
+
   /*****************************************************************************
    * MAIN CALENDAR COMPONENT
    *****************************************************************************/
@@ -386,10 +409,10 @@
       const event = eventReviewModal.event;
       const title = event.eventTitle || 'Untitled Event';
 
-      // Get location names - check requestedRooms first (current form state), then locations
+      // Get location names - check requestedRooms first (current form state), then locations (check calendarData first)
       const locationIds = event.requestedRooms?.length > 0
         ? event.requestedRooms
-        : (event.locations || []);
+        : (getEventField(event, 'locations', []));
       const locationNames = locationIds
         .map(id => rooms.find(r => r._id === id || r._id?.toString() === id?.toString())?.name)
         .filter(Boolean)
@@ -499,8 +522,8 @@
               throw new Error(`Event ${index + 1}: End date must be after start date`);
             }
 
-            // Use locationDisplayNames instead of deprecated location field
-            const location = event.locationDisplayNames || '';
+            // Use locationDisplayNames instead of deprecated location field (check calendarData first)
+            const location = getEventField(event, 'locationDisplayNames', '');
 
             // Your categories field is an array
             const categories = event.categories || [];
@@ -681,13 +704,14 @@
        * Also treats "Unspecified" placeholder as unspecified (used when clearing locations via Graph API)
        */
       const isUnspecifiedLocation = useCallback((event) => {
-        // Offsite events are NOT unspecified - they have their own group
-        if (event.isOffsite) return false;
-        // Has locations array with items = not unspecified
-        if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) return false;
+        // Offsite events are NOT unspecified - they have their own group (check calendarData first)
+        if (getEventField(event, 'isOffsite', false)) return false;
+        // Has locations array with items = not unspecified (check calendarData first)
+        const locations = getEventField(event, 'locations', []);
+        if (locations && Array.isArray(locations) && locations.length > 0) return false;
         // Has locationDisplayNames (raw location name from Graph API) = not unspecified
-        // "Unspecified" is a placeholder used when clearing locations, treat as unspecified
-        const locationDisplayNames = event.locationDisplayNames?.trim();
+        // "Unspecified" is a placeholder used when clearing locations, treat as unspecified (check calendarData first)
+        const locationDisplayNames = getEventField(event, 'locationDisplayNames', '')?.trim();
         if (locationDisplayNames && locationDisplayNames !== 'Unspecified') return false;
         // Also check graphData.location.displayName as fallback
         const graphDisplayName = event.graphData?.location?.displayName?.trim();
@@ -2213,14 +2237,14 @@
 
       // Process events to find locations and check for special cases
       allEvents.forEach(event => {
-        // First check if this is an offsite event
-        if (event.isOffsite) {
+        // First check if this is an offsite event (check calendarData first, then top-level)
+        if (getEventField(event, 'isOffsite', false)) {
           hasOffsiteEvents = true;
           return; // Offsite events go to "Offsite" group, not processed further
         }
 
-        // Check if this event has a virtual meeting URL
-        if (event.virtualMeetingUrl) {
+        // Check if this event has a virtual meeting URL (check calendarData first, then top-level)
+        if (getEventField(event, 'virtualMeetingUrl')) {
           // This is a virtual meeting - use "Virtual Meeting" as the location
           const virtualLocation = generalLocations.find(loc =>
             loc.name && loc.name.toLowerCase() === 'virtual meeting'
@@ -2231,8 +2255,8 @@
           return;
         }
 
-        // Read from top-level locationDisplayNames (app field), with fallback to location.displayName for Graph events
-        const locationText = event.locationDisplayNames?.trim() || event.location?.displayName?.trim() || '';
+        // Read locationDisplayNames from calendarData first, then top-level, with fallback to location.displayName for Graph events
+        const locationText = getEventField(event, 'locationDisplayNames', '')?.trim() || event.location?.displayName?.trim() || '';
 
         if (!locationText) {
           // Empty or null location - we'll need Unspecified
@@ -2745,12 +2769,12 @@
           locationMatch = true;
         } else {
           // Partial locations selected, check if event matches
-          // Check for offsite events first
-          if (event.isOffsite) {
+          // Check for offsite events first (check calendarData first, then top-level)
+          if (getEventField(event, 'isOffsite', false)) {
             locationMatch = selectedLocations.includes('Offsite');
           }
-          // Check for virtual meeting
-          else if (event.virtualMeetingUrl) {
+          // Check for virtual meeting (check calendarData first, then top-level)
+          else if (getEventField(event, 'virtualMeetingUrl')) {
             // This is a virtual meeting - check if "Virtual Meeting" is selected
             locationMatch = selectedLocations.includes('Virtual Meeting');
           }
@@ -2760,8 +2784,8 @@
           }
           // Handle all events with locations
           else {
-            // Read from top-level locationDisplayNames (app field), with fallback to location.displayName for Graph events
-            const locationText = event.locationDisplayNames?.trim() || event.location?.displayName?.trim() || '';
+            // Read locationDisplayNames from calendarData first, then top-level, with fallback to location.displayName for Graph events
+            const locationText = getEventField(event, 'locationDisplayNames', '')?.trim() || event.location?.displayName?.trim() || '';
             const eventLocations = locationText
               .split(/[;,]/)
               .map(loc => loc.trim())
@@ -2864,8 +2888,13 @@
 
       // Group filtered events by matching their locationCodes to group rsKeys
       filteredEvents.forEach((event) => {
+        // Get location fields from calendarData first, then top-level
+        const virtualMeetingUrl = getEventField(event, 'virtualMeetingUrl');
+        const locationCodes = getEventField(event, 'locationCodes', []);
+        const locations = getEventField(event, 'locations', []);
+
         // Check for virtual meeting first
-        if (event.virtualMeetingUrl) {
+        if (virtualMeetingUrl) {
           if (!groups['Virtual Meeting']) {
             const virtualLoc = generalLocations.find(l => l.name === 'Virtual Meeting');
             groups['Virtual Meeting'] = {
@@ -2878,10 +2907,10 @@
           groups['Virtual Meeting'].events.push(event);
         }
         // Events with locationCodes (rsKey array)
-        else if (event.locationCodes && Array.isArray(event.locationCodes) && event.locationCodes.length > 0) {
+        else if (locationCodes && Array.isArray(locationCodes) && locationCodes.length > 0) {
           let addedToAnyGroup = false;
 
-          event.locationCodes.forEach(code => {
+          locationCodes.forEach(code => {
             // Find group that has this rsKey
             const matchingGroupKey = Object.keys(groups).find(groupKey =>
               groups[groupKey].rsKey === code
@@ -2907,10 +2936,10 @@
           }
         }
         // Events without locationCodes - try to match by locations ObjectIds
-        else if (event.locations && Array.isArray(event.locations) && event.locations.length > 0) {
+        else if (locations && Array.isArray(locations) && locations.length > 0) {
           let addedToAnyGroup = false;
 
-          event.locations.forEach(locationId => {
+          locations.forEach(locationId => {
             if (!locationId) return; // Skip null/undefined location IDs
             const locationIdStr = locationId.toString();
             // Find the location object to get its rsKey
@@ -3501,15 +3530,16 @@
 
           if (!inDateRange) return false;
 
-          // Check location match using ObjectId if available
+          // Check location match using ObjectId if available (check calendarData first)
           if (locationId) {
             // Direct ObjectId matching
-            return event.locations && Array.isArray(event.locations) &&
-              event.locations.some(locId => locId.toString() === locationId);
+            const locations = getEventField(event, 'locations', []);
+            return locations && Array.isArray(locations) &&
+              locations.some(locId => locId.toString() === locationId);
           } else {
             // Fallback for special locations (Virtual Meeting, Unspecified)
             if (locationName === 'Virtual Meeting') {
-              return !!event.virtualMeetingUrl;
+              return !!getEventField(event, 'virtualMeetingUrl');
             } else if (locationName === 'Unspecified') {
               return isUnspecifiedLocation(event);
             }
@@ -3534,15 +3564,16 @@
           // Check date match
           if (eventDateStr !== dateStr) return false;
 
-          // Check location match using ObjectId if available
+          // Check location match using ObjectId if available (check calendarData first)
           if (locationId) {
             // Direct ObjectId matching
-            return event.locations && Array.isArray(event.locations) &&
-              event.locations.some(locId => locId.toString() === locationId);
+            const locations = getEventField(event, 'locations', []);
+            return locations && Array.isArray(locations) &&
+              locations.some(locId => locId.toString() === locationId);
           } else {
             // Fallback for special locations (Virtual Meeting, Unspecified)
             if (locationName === 'Virtual Meeting') {
-              return !!event.virtualMeetingUrl;
+              return !!getEventField(event, 'virtualMeetingUrl');
             } else if (locationName === 'Unspecified') {
               return isUnspecifiedLocation(event);
             }
@@ -4820,25 +4851,25 @@
             startTime: pendingReq.proposedChanges?.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
             endDate: pendingReq.proposedChanges?.endDateTime?.split('T')[0] || event.endDate,
             endTime: pendingReq.proposedChanges?.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
-            attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? event.attendeeCount,
-            locations: pendingReq.proposedChanges?.locations || event.locations,
-            locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || event.locationDisplayNames,
-            requestedRooms: pendingReq.proposedChanges?.requestedRooms || event.requestedRooms,
-            categories: pendingReq.proposedChanges?.categories || event.categories,
-            services: pendingReq.proposedChanges?.services || event.services,
-            setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? event.setupTimeMinutes,
-            teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? event.teardownTimeMinutes,
-            setupTime: pendingReq.proposedChanges?.setupTime || event.setupTime,
-            teardownTime: pendingReq.proposedChanges?.teardownTime || event.teardownTime,
-            doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || event.doorOpenTime,
-            doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || event.doorCloseTime,
-            setupNotes: pendingReq.proposedChanges?.setupNotes ?? event.setupNotes,
-            doorNotes: pendingReq.proposedChanges?.doorNotes ?? event.doorNotes,
-            eventNotes: pendingReq.proposedChanges?.eventNotes ?? event.eventNotes,
-            specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? event.specialRequirements,
-            isOffsite: pendingReq.proposedChanges?.isOffsite ?? event.isOffsite,
-            offsiteName: pendingReq.proposedChanges?.offsiteName || event.offsiteName,
-            offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || event.offsiteAddress,
+            attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? getEventField(event, 'attendeeCount'),
+            locations: pendingReq.proposedChanges?.locations || getEventField(event, 'locations', []),
+            locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || getEventField(event, 'locationDisplayNames', ''),
+            requestedRooms: pendingReq.proposedChanges?.requestedRooms || getEventField(event, 'requestedRooms', []),
+            categories: pendingReq.proposedChanges?.categories || getEventField(event, 'categories', []),
+            services: pendingReq.proposedChanges?.services || getEventField(event, 'services', {}),
+            setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? getEventField(event, 'setupTimeMinutes'),
+            teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? getEventField(event, 'teardownTimeMinutes'),
+            setupTime: pendingReq.proposedChanges?.setupTime || getEventField(event, 'setupTime', ''),
+            teardownTime: pendingReq.proposedChanges?.teardownTime || getEventField(event, 'teardownTime', ''),
+            doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || getEventField(event, 'doorOpenTime', ''),
+            doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || getEventField(event, 'doorCloseTime', ''),
+            setupNotes: pendingReq.proposedChanges?.setupNotes ?? getEventField(event, 'setupNotes'),
+            doorNotes: pendingReq.proposedChanges?.doorNotes ?? getEventField(event, 'doorNotes'),
+            eventNotes: pendingReq.proposedChanges?.eventNotes ?? getEventField(event, 'eventNotes'),
+            specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? getEventField(event, 'specialRequirements'),
+            isOffsite: pendingReq.proposedChanges?.isOffsite ?? getEventField(event, 'isOffsite', false),
+            offsiteName: pendingReq.proposedChanges?.offsiteName || getEventField(event, 'offsiteName', ''),
+            offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || getEventField(event, 'offsiteAddress', ''),
             createdAt: pendingReq.requestedBy?.requestedAt
           };
         }
