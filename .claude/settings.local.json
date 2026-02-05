@@ -47,7 +47,8 @@
       "Bash(az webapp list:*)",
       "Bash(az webapp config appsettings set:*)",
       "Bash(pgrep:*)",
-      "Skill(code-review:code-review)"
+      "Skill(code-review:code-review)",
+      "Bash(npx jest:*)"
     ],
     "deny": []
   }

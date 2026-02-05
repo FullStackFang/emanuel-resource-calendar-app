@@ -373,6 +373,119 @@ describe('transformEventToFlatStructure', () => {
       expect(result.recurrence).toBeTruthy();
       expect(result.recurrence.pattern.type).toBe('weekly');
     });
+
+    it('extracts eventType from top-level (authoritative source)', () => {
+      const seriesMasterEvent = {
+        eventType: 'seriesMaster',
+        seriesMasterId: null,
+        recurrence: { pattern: { type: 'weekly' }, range: { type: 'endDate' } },
+        graphData: {
+          subject: 'Weekly Meeting',
+          type: 'should-be-ignored',
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T10:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(seriesMasterEvent);
+
+      expect(result.eventType).toBe('seriesMaster');
+    });
+
+    it('falls back to graphData.type when eventType is not present', () => {
+      const graphEvent = {
+        graphData: {
+          subject: 'Occurrence Event',
+          type: 'occurrence',
+          seriesMasterId: 'master-123',
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T10:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(graphEvent);
+
+      expect(result.eventType).toBe('occurrence');
+      expect(result.seriesMasterId).toBe('master-123');
+    });
+
+    it('defaults eventType to singleInstance when neither source has it', () => {
+      const standaloneEvent = {
+        graphData: {
+          subject: 'One-time Event',
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T10:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(standaloneEvent);
+
+      expect(result.eventType).toBe('singleInstance');
+      expect(result.seriesMasterId).toBeNull();
+      expect(result.recurrence).toBeNull();
+    });
+
+    it('extracts seriesMasterId from top-level (authoritative source)', () => {
+      const occurrenceEvent = {
+        eventType: 'occurrence',
+        seriesMasterId: 'master-xyz',
+        graphData: {
+          subject: 'Occurrence',
+          seriesMasterId: 'should-be-ignored',
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T10:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(occurrenceEvent);
+
+      expect(result.seriesMasterId).toBe('master-xyz');
+    });
+
+    it('extracts recurrence from top-level (authoritative source)', () => {
+      const recurringEvent = {
+        eventType: 'seriesMaster',
+        recurrence: {
+          pattern: { type: 'daily', interval: 1 },
+          range: { type: 'numbered', numberOfOccurrences: 10 }
+        },
+        graphData: {
+          subject: 'Daily Standup',
+          recurrence: {
+            pattern: { type: 'weekly' } // Should be ignored
+          },
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T09:30:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(recurringEvent);
+
+      expect(result.recurrence.pattern.type).toBe('daily');
+      expect(result.recurrence.range.numberOfOccurrences).toBe(10);
+    });
+
+    it('reads eventType and seriesMasterId from calendarData', () => {
+      const eventWithCalendarData = {
+        calendarData: {
+          eventType: 'occurrence',
+          seriesMasterId: 'calendardata-master-id',
+          recurrence: null
+        },
+        graphData: {
+          subject: 'Occurrence from calendarData',
+          type: 'should-be-ignored',
+          seriesMasterId: 'should-be-ignored',
+          start: { dateTime: '2024-03-15T09:00:00.000Z' },
+          end: { dateTime: '2024-03-15T10:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithCalendarData);
+
+      expect(result.eventType).toBe('occurrence');
+      expect(result.seriesMasterId).toBe('calendardata-master-id');
+    });
   });
 
   describe('Internal notes extraction', () => {

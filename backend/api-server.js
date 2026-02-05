@@ -3148,6 +3148,11 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // location field removed - locationDisplayNames is the single source of truth
     unifiedEvent.isAllDayEvent = graphEvent.isAllDay || false;
 
+    // Recurring event metadata (authoritative for app, graphData still has raw values)
+    unifiedEvent.eventType = graphEvent.type || 'singleInstance';
+    unifiedEvent.seriesMasterId = graphEvent.seriesMasterId || null;
+    unifiedEvent.recurrence = graphEvent.recurrence || null;
+
     // Timing fields from internalData
     unifiedEvent.setupTime = internalData.setupTime || '';
     unifiedEvent.teardownTime = internalData.teardownTime || '';

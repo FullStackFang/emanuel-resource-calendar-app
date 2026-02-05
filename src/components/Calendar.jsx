@@ -1353,11 +1353,15 @@
           // FILTER OUT GRAPH API OCCURRENCES: Remove occurrence records from Graph's /calendarView
           // We'll expand masters ourselves to have more control
           eventsToDisplay = eventsToDisplay.filter(event => {
+            // Check eventType from top-level (authoritative) or graphData (fallback)
+            const eventType = event.eventType || event.graphData?.type;
+            const seriesMasterId = event.seriesMasterId || event.graphData?.seriesMasterId;
+
             // Keep series masters (we'll expand them)
-            if (event.graphData?.type === 'seriesMaster') return true;
+            if (eventType === 'seriesMaster') return true;
 
             // Keep standalone events (no series master)
-            if (!event.graphData?.seriesMasterId) return true;
+            if (!seriesMasterId) return true;
 
             // Skip occurrences from Graph - we'll generate them from the master
             logger.debug(`Filtering out Graph API occurrence: ${event.graphData?.subject} (${event.eventId})`);
@@ -1366,18 +1370,22 @@
 
           // Track event count before expansion for accurate metrics
           const eventsBeforeExpansion = eventsToDisplay.length;
-          const seriesMastersWithRecurrence = eventsToDisplay.filter(e =>
-            e.graphData?.type === 'seriesMaster' && e.graphData?.recurrence
-          );
+          const seriesMastersWithRecurrence = eventsToDisplay.filter(e => {
+            const eventType = e.eventType || e.graphData?.type;
+            const recurrence = e.recurrence || e.graphData?.recurrence;
+            return eventType === 'seriesMaster' && recurrence;
+          });
 
           // EXPAND RECURRING SERIES: Convert series masters into individual occurrences
           // With memoization to avoid redundant calculations
           calendarDebug.startPhase('recurring_expansion');
 
           // Create cache key from date range and series master IDs
-          const seriesMasters = eventsToDisplay.filter(e =>
-            e.graphData?.type === 'seriesMaster' && e.graphData?.recurrence
-          );
+          const seriesMasters = eventsToDisplay.filter(e => {
+            const eventType = e.eventType || e.graphData?.type;
+            const recurrence = e.recurrence || e.graphData?.recurrence;
+            return eventType === 'seriesMaster' && recurrence;
+          });
           const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
           const expandStart = start.split('T')[0];
           const expandEndDate = new Date(end);
@@ -1395,8 +1403,9 @@
           } else {
             // Expand each series master
             for (const event of seriesMasters) {
-              const recurrence = event.graphData.recurrence;
-              if (!recurrence.pattern || !recurrence.range) {
+              // Get recurrence from top-level (authoritative) or graphData (fallback)
+              const recurrence = event.recurrence || event.graphData?.recurrence;
+              if (!recurrence?.pattern || !recurrence?.range) {
                 logger.warn('Series master has malformed recurrence data:', event.graphData?.subject);
                 continue;
               }
@@ -1422,6 +1431,10 @@
                   expandedOccurrences.push({
                     ...event,
                     eventId: `${event.eventId}-occurrence-${occurrenceDate}`,
+                    // Top-level recurring metadata (authoritative for app)
+                    eventType: 'occurrence',
+                    seriesMasterId: event.graphData.id,
+                    recurrence: null, // Occurrences don't have recurrence pattern
                     graphData: {
                       ...occurrence,
                       id: `${event.graphData.id}-occurrence-${occurrenceDate}`,
@@ -1461,7 +1474,10 @@
 
           // Combine: non-recurring events + expanded occurrences (skip series masters)
           const expandedEvents = eventsToDisplay
-            .filter(e => e.graphData?.type !== 'seriesMaster')
+            .filter(e => {
+              const eventType = e.eventType || e.graphData?.type;
+              return eventType !== 'seriesMaster';
+            })
             .concat(expandedOccurrences);
 
           eventsToDisplay = expandedEvents;
@@ -3605,11 +3621,15 @@
      * @returns {boolean} - True if the event is recurring
      */
     const isRecurringEvent = useCallback((event) => {
+      // Check top-level fields (authoritative) then graphData (fallback)
+      const eventType = event.eventType || event.graphData?.type;
+      const seriesMasterId = event.seriesMasterId || event.graphData?.seriesMasterId;
+      const recurrence = event.recurrence || event.graphData?.recurrence;
+
       return !!(
-        event.seriesMasterId ||
-        event.graphData?.seriesMasterId ||
-        event.graphData?.recurrence ||
-        event.graphData?.type === 'seriesMaster'
+        seriesMasterId ||
+        recurrence ||
+        eventType === 'seriesMaster'
       );
     }, []);
 

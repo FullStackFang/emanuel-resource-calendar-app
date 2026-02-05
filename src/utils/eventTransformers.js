@@ -255,7 +255,10 @@ export function transformEventToFlatStructure(event) {
     eventSeriesId: event.eventSeriesId || null,
     seriesIndex: event.seriesIndex || null,
     seriesLength: event.seriesLength || null,
-    recurrence: event.recurrence || event.graphData?.recurrence || null,
+    // Recurring event metadata (authoritative top-level, with graphData fallback)
+    eventType: getField(event, 'eventType') || event.graphData?.type || 'singleInstance',
+    seriesMasterId: getField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
+    recurrence: getField(event, 'recurrence') || event.graphData?.recurrence || null,
 
     // All-day event flag
     isAllDayEvent: getField(event, 'isAllDayEvent') || event.graphData?.isAllDay || false,

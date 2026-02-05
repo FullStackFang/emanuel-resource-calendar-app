@@ -162,11 +162,11 @@ export default function RoomReservationReview({
         editScope: editScope,
         // For 'thisEvent' scope, include occurrence identification data
         occurrenceDate: editScope === 'thisEvent' ? reservation.start?.dateTime || startDateTime : null,
-        // Series master ID for recurring events - check multiple possible locations
+        // Series master ID for recurring events - check top-level (authoritative) then graphData (fallback)
         seriesMasterId: editScope ? (
           reservation.seriesMasterId ||
           reservation.graphData?.seriesMasterId ||
-          (reservation.graphData?.type === 'seriesMaster' ? reservation.graphData?.id : null)
+          ((reservation.eventType || reservation.graphData?.type) === 'seriesMaster' ? reservation.graphData?.id : null)
         ) : null
       };
 

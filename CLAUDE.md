@@ -19,6 +19,16 @@ npm run dev        # Start with nodemon (auto-restart on changes)
 npm start          # Start production server
 ```
 
+### Testing
+```bash
+cd backend
+npm test                           # Run all tests (173 tests)
+npm run test:unit                  # Run unit tests only
+npm run test:integration           # Run integration tests only
+npm test -- eventApprove.test.js   # Run specific test file
+npm test -- --testNamePattern="Approver"  # Run tests matching pattern
+```
+
 ### Generate Development Certificates
 ```bash
 node generateCert.js  # Creates self-signed certs in /certs folder
@@ -131,17 +141,20 @@ Events in `templeEvents__Events` combine Microsoft Graph data with internal enri
   // TOP-LEVEL IDENTITY/STATUS FIELDS
   eventId, userId, calendarOwner, calendarId, status, isDeleted,
 
+  // TOP-LEVEL CALENDAR FIELDS (authoritative for app)
+  eventTitle, eventDescription,
+  startDateTime, endDateTime,  // Date range queries use these
+  startDate, startTime, endDate, endTime,
+  setupTime, teardownTime, doorOpenTime, doorCloseTime,
+  locations, locationDisplayNames,
+  categories, services, assignedTo,
+  // Recurring event metadata
+  eventType,        // 'singleInstance' | 'seriesMaster' | 'occurrence'
+  seriesMasterId,   // Graph ID of series master (for occurrences)
+  recurrence,       // Recurrence pattern (for series masters)
+
   // NESTED DATA STRUCTURES
-  graphData: { /* Raw Microsoft Graph API data */ },
-  calendarData: {
-    eventTitle, eventDescription,
-    startDateTime, endDateTime,  // Date range queries use these
-    startDate, startTime, endDate, endTime,
-    setupTime, teardownTime, doorOpenTime, doorCloseTime,
-    locations, locationDisplayNames,
-    categories, services, assignedTo,
-    // ... all calendar/event fields
-  },
+  graphData: { /* Raw Microsoft Graph API data - do NOT read for display */ },
   roomReservationData: { /* Reservation workflow data */ },
   internalData: { /* Legacy internal enrichments */ },
 
@@ -150,18 +163,19 @@ Events in `templeEvents__Events` combine Microsoft Graph data with internal enri
 }
 ```
 
-**Important: All calendar fields are in `calendarData`**
-Date range queries use `calendarData.startDateTime` and `calendarData.endDateTime`:
+**Important: All calendar fields are at top level**
+Date range queries use top-level `startDateTime` and `endDateTime`:
 ```javascript
-query['calendarData.startDateTime'] = { $lt: endDate };
-query['calendarData.endDateTime'] = { $gt: startDate };
+query['startDateTime'] = { $lt: endDate };
+query['endDateTime'] = { $gt: startDate };
 ```
 
-**calendarData Fields**:
+**Top-level Calendar Fields**:
 - Event info: eventTitle, eventDescription, categories
 - Timing: startDateTime/endDateTime, setupTime, teardownTime, doorOpenTime, doorCloseTime
 - Location: locations (ObjectId array), locationDisplayNames, isOffsite, offsite* fields
 - Requester: requesterName, requesterEmail, department, phone
+- Recurring: eventType, seriesMasterId, recurrence
 - Services and assignments
 
 ### Authentication Flow
@@ -438,7 +452,126 @@ For detailed architecture documentation, see `architecture-notes.md`
 
 ## Current In-Progress Work
 
-### graphData Isolation Cleanup (Code Review Findings)
+### Event Workflow Test Suite - Phase 1 Complete
+
+**Status**: Phase 1 Complete 2026-02-04. All 173 tests passing.
+
+**Goal**: Create comprehensive test suite to verify event workflow state machine, role-based access control, and cross-role interactions.
+
+**Event State Machine:**
+```
+CREATE DRAFT → DRAFT → SUBMIT → PENDING → APPROVE → APPROVED
+                 │                  │                   │
+                 │                  └─→ REJECT → REJECTED │
+                 │                                        │
+                 └─────────── DELETE ←───────────────────┘
+                                │
+                            DELETED → RESTORE → Previous State
+```
+
+**Statuses**: `draft` | `pending` | `approved` | `rejected` | `deleted`
+
+**Test Categories (93 planned tests):**
+| Category | Test IDs | Count |
+|----------|----------|-------|
+| Viewer Role | V-1 to V-11 | 11 |
+| Requester Role | R-1 to R-29 | 29 |
+| Approver Role | A-1 to A-23 | 23 |
+| Admin Role | AD-1 to AD-3 | 3 |
+| Cross-Role | X-1 to X-10 | 10 |
+| Edge Cases | E-1 to E-13 | 13 |
+| Notifications | N-1 to N-4 | 4 |
+
+**Test Infrastructure Files:**
+```
+backend/__tests__/__helpers__/
+├── testSetup.js       # mongodb-memory-server lifecycle (Windows ARM64 compatible)
+├── testConstants.js   # Status terminology mapping
+├── userFactory.js     # Create mock users for each role
+├── eventFactory.js    # Create events in each state
+├── authHelpers.js     # JWT mock token generation (jose)
+├── graphApiMock.js    # Mock Graph API service with call tracking
+├── dbHelpers.js       # Database seeding + audit assertion
+├── testApp.js         # Express test app with all workflow endpoints
+└── globalSetup.js     # Jest global setup for mongodb-memory-server
+```
+
+**Integration Test Files:**
+```
+backend/__tests__/integration/
+├── roles/
+│   ├── viewerAccess.test.js      # V-1 to V-11 (17 tests)
+│   └── requesterWorkflow.test.js # R-1 to R-29 (27 tests)
+└── events/
+    ├── eventApprove.test.js      # A-7 (8 tests)
+    ├── eventReject.test.js       # A-8, A-9 (8 tests)
+    ├── eventDelete.test.js       # A-13, A-19-A-23 (14 tests)
+    └── editRequest.test.js       # A-14 to A-17 (12 tests)
+```
+
+**Verification Commands:**
+```bash
+cd backend && npm test                                  # All tests (173 passing)
+cd backend && npm run test:unit                         # Unit only
+cd backend && npm run test:integration                  # Integration only
+cd backend && npm test -- eventApprove.test.js          # Specific file
+```
+
+**Completed Tests (173 passing):**
+- **Permission Unit Tests**: 44 tests for permissionUtils (role hierarchy, permissions, department fields)
+- **Viewer Access Tests (V-1 to V-11)**: 17 tests verifying viewers cannot perform privileged actions
+- **Requester Workflow Tests (R-1 to R-29)**: 27 tests for ownership and state transitions
+- **Event Approval Tests (A-7)**: 8 tests for pending→approved workflow with Graph API mock
+- **Event Rejection Tests (A-8, A-9)**: 8 tests for pending→rejected workflow with reason validation
+- **Event Delete/Restore Tests (A-13, A-19-A-23)**: 14 tests for soft delete and restore
+- **Edit Request Tests (A-14 to A-17)**: 12 tests for edit request workflow
+- **Error Logging Service Tests**: 12 tests for sanitizeData and generateCorrelationId
+- **Graph API Service Tests**: 31 tests for Graph API service functionality
+
+**Test Infrastructure Created:**
+- `backend/__tests__/__helpers__/testConstants.js` - Status/role/endpoint constants
+- `backend/__tests__/__helpers__/testSetup.js` - MongoDB memory server lifecycle with Windows ARM64 detection
+- `backend/__tests__/__helpers__/userFactory.js` - User fixtures for all roles
+- `backend/__tests__/__helpers__/eventFactory.js` - Event fixtures for all states
+- `backend/__tests__/__helpers__/authHelpers.js` - JWT token generation with jose RSA key pairs
+- `backend/__tests__/__helpers__/graphApiMock.js` - Mock Graph API service with call history tracking
+- `backend/__tests__/__helpers__/dbHelpers.js` - Audit assertion helpers
+- `backend/__tests__/__helpers__/testApp.js` - Express test app implementing all workflow endpoints
+
+**Windows ARM64 Compatibility:**
+The test suite automatically detects Windows ARM64 and uses x64 MongoDB binary emulation since MongoDB doesn't provide ARM64 Windows builds. This is handled in `testSetup.js` via `getServerOptions()`.
+
+**Remaining Work:**
+- Cross-role tests (X-1 to X-10)
+- Edge case tests (E-1 to E-13)
+- Notification tests (N-1 to N-4)
+- E2E tests with Playwright
+
+**Plan File**: `/home/fullstackfang/.claude/plans/piped-percolating-adleman.md`
+
+---
+
+### Move Recurring Event Metadata to calendarData - COMPLETED
+
+**Status**: Completed 2026-02-04
+
+**Goal**: Move recurring event fields (`type`, `seriesMasterId`, `recurrence`) from `graphData` to top-level authoritative fields to complete the graphData isolation cleanup.
+
+**Completed Tasks:**
+- [x] **Backend**: Updated `upsertUnifiedEvent()` in `backend/api-server.js` to add `eventType`, `seriesMasterId`, `recurrence` at top level
+- [x] **Backend**: Created migration script `backend/migrate-add-recurrence-to-calendardata.js` (supports `--dry-run`, `--verify`)
+- [x] **Frontend**: Updated `src/utils/eventTransformers.js` to extract `eventType`, `seriesMasterId` with fallback
+- [x] **Frontend**: Updated `src/components/Calendar.jsx` (6 locations) to use top-level fields with fallback
+- [x] **Frontend**: Updated `src/components/WeekView.jsx` recurring indicator check
+- [x] **Frontend**: Updated `src/components/DayEventPanel.jsx` recurring indicator check
+- [x] **Frontend**: Updated `src/components/RoomReservationReview.jsx` series master ID extraction
+- [x] **Testing**: Added 7 new test cases in `src/__tests__/unit/utils/eventTransformers.test.js` (all 46 tests pass)
+
+**Migration**: Run `cd backend && node migrate-add-recurrence-to-calendardata.js --dry-run` to preview, then without flag to apply.
+
+---
+
+### graphData Isolation Cleanup (Code Review Findings) - COMPLETED
 
 **Status**: Completed 2026-02-04.
 
@@ -449,9 +582,6 @@ For detailed architecture documentation, see `architecture-notes.md`
 - [x] **Task 4**: Updated EventForm.jsx to read description from `calendarData.eventDescription`
 - [x] **Task 5**: Updated EventSearch.jsx and EventSearchExport.jsx to use `calendarData` fields
 - [x] **Task 6**: Updated MyReservations.jsx to use `transformEventsToFlatStructure()`
-
-**Remaining Work (Low Priority):**
-- [ ] Move recurring event metadata to `calendarData` - Currently `Calendar.jsx` still reads `graphData.type`, `graphData.seriesMasterId`, `graphData.recurrence` for recurring event logic. This is a larger refactor that requires backend changes to store recurrence data in `calendarData`.
 
 ---
 
@@ -466,8 +596,13 @@ For detailed architecture documentation, see `architecture-notes.md`
 **graphData** (Graph API integration only):
 - Raw Microsoft Graph API responses
 - Written once during sync from Outlook
-- Read ONLY when publishing to Outlook
+- Read ONLY when publishing to Outlook (approve, update, delete operations still call Graph API)
 - Frontend should NEVER read for display
+
+**Recurring Events:** (RESOLVED 2026-02-04)
+- Recurring event metadata now stored at top level: `eventType`, `seriesMasterId`, `recurrence`
+- All components use top-level fields with `graphData` fallback for backward compatibility
+- Migration script available: `backend/migrate-add-recurrence-to-calendardata.js`
 
 ---
 
