@@ -13,10 +13,25 @@ import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import './index.css'; // optional
 
-// Force full page reload on HMR for context providers to prevent React hooks errors
-// This avoids "Invalid hook call" errors when context files are hot-reloaded
+// Force full page reload on HMR for critical modules to prevent React hooks errors
+// The @azure/msal-react library can get out of sync with React during partial HMR updates,
+// causing "Cannot read properties of null (reading 'useEffect')" and "Invalid hook call" errors.
 if (import.meta.hot) {
-  import.meta.hot.accept(['./context/NotificationContext.jsx', './context/AuthContext.jsx'], () => {
+  // Accept self-updates with full reload
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+
+  // Force reload for context providers and app root
+  import.meta.hot.accept([
+    './App.jsx',
+    './context/NotificationContext.jsx',
+    './context/AuthContext.jsx',
+    './context/RoleSimulationContext.jsx',
+    './context/LocationContext.jsx',
+    './context/TimezoneContext.jsx',
+    './context/UserPreferencesContext.jsx'
+  ], () => {
     window.location.reload();
   });
 }

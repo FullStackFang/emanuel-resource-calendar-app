@@ -18,9 +18,30 @@ https: {
 export default defineConfig({
   // Force all React imports to resolve to the same instance
   // This fixes "Cannot read properties of null (reading 'useEffect')" errors
-  // caused by libraries like @azure/msal-react bundling their own React
+  // caused by libraries bundling their own React
   resolve: {
-    dedupe: ['react', 'react-dom']
+    dedupe: [
+      'react',
+      'react-dom',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'react-router',
+      'react-router-dom'
+    ]
+  },
+  // Pre-bundle all React-dependent libraries together to ensure single React instance
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-router',
+      'react-router-dom',
+      '@azure/msal-react',
+      '@azure/msal-browser',
+      '@tanstack/react-query'
+    ],
+    // Force re-bundling to clear any stale cache
+    force: true
   },
   plugins: [
     react(),
@@ -48,9 +69,10 @@ export default defineConfig({
       headers: ['Content-Type', 'Authorization']
     },
     
-    // Allow ngrok host
+    // HMR configuration
     hmr: {
       host: 'localhost',
+      overlay: true,
     },
     
     // Add headers directly
