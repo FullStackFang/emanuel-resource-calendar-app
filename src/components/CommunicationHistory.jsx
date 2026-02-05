@@ -1,8 +1,10 @@
 // src/components/CommunicationHistory.jsx
 import React from 'react';
+import { usePermissions } from '../hooks/usePermissions';
 import './CommunicationHistory.css';
 
-export default function CommunicationHistory({ reservation, isAdmin = false }) {
+export default function CommunicationHistory({ reservation }) {
+  const { isAdmin } = usePermissions();
   if (!reservation?.communicationHistory || reservation.communicationHistory.length === 0) {
     return (
       <div className="communication-history">

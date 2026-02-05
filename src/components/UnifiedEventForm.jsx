@@ -858,7 +858,6 @@ export default function UnifiedEventForm({
           }
         }}
         readOnly={mode === 'event' ? readOnly : false}
-        isAdmin={isAdmin}
         reservationStatus={mode === 'reservation' ? reservation?.status : null}
         currentReservationId={mode === 'reservation' ? reservation?._id : null}
         onLockedEventClick={onLockedEventClick}

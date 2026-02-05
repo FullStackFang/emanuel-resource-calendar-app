@@ -620,7 +620,7 @@ export default function MyReservations({ apiToken }) {
 
             {/* Communication History */}
             {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
-              <CommunicationHistory reservation={selectedReservation} isAdmin={false} />
+              <CommunicationHistory reservation={selectedReservation} />
             )}
             
             {selectedReservation.status === 'pending' && (

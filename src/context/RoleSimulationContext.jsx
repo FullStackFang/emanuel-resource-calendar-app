@@ -46,7 +46,7 @@ export const ROLE_TEMPLATES = {
       canEditEvents: true,
       canDeleteEvents: true,
       canApproveReservations: true,
-      isAdmin: false
+      isAdmin: false  // Approvers are not admins, but canEditEvents allows editing approved events
     }
   },
   admin: {

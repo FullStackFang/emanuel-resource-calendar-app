@@ -1741,7 +1741,7 @@
           const hasCreatePermission = data.preferences?.createEvents ?? true;  // Default to true if not set
           const hasEditPermission = data.preferences?.editEvents ?? true;      // Default to true if not set
           const hasDeletePermission = data.preferences?.deleteEvents ?? false; // Default to false if not set
-          const isAdmin = data.preferences?.isAdmin ?? false;                  // Default to false if not set
+          const isAdmin = data.role === 'admin' || data.role === 'approver';      // Admins and approvers can edit all fields
           
           const permissions = {
             startOfWeek: data.preferences?.startOfWeek || 'Monday',
@@ -6606,7 +6606,6 @@
           isApproving={reviewModal.isApproving}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
-          isAdmin={effectivePermissions.isAdmin}
           isRequesterOnly={!canEditEvents && !canApproveReservations}
           itemStatus={reviewModal.currentItem?.status || 'approved'}
           deleteButtonText={
@@ -6675,7 +6674,6 @@
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={reviewModal.setIsFormValid}
               readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode}
-              isAdmin={effectivePermissions.isAdmin}
               editScope={reviewModal.editScope}
             />
           )}
@@ -6698,7 +6696,6 @@
           isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
           showTabs={true}
-          isAdmin={effectivePermissions.isAdmin}
           saveButtonText={
             pendingMultiDayConfirmation
               ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
@@ -6759,7 +6756,6 @@
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={handleEventReviewFormValidChange}
               readOnly={false}
-              isAdmin={effectivePermissions.isAdmin}
             />
           )}
         </ReviewModal>

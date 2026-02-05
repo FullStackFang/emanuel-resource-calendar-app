@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
+import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import RoomReservationFormBase from './RoomReservationFormBase';
@@ -37,7 +38,6 @@ export default function RoomReservationReview({
   onDataChange,
   onLockedEventClick,
   onNavigateToSeriesEvent,
-  isAdmin = false,
   availableCalendars = [],
   defaultCalendar = '',
   selectedTargetCalendar = '',
@@ -53,6 +53,8 @@ export default function RoomReservationReview({
   originalData = null // Original form data for comparison in edit request mode (Option C inline diff)
 }) {
   const { showError, showWarning } = useNotification();
+  const { isAdmin } = usePermissions();
+
   // In edit request mode, override readOnly to allow editing
   // In viewing edit request mode, force readOnly
   const effectiveReadOnly = isViewingEditRequest || (readOnly && !isEditRequestMode);
@@ -380,7 +382,6 @@ export default function RoomReservationReview({
           onHasChangesChange={onHasChangesChange}
           onIsNavigatingChange={setIsNavigating}
           readOnly={effectiveReadOnly}
-          isAdmin={isAdmin}
           reservationStatus={reservation?.status}
           currentReservationId={reservation?._id}
           onLockedEventClick={onLockedEventClick}

@@ -1,5 +1,6 @@
 // src/components/shared/ReviewModal.jsx
 import React, { useEffect, useCallback, useState } from 'react';
+import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
 import './ReviewModal.css';
@@ -51,8 +52,6 @@ export default function ReviewModal({
   saveButtonText = null,
   deleteButtonText = null,
   approveButtonText = null,
-  // Admin access
-  isAdmin = false,
   // Requester-only mode (can view but not edit/approve)
   isRequesterOnly = false,
   // Current item status for status badge display
@@ -116,6 +115,9 @@ export default function ReviewModal({
   isCancelEditRequestConfirming = false,
   onCancelCancelEditRequest = null
 }) {
+  // Get admin status from permissions hook
+  const { isAdmin } = usePermissions();
+
   // Helper to get status class for badge
   const getStatusClass = (status) => {
     switch (status) {

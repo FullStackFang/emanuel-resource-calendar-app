@@ -54,7 +54,6 @@ export default function RoomReservationFormBase({
 
   // Mode-specific props
   readOnly = false,             // Whether form fields are read-only
-  isAdmin = false,              // Admin users can edit regardless of status
   reservationStatus = null,     // Status of reservation (for Review mode)
   currentReservationId = null,  // ID of current reservation (for Review mode)
   onLockedEventClick = null,    // Callback for locked events in scheduling assistant
@@ -158,6 +157,9 @@ export default function RoomReservationFormBase({
   // Available categories for concurrent event restrictions (fetched from API)
   const [availableCategories, setAvailableCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
+
+  // Get permissions - must be before useEffects that depend on isAdmin
+  const { canEditField, isAdmin, canEditEvents } = usePermissions();
 
   // Fetch available categories when isAllowedConcurrent is checked (for admin)
   useEffect(() => {
@@ -271,7 +273,6 @@ export default function RoomReservationFormBase({
   }, [selectedServices]);
 
   const { rooms, loading: roomsLoading } = useRooms();
-  const { canEditField } = usePermissions();
 
   // Refs to prevent unnecessary re-initialization of form data
   const isInitializedRef = useRef(false);
@@ -979,7 +980,8 @@ export default function RoomReservationFormBase({
   // Determine if fields should be disabled
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
   // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
-  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
+  // Admins and users with canEditEvents permission can edit approved/rejected events
+  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
   // even on published events. Only respect isViewingEditRequest - readOnly doesn't apply

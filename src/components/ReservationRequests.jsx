@@ -1435,7 +1435,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           hasChanges={hasChanges}
           isFormValid={isFormValid}
           isSaving={isSaving}
-          isAdmin={isAdmin}
           showFormToggle={true}
           useUnifiedForm={useUnifiedForm}
           onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}

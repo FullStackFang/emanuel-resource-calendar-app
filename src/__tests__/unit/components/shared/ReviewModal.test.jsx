@@ -12,6 +12,46 @@ vi.mock('../../../../components/shared/DraftSaveDialog', () => ({
   default: () => null
 }));
 
+// Mock usePermissions hook
+vi.mock('../../../../hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    isAdmin: false,
+    canViewCalendar: true,
+    canSubmitReservation: true,
+    canCreateEvents: false,
+    canEditEvents: false,
+    canDeleteEvents: false,
+    canApproveReservations: false,
+    canEditField: () => false,
+    department: null,
+    departmentEditableFields: [],
+    canEditDepartmentFields: false,
+    permissionsLoading: false,
+    isSimulating: false,
+    simulatedRoleName: null,
+    isActualAdmin: false,
+    actualRole: 'viewer'
+  }),
+  default: () => ({
+    isAdmin: false,
+    canViewCalendar: true,
+    canSubmitReservation: true,
+    canCreateEvents: false,
+    canEditEvents: false,
+    canDeleteEvents: false,
+    canApproveReservations: false,
+    canEditField: () => false,
+    department: null,
+    departmentEditableFields: [],
+    canEditDepartmentFields: false,
+    permissionsLoading: false,
+    isSimulating: false,
+    simulatedRoleName: null,
+    isActualAdmin: false,
+    actualRole: 'viewer'
+  })
+}));
+
 import ReviewModal from '../../../../components/shared/ReviewModal';
 
 describe('ReviewModal', () => {
