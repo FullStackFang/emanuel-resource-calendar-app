@@ -6,6 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import CommunicationHistory from './CommunicationHistory';
 import EditRequestForm from './EditRequestForm';
@@ -66,7 +67,9 @@ export default function MyReservations({ apiToken }) {
       if (!response.ok) throw new Error('Failed to load reservations');
       
       const data = await response.json();
-      setAllReservations(data.reservations || []);
+      // Transform reservations to flatten calendarData fields to top-level for easier access
+      const transformedReservations = transformEventsToFlatStructure(data.reservations || []);
+      setAllReservations(transformedReservations);
     } catch (err) {
       logger.error('Error loading user reservations:', err);
       setError('Failed to load your reservation requests');

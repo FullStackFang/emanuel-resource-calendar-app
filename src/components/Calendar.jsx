@@ -170,8 +170,8 @@
         const categoryCounts = {};
         const locationCounts = {};
         newEvents.forEach(event => {
-          // Extract categories from either top-level or graphData
-          const categories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          // Extract categories from calendarData (authoritative), then top-level, then graphData fallback
+          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
           const primaryCategory = categories[0] || 'Uncategorized';
           const location = event.location?.displayName || 'Unspecified';
           categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
@@ -838,11 +838,15 @@
        * Helper to extract categories from event (checks both top-level and graphData)
        */
       const getEventCategories = useCallback((event) => {
-        // Check top-level categories array first
+        // Check calendarData.categories first (authoritative for MongoDB documents)
+        if (event.calendarData?.categories && Array.isArray(event.calendarData.categories) && event.calendarData.categories.length > 0) {
+          return event.calendarData.categories;
+        }
+        // Check top-level categories array (for non-MongoDB formats)
         if (event.categories && Array.isArray(event.categories) && event.categories.length > 0) {
           return event.categories;
         }
-        // Check graphData.categories (events from backend API)
+        // Check graphData.categories (legacy fallback)
         if (event.graphData?.categories && Array.isArray(event.graphData.categories) && event.graphData.categories.length > 0) {
           return event.graphData.categories;
         }

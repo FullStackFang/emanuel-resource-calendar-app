@@ -327,30 +327,35 @@ function EventForm({
       let description = '';
 
       // 1. Check eventDescription (from eventTransformers or unified events)
-      if (event.eventDescription && typeof event.eventDescription === 'string') {
+      // 1. Check calendarData.eventDescription (authoritative for MongoDB documents)
+      if (event.calendarData?.eventDescription && typeof event.calendarData.eventDescription === 'string') {
+        description = extractTextFromHtml(event.calendarData.eventDescription);
+      }
+      // 2. Check top-level eventDescription (for already-flat events)
+      else if (event.eventDescription && typeof event.eventDescription === 'string') {
         description = extractTextFromHtml(event.eventDescription);
       }
-      // 2. Check bodyPreview (Graph API plain text preview - preferred source, already clean)
+      // 3. Check bodyPreview (Graph API plain text preview - preferred source, already clean)
       else if (event.bodyPreview && typeof event.bodyPreview === 'string') {
         description = extractTextFromHtml(event.bodyPreview);
       }
-      // 3. Check body as string (from calendarDataService transformation)
+      // 4. Check body as string (from calendarDataService transformation)
       else if (typeof event.body === 'string') {
         description = extractTextFromHtml(event.body);
       }
-      // 4. Check body.content (Graph API object format)
+      // 5. Check body.content (Graph API object format)
       else if (event.body?.content) {
         description = extractTextFromHtml(event.body.content);
       }
-      // 5. Check graphData.body.content (unified events from MongoDB)
+      // 6. Check graphData.body.content (legacy fallback for unified events)
       else if (event.graphData?.body?.content) {
         description = extractTextFromHtml(event.graphData.body.content);
       }
-      // 6. Check graphData.bodyPreview (unified events fallback)
+      // 7. Check graphData.bodyPreview (legacy fallback)
       else if (event.graphData?.bodyPreview) {
         description = extractTextFromHtml(event.graphData.bodyPreview);
       }
-      // 7. Legacy fallback to description field
+      // 8. Legacy fallback to description field
       else if (event.description) {
         description = extractTextFromHtml(event.description);
       }

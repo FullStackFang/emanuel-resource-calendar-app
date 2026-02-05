@@ -152,7 +152,7 @@ const DayEventPanel = memo(({
                 const isPending = event.status === 'pending';
                 const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
                 // Get primary category for color
-                const eventCategories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
                 const primaryCategory = eventCategories[0] || 'Uncategorized';
                 const borderColor = isParentEvent
                   ? '#4aba6d'

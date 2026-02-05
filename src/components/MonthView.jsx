@@ -83,8 +83,8 @@ const MonthView = memo(({
 
     const categoriesInRange = new Set();
     allEvents.forEach(event => {
-      // Check top-level categories, graphData.categories, or legacy category field
-      const categories = event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+      // Check calendarData.categories first (authoritative), then top-level, then graphData fallback
+      const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
       const category = categories[0] || 'Uncategorized';
       categoriesInRange.add(category);
     });

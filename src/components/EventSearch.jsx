@@ -142,8 +142,8 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       logger.debug("Category debugging - first 3 events:");
       results.slice(0, 3).forEach((event, index) => {
         logger.debug(`Event ${index + 1}:`, {
-          subject: event.graphData?.subject || event.subject,
-          graphCategories: event.graphData?.categories,
+          subject: event.calendarData?.eventTitle || event.eventTitle || event.subject,
+          calendarDataCategories: event.calendarData?.categories,
           mecCategories: event.internalData?.mecCategories
         });
       });
@@ -178,38 +178,40 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     };
 
     // Convert unified event format to Graph-like format for compatibility
+    // Prioritize calendarData (authoritative) over top-level fields and graphData (legacy)
     const convertedResults = results.map(event => ({
       id: event.eventId,
-      subject: event.eventTitle || event.subject || event.graphData?.subject,
+      subject: event.calendarData?.eventTitle || event.eventTitle || event.subject || event.graphData?.subject,
       start: {
         dateTime: buildDateTime(
-          event.startDateTime,
+          event.calendarData?.startDateTime || event.startDateTime,
           event.graphData?.start?.dateTime,
-          event.startDate,
-          event.startTime
+          event.calendarData?.startDate || event.startDate,
+          event.calendarData?.startTime || event.startTime
         ),
         timeZone: event.startTimeZone || event.graphData?.start?.timeZone || timezone
       },
       end: {
         dateTime: buildDateTime(
-          event.endDateTime,
+          event.calendarData?.endDateTime || event.endDateTime,
           event.graphData?.end?.dateTime,
-          event.endDate || event.startDate, // Use endDate if available, fall back to startDate
-          event.endTime
+          event.calendarData?.endDate || event.endDate || event.calendarData?.startDate || event.startDate,
+          event.calendarData?.endTime || event.endTime
         ),
         timeZone: event.endTimeZone || event.graphData?.end?.timeZone || timezone
       },
-      // Location - prefer top-level fields
-      location: event.graphData?.location || {
-        displayName: event.locationDisplayName || event.location || event.locationDisplayNames || ''
+      // Location - prefer calendarData fields
+      location: {
+        displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.locationDisplayNames || event.graphData?.location?.displayName || ''
       },
-      // Categories - merge top-level, graphData, and internal categories
+      // Categories - prioritize calendarData, then top-level, then graphData, then internal
       categories: [
+        ...(event.calendarData?.categories || []),
         ...(event.categories || []),
         ...(event.graphData?.categories || []),
         ...(event.internalData?.mecCategories || [])
       ].filter((cat, index, arr) => arr.indexOf(cat) === index), // Deduplicate
-      bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
+      bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
       calendarName: event.calendarName,

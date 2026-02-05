@@ -84,27 +84,28 @@ const EventSearchExport = ({
       // Transform unified events to match expected format for export
       const events = (data.events || []).map(event => {
         // Extract timing data from multiple possible sources
+        // Prioritize calendarData (authoritative), then top-level, then graphData (legacy)
         const timingSource = event.roomReservationData?.timing || event.internalData || {};
 
         return {
           id: event.eventId,
-          subject: event.eventTitle || event.subject || event.graphData?.subject || 'Untitled',
+          subject: event.calendarData?.eventTitle || event.eventTitle || event.subject || event.graphData?.subject || 'Untitled',
           start: {
-            dateTime: event.startDateTime || event.graphData?.start?.dateTime
+            dateTime: event.calendarData?.startDateTime || event.startDateTime || event.graphData?.start?.dateTime
           },
           end: {
-            dateTime: event.endDateTime || event.graphData?.end?.dateTime
+            dateTime: event.calendarData?.endDateTime || event.endDateTime || event.graphData?.end?.dateTime
           },
           location: {
-            displayName: event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
+            displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
           },
-          categories: event.categories || event.graphData?.categories || [],
+          categories: event.calendarData?.categories || event.categories || event.graphData?.categories || [],
           body: {
-            content: event.eventDescription || event.graphData?.bodyPreview || ''
+            content: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || ''
           },
-          bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
+          bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
           attendees: event.graphData?.attendees || [],
-          isAllDay: event.isAllDayEvent || event.graphData?.isAllDay || false,
+          isAllDay: event.calendarData?.isAllDayEvent || event.isAllDayEvent || event.graphData?.isAllDay || false,
           importance: event.graphData?.importance || 'normal',
           showAs: event.graphData?.showAs || 'busy',
           recurrence: event.graphData?.recurrence || null,
@@ -113,14 +114,14 @@ const EventSearchExport = ({
           createdDateTime: event.graphData?.createdDateTime,
           lastModifiedDateTime: event.lastSyncedAt || event.graphData?.lastModifiedDateTime,
           // Maintenance times (setup/teardown)
-          setupTime: event.setupTime || timingSource.setupTime || '',
-          teardownTime: event.teardownTime || timingSource.teardownTime || '',
+          setupTime: event.calendarData?.setupTime || event.setupTime || timingSource.setupTime || '',
+          teardownTime: event.calendarData?.teardownTime || event.teardownTime || timingSource.teardownTime || '',
           // Security times (door open/close)
-          doorOpenTime: event.doorOpenTime || timingSource.doorOpenTime || '',
-          doorCloseTime: event.doorCloseTime || timingSource.doorCloseTime || '',
+          doorOpenTime: event.calendarData?.doorOpenTime || event.doorOpenTime || timingSource.doorOpenTime || '',
+          doorCloseTime: event.calendarData?.doorCloseTime || event.doorCloseTime || timingSource.doorCloseTime || '',
           // Internal notes
-          setupNotes: event.roomReservationData?.internalNotes?.setupNotes || event.internalData?.setupNotes || event.setupNotes || '',
-          doorNotes: event.roomReservationData?.internalNotes?.doorNotes || event.internalData?.doorNotes || event.doorNotes || ''
+          setupNotes: event.calendarData?.setupNotes || event.roomReservationData?.internalNotes?.setupNotes || event.internalData?.setupNotes || event.setupNotes || '',
+          doorNotes: event.calendarData?.doorNotes || event.roomReservationData?.internalNotes?.doorNotes || event.internalData?.doorNotes || event.doorNotes || ''
         };
       });
 

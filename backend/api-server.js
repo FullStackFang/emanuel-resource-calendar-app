@@ -17420,38 +17420,54 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         }
 
         // Build location for Graph event - check for offsite location data
-        let graphLocation = event.graphData?.location || { displayName: '' };
+        // Read from calendarData (authoritative) with graphData fallback for legacy events
+        const isOffsite = event.calendarData?.isOffsite || event.isOffsite;
+        const offsiteName = event.calendarData?.offsiteName || event.offsiteName;
+        const offsiteAddress = event.calendarData?.offsiteAddress || event.offsiteAddress;
+        const offsiteLat = event.calendarData?.offsiteLat || event.offsiteLat;
+        const offsiteLon = event.calendarData?.offsiteLon || event.offsiteLon;
+        const locationDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
 
-        if (event.isOffsite && event.offsiteName && event.offsiteAddress) {
+        let graphLocation = { displayName: locationDisplayNames };
+
+        if (isOffsite && offsiteName && offsiteAddress) {
           // Use complete Graph location object for offsite events
           graphLocation = buildOffsiteGraphLocation(
-            event.offsiteName,
-            event.offsiteAddress,
-            event.offsiteLat,
-            event.offsiteLon
+            offsiteName,
+            offsiteAddress,
+            offsiteLat,
+            offsiteLon
           );
           logger.info('Approve endpoint: Using offsite location for Graph event', {
-            offsiteName: event.offsiteName,
-            offsiteAddress: event.offsiteAddress,
-            offsiteLat: event.offsiteLat,
-            offsiteLon: event.offsiteLon,
+            offsiteName,
+            offsiteAddress,
+            offsiteLat,
+            offsiteLon,
             builtLocation: graphLocation
           });
         }
 
-        // Create Graph event data
+        // Create Graph event data from calendarData (authoritative source)
+        // Build Graph API format on-the-fly instead of relying on graphData
+        const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
         const graphEventData = {
-          subject: event.graphData.subject,
-          start: event.graphData.start,
-          end: event.graphData.end,
+          subject: event.calendarData?.eventTitle || event.graphData?.subject || 'Untitled Event',
+          start: {
+            dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
+            timeZone: eventTimezone
+          },
+          end: {
+            dateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
+            timeZone: eventTimezone
+          },
           location: graphLocation,
           body: {
             contentType: 'Text',
-            content: event.graphData.bodyPreview || ''
+            content: event.calendarData?.eventDescription || event.graphData?.bodyPreview || ''
           },
-          categories: event.graphData.categories || [],
-          importance: event.graphData.importance || 'normal',
-          showAs: event.graphData.showAs || 'busy'
+          categories: event.calendarData?.categories || event.graphData?.categories || [],
+          importance: event.graphData?.importance || 'normal',
+          showAs: event.graphData?.showAs || 'busy'
         };
 
         // Use graphApiService with app-only authentication (no user token needed)
@@ -19556,123 +19572,24 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       logger.info('Calculated endDateTime from separate fields:', { endDate: updates.endDate, endTime: updates.endTime, result: combinedEnd });
     }
 
-    // Sync graphData fields with top-level fields
-    // This ensures eventTitle ↔ graphData.subject stay synchronized
-    // IMPORTANT: Also sync for pending reservations so approve endpoint has correct data
-    const isPendingReservation = event.status === 'pending' || event.status === 'room-reservation-request';
-    // Sync graphData if the event has an iCalUId (meaning it's linked to a Graph/Outlook event)
-    if (eventICalUId) {
-      // Existing Graph event - sync fields
-      // Sync subject
-      if (updates.eventTitle !== undefined) {
-        updateOperations['graphData.subject'] = updates.eventTitle;
-      }
+    // NOTE: Form field syncs to graphData have been removed.
+    // calendarData is now the authoritative source for all application data.
+    // graphData is only updated when:
+    // 1. Initial sync from Outlook (stores raw Graph API response)
+    // 2. Graph API response comes back after updating an event (sync response to local)
+    // The approve endpoint now reads from calendarData to create Graph events.
 
-      // Sync start datetime (use calculated value if available, otherwise from updates)
-      const effectiveStartDateTime = updateOperations.startDateTime || updates.startDateTime;
-      if (effectiveStartDateTime !== undefined) {
-        updateOperations['graphData.start.dateTime'] = effectiveStartDateTime;
-        updateOperations['graphData.start.timeZone'] = timezone;
-      }
-
-      // Sync end datetime (use calculated value if available, otherwise from updates)
-      const effectiveEndDateTime = updateOperations.endDateTime || updates.endDateTime;
-      if (effectiveEndDateTime !== undefined) {
-        updateOperations['graphData.end.dateTime'] = effectiveEndDateTime;
-        updateOperations['graphData.end.timeZone'] = timezone;
-      }
-
-      // Sync body/description
-      if (updates.eventDescription !== undefined) {
-        // bodyPreview is limited to 255 chars in Graph API
-        updateOperations['graphData.bodyPreview'] = updates.eventDescription.substring(0, 255);
-        updateOperations['graphData.body.content'] = updates.eventDescription;
-        updateOperations['graphData.body.contentType'] = 'HTML';
-      }
-
-      // Sync isAllDay
-      if (updates.isAllDayEvent !== undefined) {
-        updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
-      }
-
-      // Sync categories - keep local graphData.categories in sync with what was sent to Graph
-      if (updates.categories !== undefined) {
-        updateOperations['graphData.categories'] = updates.categories;
-      }
-
-      // Sync location - if Graph API was updated with location, sync it back to graphData
-      if (graphApiResponseLocation) {
-        // Remove any conflicting nested path updates (MongoDB doesn't allow both)
-        delete updateOperations['graphData.location.displayName'];
-        delete updateOperations['graphData.location.locationType'];
-        updateOperations['graphData.location'] = graphApiResponseLocation;
-        updateOperations['graphData.locations'] = graphApiResponseLocations || [];
-        // Also update top-level location fields for consistency
-        updateOperations['location'] = graphApiResponseLocation.displayName || '';
-        updateOperations['locationDisplayNames'] = graphApiResponseLocation.displayName || '';
-        logger.info('Syncing Graph location response to MongoDB:', {
-          location: graphApiResponseLocation,
-          locations: graphApiResponseLocations
-        });
-      } else if (Array.isArray(updates.locations) && updates.locations.length === 0) {
-        // Locations were cleared - sync "Unspecified" to graphData
-        // Remove any conflicting nested path updates (MongoDB doesn't allow both)
-        delete updateOperations['graphData.location.displayName'];
-        delete updateOperations['graphData.location.locationType'];
-        updateOperations['graphData.location'] = { displayName: 'Unspecified', locationType: 'default' };
-        updateOperations['graphData.locations'] = [];
-        updateOperations['location'] = 'Unspecified';
-        updateOperations['locationDisplayNames'] = 'Unspecified';
-        logger.info('Syncing cleared locations to MongoDB graphData');
-      }
-
-      // Sync recurrence (only when editing entire series)
-      if (editScope === 'allEvents' && updates.recurrence) {
-        updateOperations['graphData.recurrence'] = updates.recurrence;
-        logger.info('Syncing recurrence to graphData:', {
-          pattern: updates.recurrence.pattern?.type,
-          range: updates.recurrence.range?.type
-        });
-      }
-    } else if (isPendingReservation) {
-      // Pending reservation without Graph event - sync graphData so approve endpoint has correct data
-      logger.info('Syncing form data to graphData for pending reservation');
-
-      // Sync subject
-      if (updates.eventTitle !== undefined) {
-        updateOperations['graphData.subject'] = updates.eventTitle;
-      }
-
-      // Sync start datetime (use calculated value if available, otherwise from updates)
-      const effectiveStartDateTimePending = updateOperations.startDateTime || updates.startDateTime;
-      if (effectiveStartDateTimePending !== undefined) {
-        updateOperations['graphData.start.dateTime'] = effectiveStartDateTimePending;
-        updateOperations['graphData.start.timeZone'] = timezone;
-      }
-
-      // Sync end datetime (use calculated value if available, otherwise from updates)
-      const effectiveEndDateTimePending = updateOperations.endDateTime || updates.endDateTime;
-      if (effectiveEndDateTimePending !== undefined) {
-        updateOperations['graphData.end.dateTime'] = effectiveEndDateTimePending;
-        updateOperations['graphData.end.timeZone'] = timezone;
-      }
-
-      // Sync body/description
-      if (updates.eventDescription !== undefined) {
-        updateOperations['graphData.bodyPreview'] = updates.eventDescription;
-        updateOperations['graphData.body.content'] = updates.eventDescription;
-        updateOperations['graphData.body.contentType'] = 'Text';
-      }
-
-      // Sync isAllDay
-      if (updates.isAllDayEvent !== undefined) {
-        updateOperations['graphData.isAllDay'] = updates.isAllDayEvent;
-      }
-
-      // Sync categories - important for when approve endpoint creates Graph event
-      if (updates.categories !== undefined) {
-        updateOperations['graphData.categories'] = updates.categories;
-      }
+    // Sync Graph API response back to graphData (ONLY when Graph API was actually called)
+    if (graphApiResponseLocation) {
+      // Remove any conflicting nested path updates (MongoDB doesn't allow both)
+      delete updateOperations['graphData.location.displayName'];
+      delete updateOperations['graphData.location.locationType'];
+      updateOperations['graphData.location'] = graphApiResponseLocation;
+      updateOperations['graphData.locations'] = graphApiResponseLocations || [];
+      logger.info('Syncing Graph API location response to MongoDB graphData:', {
+        location: graphApiResponseLocation,
+        locations: graphApiResponseLocations
+      });
     }
 
     // Handle requestedRooms -> locations array conversion and display name generation
