@@ -16,6 +16,12 @@ https: {
 */
 
 export default defineConfig({
+  // Force all React imports to resolve to the same instance
+  // This fixes "Cannot read properties of null (reading 'useEffect')" errors
+  // caused by libraries like @azure/msal-react bundling their own React
+  resolve: {
+    dedupe: ['react', 'react-dom']
+  },
   plugins: [
     react(),
     // Sentry plugin for source map upload (only in production builds with auth token)

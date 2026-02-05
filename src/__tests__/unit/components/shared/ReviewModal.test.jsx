@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-// Mock LoadingSpinner to avoid react-loader-spinner issues in tests
+// Mock LoadingSpinner for test isolation
 vi.mock('../../../../components/shared/LoadingSpinner', () => ({
   default: () => <div data-testid="loading-spinner">Loading...</div>
 }));

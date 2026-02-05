@@ -1,7 +1,7 @@
 /* ============================================================================
    LOADING SPINNER - Emanuel Modern Design System
    ============================================================================
-   Centered loading spinner container
+   Pure CSS loading spinner (no external library dependencies)
    ============================================================================ */
 
 .loading-spinner-container {
@@ -18,4 +18,18 @@
 
 .loading-spinner-container.inline {
   padding: var(--space-4);
+}
+
+/* CSS-only spinner animation */
+.loading-spinner-css {
+  border: 5px solid var(--border-default, #e5e7eb);
+  border-top-color: var(--color-primary-500, #007bff);
+  border-radius: 50%;
+  animation: spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }

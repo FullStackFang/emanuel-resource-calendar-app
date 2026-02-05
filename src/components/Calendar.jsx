@@ -108,6 +108,7 @@
     //---------------------------------------------------------------------------
     // Loading state
     const initializationStarted = useRef(false);
+    const initialLoadComplete = useRef(false); // Tracks if initial load in initializeApp has completed
 
     // Demo variables
     const [isDemoMode, setIsDemoMode] = useState(false);
@@ -117,12 +118,6 @@
     const [initializing, setInitializing] = useState(true);
     const [loading, setLoading] = useState(false);
     const [savingEvent, setSavingEvent] = useState(false);
-    const [loadingState, setLoadingState] = useState({
-      user: true,
-      categories: true,
-      extensions: true,
-      events: true
-    });
 
     // Calendar access error (when user has no access to any allowed calendars)
     const [calendarAccessError, setCalendarAccessError] = useState(null);
@@ -1734,7 +1729,14 @@
           const data = await response.json();
           logger.debug("Full user profile data from API:", data);
           setUserProfile(data);
-          
+
+          // Also set currentUser for requester info (eliminates duplicate API call from loadCurrentUser)
+          setCurrentUser({
+            name: data.name || data.displayName,
+            email: data.email,
+            id: data.id || data._id
+          });
+
           // Based on UserAdmin component, permissions are stored in preferences
           const hasCreatePermission = data.preferences?.createEvents ?? true;  // Default to true if not set
           const hasEditPermission = data.preferences?.editEvents ?? true;      // Default to true if not set
@@ -1813,44 +1815,38 @@
 
       // Add timeout protection (30 seconds)
       const timeoutId = setTimeout(() => {
-        logger.error("Initialization timeout - forcing completion of loading states");
-        setLoadingState({
-          user: false,
-          categories: false,
-          extensions: false,
-          events: false
-        });
+        logger.error("Initialization timeout - forcing completion");
         setInitializing(false);
       }, 30000);
 
       logger.debug("Starting application initialization...");
       try {
-        // Load user profile and permissions first
-        const userLoaded = await loadUserProfile();
-        setLoadingState(prev => ({ ...prev, user: false }));
-        
+        // Phase 1: Run independent API calls in parallel
+        // - loadUserProfile: fetches /users/current and sets permissions
+        // - loadAvailableCalendars: fetches calendars list
+        // - loadSchemaExtensions: fetches Graph schema extensions
+        // Note: loadCurrentUser is redundant with loadUserProfile (both call /users/current)
+        const [userLoaded, calendars] = await Promise.all([
+          loadUserProfile(),
+          loadAvailableCalendars(),
+          loadSchemaExtensions()
+        ]);
+
         if (!userLoaded) {
           logger.warn("Could not load user profile, continuing with defaults");
         }
 
-        // Load current user information
-        // Load current user information
-        await loadCurrentUser();
-
-        // Load available calendars
-        // Load available calendars
-        const calendars = await loadAvailableCalendars();
         setAvailableCalendars(calendars);
-        
+
         // Check if the currently selected calendar still exists
         if (selectedCalendarId && !calendars.some(cal => cal.id === selectedCalendarId)) {
-          calendarDebug.logError('Selected calendar no longer available', 
-            new Error('Calendar removed or permissions changed'), 
+          calendarDebug.logError('Selected calendar no longer available',
+            new Error('Calendar removed or permissions changed'),
             { selectedCalendarId, availableCalendarIds: calendars.map(c => c.id) }
           );
           setSelectedCalendarId(null);
         }
-        
+
         // Set default calendar if none selected
         if (!selectedCalendarId && calendars.length > 0) {
           let defaultCalToSelect = null;
@@ -1885,21 +1881,13 @@
             setSelectedCalendarId(defaultCalToSelect.id);
           }
         }
-        
-        // Categories are now loaded via TanStack Query hooks (useBaseCategoriesQuery, useOutlookCategoriesQuery)
-        // They are automatically cached and refreshed in the background
-        // Mark categories as loaded immediately since TanStack Query handles the loading state
-        setLoadingState(prev => ({ ...prev, categories: false }));
 
-        // Step 3: Load schema extensions
-        // Load schema extensions
-        await loadSchemaExtensions();
-        setLoadingState(prev => ({ ...prev, extensions: false }));
-        
-        // Step 4: Finally load events (using cache-first approach)
-        // Load calendar events - pass calendar data directly to avoid race condition
+        // Phase 2: Load events (depends on calendars being available)
+        // Categories are loaded via TanStack Query hooks which handle their own caching
         await loadEvents(false, calendars);
-        setLoadingState(prev => ({ ...prev, events: false }));
+
+        // Mark initial load complete to prevent duplicate load in useEffect
+        initialLoadComplete.current = true;
 
         logger.log("Application initialized successfully");
         setInitializing(false);
@@ -1910,18 +1898,12 @@
       } catch (error) {
         logger.error("Error during initialization:", error);
         // Ensure we exit loading state even on error
-        setLoadingState({
-          user: false,
-          categories: false,
-          extensions: false,
-          events: false
-        });
         setInitializing(false);
 
         // Clear timeout on error
         clearTimeout(timeoutId);
       }
-    }, [graphToken, apiToken, loadUserProfile, loadCurrentUser, loadSchemaExtensions, loadEvents]);
+    }, [graphToken, apiToken, loadUserProfile, loadSchemaExtensions, loadEvents]);
 
     //---------------------------------------------------------------------------
     // CACHE MANAGEMENT FUNCTIONS
@@ -5994,9 +5976,16 @@
     );
 
     // Consolidated event loading effect to prevent duplicate API calls
+    // This effect handles reloading when date range or calendar changes AFTER initialization
     useEffect(() => {
-
       if (apiToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
+        // Skip if this is the first trigger right after initializeApp completed
+        // (initializeApp already loaded events, no need to reload immediately)
+        if (initialLoadComplete.current) {
+          initialLoadComplete.current = false; // Reset so future changes trigger loads
+          return;
+        }
+
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
         const startTime = Date.now();
@@ -6024,7 +6013,6 @@
             setChangingCalendar(false);
           });
       }
-      // Skipping event loading if requirements not met
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dateRangeString, selectedCalendarId, graphToken, initializing, availableCalendars.length]);
 
@@ -6130,26 +6118,14 @@
     //---------------------------------------------------------------------------
     // LOADING SCREEN
     //---------------------------------------------------------------------------
-    const LoadingOverlay = () => {
-      // Get loading status text
-      const loadingText = (() => {
-        if (loadingState.user) return "Loading user profile...";
-        if (loadingState.categories || categoriesLoading) return "Loading categories...";
-        if (locationsLoading) return "Loading locations...";
-        if (loadingState.extensions) return "Loading extensions...";
-        if (loadingState.events) return "Loading calendar events...";
-        return "Loading your calendar...";
-      })();
-    
-      return (
-        <div className="loading-overlay">
-          <div className="loading-content">
-            <LoadingSpinner size={64} minHeight={100} />
-            <p>{loadingText}</p>
-          </div>
+    const LoadingOverlay = () => (
+      <div className="loading-overlay">
+        <div className="loading-content">
+          <LoadingSpinner size={64} minHeight={100} />
+          <p>Loading your calendar...</p>
         </div>
-      );
-    };
+      </div>
+    );
     
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
@@ -6163,7 +6139,7 @@
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        {(loading || initializing || locationsLoading || categoriesLoading) && <LoadingOverlay/>}
+        {initializing && <LoadingOverlay/>}
         
         {/* Calendar Header */}
         <CalendarHeader

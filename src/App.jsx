@@ -24,6 +24,49 @@ import { logger } from './utils/logger';
 import calendarDebug from './utils/calendarDebug';
 import './App.css';
 
+// Skeleton screen component - renders immediately while auth initializes
+const AppSkeleton = () => (
+  <div className="app-skeleton">
+    <div className="app-skeleton-header">
+      <div className="app-skeleton-header-title" />
+    </div>
+    <div className="app-skeleton-nav">
+      <div className="app-skeleton-nav-item skeleton" />
+      <div className="app-skeleton-nav-item skeleton" />
+      <div className="app-skeleton-nav-item skeleton" />
+    </div>
+    <div className="app-skeleton-content">
+      <div className="app-skeleton-toolbar">
+        <div className="app-skeleton-toolbar-left">
+          <div className="app-skeleton-toolbar-btn skeleton" />
+          <div className="app-skeleton-toolbar-btn skeleton" />
+        </div>
+        <div className="app-skeleton-toolbar-right">
+          <div className="app-skeleton-toolbar-icon skeleton" />
+          <div className="app-skeleton-toolbar-icon skeleton" />
+          <div className="app-skeleton-toolbar-icon skeleton" />
+        </div>
+      </div>
+      <div className="app-skeleton-calendar">
+        <div className="app-skeleton-calendar-header">
+          {[...Array(7)].map((_, i) => (
+            <div key={i} className="app-skeleton-weekday" />
+          ))}
+        </div>
+        <div className="app-skeleton-calendar-grid">
+          {[...Array(35)].map((_, i) => (
+            <div key={i} className="app-skeleton-day">
+              <div className="app-skeleton-day-number skeleton" />
+              {i % 3 === 0 && <div className="app-skeleton-event skeleton" />}
+              {i % 5 === 0 && <div className="app-skeleton-event skeleton" />}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 // Lazy load components to reduce initial bundle size
 // These components are only loaded when their routes are accessed
 const MySettings = lazy(() => import('./components/MySettings'));
@@ -843,6 +886,9 @@ function App() {
               <h2>See you next time!</h2>
               <p>You've successfully signed out.</p>
             </div>
+          ) : !isInitialized ? (
+            // Show skeleton while MSAL is initializing
+            <AppSkeleton />
           ) : (
             <div className="welcome-message">
               <p>Welcome to the Outlook Custom Calendar App.</p>

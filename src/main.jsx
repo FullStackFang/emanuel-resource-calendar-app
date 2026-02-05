@@ -13,27 +13,47 @@ import ErrorReportModal from './components/shared/ErrorReportModal';
 import { initializeGlobalErrorHandlers } from './utils/globalErrorHandlers';
 import './index.css'; // optional
 
-// Initialize Sentry FIRST (before any error handlers)
-if (import.meta.env.VITE_SENTRY_DSN) {
-  Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'development',
-    release: import.meta.env.VITE_SENTRY_RELEASE || '1.0.0',
-    integrations: [
-      Sentry.browserTracingIntegration(),
-      Sentry.replayIntegration({
-        maskAllText: false,
-        blockAllMedia: false
-      }),
-    ],
-    // Performance monitoring
-    tracesSampleRate: import.meta.env.PROD ? 0.1 : 1.0, // 10% in prod, 100% in dev
-    // Session replay
-    replaysSessionSampleRate: 0.1, // 10% of sessions
-    replaysOnErrorSampleRate: 1.0, // 100% when error occurs
-    // Don't send errors in development unless DSN is explicitly set
-    enabled: import.meta.env.PROD || !!import.meta.env.VITE_SENTRY_DSN,
+// Force full page reload on HMR for context providers to prevent React hooks errors
+// This avoids "Invalid hook call" errors when context files are hot-reloaded
+if (import.meta.hot) {
+  import.meta.hot.accept(['./context/NotificationContext.jsx', './context/AuthContext.jsx'], () => {
+    window.location.reload();
   });
+}
+
+// Defer Sentry initialization to avoid blocking initial render
+// Uses requestIdleCallback with 2s timeout fallback
+// Note: Errors during first ~1s may not be captured (acceptable tradeoff for faster load)
+const initSentry = () => {
+  if (import.meta.env.VITE_SENTRY_DSN) {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN,
+      environment: import.meta.env.VITE_SENTRY_ENVIRONMENT || 'development',
+      release: import.meta.env.VITE_SENTRY_RELEASE || '1.0.0',
+      integrations: [
+        Sentry.browserTracingIntegration(),
+        Sentry.replayIntegration({
+          maskAllText: false,
+          blockAllMedia: false
+        }),
+      ],
+      // Performance monitoring
+      tracesSampleRate: import.meta.env.PROD ? 0.1 : 1.0, // 10% in prod, 100% in dev
+      // Session replay
+      replaysSessionSampleRate: 0.1, // 10% of sessions
+      replaysOnErrorSampleRate: 1.0, // 100% when error occurs
+      // Don't send errors in development unless DSN is explicitly set
+      enabled: import.meta.env.PROD || !!import.meta.env.VITE_SENTRY_DSN,
+    });
+  }
+};
+
+// Defer Sentry init until browser is idle (or after 2s timeout)
+if (typeof requestIdleCallback !== 'undefined') {
+  requestIdleCallback(initSentry, { timeout: 2000 });
+} else {
+  // Fallback for Safari which doesn't support requestIdleCallback
+  setTimeout(initSentry, 100);
 }
 
 /**

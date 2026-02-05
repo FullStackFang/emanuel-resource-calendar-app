@@ -452,6 +452,54 @@ For detailed architecture documentation, see `architecture-notes.md`
 
 ## Current In-Progress Work
 
+### Initial Load Performance Optimization - Phase 1 In Progress
+
+**Status**: Planning complete 2026-02-04. Ready for implementation.
+
+**Goal**: Reduce initial app load time by removing blocking imports, adding visual feedback, and eliminating unused dependencies.
+
+**Problem Identified:**
+- ~680KB blocking imports in main chunk (MSAL, Sentry, React Query, DatePicker, Loader)
+- 3-4 sequential API call waterfalls before content renders
+- Duplicate API calls (`/users/current` fetched multiple times)
+- No loading UI - blank screen during provider initialization
+- Dead dependencies - lodash (~70KB) unused
+
+**Phase 1 Tasks (Quick Wins - This Session):**
+| # | Task | Files | Status |
+|---|------|-------|--------|
+| 1 | Remove unused deps (lodash, @react-pdf/renderer) | `package.json` | Pending |
+| 2 | Add skeleton screen | `src/App.jsx`, `src/App.css` | Pending |
+| 3 | Defer Sentry init with requestIdleCallback | `src/main.jsx` | Pending |
+| 4 | Replace react-loader-spinner with CSS | `src/components/shared/LoadingSpinner.jsx`, `LoadingSpinner.css` | Pending |
+
+**Expected Results:**
+- ~120KB bundle size reduction
+- Immediate visual feedback instead of blank screen
+- Low risk, all changes isolated
+
+**Future Phases (Not This Session):**
+- Phase 2: API call parallelization in Calendar.jsx, dedupe user calls
+- Phase 3: Lazy load react-datepicker, optimize Vite chunks
+- Phase 4: Stale-while-revalidate for events
+
+**Plan File**: `/home/fullstackfang/.claude/plans/smooth-kindling-river.md`
+
+**Verification:**
+```bash
+# Baseline bundle size
+npm run build && ls -la dist/assets/*.js | awk '{sum += $5} END {print "Total:", sum/1024, "KB"}'
+
+# After changes - run tests
+cd backend && npm test  # 173 tests should pass
+
+# Performance check (Chrome DevTools)
+# - First Contentful Paint (FCP)
+# - Time to Interactive (TTI)
+```
+
+---
+
 ### Event Workflow Test Suite - Phase 1 Complete
 
 **Status**: Phase 1 Complete 2026-02-04. All 173 tests passing.
