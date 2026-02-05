@@ -479,6 +479,240 @@ describe('transformEventsToFlatStructure', () => {
   });
 });
 
+describe('calendarData structure support', () => {
+  describe('reading from calendarData with fallback', () => {
+    it('reads fields from calendarData when present', () => {
+      const eventWithCalendarData = {
+        _id: 'mongo-123',
+        calendarData: {
+          eventTitle: 'Title from calendarData',
+          eventDescription: 'Description from calendarData',
+          startDateTime: '2024-03-15T14:00:00.000Z',
+          endDateTime: '2024-03-15T16:00:00.000Z',
+          startDate: '2024-03-15',
+          startTime: '14:00',
+          endDate: '2024-03-15',
+          endTime: '16:00',
+          setupTime: '13:30',
+          teardownTime: '16:30',
+          doorOpenTime: '13:45',
+          doorCloseTime: '16:15',
+          categories: ['CalendarData Category'],
+          locations: [{ _id: 'room-1', name: 'Room A' }],
+          requesterName: 'CalendarData User',
+          requesterEmail: 'calendardata@example.com',
+          department: 'CalendarData Dept',
+          attendeeCount: 50,
+          priority: 'high',
+          assignedTo: 'CalendarData Staff'
+        },
+        graphData: {
+          subject: 'Title from graphData',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithCalendarData);
+
+      // Should prefer calendarData values over graphData
+      expect(result.eventTitle).toBe('Title from calendarData');
+      expect(result.eventDescription).toBe('Description from calendarData');
+      expect(result.setupTime).toBe('13:30');
+      expect(result.teardownTime).toBe('16:30');
+      expect(result.doorOpenTime).toBe('13:45');
+      expect(result.doorCloseTime).toBe('16:15');
+      expect(result.categories).toEqual(['CalendarData Category']);
+      expect(result.requestedRooms).toEqual([{ _id: 'room-1', name: 'Room A' }]);
+      expect(result.requesterName).toBe('CalendarData User');
+      expect(result.requesterEmail).toBe('calendardata@example.com');
+      expect(result.department).toBe('CalendarData Dept');
+      expect(result.attendeeCount).toBe(50);
+      expect(result.priority).toBe('high');
+      expect(result.assignedTo).toBe('CalendarData Staff');
+    });
+
+    it('falls back to top-level when calendarData missing', () => {
+      const eventWithoutCalendarData = {
+        _id: 'mongo-456',
+        eventTitle: 'Top-level Title',
+        eventDescription: 'Top-level Description',
+        setupTime: '12:00',
+        teardownTime: '18:00',
+        categories: ['Top-level Category'],
+        locations: [{ _id: 'room-2', name: 'Room B' }],
+        requesterName: 'Top-level User',
+        attendeeCount: 25,
+        graphData: {
+          subject: 'Graph Title',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithoutCalendarData);
+
+      // Should use top-level values since no calendarData
+      expect(result.setupTime).toBe('12:00');
+      expect(result.teardownTime).toBe('18:00');
+      expect(result.categories).toEqual(['Top-level Category']);
+      expect(result.requestedRooms).toEqual([{ _id: 'room-2', name: 'Room B' }]);
+      expect(result.requesterName).toBe('Top-level User');
+      expect(result.attendeeCount).toBe(25);
+    });
+
+    it('prefers calendarData over top-level when both exist', () => {
+      const eventWithBoth = {
+        _id: 'mongo-789',
+        // Top-level fields (should be ignored)
+        setupTime: 'top-level-ignored',
+        categories: ['Top-level Ignored'],
+        requesterName: 'Top-level Ignored User',
+        attendeeCount: 10,
+        // calendarData fields (should be used)
+        calendarData: {
+          setupTime: '09:00',
+          categories: ['CalendarData Preferred'],
+          requesterName: 'CalendarData Preferred User',
+          attendeeCount: 100
+        },
+        graphData: {
+          subject: 'Test Event',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithBoth);
+
+      // Should prefer calendarData values over top-level
+      expect(result.setupTime).toBe('09:00');
+      expect(result.categories).toEqual(['CalendarData Preferred']);
+      expect(result.requesterName).toBe('CalendarData Preferred User');
+      expect(result.attendeeCount).toBe(100);
+    });
+
+    it('handles empty calendarData object gracefully', () => {
+      const eventWithEmptyCalendarData = {
+        _id: 'mongo-empty',
+        calendarData: {}, // Empty object
+        eventTitle: 'Top-level Title Used',
+        setupTime: '11:00',
+        graphData: {
+          subject: 'Graph Title',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithEmptyCalendarData);
+
+      // Should fall back to top-level since calendarData is empty
+      expect(result.setupTime).toBe('11:00');
+    });
+  });
+
+  describe('calendarData with offsite location fields', () => {
+    it('reads offsite fields from calendarData', () => {
+      const offsiteEvent = {
+        _id: 'mongo-offsite',
+        calendarData: {
+          isOffsite: true,
+          offsiteName: 'Central Park',
+          offsiteAddress: '123 Park Ave, NYC',
+          offsiteLat: 40.7829,
+          offsiteLon: -73.9654
+        },
+        graphData: {
+          subject: 'Offsite Event',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(offsiteEvent);
+
+      expect(result.isOffsite).toBe(true);
+      expect(result.offsiteName).toBe('Central Park');
+      expect(result.offsiteAddress).toBe('123 Park Ave, NYC');
+      expect(result.offsiteLat).toBe(40.7829);
+      expect(result.offsiteLon).toBe(-73.9654);
+    });
+  });
+
+  describe('calendarData with virtual meeting fields', () => {
+    it('reads virtual meeting fields from calendarData', () => {
+      const virtualEvent = {
+        _id: 'mongo-virtual',
+        calendarData: {
+          virtualMeetingUrl: 'https://zoom.us/j/123456',
+          virtualPlatform: 'Zoom'
+        },
+        graphData: {
+          subject: 'Virtual Event',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(virtualEvent);
+
+      expect(result.virtualMeetingUrl).toBe('https://zoom.us/j/123456');
+      expect(result.virtualPlatform).toBe('Zoom');
+    });
+  });
+
+  describe('calendarData with notes fields', () => {
+    it('reads notes fields from calendarData', () => {
+      const eventWithNotes = {
+        _id: 'mongo-notes',
+        calendarData: {
+          setupNotes: 'Setup chairs in rows',
+          doorNotes: 'Side door access only',
+          eventNotes: 'VIP attending'
+        },
+        graphData: {
+          subject: 'Event with Notes',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithNotes);
+
+      expect(result.setupNotes).toBe('Setup chairs in rows');
+      expect(result.doorNotes).toBe('Side door access only');
+      expect(result.eventNotes).toBe('VIP attending');
+    });
+  });
+
+  describe('calendarData with contact person fields', () => {
+    it('reads contact person fields from calendarData', () => {
+      const eventWithContact = {
+        _id: 'mongo-contact',
+        calendarData: {
+          contactName: 'Jane Doe',
+          contactEmail: 'jane@example.com',
+          isOnBehalfOf: true,
+          reviewNotes: 'Approved by admin'
+        },
+        graphData: {
+          subject: 'Event with Contact',
+          start: { dateTime: '2024-03-15T14:00:00.000Z' },
+          end: { dateTime: '2024-03-15T16:00:00.000Z' }
+        }
+      };
+
+      const result = transformEventToFlatStructure(eventWithContact);
+
+      expect(result.contactName).toBe('Jane Doe');
+      expect(result.contactEmail).toBe('jane@example.com');
+      expect(result.isOnBehalfOf).toBe(true);
+      expect(result.reviewNotes).toBe('Approved by admin');
+    });
+  });
+});
+
 describe('sortEventsByStartTime', () => {
   it('sorts events by start time (earliest first)', () => {
     const events = [

@@ -41,6 +41,33 @@ const DB_NAME = process.env.MONGODB_DATABASE_NAME || 'emanuelnyc';
 - Support `--verify` flag to check migration status
 - Always show before/after counts
 - Make scripts idempotent (safe to run multiple times)
+- **IMPORTANT: Use batch processing** to avoid Cosmos DB rate limiting (Error 16500)
+
+**Batch Processing Pattern (Required for Cosmos DB):**
+```javascript
+const BATCH_SIZE = 100;
+const docsToProcess = await collection.find({ /* query */ }).toArray();
+
+for (let i = 0; i < docsToProcess.length; i += BATCH_SIZE) {
+  const batch = docsToProcess.slice(i, i + BATCH_SIZE);
+
+  // Process batch
+  await collection.updateMany(
+    { _id: { $in: batch.map(d => d._id) } },
+    { /* update */ }
+  );
+
+  // Progress bar
+  const processed = Math.min(i + BATCH_SIZE, docsToProcess.length);
+  const percent = Math.round((processed / docsToProcess.length) * 100);
+  process.stdout.write(`\r   [Progress] ${percent}% (${processed}/${docsToProcess.length})`);
+
+  // Rate limit delay between batches
+  if (i + BATCH_SIZE < docsToProcess.length) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+```
 
 **Running Scripts:**
 ```bash
@@ -96,16 +123,46 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 - Admin-only endpoints for sync operations
 
 ### Event Data Model
-Events combine Microsoft Graph data with internal enrichments:
-- **External (Graph)**: subject, start/end times, location, organizer, categories
-- **Internal Enrichments**: 
-  - MEC categories with subcategories
-  - Setup/teardown times
-  - Staff assignments
-  - Cost tracking
-  - Custom schema extensions
-  - Room associations
-  - Registration requirements
+Events in `templeEvents__Events` combine Microsoft Graph data with internal enrichments:
+
+**Document Structure:**
+```javascript
+{
+  // TOP-LEVEL IDENTITY/STATUS FIELDS
+  eventId, userId, calendarOwner, calendarId, status, isDeleted,
+
+  // NESTED DATA STRUCTURES
+  graphData: { /* Raw Microsoft Graph API data */ },
+  calendarData: {
+    eventTitle, eventDescription,
+    startDateTime, endDateTime,  // Date range queries use these
+    startDate, startTime, endDate, endTime,
+    setupTime, teardownTime, doorOpenTime, doorCloseTime,
+    locations, locationDisplayNames,
+    categories, services, assignedTo,
+    // ... all calendar/event fields
+  },
+  roomReservationData: { /* Reservation workflow data */ },
+  internalData: { /* Legacy internal enrichments */ },
+
+  // METADATA
+  createdAt, createdBy, lastModifiedDateTime, ...
+}
+```
+
+**Important: All calendar fields are in `calendarData`**
+Date range queries use `calendarData.startDateTime` and `calendarData.endDateTime`:
+```javascript
+query['calendarData.startDateTime'] = { $lt: endDate };
+query['calendarData.endDateTime'] = { $gt: startDate };
+```
+
+**calendarData Fields**:
+- Event info: eventTitle, eventDescription, categories
+- Timing: startDateTime/endDateTime, setupTime, teardownTime, doorOpenTime, doorCloseTime
+- Location: locations (ObjectId array), locationDisplayNames, isOffsite, offsite* fields
+- Requester: requesterName, requesterEmail, department, phone
+- Services and assignments
 
 ### Authentication Flow
 1. User logs in via MSAL popup
@@ -186,49 +243,6 @@ const event = await graphApiService.createCalendarEvent(
 - **CSV Import/Export**: Bulk event management
 - **Public API**: External access to event data
 - **Teams/Outlook Add-in**: Seamless Microsoft 365 integration
-
-## Recent Updates
-
-### Graph API Authentication Migration (Completed)
-- **Architecture Change**: Migrated from user-delegated `graphToken` to app-only authentication
-- Backend now uses `graphApiService.js` for all Graph API operations
-- `PUT /api/admin/events/:id/approve` updated to use `graphApiService.createCalendarEvent()`
-- No longer requires user's Graph token - uses `calendarOwner` email instead
-- Frontend still sends `graphToken` for backward compatibility but backend ignores it
-- All new Graph API integrations should use `graphApiService` with app-only auth
-
-### Room Reservation System (Completed)
-- Implemented complete room reservation workflow
-- Added icon-based feature selection UI
-- Created admin management interfaces
-- Fixed MongoDB indexing issues with temporary workaround
-
-### Performance & Stability Improvements (Completed)
-- Fixed calendar loading race conditions
-- Reduced console logging by 67% (from ~200 to ~65 debug statements)
-- Consolidated event loading logic
-- Fixed duplicate API calls in search functionality
-
-### UI/UX Enhancements (Completed)
-- Fixed CSS conflicts between components
-- Improved calendar badge display with meaningful identifiers
-- Enhanced event search with better filtering
-- Added visual room feature selection
-
-### Database Consolidation (Completed)
-- **Rooms & Locations Consolidation**: Unified `templeEvents__Rooms` and `templeEvents__Locations` into single collection
-- Room data migrated to `templeEvents__Locations` with `isReservable: true` flag
-- `/api/rooms` endpoint now queries locations collection (filtered by `isReservable`)
-- Admin endpoints (POST/PUT/DELETE `/api/admin/rooms`) now use locations collection
-- LocationContext simplified to single data source with backward compatibility
-- Hardcoded room data replaced with database queries
-- Migration script: `backend/migrate-rooms-to-locations.js`
-
-## Known Issues & Pending Tasks
-
-1. **Graph API Delta Sync**: Query parameter issues need resolution
-2. **Rate Limiting**: DDOS protection for reservation endpoints pending
-3. **Token Generation UI**: Staff interface for creating guest access tokens
 
 ## Development Best Practices
 
@@ -421,3 +435,50 @@ For detailed architecture documentation, see `architecture-notes.md`
 - All times are handled with proper timezone conversion
 - Demo mode available for testing without live data
 - **Graph API calls from backend MUST use `graphApiService.js`** with app-only authentication, NOT user's `graphToken`
+
+## Current In-Progress Work
+
+### calendarData Migration (Phases 1-3 Complete)
+
+**Status**: Phases 1-3 complete. Phase 4 (cleanup) should be run after 1-2 weeks in production.
+
+**Background**: Restructured `templeEvents__Events` to consolidate ~40 scattered top-level fields into a `calendarData` nested object for cleaner schema organization.
+
+**Completed** (2026-02-04):
+- ✅ Phase 0: Migration script created and run (`backend/migrate-create-calendar-data.js`)
+- ✅ Phase 0: All existing documents have `calendarData` object populated
+- ✅ Phase 1: Backend writes to `calendarData` ONLY
+- ✅ Phase 2: Frontend reads from `calendarData` with format-aware fallback for non-MongoDB inputs
+- ✅ Phase 3: All tests pass (163 frontend, 32 backend graphApiService)
+- ✅ Phase 4: Cleanup migration run - top-level fields removed
+- ✅ Backend queries updated to use `calendarData.startDateTime`/`calendarData.endDateTime`
+
+**Migration Complete**: All calendar/event fields now exclusively in `calendarData` object.
+
+**Key Files**:
+- `backend/api-server.js` - Write operations (updated)
+- `src/utils/eventTransformers.js` - Read operations (updated)
+- `backend/migrate-cleanup-calendar-data.js` - Cleanup script (ready to run)
+
+**Updated Endpoints** (now write to `calendarData.*`):
+- `POST /api/events/request` - Room reservation requests
+- `POST /api/room-reservations/public/:token` - Public/guest reservation requests
+- `POST /api/events/batch` - Batch event creation
+- `POST /api/events/:eventId/audit-update` - Create/update via unified form
+- `POST /api/room-reservations/drafts` - Draft reservations
+- `PUT /api/admin/events/:id` - Admin event updates
+- `PUT /api/admin/events/:id/approve-edit` - Approve edit requests
+- `PUT /api/events/:id/department-fields` - Department-specific updates
+
+---
+
+## Context Preservation Protocol
+
+**IMPORTANT**: Before clearing context or ending a session with pending work:
+
+1. **Review recent changes** - Check git status and recent modifications
+2. **Ask user for confirmation** - Confirm current state and next steps
+3. **Update this section** - Update the "Current In-Progress Work" section above with latest status
+4. **Reference plan file** - Point to the detailed plan file location
+
+This ensures continuity across sessions and prevents loss of planned work.

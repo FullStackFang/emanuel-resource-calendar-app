@@ -1509,30 +1509,29 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const effectiveEnd = new Date(endTime.getTime() + (teardownMinutes * 60 * 1000));
 
     // Build query to find overlapping reservations
-    const roomIds = reservation.locations || reservation.requestedRooms;
+    // Read locations from calendarData (source of truth)
+    const roomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
     const query = {
       $and: [
         { status: { $in: ['pending', 'approved'] } }, // Only check against pending and approved
         {
-          $or: [
-            { requestedRooms: { $in: roomIds } }, // Check requestedRooms field
-            { locations: { $in: roomIds } }        // Check locations field
-          ]
+          // Check calendarData.locations (source of truth)
+          'calendarData.locations': { $in: roomIds }
         },
         {
           $or: [
             {
               // Case 1: Existing reservation starts during our window
-              startDateTime: { $gte: effectiveStart, $lt: effectiveEnd }
+              'calendarData.startDateTime': { $gte: effectiveStart, $lt: effectiveEnd }
             },
             {
               // Case 2: Existing reservation ends during our window
-              endDateTime: { $gt: effectiveStart, $lte: effectiveEnd }
+              'calendarData.endDateTime': { $gt: effectiveStart, $lte: effectiveEnd }
             },
             {
               // Case 3: Existing reservation completely encompasses our window
-              startDateTime: { $lte: effectiveStart },
-              endDateTime: { $gte: effectiveEnd }
+              'calendarData.startDateTime': { $lte: effectiveStart },
+              'calendarData.endDateTime': { $gte: effectiveEnd }
             }
           ]
         }
@@ -4104,10 +4103,10 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] }
     };
 
-    // Simple date range filter using top-level startDateTime/endDateTime
+    // Date range filter using calendarData.startDateTime/endDateTime
     if (startDate && endDate) {
-      query.startDateTime = { $lt: endDate.toISOString() };
-      query.endDateTime = { $gt: startDate.toISOString() };
+      query['calendarData.startDateTime'] = { $lt: endDate.toISOString() };
+      query['calendarData.endDateTime'] = { $gt: startDate.toISOString() };
     }
 
     logger.debug('Calendar events query:', JSON.stringify(query));
@@ -4115,7 +4114,58 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     const events = await unifiedEventsCollection.find(query).toArray();
     logger.debug(`Found ${events.length} displayable events for ${calendarOwner || userId}`);
 
-    return events;
+    // Normalize events to ensure start/end are populated from calendarData
+    // Frontend (Calendar.jsx) expects event.start.dateTime at top level
+    const normalizedEvents = events.map(event => {
+      // CRITICAL: Populate top-level start/end from calendarData
+      // Frontend Calendar.jsx checks event.start.dateTime, not graphData.start.dateTime
+      if (!event.start?.dateTime && event.calendarData?.startDateTime) {
+        event.start = {
+          dateTime: event.calendarData.startDateTime,
+          timeZone: 'America/New_York'
+        };
+      }
+      if (!event.end?.dateTime && event.calendarData?.endDateTime) {
+        event.end = {
+          dateTime: event.calendarData.endDateTime,
+          timeZone: 'America/New_York'
+        };
+      }
+      // Also populate top-level subject for frontend compatibility
+      if (!event.subject && event.calendarData?.eventTitle) {
+        event.subject = event.calendarData.eventTitle;
+      }
+      // Also populate top-level categories for frontend compatibility
+      if (!event.categories && event.calendarData?.categories) {
+        event.categories = event.calendarData.categories;
+      }
+
+      // Also populate graphData for components that use it
+      if (!event.graphData) {
+        event.graphData = {};
+      }
+      if (!event.graphData.start?.dateTime && event.calendarData?.startDateTime) {
+        event.graphData.start = {
+          dateTime: event.calendarData.startDateTime,
+          timeZone: 'America/New_York'
+        };
+      }
+      if (!event.graphData.end?.dateTime && event.calendarData?.endDateTime) {
+        event.graphData.end = {
+          dateTime: event.calendarData.endDateTime,
+          timeZone: 'America/New_York'
+        };
+      }
+      if (!event.graphData.subject && event.calendarData?.eventTitle) {
+        event.graphData.subject = event.calendarData.eventTitle;
+      }
+      if (!event.graphData.categories && event.calendarData?.categories) {
+        event.graphData.categories = event.calendarData.categories;
+      }
+      return event;
+    });
+
+    return normalizedEvents;
   } catch (error) {
     logger.error('Error getting unified events:', error);
     return [];
@@ -4621,6 +4671,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     // STEP 3: Return events directly from MongoDB (source of truth)
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
+    // All calendar fields are now in calendarData (top-level fields removed)
     const transformedLoadEvents = unifiedEvents.map(event => {
       // Determine the correct timezone for this event:
       // 1. Use graphData timezone if available (from Graph API sync)
@@ -4633,20 +4684,20 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
         ...event,  // Spread all MongoDB fields directly
         // Add frontend compatibility wrappers
         id: event.eventId || event._id?.toString(),
-        subject: event.eventTitle || event.graphData?.subject || '(No Subject)',
+        subject: event.calendarData?.eventTitle || event.graphData?.subject || '(No Subject)',
         start: {
-          dateTime: event.startDateTime,
+          dateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
           timeZone: eventTimezone
         },
         end: {
-          dateTime: event.endDateTime,
+          dateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
           timeZone: eventTimezone
         },
-        // Handle different location field names (location, locationDisplayNames, locationDisplayName)
-        location: { displayName: event.locationDisplayNames || event.locationDisplayName || event.location || '' },
-        bodyPreview: event.eventDescription || event.graphData?.bodyPreview || '',
-        isAllDay: event.isAllDayEvent ?? false,
-        categories: event.categories || event.graphData?.categories || [],
+        // Handle different location field names - read from calendarData
+        location: { displayName: event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '' },
+        bodyPreview: event.calendarData?.eventDescription || event.graphData?.bodyPreview || '',
+        isAllDay: event.calendarData?.isAllDayEvent ?? false,
+        categories: event.calendarData?.categories || event.graphData?.categories || [],
         // Explicitly include status for frontend styling
         status: event.status || null,
         source: event.source || null
@@ -4853,6 +4904,8 @@ app.get('/api/events', verifyToken, async (req, res) => {
       const graphData = event.graphData || {};
 
       // Normalize category field - frontend expects a single string
+      // Read from calendarData (source of truth)
+      const cd = event.calendarData || {};
       let category = '';
       if (internalData.mecCategories && internalData.mecCategories.length > 0) {
         // CSV imports use mecCategories
@@ -4860,9 +4913,9 @@ app.get('/api/events', verifyToken, async (req, res) => {
       } else if (graphData.categories && graphData.categories.length > 0) {
         // Graph events use categories
         category = graphData.categories[0];
-      } else if (event.categories && event.categories.length > 0) {
-        // Room reservations store categories at top level
-        category = event.categories[0];
+      } else if (cd.categories && cd.categories.length > 0) {
+        // Room reservations store categories in calendarData
+        category = cd.categories[0];
       }
 
       return {
@@ -5486,69 +5539,62 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         syncedAt: new Date()
       };
 
-      // Initialize location fields for new events
-      newEventDoc.locations = internalFields?.locations || [];
-      newEventDoc.locationDisplayNames = updatedGraphData.location?.displayName || '';
-
-      // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
+      // CALENDAR DATA (consolidated event/calendar fields)
       // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
       const startDateTime = updatedGraphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
       const endDateTime = updatedGraphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
-      newEventDoc.eventTitle = updatedGraphData.subject || 'Untitled Event';
-      newEventDoc.eventDescription = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
-      // Store datetime as local time (no Z suffix) - consistent with sync behavior
-      newEventDoc.startDateTime = startDateTime;
-      newEventDoc.endDateTime = endDateTime;
-      // Extract date and time components directly from the string (not via Date parsing)
-      newEventDoc.startDate = startDateTime ? startDateTime.split('T')[0] : '';
-      newEventDoc.startTime = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-      newEventDoc.endDate = endDateTime ? endDateTime.split('T')[0] : '';
-      newEventDoc.endTime = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-      // location field removed - locationDisplayNames is the single source of truth
-      newEventDoc.isAllDayEvent = updatedGraphData.isAllDay || false;
-
-      // Timing fields from internalData
-      newEventDoc.setupTime = internalFields?.setupTime || '';
-      newEventDoc.teardownTime = internalFields?.teardownTime || '';
-      newEventDoc.doorOpenTime = internalFields?.doorOpenTime || '';
-      newEventDoc.doorCloseTime = internalFields?.doorCloseTime || '';
-      newEventDoc.setupTimeMinutes = internalFields?.setupMinutes || 0;
-      newEventDoc.teardownTimeMinutes = internalFields?.teardownMinutes || 0;
-
-      // Notes fields from internalData
-      newEventDoc.setupNotes = internalFields?.setupNotes || '';
-      newEventDoc.doorNotes = internalFields?.doorNotes || '';
-      newEventDoc.eventNotes = internalFields?.eventNotes || '';
-
-      // Category and assignment fields
-      // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
-      newEventDoc.categories = updatedGraphData.categories || [];
-      newEventDoc.assignedTo = internalFields?.assignedTo || '';
-
-      // Event series fields (for multi-day events)
-      newEventDoc.eventSeriesId = internalFields?.eventSeriesId || null;
-      newEventDoc.seriesLength = internalFields?.seriesLength || null;
-      newEventDoc.seriesIndex = internalFields?.seriesIndex !== undefined ? internalFields.seriesIndex : null;
-
-      // Virtual meeting fields
-      newEventDoc.virtualMeetingUrl = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
-      newEventDoc.virtualPlatform = null; // Not typically in Graph data
-
-      // Offsite location fields
-      newEventDoc.isOffsite = internalFields?.isOffsite || false;
-      newEventDoc.offsiteName = internalFields?.isOffsite ? (internalFields.offsiteName || '') : '';
-      newEventDoc.offsiteAddress = internalFields?.isOffsite ? (internalFields.offsiteAddress || '') : '';
-      newEventDoc.offsiteLat = internalFields?.isOffsite ? (internalFields.offsiteLat || null) : null;
-      newEventDoc.offsiteLon = internalFields?.isOffsite ? (internalFields.offsiteLon || null) : null;
-
-      // Update locationDisplayNames for offsite events
+      // Compute location display name
+      let locationDisplayNames = updatedGraphData.location?.displayName || '';
       if (internalFields?.isOffsite && internalFields?.offsiteName) {
-        newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+        locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
       }
 
-      // Services (internal use only)
-      newEventDoc.services = internalFields?.services || {};
+      newEventDoc.calendarData = {
+        eventTitle: updatedGraphData.subject || 'Untitled Event',
+        eventDescription: extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '',
+        // Store datetime as local time (no Z suffix) - consistent with sync behavior
+        startDateTime,
+        endDateTime,
+        // Extract date and time components directly from the string (not via Date parsing)
+        startDate: startDateTime ? startDateTime.split('T')[0] : '',
+        startTime: startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+        endDate: endDateTime ? endDateTime.split('T')[0] : '',
+        endTime: endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+        isAllDayEvent: updatedGraphData.isAllDay || false,
+        // Timing fields from internalData
+        setupTime: internalFields?.setupTime || '',
+        teardownTime: internalFields?.teardownTime || '',
+        doorOpenTime: internalFields?.doorOpenTime || '',
+        doorCloseTime: internalFields?.doorCloseTime || '',
+        setupTimeMinutes: internalFields?.setupMinutes || 0,
+        teardownTimeMinutes: internalFields?.teardownMinutes || 0,
+        // Notes fields from internalData
+        setupNotes: internalFields?.setupNotes || '',
+        doorNotes: internalFields?.doorNotes || '',
+        eventNotes: internalFields?.eventNotes || '',
+        // Location fields
+        locations: internalFields?.locations || [],
+        locationDisplayNames,
+        // Category and assignment fields
+        categories: updatedGraphData.categories || [],
+        assignedTo: internalFields?.assignedTo || '',
+        // Event series fields (for multi-day events)
+        eventSeriesId: internalFields?.eventSeriesId || null,
+        seriesLength: internalFields?.seriesLength || null,
+        seriesIndex: internalFields?.seriesIndex !== undefined ? internalFields.seriesIndex : null,
+        // Virtual meeting fields
+        virtualMeetingUrl: updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null,
+        virtualPlatform: null,
+        // Offsite location fields
+        isOffsite: internalFields?.isOffsite || false,
+        offsiteName: internalFields?.isOffsite ? (internalFields.offsiteName || '') : '',
+        offsiteAddress: internalFields?.isOffsite ? (internalFields.offsiteAddress || '') : '',
+        offsiteLat: internalFields?.isOffsite ? (internalFields.offsiteLat || null) : null,
+        offsiteLon: internalFields?.isOffsite ? (internalFields.offsiteLon || null) : null,
+        // Services (internal use only)
+        services: internalFields?.services || {}
+      };
 
       dbUpdateResult = await unifiedEventsCollection.insertOne(newEventDoc);
       logger.debug('New event inserted into database:', {
@@ -5567,43 +5613,43 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           ...internalFields
         };
 
-        // Update top-level timing and notes fields from internalData
-        if (internalFields.setupTime !== undefined) updateOperations['setupTime'] = internalFields.setupTime;
-        if (internalFields.teardownTime !== undefined) updateOperations['teardownTime'] = internalFields.teardownTime;
-        if (internalFields.doorOpenTime !== undefined) updateOperations['doorOpenTime'] = internalFields.doorOpenTime;
-        if (internalFields.doorCloseTime !== undefined) updateOperations['doorCloseTime'] = internalFields.doorCloseTime;
-        if (internalFields.setupMinutes !== undefined) updateOperations['setupTimeMinutes'] = internalFields.setupMinutes;
-        if (internalFields.teardownMinutes !== undefined) updateOperations['teardownTimeMinutes'] = internalFields.teardownMinutes;
-        if (internalFields.setupNotes !== undefined) updateOperations['setupNotes'] = internalFields.setupNotes;
-        if (internalFields.doorNotes !== undefined) updateOperations['doorNotes'] = internalFields.doorNotes;
-        if (internalFields.eventNotes !== undefined) updateOperations['eventNotes'] = internalFields.eventNotes;
+        // Update calendarData timing and notes fields from internalData
+        if (internalFields.setupTime !== undefined) updateOperations['calendarData.setupTime'] = internalFields.setupTime;
+        if (internalFields.teardownTime !== undefined) updateOperations['calendarData.teardownTime'] = internalFields.teardownTime;
+        if (internalFields.doorOpenTime !== undefined) updateOperations['calendarData.doorOpenTime'] = internalFields.doorOpenTime;
+        if (internalFields.doorCloseTime !== undefined) updateOperations['calendarData.doorCloseTime'] = internalFields.doorCloseTime;
+        if (internalFields.setupMinutes !== undefined) updateOperations['calendarData.setupTimeMinutes'] = internalFields.setupMinutes;
+        if (internalFields.teardownMinutes !== undefined) updateOperations['calendarData.teardownTimeMinutes'] = internalFields.teardownMinutes;
+        if (internalFields.setupNotes !== undefined) updateOperations['calendarData.setupNotes'] = internalFields.setupNotes;
+        if (internalFields.doorNotes !== undefined) updateOperations['calendarData.doorNotes'] = internalFields.doorNotes;
+        if (internalFields.eventNotes !== undefined) updateOperations['calendarData.eventNotes'] = internalFields.eventNotes;
         // Note: categories are updated from graphData, not internalFields (mecCategories is deprecated)
-        if (internalFields.assignedTo !== undefined) updateOperations['assignedTo'] = internalFields.assignedTo;
+        if (internalFields.assignedTo !== undefined) updateOperations['calendarData.assignedTo'] = internalFields.assignedTo;
 
         // Event series fields (for multi-day events)
-        if (internalFields.eventSeriesId !== undefined) updateOperations['eventSeriesId'] = internalFields.eventSeriesId;
-        if (internalFields.seriesLength !== undefined) updateOperations['seriesLength'] = internalFields.seriesLength;
-        if (internalFields.seriesIndex !== undefined) updateOperations['seriesIndex'] = internalFields.seriesIndex;
+        if (internalFields.eventSeriesId !== undefined) updateOperations['calendarData.eventSeriesId'] = internalFields.eventSeriesId;
+        if (internalFields.seriesLength !== undefined) updateOperations['calendarData.seriesLength'] = internalFields.seriesLength;
+        if (internalFields.seriesIndex !== undefined) updateOperations['calendarData.seriesIndex'] = internalFields.seriesIndex;
 
         // Offsite location fields
         if (internalFields.isOffsite !== undefined) {
-          updateOperations['isOffsite'] = internalFields.isOffsite;
-          updateOperations['offsiteName'] = internalFields.isOffsite ? (internalFields.offsiteName || '') : '';
-          updateOperations['offsiteAddress'] = internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '';
-          updateOperations['offsiteLat'] = internalFields.isOffsite ? (internalFields.offsiteLat || null) : null;
-          updateOperations['offsiteLon'] = internalFields.isOffsite ? (internalFields.offsiteLon || null) : null;
+          updateOperations['calendarData.isOffsite'] = internalFields.isOffsite;
+          updateOperations['calendarData.offsiteName'] = internalFields.isOffsite ? (internalFields.offsiteName || '') : '';
+          updateOperations['calendarData.offsiteAddress'] = internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '';
+          updateOperations['calendarData.offsiteLat'] = internalFields.isOffsite ? (internalFields.offsiteLat || null) : null;
+          updateOperations['calendarData.offsiteLon'] = internalFields.isOffsite ? (internalFields.offsiteLon || null) : null;
 
           // Update locationDisplayNames for offsite events
           if (internalFields.isOffsite && internalFields.offsiteName) {
-            updateOperations['locationDisplayNames'] = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+            updateOperations['calendarData.locationDisplayNames'] = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
             // Clear internal room locations when switching to offsite
-            updateOperations['locations'] = [];
+            updateOperations['calendarData.locations'] = [];
           }
         }
 
         // Services (internal use only)
         if (internalFields.services !== undefined) {
-          updateOperations['services'] = internalFields.services;
+          updateOperations['calendarData.services'] = internalFields.services;
         }
       }
 
@@ -5614,32 +5660,30 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         // Update locationDisplayNames if location changed in graphData (only if not offsite)
         if (!internalFields?.isOffsite) {
           const newLocationDisplayName = updatedGraphData.location?.displayName || '';
-          if (newLocationDisplayName !== currentEvent.locationDisplayNames) {
-            updateOperations['locationDisplayNames'] = newLocationDisplayName;
-            // Note: locations array is NOT auto-updated - requires manual assignment in Phase 2
+          if (newLocationDisplayName !== currentEvent.calendarData?.locationDisplayNames) {
+            updateOperations['calendarData.locationDisplayNames'] = newLocationDisplayName;
           }
         }
 
-        // Update top-level fields from graphData
+        // Update calendarData fields from graphData
         // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
         const startDateTime = updatedGraphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
         const endDateTime = updatedGraphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
-        updateOperations['eventTitle'] = updatedGraphData.subject || 'Untitled Event';
-        updateOperations['eventDescription'] = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
+        updateOperations['calendarData.eventTitle'] = updatedGraphData.subject || 'Untitled Event';
+        updateOperations['calendarData.eventDescription'] = extractTextFromHtml(updatedGraphData.body?.content) || updatedGraphData.bodyPreview || '';
         // Store datetime as local time (no Z suffix) - consistent with sync behavior
-        updateOperations['startDateTime'] = startDateTime;
-        updateOperations['endDateTime'] = endDateTime;
+        updateOperations['calendarData.startDateTime'] = startDateTime;
+        updateOperations['calendarData.endDateTime'] = endDateTime;
         // Extract date and time components directly from the string (not via Date parsing)
-        updateOperations['startDate'] = startDateTime ? startDateTime.split('T')[0] : '';
-        updateOperations['startTime'] = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-        updateOperations['endDate'] = endDateTime ? endDateTime.split('T')[0] : '';
-        updateOperations['endTime'] = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-        updateOperations['location'] = newLocationDisplayName;
-        updateOperations['isAllDayEvent'] = updatedGraphData.isAllDay || false;
-        updateOperations['virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
-        // Top-level categories mirrors graphData.categories
-        updateOperations['categories'] = updatedGraphData.categories || [];
+        updateOperations['calendarData.startDate'] = startDateTime ? startDateTime.split('T')[0] : '';
+        updateOperations['calendarData.startTime'] = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+        updateOperations['calendarData.endDate'] = endDateTime ? endDateTime.split('T')[0] : '';
+        updateOperations['calendarData.endTime'] = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
+        updateOperations['calendarData.isAllDayEvent'] = updatedGraphData.isAllDay || false;
+        updateOperations['calendarData.virtualMeetingUrl'] = updatedGraphData.onlineMeetingUrl || updatedGraphData.onlineMeeting?.joinUrl || null;
+        // calendarData categories mirrors graphData.categories
+        updateOperations['calendarData.categories'] = updatedGraphData.categories || [];
       }
 
       updateOperations['lastAccessedAt'] = new Date();
@@ -5909,69 +5953,62 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
           syncedAt: new Date()
         };
 
-        // Initialize location fields
-        newEventDoc.locations = internalFields.locations || [];
-        newEventDoc.locationDisplayNames = processedLocationDisplayName || graphData.location?.displayName || '';
-
-        // TOP-LEVEL APPLICATION FIELDS
+        // CALENDAR DATA (consolidated event/calendar fields)
         // Store as local time string WITHOUT 'Z' suffix (timezone is in graphData.start/end.timeZone)
         const startDateTime = graphData.start?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
         const endDateTime = graphData.end?.dateTime?.replace(/Z$/, '').replace(/\.0+Z?$/, '') || '';
 
-        newEventDoc.eventTitle = graphData.subject || 'Untitled Event';
-        newEventDoc.eventDescription = extractTextFromHtml(graphData.body?.content) || graphData.bodyPreview || '';
-
-        // Store datetime as local time (no Z suffix) - consistent with sync behavior
-        newEventDoc.startDateTime = startDateTime;
-        newEventDoc.endDateTime = endDateTime;
-        // Extract date and time components directly from the string (not via Date parsing)
-        newEventDoc.startDate = startDateTime ? startDateTime.split('T')[0] : '';
-        newEventDoc.startTime = startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-        newEventDoc.endDate = endDateTime ? endDateTime.split('T')[0] : '';
-        newEventDoc.endTime = endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '';
-        newEventDoc.isAllDayEvent = graphData.isAllDay || false;
-
-        // Timing fields
-        newEventDoc.setupTime = internalFields.setupTime || '';
-        newEventDoc.teardownTime = internalFields.teardownTime || '';
-        newEventDoc.doorOpenTime = internalFields.doorOpenTime || '';
-        newEventDoc.doorCloseTime = internalFields.doorCloseTime || '';
-        newEventDoc.setupTimeMinutes = internalFields.setupMinutes || 0;
-        newEventDoc.teardownTimeMinutes = internalFields.teardownMinutes || 0;
-
-        // Notes fields
-        newEventDoc.setupNotes = internalFields.setupNotes || '';
-        newEventDoc.doorNotes = internalFields.doorNotes || '';
-        newEventDoc.eventNotes = internalFields.eventNotes || '';
-
-        // Category and assignment fields
-        // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
-        newEventDoc.categories = graphData.categories || [];
-        newEventDoc.assignedTo = internalFields.assignedTo || '';
-
-        // Event series fields (for multi-day events)
-        newEventDoc.eventSeriesId = internalFields.eventSeriesId || null;
-        newEventDoc.seriesLength = internalFields.seriesLength || null;
-        newEventDoc.seriesIndex = internalFields.seriesIndex !== undefined ? internalFields.seriesIndex : null;
-
-        // Virtual meeting fields
-        newEventDoc.virtualMeetingUrl = graphData.onlineMeetingUrl || graphData.onlineMeeting?.joinUrl || null;
-        newEventDoc.virtualPlatform = null;
-
-        // Offsite location fields
-        newEventDoc.isOffsite = internalFields.isOffsite || false;
-        newEventDoc.offsiteName = internalFields.isOffsite ? (internalFields.offsiteName || '') : '';
-        newEventDoc.offsiteAddress = internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '';
-        newEventDoc.offsiteLat = internalFields.isOffsite ? (internalFields.offsiteLat || null) : null;
-        newEventDoc.offsiteLon = internalFields.isOffsite ? (internalFields.offsiteLon || null) : null;
-
-        // Update locationDisplayNames for offsite events
+        // Compute location display name
+        let locationDisplayNames = processedLocationDisplayName || graphData.location?.displayName || '';
         if (internalFields.isOffsite && internalFields.offsiteName) {
-          newEventDoc.locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
+          locationDisplayNames = `${internalFields.offsiteName} (Offsite) - ${internalFields.offsiteAddress || ''}`;
         }
 
-        // Services (internal use only)
-        newEventDoc.services = internalFields.services || {};
+        newEventDoc.calendarData = {
+          eventTitle: graphData.subject || 'Untitled Event',
+          eventDescription: extractTextFromHtml(graphData.body?.content) || graphData.bodyPreview || '',
+          // Store datetime as local time (no Z suffix) - consistent with sync behavior
+          startDateTime,
+          endDateTime,
+          // Extract date and time components directly from the string (not via Date parsing)
+          startDate: startDateTime ? startDateTime.split('T')[0] : '',
+          startTime: startDateTime ? startDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+          endDate: endDateTime ? endDateTime.split('T')[0] : '',
+          endTime: endDateTime ? endDateTime.split('T')[1]?.substring(0, 5) || '' : '',
+          isAllDayEvent: graphData.isAllDay || false,
+          // Timing fields
+          setupTime: internalFields.setupTime || '',
+          teardownTime: internalFields.teardownTime || '',
+          doorOpenTime: internalFields.doorOpenTime || '',
+          doorCloseTime: internalFields.doorCloseTime || '',
+          setupTimeMinutes: internalFields.setupMinutes || 0,
+          teardownTimeMinutes: internalFields.teardownMinutes || 0,
+          // Notes fields
+          setupNotes: internalFields.setupNotes || '',
+          doorNotes: internalFields.doorNotes || '',
+          eventNotes: internalFields.eventNotes || '',
+          // Location fields
+          locations: internalFields.locations || [],
+          locationDisplayNames,
+          // Category and assignment fields
+          categories: graphData.categories || [],
+          assignedTo: internalFields.assignedTo || '',
+          // Event series fields (for multi-day events)
+          eventSeriesId: internalFields.eventSeriesId || null,
+          seriesLength: internalFields.seriesLength || null,
+          seriesIndex: internalFields.seriesIndex !== undefined ? internalFields.seriesIndex : null,
+          // Virtual meeting fields
+          virtualMeetingUrl: graphData.onlineMeetingUrl || graphData.onlineMeeting?.joinUrl || null,
+          virtualPlatform: null,
+          // Offsite location fields
+          isOffsite: internalFields.isOffsite || false,
+          offsiteName: internalFields.isOffsite ? (internalFields.offsiteName || '') : '',
+          offsiteAddress: internalFields.isOffsite ? (internalFields.offsiteAddress || '') : '',
+          offsiteLat: internalFields.isOffsite ? (internalFields.offsiteLat || null) : null,
+          offsiteLon: internalFields.isOffsite ? (internalFields.offsiteLon || null) : null,
+          // Services (internal use only)
+          services: internalFields.services || {}
+        };
 
         // Insert into MongoDB
         const dbResult = await unifiedEventsCollection.insertOne(newEventDoc);
@@ -7038,17 +7075,17 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     }
     // If no calendar filter at all, search across all events
 
-    // Date range filter - use startDateTime for filtering
+    // Date range filter - use calendarData.startDateTime for filtering
     if (startDate) {
-      query.startDateTime = query.startDateTime || {};
-      query.startDateTime.$gte = new Date(startDate).toISOString();
+      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+      query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
     }
     if (endDate) {
-      query.startDateTime = query.startDateTime || {};
+      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
       // End of day for the end date
       const endOfDay = new Date(endDate);
       endOfDay.setHours(23, 59, 59, 999);
-      query.startDateTime.$lte = endOfDay.toISOString();
+      query['calendarData.startDateTime'].$lte = endOfDay.toISOString();
     }
 
     // Debug logging - use console.log for visibility during debugging
@@ -7156,7 +7193,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       }
     }
 
-    // Location filter - filter by locationDisplayName, locationDisplayNames, locations array, or locationCodes
+    // Location filter - filter by calendarData location fields or graphData.location
     if (locations) {
       const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
       if (locationList.length > 0) {
@@ -7164,10 +7201,9 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
           const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           return {
             $or: [
-              { locationDisplayName: { $regex: escapedLoc, $options: 'i' } },
-              { locationDisplayNames: { $regex: escapedLoc, $options: 'i' } },
-              { locations: { $in: [loc] } },
-              { locationCodes: { $in: [loc] } },
+              { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } },
+              { 'calendarData.locations': { $in: [loc] } },
+              { 'calendarData.locationCodes': { $in: [loc] } },
               { 'graphData.location.displayName': { $regex: escapedLoc, $options: 'i' } }
             ]
           };
@@ -7230,17 +7266,13 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     // Get events without server-side sorting to avoid Cosmos DB index issues
     // Sort client-side after fetching
     // Use projection to reduce document size and RU consumption
+    // Include calendarData (source of truth) and essential metadata fields
     let events = await withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project({
-        _id: 1, eventId: 1, eventTitle: 1, subject: 1,
-        startDateTime: 1, endDateTime: 1, startDate: 1, startTime: 1,
-        endDate: 1, endTime: 1, startTimeZone: 1, endTimeZone: 1, isAllDayEvent: 1,
-        location: 1, locationDisplayName: 1, locationDisplayNames: 1, locations: 1, locationCodes: 1,
-        eventDescription: 1, calendarId: 1, calendarOwner: 1, calendarName: 1,
-        categories: 1, isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
-        setupTime: 1, teardownTime: 1, doorOpenTime: 1, doorCloseTime: 1,
-        setupMinutes: 1, teardownMinutes: 1,
-        setupNotes: 1, doorNotes: 1, eventNotes: 1,
+        _id: 1, eventId: 1,
+        calendarId: 1, calendarOwner: 1, calendarName: 1,
+        isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
+        calendarData: 1, // All calendar fields are now in calendarData
         'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
         'graphData.location': 1, 'graphData.categories': 1, 'graphData.organizer': 1, 'graphData.bodyPreview': 1
       });
@@ -7278,44 +7310,44 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
       return {
         _id: event._id,
         eventId: event.eventId,
-        // Title fields - prefer top-level eventTitle, then subject, then graphData
-        eventTitle: event.eventTitle,
-        subject: event.eventTitle || event.subject || event.graphData?.subject || 'No Subject',
+        // Title fields - read from calendarData (source of truth)
+        eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
+        subject: event.calendarData?.eventTitle || event.graphData?.subject || 'No Subject',
         // Include only essential graphData for proper datetime formatting
         graphData: essentialGraphData,
-        // Include top-level datetime fields (source of truth)
-        startDateTime: event.startDateTime,
-        endDateTime: event.endDateTime,
-        startDate: event.startDate,
-        startTime: event.startTime,
-        endDate: event.endDate,
-        endTime: event.endTime,
-        startTimeZone: event.startTimeZone,
-        endTimeZone: event.endTimeZone,
-        isAllDayEvent: event.isAllDayEvent,
+        // Include calendarData datetime fields (source of truth)
+        startDateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
+        endDateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
+        startDate: event.calendarData?.startDate,
+        startTime: event.calendarData?.startTime,
+        endDate: event.calendarData?.endDate,
+        endTime: event.calendarData?.endTime,
+        startTimeZone: event.graphData?.start?.timeZone || 'America/New_York',
+        endTimeZone: event.graphData?.end?.timeZone || 'America/New_York',
+        isAllDayEvent: event.calendarData?.isAllDayEvent,
         // Setup/teardown times
-        setupTime: event.setupTime,
-        teardownTime: event.teardownTime,
-        doorOpenTime: event.doorOpenTime,
-        doorCloseTime: event.doorCloseTime,
-        setupMinutes: event.setupMinutes,
-        teardownMinutes: event.teardownMinutes,
+        setupTime: event.calendarData?.setupTime,
+        teardownTime: event.calendarData?.teardownTime,
+        doorOpenTime: event.calendarData?.doorOpenTime,
+        doorCloseTime: event.calendarData?.doorCloseTime,
+        setupMinutes: event.calendarData?.setupTimeMinutes,
+        teardownMinutes: event.calendarData?.teardownTimeMinutes,
         // Internal notes
-        setupNotes: event.setupNotes || '',
-        doorNotes: event.doorNotes || '',
-        eventNotes: event.eventNotes || '',
+        setupNotes: event.calendarData?.setupNotes || '',
+        doorNotes: event.calendarData?.doorNotes || '',
+        eventNotes: event.calendarData?.eventNotes || '',
         // Location fields
-        location: event.location || event.locationDisplayName || event.graphData?.location?.displayName,
-        locationDisplayName: event.locationDisplayName,
-        locationDisplayNames: event.locationDisplayNames,
-        locations: event.locations,
-        locationCodes: event.locationCodes,
+        location: event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName,
+        locationDisplayName: event.calendarData?.locationDisplayNames,
+        locationDisplayNames: event.calendarData?.locationDisplayNames,
+        locations: event.calendarData?.locations,
+        locationCodes: event.calendarData?.locationCodes,
         // Event metadata
-        eventDescription: event.eventDescription,
+        eventDescription: event.calendarData?.eventDescription,
         calendarId: event.calendarId,
         calendarOwner: event.calendarOwner,
         calendarName: event.calendarName,
-        categories: event.categories,
+        categories: event.calendarData?.categories || event.graphData?.categories,
         isDeleted: event.isDeleted || false,
         hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
         internalData: event.internalData,
@@ -7431,17 +7463,17 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
 
     // Filter by date range if provided
     if (startDate || endDate) {
-      query.startDateTime = {};
+      query['calendarData.startDateTime'] = {};
       if (startDate) {
-        query.startDateTime.$gte = new Date(startDate).toISOString();
+        query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
       }
       if (endDate) {
-        query.startDateTime.$lte = new Date(endDate).toISOString();
+        query['calendarData.startDateTime'].$lte = new Date(endDate).toISOString();
       }
     }
 
     // Build the query with optional limit
-    let csvEventsQuery = unifiedEventsCollection.find(query).sort({ startDateTime: 1 });
+    let csvEventsQuery = unifiedEventsCollection.find(query).sort({ 'calendarData.startDateTime': 1 });
     if (limit && typeof limit === 'number' && limit > 0) {
       csvEventsQuery = csvEventsQuery.limit(limit);
     }
@@ -7461,9 +7493,9 @@ app.post('/api/admin/cleanup-csv-imports', verifyToken, async (req, res) => {
     for (const event of csvEvents) {
       try {
         // Search Graph API for matching event by title + datetime
-        const startISO = event.startDateTime || event.graphData?.start?.dateTime;
-        const endISO = event.endDateTime || event.graphData?.end?.dateTime;
-        const title = event.eventTitle || event.graphData?.subject;
+        const startISO = event.calendarData?.startDateTime || event.graphData?.start?.dateTime;
+        const endISO = event.calendarData?.endDateTime || event.graphData?.end?.dateTime;
+        const title = event.calendarData?.eventTitle || event.graphData?.subject;
 
         if (!startISO || !title) {
           results.errors.push({ eventId: event.eventId, title: title || '(no title)', error: 'Missing title or startDateTime' });
@@ -12014,22 +12046,22 @@ app.get('/api/rooms/availability', async (req, res) => {
     if (roomObjectIds.length > 0) {
       allEvents = await unifiedEventsCollection.find({
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
-        startDateTime: { $lt: end },
-        endDateTime: { $gt: start },
+        'calendarData.startDateTime': { $lt: end },
+        'calendarData.endDateTime': { $gt: start },
         // Match both ObjectId format (room reservations) and string format (unified form events)
         $or: [
-          { locations: { $in: roomObjectIds } },
-          { locations: { $in: roomIdStrings } }
+          { 'calendarData.locations': { $in: roomObjectIds } },
+          { 'calendarData.locations': { $in: roomIdStrings } }
         ]
       }).toArray();
 
       logger.log('[AVAILABILITY DEBUG] Found events from unifiedEventsCollection:', allEvents.length);
       logger.log('[AVAILABILITY DEBUG] All events found:', allEvents.map(e => ({
         _id: e._id?.toString(),
-        eventTitle: e.eventTitle || e.subject || e.graphData?.subject,
-        locations: e.locations,
-        locationType: e.locations?.map(l => typeof l),
-        startDateTime: e.startDateTime,
+        eventTitle: e.calendarData?.eventTitle || e.graphData?.subject,
+        locations: e.calendarData?.locations,
+        locationType: e.calendarData?.locations?.map(l => typeof l),
+        startDateTime: e.calendarData?.startDateTime,
         status: e.status,
         source: e.source,
         createdSource: e.createdSource
@@ -12058,14 +12090,14 @@ app.get('/api/rooms/availability', async (req, res) => {
     const availability = rooms.map(room => {
       const roomIdString = room._id.toString();
 
-      // Get ALL reservations for this room (using locations field)
+      // Get ALL reservations for this room (using calendarData.locations)
       const roomReservations = allReservations.filter(res =>
-        res.locations && res.locations.some(locId => locId.toString() === roomIdString)
+        res.calendarData?.locations && res.calendarData.locations.some(locId => locId.toString() === roomIdString)
       );
 
       // Get ALL calendar events for this room (excludes reservations which are handled above)
       const roomEvents = allCalendarEvents.filter(event =>
-        event.locations && event.locations.some(locId => locId.toString() === roomIdString)
+        event.calendarData?.locations && event.calendarData.locations.some(locId => locId.toString() === roomIdString)
       );
 
       logger.log(`[AVAILABILITY DEBUG] Room ${room.name || room.displayName} (${roomIdString}):`, {
@@ -12078,27 +12110,28 @@ app.get('/api/rooms/availability', async (req, res) => {
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
       const detailedReservationConflicts = roomReservations.map(res => {
         let effectiveStart, effectiveEnd;
+        const cd = res.calendarData || {};
 
         // Smart calculation: Try stored values first, then time-based, then minutes-based
         if (res.effectiveStart && res.effectiveEnd) {
           // New reservations have these stored (post time-blocking update)
           effectiveStart = res.effectiveStart;
           effectiveEnd = res.effectiveEnd;
-        } else if (res.setupTime || res.teardownTime) {
+        } else if (cd.setupTime || cd.teardownTime) {
           // Calculate from time-based fields
-          const baseStart = new Date(res.startDateTime);
-          const baseEnd = new Date(res.endDateTime);
+          const baseStart = new Date(cd.startDateTime);
+          const baseEnd = new Date(cd.endDateTime);
 
-          if (res.setupTime) {
-            const [setupHours, setupMinutes] = res.setupTime.split(':').map(Number);
+          if (cd.setupTime) {
+            const [setupHours, setupMinutes] = cd.setupTime.split(':').map(Number);
             effectiveStart = new Date(baseStart);
             effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
           } else {
             effectiveStart = baseStart;
           }
 
-          if (res.teardownTime) {
-            const [teardownHours, teardownMinutes] = res.teardownTime.split(':').map(Number);
+          if (cd.teardownTime) {
+            const [teardownHours, teardownMinutes] = cd.teardownTime.split(':').map(Number);
             effectiveEnd = new Date(baseEnd);
             effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
           } else {
@@ -12106,23 +12139,25 @@ app.get('/api/rooms/availability', async (req, res) => {
           }
         } else {
           // Fall back to minutes-based calculation (old reservations)
-          const resSetupMinutes = res.setupTimeMinutes || 0;
-          const resTeardownMinutes = res.teardownTimeMinutes || 0;
-          effectiveStart = new Date(res.startDateTime.getTime() - (resSetupMinutes * 60 * 1000));
-          effectiveEnd = new Date(res.endDateTime.getTime() + (resTeardownMinutes * 60 * 1000));
+          const resSetupMinutes = cd.setupTimeMinutes || 0;
+          const resTeardownMinutes = cd.teardownTimeMinutes || 0;
+          const startDT = new Date(cd.startDateTime);
+          const endDT = new Date(cd.endDateTime);
+          effectiveStart = new Date(startDT.getTime() - (resSetupMinutes * 60 * 1000));
+          effectiveEnd = new Date(endDT.getTime() + (resTeardownMinutes * 60 * 1000));
         }
 
         return {
           id: res._id,
-          eventTitle: res.eventTitle,
-          requesterName: res.requesterName,
+          eventTitle: cd.eventTitle,
+          requesterName: cd.requesterName,
           status: res.status,
-          originalStart: res.startDateTime,
-          originalEnd: res.endDateTime,
+          originalStart: cd.startDateTime,
+          originalEnd: cd.endDateTime,
           effectiveStart,
           effectiveEnd,
-          setupTimeMinutes: res.setupTimeMinutes || 0,
-          teardownTimeMinutes: res.teardownTimeMinutes || 0,
+          setupTimeMinutes: cd.setupTimeMinutes || 0,
+          teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           isAllowedConcurrent: res.isAllowedConcurrent ?? false
         };
       });
@@ -12130,22 +12165,23 @@ app.get('/api/rooms/availability', async (req, res) => {
       // Return detailed event data (frontend will calculate conflicts dynamically)
       const detailedEventConflicts = roomEvents.map(event => {
         let effectiveStart, effectiveEnd;
-        const baseStart = new Date(event.startDateTime || event.startTime);
-        const baseEnd = new Date(event.endDateTime || event.endTime);
+        const cd = event.calendarData || {};
+        const baseStart = new Date(cd.startDateTime || cd.startTime);
+        const baseEnd = new Date(cd.endDateTime || cd.endTime);
 
         // Calculate effective blocking times using same logic as reservations
-        if (event.setupTime || event.teardownTime) {
+        if (cd.setupTime || cd.teardownTime) {
           // Calculate from time-based fields (HH:MM format)
-          if (event.setupTime) {
-            const [setupHours, setupMinutes] = event.setupTime.split(':').map(Number);
+          if (cd.setupTime) {
+            const [setupHours, setupMinutes] = cd.setupTime.split(':').map(Number);
             effectiveStart = new Date(baseStart);
             effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
           } else {
             effectiveStart = baseStart;
           }
 
-          if (event.teardownTime) {
-            const [teardownHours, teardownMinutes] = event.teardownTime.split(':').map(Number);
+          if (cd.teardownTime) {
+            const [teardownHours, teardownMinutes] = cd.teardownTime.split(':').map(Number);
             effectiveEnd = new Date(baseEnd);
             effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
           } else {
@@ -12153,23 +12189,23 @@ app.get('/api/rooms/availability', async (req, res) => {
           }
         } else {
           // Fall back to minutes-based calculation or use base times
-          const setupMinutes = event.setupTimeMinutes || 0;
-          const teardownMinutes = event.teardownTimeMinutes || 0;
+          const setupMinutes = cd.setupTimeMinutes || 0;
+          const teardownMinutes = cd.teardownTimeMinutes || 0;
           effectiveStart = new Date(baseStart.getTime() - (setupMinutes * 60 * 1000));
           effectiveEnd = new Date(baseEnd.getTime() + (teardownMinutes * 60 * 1000));
         }
 
         return {
           id: event._id,
-          subject: event.subject,
-          organizer: event.organizer?.emailAddress?.name || event.organizer?.name || 'Unknown',
-          start: event.startDateTime || event.startTime,
-          end: event.endDateTime || event.endTime,
+          subject: cd.eventTitle || event.graphData?.subject,
+          organizer: event.graphData?.organizer?.emailAddress?.name || 'Unknown',
+          start: cd.startDateTime || cd.startTime,
+          end: cd.endDateTime || cd.endTime,
           effectiveStart,
           effectiveEnd,
-          setupTimeMinutes: event.setupTimeMinutes || 0,
-          teardownTimeMinutes: event.teardownTimeMinutes || 0,
-          location: event.location,
+          setupTimeMinutes: cd.setupTimeMinutes || 0,
+          teardownTimeMinutes: cd.teardownTimeMinutes || 0,
+          location: cd.locationDisplayNames || event.graphData?.location?.displayName,
           isAllowedConcurrent: event.isAllowedConcurrent ?? false
         };
       });
@@ -12337,58 +12373,29 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
       })
     };
 
-    // Create reservation record
+    // Parse date components for calendarData
+    const startDateObj = new Date(startDateTime);
+    const endDateObj = new Date(endDateTime);
+    const startDateStr = startDateTime.split('T')[0];
+    const startTimeStr = startDateTime.split('T')[1]?.substring(0, 5) || '';
+    const endDateStr = endDateTime.split('T')[0];
+    const endTimeStr = endDateTime.split('T')[1]?.substring(0, 5) || '';
+
+    // Create reservation record with calendarData structure
     const reservation = {
+      // Identity and status fields (top-level)
       requesterId: userId,
-      requesterName: req.user.name || userEmail,
-      requesterEmail: userEmail,
-      department: department || '',
-      phone: phone || '',
-
-      // Delegation fields
-      isOnBehalfOf: isOnBehalfOf,
-      contactName: isOnBehalfOf ? contactName : null,
-      contactEmail: isOnBehalfOf ? contactEmail : null,
-
-      eventTitle,
-      eventDescription: eventDescription || '',
-      startDateTime: new Date(startDateTime),
-      endDateTime: new Date(endDateTime),
+      status: 'pending',
       effectiveStart: effectiveStart, // Used for room blocking (includes setup)
       effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
-      attendeeCount: attendeeCount || 0,
 
-      requestedRooms,
-      requiredFeatures: requiredFeatures || [],
-      specialRequirements: specialRequirements || '',
-
-      // Setup and teardown times (legacy minutes)
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-
-      // Access & Operations Times
-      setupTime: setupTime || null,
-      teardownTime: teardownTime || null,
-      doorOpenTime: doorOpenTime || null,
-      doorCloseTime: doorCloseTime || null,
-
-      // Internal Notes (staff use only)
-      setupNotes: setupNotes || '',
-      doorNotes: doorNotes || '',
-      eventNotes: eventNotes || '',
-
-      // Categories
-      categories: categories || [],
-
-      // Concurrent scheduling settings
+      // Concurrent scheduling settings (top-level for indexing)
       isAllowedConcurrent: isAllowedConcurrent || false,
       allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
         try { return new ObjectId(id); } catch { return id; }
       }),
 
-      status: 'pending',
-
-      // New resubmission fields
+      // Resubmission fields
       currentRevision: 1,
       resubmissionAllowed: true,
       communicationHistory: [initialSubmissionEntry],
@@ -12407,7 +12414,61 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
 
       submittedAt: new Date(),
       lastModified: new Date(),
-      attachments: []
+      attachments: [],
+
+      // CALENDAR DATA (consolidated event/calendar fields - source of truth)
+      calendarData: {
+        eventTitle,
+        eventDescription: eventDescription || '',
+        // Store datetime as ISO strings (local time)
+        startDateTime: startDateTime.replace(/Z$/, ''),
+        endDateTime: endDateTime.replace(/Z$/, ''),
+        // Date and time components
+        startDate: startDateStr,
+        startTime: startTimeStr,
+        endDate: endDateStr,
+        endTime: endTimeStr,
+        isAllDayEvent: false,
+        // Setup and teardown times
+        setupTime: setupTime || null,
+        teardownTime: teardownTime || null,
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        doorOpenTime: doorOpenTime || null,
+        doorCloseTime: doorCloseTime || null,
+        // Internal Notes (staff use only)
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || '',
+        // Locations - use requestedRooms as ObjectId array
+        locations: requestedRooms,
+        locationDisplayNames: '', // Will be populated when approved
+        // Requester info
+        requesterName: req.user.name || userEmail,
+        requesterEmail: userEmail,
+        department: department || '',
+        phone: phone || '',
+        // Delegation fields
+        isOnBehalfOf: isOnBehalfOf,
+        contactName: isOnBehalfOf ? contactName : null,
+        contactEmail: isOnBehalfOf ? contactEmail : null,
+        // Event details
+        attendeeCount: attendeeCount || 0,
+        specialRequirements: specialRequirements || '',
+        requiredFeatures: requiredFeatures || [],
+        // Categories
+        categories: categories || [],
+        assignedTo: '',
+        // Virtual meeting (not applicable for room reservations)
+        virtualMeetingUrl: null,
+        virtualPlatform: null,
+        // Offsite (not applicable for room reservations)
+        isOffsite: false,
+        offsiteName: '',
+        offsiteAddress: '',
+        offsiteLat: null,
+        offsiteLon: null
+      }
     };
 
     // Generate changeKey for the new reservation
@@ -12504,62 +12565,17 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       });
     }
 
-    // Create draft event record in unified events collection
+    // Create draft event record in unified events collection with calendarData structure
     const draft = {
       // Event identification
       eventId: `draft_${new ObjectId().toString()}`,
       userId: userId,
 
-      // Event details
-      eventTitle: eventTitle.trim(),
-      eventDescription: eventDescription || '',
-      startDateTime: startDateTime ? new Date(startDateTime) : null,
-      endDateTime: endDateTime ? new Date(endDateTime) : null,
-      attendeeCount: attendeeCount || 0,
-
-      // Location data
-      locations: requestedRooms || [],
-      isOffsite: isOffsite || false,
-      offsiteName: offsiteName || '',
-      offsiteAddress: offsiteAddress || '',
-      offsiteLat: offsiteLat || null,
-      offsiteLon: offsiteLon || null,
-
-      // Time fields
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-      setupTime: setupTime || null,
-      teardownTime: teardownTime || null,
-      doorOpenTime: doorOpenTime || null,
-      doorCloseTime: doorCloseTime || null,
-      // Separate date/time fields for partial draft support
-      startDate: startDate || null,
-      startTime: startTime || null,
-      endDate: endDate || null,
-      endTime: endTime || null,
-
-      // Notes
-      setupNotes: setupNotes || '',
-      doorNotes: doorNotes || '',
-      eventNotes: eventNotes || '',
-      specialRequirements: specialRequirements || '',
-
-      // Categories and services (mecCategories is deprecated, use categories)
-      categories: categories || mecCategories || [],  // categories is correct field, mecCategories is deprecated
-      services: services || {},
-
-      // Concurrent scheduling settings
+      // Concurrent scheduling settings (top-level for indexing)
       isAllowedConcurrent: isAllowedConcurrent || false,
       allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
         try { return new ObjectId(id); } catch { return id; }
       }),
-
-      // Recurrence and virtual meeting
-      recurrence: recurrence || null,
-      virtualMeetingUrl: virtualMeetingUrl || null,
-
-      // Requester info
-      requiredFeatures: requiredFeatures || [],
 
       // Room reservation data structure (for compatibility)
       roomReservationData: {
@@ -12586,7 +12602,62 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       // Standard fields
       createdAt: new Date(),
       lastModified: new Date(),
-      isDeleted: false
+      isDeleted: false,
+
+      // CALENDAR DATA (consolidated event/calendar fields - source of truth)
+      calendarData: {
+        eventTitle: eventTitle.trim(),
+        eventDescription: eventDescription || '',
+        // Store datetime as ISO strings (local time)
+        startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : null,
+        endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : null,
+        // Date and time components for partial draft support
+        startDate: startDate || null,
+        startTime: startTime || null,
+        endDate: endDate || null,
+        endTime: endTime || null,
+        isAllDayEvent: false,
+        // Setup and teardown times
+        setupTime: setupTime || null,
+        teardownTime: teardownTime || null,
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        doorOpenTime: doorOpenTime || null,
+        doorCloseTime: doorCloseTime || null,
+        // Notes
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || '',
+        specialRequirements: specialRequirements || '',
+        // Locations
+        locations: requestedRooms || [],
+        locationDisplayNames: '',
+        isOffsite: isOffsite || false,
+        offsiteName: offsiteName || '',
+        offsiteAddress: offsiteAddress || '',
+        offsiteLat: offsiteLat || null,
+        offsiteLon: offsiteLon || null,
+        // Virtual meeting
+        virtualMeetingUrl: virtualMeetingUrl || null,
+        virtualPlatform: null,
+        // Categories and services
+        categories: categories || mecCategories || [],
+        services: services || {},
+        assignedTo: '',
+        // Requester info
+        requesterName: req.user.name || userEmail,
+        requesterEmail: userEmail,
+        department: department || '',
+        phone: phone || '',
+        attendeeCount: attendeeCount || 0,
+        requiredFeatures: requiredFeatures || [],
+        // Delegation
+        isOnBehalfOf: isOnBehalfOf || false,
+        contactName: isOnBehalfOf ? contactName : '',
+        contactEmail: isOnBehalfOf ? contactEmail : '',
+        // Recurrence
+        recurrence: recurrence || null
+      }
     };
 
     const result = await unifiedEventsCollection.insertOne(draft);
@@ -13124,56 +13195,25 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       })
     };
 
-    // Create reservation record
+    // Parse date components for calendarData
+    const startDateStr = startDateTime.split('T')[0];
+    const startTimeStr = startDateTime.split('T')[1]?.substring(0, 5) || '';
+    const endDateStr = endDateTime.split('T')[0];
+    const endTimeStr = endDateTime.split('T')[1]?.substring(0, 5) || '';
+
+    // Create reservation record with calendarData structure
     const reservation = {
+      // Identity and status fields (top-level)
       requesterId: `guest-${tokenDoc._id}`,
-      requesterName,
-      requesterEmail,
-      department: department || '',
-      phone: phone || '',
-      
-      // Delegation fields
-      isOnBehalfOf: isOnBehalfOf,
-      contactName: isOnBehalfOf ? contactName : null,
-      contactEmail: isOnBehalfOf ? contactEmail : null,
-      
-      eventTitle,
-      eventDescription: eventDescription || '',
-      startDateTime: new Date(startDateTime),
-      endDateTime: new Date(endDateTime),
+      status: 'pending',
       effectiveStart: effectiveStart, // Used for room blocking (includes setup)
       effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
-      attendeeCount: attendeeCount || 0,
-
-      requestedRooms,
-      requiredFeatures: requiredFeatures || [],
-      specialRequirements: specialRequirements || '',
-
-      // Setup and teardown times (legacy minutes)
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-
-      // Access & Operations Times
-      setupTime: setupTime || null,
-      teardownTime: teardownTime || null,
-      doorOpenTime: doorOpenTime || null,
-      doorCloseTime: doorCloseTime || null,
-
-      // Internal Notes (staff use only)
-      setupNotes: setupNotes || '',
-      doorNotes: doorNotes || '',
-      eventNotes: eventNotes || '',
-
-      // Categories
-      categories: categories || [],
 
       // Concurrent scheduling settings (guest reservations default to false - admin can update later)
       isAllowedConcurrent: false,
       allowedConcurrentCategories: [],
 
-      status: 'pending',
-
-      // New resubmission fields
+      // Resubmission fields
       currentRevision: 1,
       resubmissionAllowed: true,
       communicationHistory: [initialSubmissionEntry],
@@ -13196,7 +13236,61 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
       // Token metadata
       tokenUsed: tokenDoc._id,
-      sponsoredBy: tokenDoc.createdByEmail
+      sponsoredBy: tokenDoc.createdByEmail,
+
+      // CALENDAR DATA (consolidated event/calendar fields - source of truth)
+      calendarData: {
+        eventTitle,
+        eventDescription: eventDescription || '',
+        // Store datetime as ISO strings (local time)
+        startDateTime: startDateTime.replace(/Z$/, ''),
+        endDateTime: endDateTime.replace(/Z$/, ''),
+        // Date and time components
+        startDate: startDateStr,
+        startTime: startTimeStr,
+        endDate: endDateStr,
+        endTime: endTimeStr,
+        isAllDayEvent: false,
+        // Setup and teardown times
+        setupTime: setupTime || null,
+        teardownTime: teardownTime || null,
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        doorOpenTime: doorOpenTime || null,
+        doorCloseTime: doorCloseTime || null,
+        // Internal Notes (staff use only)
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || '',
+        // Locations - use requestedRooms as ObjectId array
+        locations: requestedRooms,
+        locationDisplayNames: '', // Will be populated when approved
+        // Requester info
+        requesterName: requesterName,
+        requesterEmail: requesterEmail,
+        department: department || '',
+        phone: phone || '',
+        // Delegation fields
+        isOnBehalfOf: isOnBehalfOf,
+        contactName: isOnBehalfOf ? contactName : null,
+        contactEmail: isOnBehalfOf ? contactEmail : null,
+        // Event details
+        attendeeCount: attendeeCount || 0,
+        specialRequirements: specialRequirements || '',
+        requiredFeatures: requiredFeatures || [],
+        // Categories
+        categories: categories || [],
+        assignedTo: '',
+        // Virtual meeting (not applicable for room reservations)
+        virtualMeetingUrl: null,
+        virtualPlatform: null,
+        // Offsite (not applicable for room reservations)
+        isOffsite: false,
+        offsiteName: '',
+        offsiteAddress: '',
+        offsiteLat: null,
+        offsiteLon: null
+      }
     };
 
     // Generate changeKey for the new reservation
@@ -13326,42 +13420,48 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       .toArray();
 
     // Transform events to match expected reservation format for frontend
-    const reservations = events.map(event => ({
-      _id: event._id,
-      eventId: event.eventId,
-      eventTitle: event.eventTitle || event.graphData?.subject || 'Untitled',
-      eventDescription: event.eventDescription || event.graphData?.bodyPreview || '',
-      startDateTime: event.startDateTime || event.graphData?.start?.dateTime,
-      endDateTime: event.endDateTime || event.graphData?.end?.dateTime,
-      status: event.status === 'room-reservation-request' ? 'pending' : event.status,
-      requestedRooms: event.locations || [],
-      attendeeCount: event.attendeeCount || 0,
-      requesterId: event.roomReservationData?.requestedBy?.userId,
-      requesterName: event.roomReservationData?.requestedBy?.name,
-      requesterEmail: event.roomReservationData?.requestedBy?.email,
-      submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
-      roomReservationData: event.roomReservationData,
-      rejectionReason: event.roomReservationData?.rejectionReason,
-      cancelReason: event.roomReservationData?.cancelReason,
-      actionDate: event.roomReservationData?.reviewedAt,
-      // Include additional fields that may be needed
-      specialRequirements: event.specialRequirements,
-      setupTime: event.setupTime,
-      teardownTime: event.teardownTime,
-      doorOpenTime: event.doorOpenTime,
-      doorCloseTime: event.doorCloseTime,
-      // Separate date/time fields for draft partial support
-      startDate: event.startDate || null,
-      startTime: event.startTime || null,
-      endDate: event.endDate || null,
-      endTime: event.endTime || null,
-      // Categories and services (for draft editing)
-      categories: event.categories || [],
-      services: event.services || {},
-      // Draft-specific fields
-      draftCreatedAt: event.draftCreatedAt,
-      lastDraftSaved: event.lastDraftSaved
-    }));
+    // Read all calendar fields from calendarData (source of truth)
+    const reservations = events.map(event => {
+      const cd = event.calendarData || {};
+      return {
+        _id: event._id,
+        eventId: event.eventId,
+        eventTitle: cd.eventTitle || event.graphData?.subject || 'Untitled',
+        eventDescription: cd.eventDescription || event.graphData?.bodyPreview || '',
+        startDateTime: cd.startDateTime || event.graphData?.start?.dateTime,
+        endDateTime: cd.endDateTime || event.graphData?.end?.dateTime,
+        status: event.status === 'room-reservation-request' ? 'pending' : event.status,
+        requestedRooms: cd.locations || [],
+        attendeeCount: cd.attendeeCount || 0,
+        requesterId: event.roomReservationData?.requestedBy?.userId,
+        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
+        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+        submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
+        roomReservationData: event.roomReservationData,
+        rejectionReason: event.roomReservationData?.rejectionReason,
+        cancelReason: event.roomReservationData?.cancelReason,
+        actionDate: event.roomReservationData?.reviewedAt,
+        // Include additional fields that may be needed
+        specialRequirements: cd.specialRequirements,
+        setupTime: cd.setupTime,
+        teardownTime: cd.teardownTime,
+        doorOpenTime: cd.doorOpenTime,
+        doorCloseTime: cd.doorCloseTime,
+        // Separate date/time fields for draft partial support
+        startDate: cd.startDate || null,
+        startTime: cd.startTime || null,
+        endDate: cd.endDate || null,
+        endTime: cd.endTime || null,
+        // Categories and services (for draft editing)
+        categories: cd.categories || [],
+        services: cd.services || {},
+        // Draft-specific fields
+        draftCreatedAt: event.draftCreatedAt,
+        lastDraftSaved: event.lastDraftSaved,
+        // Include calendarData for frontend compatibility
+        calendarData: cd
+      };
+    });
 
     const totalCount = await unifiedEventsCollection.countDocuments(query);
 
@@ -13410,37 +13510,41 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
     }
 
     // Transform to expected reservation format
+    // Read all calendar fields from calendarData (source of truth)
+    const cd = event.calendarData || {};
     const reservation = {
       _id: event._id,
       eventId: event.eventId,
-      eventTitle: event.eventTitle || event.graphData?.subject || 'Untitled',
-      eventDescription: event.eventDescription || event.graphData?.bodyPreview || '',
-      startDateTime: event.startDateTime || event.graphData?.start?.dateTime,
-      endDateTime: event.endDateTime || event.graphData?.end?.dateTime,
+      eventTitle: cd.eventTitle || event.graphData?.subject || 'Untitled',
+      eventDescription: cd.eventDescription || event.graphData?.bodyPreview || '',
+      startDateTime: cd.startDateTime || event.graphData?.start?.dateTime,
+      endDateTime: cd.endDateTime || event.graphData?.end?.dateTime,
       status: event.status === 'room-reservation-request' ? 'pending' : event.status,
-      requestedRooms: event.locations || [],
-      attendeeCount: event.attendeeCount || 0,
+      requestedRooms: cd.locations || [],
+      attendeeCount: cd.attendeeCount || 0,
       requesterId: event.roomReservationData?.requestedBy?.userId,
-      requesterName: event.roomReservationData?.requestedBy?.name,
-      requesterEmail: event.roomReservationData?.requestedBy?.email,
+      requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
+      requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
       submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
       roomReservationData: event.roomReservationData,
       rejectionReason: event.roomReservationData?.rejectionReason,
       cancelReason: event.roomReservationData?.cancelReason,
       actionDate: event.roomReservationData?.reviewedAt,
-      specialRequirements: event.specialRequirements,
-      setupTime: event.setupTime,
-      teardownTime: event.teardownTime,
-      doorOpenTime: event.doorOpenTime,
-      doorCloseTime: event.doorCloseTime,
+      specialRequirements: cd.specialRequirements,
+      setupTime: cd.setupTime,
+      teardownTime: cd.teardownTime,
+      doorOpenTime: cd.doorOpenTime,
+      doorCloseTime: cd.doorCloseTime,
       // Separate date/time fields for draft partial support
-      startDate: event.startDate || null,
-      startTime: event.startTime || null,
-      endDate: event.endDate || null,
-      endTime: event.endTime || null,
+      startDate: cd.startDate || null,
+      startTime: cd.startTime || null,
+      endDate: cd.endDate || null,
+      endTime: cd.endTime || null,
       // Categories and services (for draft editing)
-      categories: event.categories || [],
-      services: event.services || {}
+      categories: cd.categories || [],
+      services: cd.services || {},
+      // Include calendarData for frontend compatibility
+      calendarData: cd
     };
 
     res.json(reservation);
@@ -14365,7 +14469,8 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
 
       if (hasMatch) {
         // Add locationId to locations array if not already present
-        const locations = event.locations || [];
+        // Read from calendarData (source of truth)
+        const locations = event.calendarData?.locations || [];
         const locationIdObj = new ObjectId(locationId);
 
         if (!locations.some(id => id.toString() === locationIdObj.toString())) {
@@ -14375,13 +14480,14 @@ app.post('/api/admin/locations/assign-string', verifyToken, async (req, res) => 
           const displayNames = await calculateLocationDisplayNames(locations, db);
           const locationCodes = await calculateLocationCodes(locations, db);
 
+          // Write to calendarData (source of truth)
           await unifiedEventsCollection.updateOne(
             { _id: event._id },
             {
               $set: {
-                locations: locations,
-                locationDisplayNames: displayNames,
-                locationCodes: locationCodes,
+                'calendarData.locations': locations,
+                'calendarData.locationDisplayNames': displayNames,
+                'calendarData.locationCodes': locationCodes,
                 updatedAt: new Date()
               }
             }
@@ -14472,7 +14578,8 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
 
       if (!stillMatches) {
         // Remove locationId from event
-        const updatedLocations = (event.locations || []).filter(
+        // Read from calendarData (source of truth)
+        const updatedLocations = (event.calendarData?.locations || []).filter(
           id => id.toString() !== locationIdObj.toString()
         );
 
@@ -14480,13 +14587,14 @@ app.delete('/api/admin/locations/remove-alias', verifyToken, async (req, res) =>
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
         const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
+        // Write to calendarData (source of truth)
         await unifiedEventsCollection.updateOne(
           { _id: event._id },
           {
             $set: {
-              locations: updatedLocations,
-              locationDisplayNames: displayNames,
-              locationCodes: locationCodes,
+              'calendarData.locations': updatedLocations,
+              'calendarData.locationDisplayNames': displayNames,
+              'calendarData.locationCodes': locationCodes,
               updatedAt: new Date()
             }
           }
@@ -14826,7 +14934,8 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
       // Prepare bulk operations for this batch
       for (const event of batch) {
         // Remove locationId from locations array
-        const updatedLocations = (event.locations || []).filter(
+        // Read from calendarData (source of truth)
+        const updatedLocations = (event.calendarData?.locations || []).filter(
           id => id.toString() !== locationId.toString()
         );
 
@@ -14834,14 +14943,15 @@ app.delete('/api/admin/locations/:id', verifyToken, async (req, res) => {
         const displayNames = await calculateLocationDisplayNames(updatedLocations, db);
         const locationCodes = await calculateLocationCodes(updatedLocations, db);
 
+        // Write to calendarData (source of truth)
         bulkOps.push({
           updateOne: {
             filter: { _id: event._id },
             update: {
               $set: {
-                locations: updatedLocations,
-                locationDisplayNames: displayNames,
-                locationCodes: locationCodes,
+                'calendarData.locations': updatedLocations,
+                'calendarData.locationDisplayNames': displayNames,
+                'calendarData.locationCodes': locationCodes,
                 updatedAt: new Date()
               }
             }
@@ -14922,9 +15032,12 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
     
     // Check if room has active reservations
     const activeReservations = await unifiedEventsCollection.countDocuments({
-      requestedRooms: { $in: [id] },
+      $or: [
+        { 'calendarData.locations': { $in: [id, new ObjectId(id)] } },
+        { 'roomReservationData.requestedRooms': { $in: [id, new ObjectId(id)] } }
+      ],
       status: { $in: ['pending', 'approved'] },
-      endDateTime: { $gte: new Date() }
+      'calendarData.endDateTime': { $gte: new Date().toISOString() }
     });
     
     if (activeReservations > 0) {
@@ -15636,7 +15749,7 @@ app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => 
 
     logger.log('Event soft-deleted:', {
       eventId: id,
-      eventTitle: event.eventTitle || event.graphData?.subject,
+      eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
       deletedBy: userEmail,
       originalStatus: event.status,
       graphDeleted
@@ -15645,7 +15758,7 @@ app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => 
     res.json({
       message: 'Event deleted successfully',
       deletedId: id,
-      eventTitle: event.eventTitle || event.graphData?.subject,
+      eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
       status: 'deleted',
       graphDeleted
     });
@@ -17050,46 +17163,57 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         calendarMode: null
       },
 
-      // TOP-LEVEL APPLICATION FIELDS (for forms/UI - no transformation needed)
-      eventTitle,
-      eventDescription: eventDescription || '',
-      // Store datetime as-is (local time in America/New_York, no Z suffix)
-      // The graphData.start/end.timeZone specifies the timezone
-      startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : '',
-      endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : '',
-      // Extract date and time components (preserve local time values)
-      startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : '',
-      startTime: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
-      endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : '',
-      endTime: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
-      setupTime: setupTime || '',
-      teardownTime: teardownTime || '',
-      doorOpenTime: doorOpenTime || '',
-      doorCloseTime: doorCloseTime || '',
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-      setupNotes: setupNotes || '',
-      doorNotes: doorNotes || '',
-      eventNotes: eventNotes || '',
-      location: locationDisplayName,
-      locationDisplayNames: locationDisplayName, // Computed display string
-      locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
-      attendeeCount: parseInt(attendeeCount) || 0,
-      specialRequirements: specialRequirements || '',
-      isAllDayEvent: false,
-      virtualMeetingUrl: null,
-      virtualPlatform: null,
-      // Offsite location fields
-      isOffsite: isOffsite || false,
-      offsiteName: isOffsite ? offsiteName : '',
-      offsiteAddress: isOffsite ? offsiteAddress : '',
-      offsiteLat: isOffsite ? (offsiteLat || null) : null,
-      offsiteLon: isOffsite ? (offsiteLon || null) : null,
-      // Top-level categories mirrors graphData.categories (mecCategories is deprecated)
-      categories: categories || [],
-      assignedTo: '',
-      // Services (internal)
-      services: services || {},
+      // CALENDAR DATA (consolidated event/calendar fields)
+      calendarData: {
+        eventTitle,
+        eventDescription: eventDescription || '',
+        // Store datetime as-is (local time in America/New_York, no Z suffix)
+        // The graphData.start/end.timeZone specifies the timezone
+        startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : '',
+        endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : '',
+        // Extract date and time components (preserve local time values)
+        startDate: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[0] : '',
+        startTime: startDateTime ? startDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
+        endDate: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[0] : '',
+        endTime: endDateTime ? endDateTime.replace(/Z$/, '').split('T')[1]?.substring(0, 5) || '' : '',
+        setupTime: setupTime || '',
+        teardownTime: teardownTime || '',
+        doorOpenTime: doorOpenTime || '',
+        doorCloseTime: doorCloseTime || '',
+        setupTimeMinutes: setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || 0,
+        setupNotes: setupNotes || '',
+        doorNotes: doorNotes || '',
+        eventNotes: eventNotes || '',
+        location: locationDisplayName,
+        locationDisplayNames: locationDisplayName, // Computed display string
+        locations: locationObjectIds, // Array of ObjectId references to templeEvents__Locations - single source of truth
+        attendeeCount: parseInt(attendeeCount) || 0,
+        specialRequirements: specialRequirements || '',
+        isAllDayEvent: false,
+        virtualMeetingUrl: null,
+        virtualPlatform: null,
+        // Offsite location fields
+        isOffsite: isOffsite || false,
+        offsiteName: isOffsite ? offsiteName : '',
+        offsiteAddress: isOffsite ? offsiteAddress : '',
+        offsiteLat: isOffsite ? (offsiteLat || null) : null,
+        offsiteLon: isOffsite ? (offsiteLon || null) : null,
+        // Categories (syncs with Outlook)
+        categories: categories || [],
+        assignedTo: '',
+        // Services (internal)
+        services: services || {},
+        // Requester info (for room reservations)
+        requesterName: requesterName || userEmail,
+        requesterEmail: requesterEmail || userEmail,
+        department: department || '',
+        phone: phone || '',
+        // Contact person (for delegation)
+        contactName: isOnBehalfOf ? contactName : '',
+        contactEmail: isOnBehalfOf ? contactEmail : '',
+        isOnBehalfOf: isOnBehalfOf || false
+      },
 
       createdAt: new Date(),
       createdBy: userId,
@@ -17439,15 +17563,16 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
 
     // Send approval notification email (non-blocking)
     try {
+      const cd = event.calendarData || {};
       const reservationForEmail = {
         _id: event._id,
-        eventTitle: event.eventTitle || event.graphData?.subject,
-        requesterName: event.roomReservationData?.requestedBy?.name,
-        requesterEmail: event.roomReservationData?.requestedBy?.email,
-        contactEmail: event.roomReservationData?.contactPerson?.email,
-        startTime: event.startDateTime || event.graphData?.start?.dateTime,
-        endTime: event.endDateTime || event.graphData?.end?.dateTime,
-        locationDisplayNames: event.locationDisplayNames ? [event.locationDisplayNames] : []
+        eventTitle: cd.eventTitle || event.graphData?.subject,
+        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
+        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+        contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
+        startTime: cd.startDateTime || event.graphData?.start?.dateTime,
+        endTime: cd.endDateTime || event.graphData?.end?.dateTime,
+        locationDisplayNames: cd.locationDisplayNames ? [cd.locationDisplayNames] : []
       };
 
       const emailResult = await emailService.sendApprovalNotification(reservationForEmail, notes || '');
@@ -17579,15 +17704,16 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
 
     // Send rejection notification email (non-blocking)
     try {
+      const cd = event.calendarData || {};
       const reservationForEmail = {
         _id: event._id,
-        eventTitle: event.eventTitle || event.graphData?.subject,
-        requesterName: event.roomReservationData?.requestedBy?.name,
-        requesterEmail: event.roomReservationData?.requestedBy?.email,
-        contactEmail: event.roomReservationData?.contactPerson?.email,
-        startTime: event.startDateTime || event.graphData?.start?.dateTime,
-        endTime: event.endDateTime || event.graphData?.end?.dateTime,
-        locationDisplayNames: event.locationDisplayNames ? [event.locationDisplayNames] : []
+        eventTitle: cd.eventTitle || event.graphData?.subject,
+        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
+        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+        contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
+        startTime: cd.startDateTime || event.graphData?.start?.dateTime,
+        endTime: cd.endDateTime || event.graphData?.end?.dateTime,
+        locationDisplayNames: cd.locationDisplayNames ? [cd.locationDisplayNames] : []
       };
 
       const emailResult = await emailService.sendRejectionNotification(reservationForEmail, reason);
@@ -18015,8 +18141,11 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
     }
 
     // Build edit requests array from embedded field (for backward compatibility)
+    // Read all calendar fields from calendarData (source of truth)
+    const cd = event.calendarData || {};
     const editRequests = [];
     if (event.pendingEditRequest) {
+      const pc = event.pendingEditRequest.proposedChanges || {};
       // Flatten the embedded edit request into the format expected by frontend
       editRequests.push({
         _id: event._id, // Use parent event _id
@@ -18030,34 +18159,34 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
         reviewedBy: event.pendingEditRequest.reviewedBy,
         reviewedAt: event.pendingEditRequest.reviewedAt,
         reviewNotes: event.pendingEditRequest.reviewNotes,
-        // Include top-level fields merged with proposed changes for form display
-        eventTitle: event.pendingEditRequest.proposedChanges.eventTitle || event.eventTitle,
-        eventDescription: event.pendingEditRequest.proposedChanges.eventDescription || event.eventDescription,
-        startDateTime: event.pendingEditRequest.proposedChanges.startDateTime || event.startDateTime,
-        endDateTime: event.pendingEditRequest.proposedChanges.endDateTime || event.endDateTime,
-        startDate: event.pendingEditRequest.proposedChanges.startDateTime?.split('T')[0] || event.startDate,
-        startTime: event.pendingEditRequest.proposedChanges.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
-        endDate: event.pendingEditRequest.proposedChanges.endDateTime?.split('T')[0] || event.endDate,
-        endTime: event.pendingEditRequest.proposedChanges.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
-        attendeeCount: event.pendingEditRequest.proposedChanges.attendeeCount ?? event.attendeeCount,
-        locations: event.pendingEditRequest.proposedChanges.locations || event.locations,
-        locationDisplayNames: event.pendingEditRequest.proposedChanges.locationDisplayNames || event.locationDisplayNames,
-        requestedRooms: event.pendingEditRequest.proposedChanges.requestedRooms || event.requestedRooms,
-        categories: event.pendingEditRequest.proposedChanges.categories || event.categories,
-        services: event.pendingEditRequest.proposedChanges.services || event.services,
-        setupTimeMinutes: event.pendingEditRequest.proposedChanges.setupTimeMinutes ?? event.setupTimeMinutes,
-        teardownTimeMinutes: event.pendingEditRequest.proposedChanges.teardownTimeMinutes ?? event.teardownTimeMinutes,
-        setupTime: event.pendingEditRequest.proposedChanges.setupTime || event.setupTime,
-        teardownTime: event.pendingEditRequest.proposedChanges.teardownTime || event.teardownTime,
-        doorOpenTime: event.pendingEditRequest.proposedChanges.doorOpenTime || event.doorOpenTime,
-        doorCloseTime: event.pendingEditRequest.proposedChanges.doorCloseTime || event.doorCloseTime,
-        setupNotes: event.pendingEditRequest.proposedChanges.setupNotes ?? event.setupNotes,
-        doorNotes: event.pendingEditRequest.proposedChanges.doorNotes ?? event.doorNotes,
-        eventNotes: event.pendingEditRequest.proposedChanges.eventNotes ?? event.eventNotes,
-        specialRequirements: event.pendingEditRequest.proposedChanges.specialRequirements ?? event.specialRequirements,
-        isOffsite: event.pendingEditRequest.proposedChanges.isOffsite ?? event.isOffsite,
-        offsiteName: event.pendingEditRequest.proposedChanges.offsiteName || event.offsiteName,
-        offsiteAddress: event.pendingEditRequest.proposedChanges.offsiteAddress || event.offsiteAddress,
+        // Include calendarData fields merged with proposed changes for form display
+        eventTitle: pc.eventTitle || cd.eventTitle,
+        eventDescription: pc.eventDescription || cd.eventDescription,
+        startDateTime: pc.startDateTime || cd.startDateTime,
+        endDateTime: pc.endDateTime || cd.endDateTime,
+        startDate: pc.startDateTime?.split('T')[0] || cd.startDate,
+        startTime: pc.startDateTime?.split('T')[1]?.substring(0, 5) || cd.startTime,
+        endDate: pc.endDateTime?.split('T')[0] || cd.endDate,
+        endTime: pc.endDateTime?.split('T')[1]?.substring(0, 5) || cd.endTime,
+        attendeeCount: pc.attendeeCount ?? cd.attendeeCount,
+        locations: pc.locations || cd.locations,
+        locationDisplayNames: pc.locationDisplayNames || cd.locationDisplayNames,
+        requestedRooms: pc.requestedRooms || cd.locations,
+        categories: pc.categories || cd.categories,
+        services: pc.services || cd.services,
+        setupTimeMinutes: pc.setupTimeMinutes ?? cd.setupTimeMinutes,
+        teardownTimeMinutes: pc.teardownTimeMinutes ?? cd.teardownTimeMinutes,
+        setupTime: pc.setupTime || cd.setupTime,
+        teardownTime: pc.teardownTime || cd.teardownTime,
+        doorOpenTime: pc.doorOpenTime || cd.doorOpenTime,
+        doorCloseTime: pc.doorCloseTime || cd.doorCloseTime,
+        setupNotes: pc.setupNotes ?? cd.setupNotes,
+        doorNotes: pc.doorNotes ?? cd.doorNotes,
+        eventNotes: pc.eventNotes ?? cd.eventNotes,
+        specialRequirements: pc.specialRequirements ?? cd.specialRequirements,
+        isOffsite: pc.isOffsite ?? cd.isOffsite,
+        offsiteName: pc.offsiteName || cd.offsiteName,
+        offsiteAddress: pc.offsiteAddress || cd.offsiteAddress,
         createdAt: event.pendingEditRequest.requestedBy?.requestedAt
       });
     }
@@ -18067,7 +18196,7 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
       pendingEditRequest: event.pendingEditRequest || null,
       originalEvent: {
         eventId: event.eventId,
-        eventTitle: event.eventTitle,
+        eventTitle: cd.eventTitle,
         status: event.status
       }
     });
@@ -18121,47 +18250,53 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
 
     // Transform to flat edit request format for admin view
     // Maintain backward compatibility with old separate document structure
-    const editRequests = eventsWithEditRequests.map(event => ({
-      _id: event._id,
-      eventId: event.eventId,
-      editRequestId: event.pendingEditRequest.id,
-      originalEventId: event.eventId, // In embedded model, the event IS the original
-      status: event.pendingEditRequest.status,
-      // Backward compatible structure for requester info
-      requestedBy: event.pendingEditRequest.requestedBy,
-      createdByName: event.pendingEditRequest.requestedBy?.name,
-      createdByEmail: event.pendingEditRequest.requestedBy?.email,
-      roomReservationData: {
+    // Read all calendar fields from calendarData (source of truth)
+    const editRequests = eventsWithEditRequests.map(event => {
+      const cd = event.calendarData || {};
+      return {
+        _id: event._id,
+        eventId: event.eventId,
+        editRequestId: event.pendingEditRequest.id,
+        originalEventId: event.eventId, // In embedded model, the event IS the original
+        status: event.pendingEditRequest.status,
+        // Backward compatible structure for requester info
         requestedBy: event.pendingEditRequest.requestedBy,
-        submittedAt: event.pendingEditRequest.requestedBy?.requestedAt,
-        reviewNotes: event.pendingEditRequest.reviewNotes
-      },
-      // Backward compatible structure for edit request data
-      editRequestData: {
+        createdByName: event.pendingEditRequest.requestedBy?.name,
+        createdByEmail: event.pendingEditRequest.requestedBy?.email,
+        roomReservationData: {
+          requestedBy: event.pendingEditRequest.requestedBy,
+          submittedAt: event.pendingEditRequest.requestedBy?.requestedAt,
+          reviewNotes: event.pendingEditRequest.reviewNotes
+        },
+        // Backward compatible structure for edit request data
+        editRequestData: {
+          changeReason: event.pendingEditRequest.changeReason,
+          proposedChanges: event.pendingEditRequest.proposedChanges,
+          originalSnapshot: event.pendingEditRequest.originalValues
+        },
         changeReason: event.pendingEditRequest.changeReason,
         proposedChanges: event.pendingEditRequest.proposedChanges,
-        originalSnapshot: event.pendingEditRequest.originalValues
-      },
-      changeReason: event.pendingEditRequest.changeReason,
-      proposedChanges: event.pendingEditRequest.proposedChanges,
-      originalValues: event.pendingEditRequest.originalValues,
-      reviewedBy: event.pendingEditRequest.reviewedBy,
-      reviewedAt: event.pendingEditRequest.reviewedAt,
-      reviewNotes: event.pendingEditRequest.reviewNotes,
-      // Include current event info for context
-      eventTitle: event.eventTitle,
-      eventDescription: event.eventDescription,
-      startDateTime: event.startDateTime,
-      endDateTime: event.endDateTime,
-      locations: event.locations,
-      requestedRooms: event.requestedRooms || event.locations,
-      locationDisplayNames: event.locationDisplayNames,
-      createdAt: event.pendingEditRequest.requestedBy?.requestedAt,
-      // Include proposed values for display
-      proposedEventTitle: event.pendingEditRequest.proposedChanges?.eventTitle,
-      proposedStartDateTime: event.pendingEditRequest.proposedChanges?.startDateTime,
-      proposedEndDateTime: event.pendingEditRequest.proposedChanges?.endDateTime
-    }));
+        originalValues: event.pendingEditRequest.originalValues,
+        reviewedBy: event.pendingEditRequest.reviewedBy,
+        reviewedAt: event.pendingEditRequest.reviewedAt,
+        reviewNotes: event.pendingEditRequest.reviewNotes,
+        // Include current event info for context (from calendarData)
+        eventTitle: cd.eventTitle,
+        eventDescription: cd.eventDescription,
+        startDateTime: cd.startDateTime,
+        endDateTime: cd.endDateTime,
+        locations: cd.locations,
+        requestedRooms: cd.locations,
+        locationDisplayNames: cd.locationDisplayNames,
+        createdAt: event.pendingEditRequest.requestedBy?.requestedAt,
+        // Include proposed values for display
+        proposedEventTitle: event.pendingEditRequest.proposedChanges?.eventTitle,
+        proposedStartDateTime: event.pendingEditRequest.proposedChanges?.startDateTime,
+        proposedEndDateTime: event.pendingEditRequest.proposedChanges?.endDateTime,
+        // Include calendarData for frontend compatibility
+        calendarData: cd
+      };
+    });
 
     // Get total count
     const totalCount = await unifiedEventsCollection.countDocuments(query);
@@ -18244,24 +18379,47 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
       }
     }
 
-    // Build update object - apply proposed changes to main fields
+    // Build update object - apply proposed changes to calendarData
     const updateFields = {};
 
-    // Apply all proposed changes to the event
-    for (const [field, value] of Object.entries(proposedChanges)) {
-      updateFields[field] = value;
+    // Fields that belong in calendarData (not top-level)
+    const CALENDAR_DATA_FIELDS = [
+      'eventTitle', 'eventDescription',
+      'startDateTime', 'endDateTime', 'startDate', 'startTime', 'endDate', 'endTime',
+      'isAllDayEvent',
+      'setupTime', 'teardownTime', 'setupTimeMinutes', 'teardownTimeMinutes',
+      'doorOpenTime', 'doorCloseTime',
+      'setupNotes', 'doorNotes', 'eventNotes',
+      'locations', 'locationDisplayNames', 'locationCodes',
+      'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon',
+      'virtualMeetingUrl', 'virtualPlatform',
+      'categories', 'mecCategories', 'services', 'assignedTo',
+      'eventSeriesId', 'seriesLength', 'seriesIndex',
+      'requesterName', 'requesterEmail', 'department', 'phone',
+      'attendeeCount', 'priority', 'specialRequirements',
+      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes'
+    ];
 
-      // Handle dateTime fields - also update startDate/startTime/endDate/endTime
+    // Apply all proposed changes to the event (writing to calendarData for calendar fields)
+    for (const [field, value] of Object.entries(proposedChanges)) {
+      // Write calendar fields to calendarData, other fields to top level
+      if (CALENDAR_DATA_FIELDS.includes(field)) {
+        updateFields[`calendarData.${field}`] = value;
+      } else {
+        updateFields[field] = value;
+      }
+
+      // Handle dateTime fields - also update startDate/startTime/endDate/endTime in calendarData
       if (field === 'startDateTime' && value) {
         const cleanValue = value.replace(/Z$/, '');
-        updateFields.startDate = cleanValue.split('T')[0];
-        updateFields.startTime = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        updateFields['calendarData.startDate'] = cleanValue.split('T')[0];
+        updateFields['calendarData.startTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
         updateFields['graphData.start.dateTime'] = cleanValue;
       }
       if (field === 'endDateTime' && value) {
         const cleanValue = value.replace(/Z$/, '');
-        updateFields.endDate = cleanValue.split('T')[0];
-        updateFields.endTime = cleanValue.split('T')[1]?.substring(0, 5) || '';
+        updateFields['calendarData.endDate'] = cleanValue.split('T')[0];
+        updateFields['calendarData.endTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
         updateFields['graphData.end.dateTime'] = cleanValue;
       }
       if (field === 'eventTitle') {
@@ -18278,10 +18436,12 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
         const normalizedLocations = value.map(id =>
           typeof id === 'string' ? new ObjectId(id) : id
         );
-        updateFields.locations = normalizedLocations;
-        updateFields.requestedRooms = normalizedLocations;
+        updateFields['calendarData.locations'] = normalizedLocations;
+        // Also update roomReservationData.requestedRooms for backward compatibility
+        updateFields['roomReservationData.requestedRooms'] = normalizedLocations;
       }
       if (field === 'locationDisplayNames') {
+        updateFields['calendarData.locationDisplayNames'] = value;
         updateFields['graphData.location.displayName'] = value;
       }
     }
@@ -18402,17 +18562,18 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
 
     // Send approval notification email (non-blocking)
     try {
+      const cd = event.calendarData || {};
       const editRequestForEmail = {
         _id: event._id,
         eventId: event.eventId,
-        eventTitle: proposedChanges.eventTitle || event.eventTitle,
-        startDateTime: proposedChanges.startDateTime || event.startDateTime,
-        endDateTime: proposedChanges.endDateTime || event.endDateTime,
+        eventTitle: proposedChanges.eventTitle || cd.eventTitle,
+        startDateTime: proposedChanges.startDateTime || cd.startDateTime,
+        endDateTime: proposedChanges.endDateTime || cd.endDateTime,
         requesterName: pendingEditRequest.requestedBy?.name,
         requesterEmail: pendingEditRequest.requestedBy?.email,
-        startTime: proposedChanges.startDateTime || event.startDateTime,
-        endTime: proposedChanges.endDateTime || event.endDateTime,
-        locationDisplayNames: proposedChanges.locationDisplayNames || event.locationDisplayNames
+        startTime: proposedChanges.startDateTime || cd.startDateTime,
+        endTime: proposedChanges.endDateTime || cd.endDateTime,
+        locationDisplayNames: proposedChanges.locationDisplayNames || cd.locationDisplayNames
       };
 
       const emailResult = await emailService.sendEditRequestApprovedNotification(
@@ -18533,17 +18694,18 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
 
     // Send rejection notification email (non-blocking)
     try {
+      const cd = event.calendarData || {};
       const editRequestForEmail = {
         _id: event._id,
         eventId: event.eventId,
-        eventTitle: event.eventTitle,
-        startDateTime: event.startDateTime,
-        endDateTime: event.endDateTime,
+        eventTitle: cd.eventTitle,
+        startDateTime: cd.startDateTime,
+        endDateTime: cd.endDateTime,
         requesterName: pendingEditRequest.requestedBy?.name,
         requesterEmail: pendingEditRequest.requestedBy?.email,
-        startTime: event.startDateTime,
-        endTime: event.endDateTime,
-        locationDisplayNames: event.locationDisplayNames
+        startTime: cd.startDateTime,
+        endTime: cd.endDateTime,
+        locationDisplayNames: cd.locationDisplayNames
       };
 
       const emailResult = await emailService.sendEditRequestRejectedNotification(
@@ -18721,12 +18883,18 @@ app.put('/api/events/:id/department-fields', verifyToken, async (req, res) => {
       });
     }
 
-    // Apply the filtered updates
+    // Apply the filtered updates - all department-editable fields go to calendarData
+    // Fields: doorOpenTime, doorCloseTime, doorNotes, setupTime, teardownTime, setupNotes, eventNotes, setupTimeMinutes, teardownTimeMinutes
+    const calendarDataUpdates = {};
+    for (const [field, value] of Object.entries(filteredUpdates)) {
+      calendarDataUpdates[`calendarData.${field}`] = value;
+    }
+
     const result = await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(eventId) },
       {
         $set: {
-          ...filteredUpdates,
+          ...calendarDataUpdates,
           updatedAt: new Date(),
           lastModifiedBy: userEmail,
           lastModifiedByDepartment: user.department
@@ -18913,32 +19081,33 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     };
 
     // Check for actual changes in Graph-syncable fields
-    // For categories, check against both top-level and graphData.categories for proper comparison
-    const existingCategories = event.categories || event.graphData?.categories || [];
+    // Read all calendar fields from calendarData (source of truth)
+    const cd = event.calendarData || {};
+    const existingCategories = cd.categories || event.graphData?.categories || [];
 
     // DEBUG: Log location change detection
     logger.info('=== LOCATION CHANGE DETECTION ===', {
       'updates.locations': updates.locations,
-      'event.locations': event.locations,
+      'cd.locations': cd.locations,
       'updates.locations type': updates.locations === undefined ? 'undefined' : (Array.isArray(updates.locations) ? 'array' : typeof updates.locations),
-      'event.locations type': event.locations === undefined ? 'undefined' : (Array.isArray(event.locations) ? 'array' : typeof event.locations),
-      'locationChangeResult': hasFieldChanged('locations', updates.locations, event.locations)
+      'cd.locations type': cd.locations === undefined ? 'undefined' : (Array.isArray(cd.locations) ? 'array' : typeof cd.locations),
+      'locationChangeResult': hasFieldChanged('locations', updates.locations, cd.locations)
     });
 
     const graphChanges = {
-      eventTitle: hasFieldChanged('eventTitle', updates.eventTitle, event.eventTitle),
-      eventDescription: hasFieldChanged('eventDescription', updates.eventDescription, event.eventDescription),
-      startDateTime: hasFieldChanged('startDateTime', updates.startDateTime, event.startDateTime) ||
-                     hasFieldChanged('startDate', updates.startDate, event.startDate) ||
-                     hasFieldChanged('startTime', updates.startTime, event.startTime),
-      endDateTime: hasFieldChanged('endDateTime', updates.endDateTime, event.endDateTime) ||
-                   hasFieldChanged('endDate', updates.endDate, event.endDate) ||
-                   hasFieldChanged('endTime', updates.endTime, event.endTime),
-      isAllDayEvent: hasFieldChanged('isAllDayEvent', updates.isAllDayEvent, event.isAllDayEvent),
+      eventTitle: hasFieldChanged('eventTitle', updates.eventTitle, cd.eventTitle),
+      eventDescription: hasFieldChanged('eventDescription', updates.eventDescription, cd.eventDescription),
+      startDateTime: hasFieldChanged('startDateTime', updates.startDateTime, cd.startDateTime) ||
+                     hasFieldChanged('startDate', updates.startDate, cd.startDate) ||
+                     hasFieldChanged('startTime', updates.startTime, cd.startTime),
+      endDateTime: hasFieldChanged('endDateTime', updates.endDateTime, cd.endDateTime) ||
+                   hasFieldChanged('endDate', updates.endDate, cd.endDate) ||
+                   hasFieldChanged('endTime', updates.endTime, cd.endTime),
+      isAllDayEvent: hasFieldChanged('isAllDayEvent', updates.isAllDayEvent, cd.isAllDayEvent),
       categories: hasFieldChanged('categories', updates.categories, existingCategories),
-      locations: hasFieldChanged('locations', updates.locations, event.locations) ||
-                 hasFieldChanged('requestedRooms', updates.requestedRooms, event.locations),
-      isOffsite: hasFieldChanged('isOffsite', updates.isOffsite, event.isOffsite) ||
+      locations: hasFieldChanged('locations', updates.locations, cd.locations) ||
+                 hasFieldChanged('requestedRooms', updates.requestedRooms, cd.locations),
+      isOffsite: hasFieldChanged('isOffsite', updates.isOffsite, cd.isOffsite) ||
                  hasFieldChanged('offsiteName', updates.offsiteName, event.offsiteName) ||
                  hasFieldChanged('offsiteAddress', updates.offsiteAddress, event.offsiteAddress),
       recurrence: hasFieldChanged('recurrence', updates.recurrence, event.recurrence)
@@ -19098,15 +19267,16 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
         // Prepare Graph API update payload
         // Build Graph API update with ONLY Graph-compatible fields
+        // Use calendarData (cd) as fallback source (defined earlier in this function)
         const graphUpdate = {
-          subject: updates.eventTitle || event.eventTitle || event.graphData?.subject,
+          subject: updates.eventTitle || cd.eventTitle || event.graphData?.subject,
           start: {
-            dateTime: updates.startDateTime || event.startDateTime || event.graphData?.start?.dateTime,
-            timeZone: updates.startTimeZone || event.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
+            dateTime: updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime,
+            timeZone: updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
           },
           end: {
-            dateTime: updates.endDateTime || event.endDateTime || event.graphData?.end?.dateTime,
-            timeZone: updates.endTimeZone || event.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
+            dateTime: updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime,
+            timeZone: updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
           }
         };
 
@@ -19530,8 +19700,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           ids: locationIds.map(id => id.toString())
         });
 
-        // Set locations array (ObjectId references to templeEvents__Locations)
-        updateOperations.locations = locationIds;
+        // Set locations array in calendarData (ObjectId references to templeEvents__Locations)
+        updateOperations['calendarData.locations'] = locationIds;
 
         // Fetch location documents to get display names
         const locationDocs = await locationsCollection.find({
@@ -19552,8 +19722,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           .join('; ');
 
         if (displayNames) {
-          // Set top-level locationDisplayNames field
-          updateOperations.locationDisplayNames = displayNames;
+          // Set calendarData.locationDisplayNames field
+          updateOperations['calendarData.locationDisplayNames'] = displayNames;
 
           // Sync with graphData.location for Outlook display
           // BUT only if we're not already setting the whole graphData.location object
@@ -19592,11 +19762,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       // Update the full graphData.location object
       updateOperations['graphData.location'] = graphLocation;
 
-      // Also update top-level locationDisplayNames
-      updateOperations.locationDisplayNames = graphLocation.displayName;
+      // Also update calendarData.locationDisplayNames
+      updateOperations['calendarData.locationDisplayNames'] = graphLocation.displayName;
 
       // Clear internal room locations when switching to offsite
-      updateOperations.locations = [];
+      updateOperations['calendarData.locations'] = [];
     }
 
     // Convert allowedConcurrentCategories to ObjectIds if provided
@@ -19622,11 +19792,40 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         : []
     });
 
+    // Transform top-level calendar fields to calendarData nested structure
+    const CALENDAR_DATA_FIELDS = [
+      'eventTitle', 'eventDescription',
+      'startDateTime', 'endDateTime', 'startDate', 'startTime', 'endDate', 'endTime',
+      'isAllDayEvent',
+      'setupTime', 'teardownTime', 'setupTimeMinutes', 'teardownTimeMinutes',
+      'doorOpenTime', 'doorCloseTime',
+      'setupNotes', 'doorNotes', 'eventNotes',
+      'locations', 'locationDisplayNames', 'location',
+      'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon',
+      'virtualMeetingUrl', 'virtualPlatform',
+      'categories', 'mecCategories', 'services', 'assignedTo',
+      'eventSeriesId', 'seriesLength', 'seriesIndex',
+      'requesterName', 'requesterEmail', 'department', 'phone',
+      'attendeeCount', 'priority', 'specialRequirements',
+      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes'
+    ];
+
+    const finalUpdateOperations = {};
+    for (const [key, value] of Object.entries(updateOperations)) {
+      if (CALENDAR_DATA_FIELDS.includes(key)) {
+        // Write calendar fields to calendarData
+        finalUpdateOperations[`calendarData.${key}`] = value;
+      } else {
+        // Keep non-calendar fields as-is (graphData.*, status, etc.)
+        finalUpdateOperations[key] = value;
+      }
+    }
+
     const updateResult = await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(id) },
       {
         $set: {
-          ...updateOperations,
+          ...finalUpdateOperations,
           changeKey: newChangeKey,
           lastModifiedDateTime: new Date(),
           lastModifiedBy: userId
@@ -19705,7 +19904,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       mongoId: id,
       eventId: event.eventId,
       calendarId: event.calendarId,
-      subject: event.graphData?.subject || event.eventTitle,
+      subject: event.graphData?.subject || event.calendarData?.eventTitle,
       hasEventId: !!event.eventId
     });
 
