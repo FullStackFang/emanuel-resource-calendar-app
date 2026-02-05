@@ -36,8 +36,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [tabCounts, setTabCounts] = useState({
     all: 0,
     pending: 0,
-    approved: 0,
-    rejected: 0,
+    published: 0,  // 'approved' status displayed as 'Published'
+    cancelled: 0,
     deleted: 0
   });
 
@@ -123,7 +123,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       if (response.ok) {
         const counts = await response.json();
-        setTabCounts(counts);
+        // Map 'approved' from backend to 'published' for display
+        setTabCounts({
+          all: counts.all || 0,
+          pending: counts.pending || 0,
+          published: counts.approved || 0,  // Backend returns 'approved', we display as 'published'
+          cancelled: counts.cancelled || 0,
+          deleted: counts.deleted || 0
+        });
       }
     } catch (err) {
       logger.error('Error loading tab counts:', err);
@@ -172,8 +179,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       });
 
       // Add status filter (server understands 'all' to mean no filter)
+      // Map 'published' tab to 'approved' status for API call
       if (status && status !== 'all') {
-        params.append('status', status);
+        const apiStatus = status === 'published' ? 'approved' : status;
+        params.append('status', apiStatus);
       }
 
       const response = await fetch(
@@ -279,12 +288,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Load edit requests when tab changes to edit-requests
-  useEffect(() => {
-    if (activeTab === 'edit-requests' && apiToken) {
-      loadEditRequests();
-    }
-  }, [activeTab, apiToken]);
+  // Note: Edit requests functionality preserved but tab removed from UI
+  // Edit requests can be managed through other admin interfaces if needed
 
   // Acquire soft hold when opening review modal
   const acquireReviewHold = async (reservationId, isNewUnifiedEvent = false) => {
@@ -1062,28 +1067,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
   
-  const formatDateTime = (date) => {
-    return new Date(date).toLocaleString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  };
-  
-  const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case 'pending': return 'status-pending';
-      case 'approved': return 'status-approved';
-      case 'rejected': return 'status-rejected';
-      case 'cancelled': return 'status-cancelled';
-      case 'deleted': return 'status-deleted';
-      default: return '';
-    }
-  };
-
   // Show loading while permissions are being determined
   if (permissionsLoading) {
     return <LoadingSpinner />;
@@ -1139,25 +1122,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <span className="count">({tabCounts.pending})</span>
           </button>
           <button
-            className={`event-type-tab ${activeTab === 'approved' ? 'active' : ''}`}
-            onClick={() => handleTabChange('approved')}
+            className={`event-type-tab ${activeTab === 'published' ? 'active' : ''}`}
+            onClick={() => handleTabChange('published')}
           >
-            Approved
-            <span className="count">({tabCounts.approved})</span>
+            Published
+            <span className="count">({tabCounts.published})</span>
           </button>
           <button
-            className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}
-            onClick={() => handleTabChange('rejected')}
+            className={`event-type-tab ${activeTab === 'cancelled' ? 'active' : ''}`}
+            onClick={() => handleTabChange('cancelled')}
           >
-            Rejected
-            <span className="count">({tabCounts.rejected})</span>
-          </button>
-          <button
-            className={`event-type-tab edit-requests-tab ${activeTab === 'edit-requests' ? 'active' : ''}`}
-            onClick={() => handleTabChange('edit-requests')}
-          >
-            Edit Requests
-            <span className="count">({editRequests.filter(r => r.status === 'pending').length})</span>
+            Canceled
+            <span className="count">({tabCounts.cancelled})</span>
           </button>
           <button
             className={`event-type-tab deleted-tab ${activeTab === 'deleted' ? 'active' : ''}`}
@@ -1169,197 +1145,38 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         </div>
       </div>
       
-      {/* Edit Requests Table - shown when edit-requests tab is active */}
-      {activeTab === 'edit-requests' && (
-        <div className="reservations-table-container">
-          {editRequestsLoading ? (
-            <LoadingSpinner message="Loading edit requests..." />
-          ) : (
-            <>
-              <table className="reservations-table edit-requests-table">
-                <thead>
-                  <tr>
-                    <th>Submitted</th>
-                    <th>Event Details</th>
-                    <th>Requester</th>
-                    <th>Proposed Changes</th>
-                    <th>Reason</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {editRequests.map(editRequest => (
-                    <tr key={editRequest._id} className={editRequest.status === 'pending' ? 'pending-row' : ''}>
-                      <td className="submitted-date">
-                        {new Date(editRequest.submittedAt).toLocaleDateString()}
-                      </td>
-                      <td className="event-details">
-                        <strong>{editRequest.eventTitle}</strong>
-                        <div className="original-event-link" title={`Original: ${editRequest.originalEventId}`}>
-                          Edit Request
-                        </div>
-                      </td>
-                      <td className="requester-info">
-                        <div>{editRequest.requesterName}</div>
-                        <div className="email">{editRequest.requesterEmail}</div>
-                      </td>
-                      <td className="proposed-changes">
-                        {editRequest.proposedChanges && editRequest.proposedChanges.length > 0 ? (
-                          <ul className="changes-list">
-                            {editRequest.proposedChanges.slice(0, 3).map((change, idx) => (
-                              <li key={idx}>{change.field}</li>
-                            ))}
-                            {editRequest.proposedChanges.length > 3 && (
-                              <li className="more-changes">+{editRequest.proposedChanges.length - 3} more</li>
-                            )}
-                          </ul>
-                        ) : (
-                          <span className="no-changes">General update</span>
-                        )}
-                      </td>
-                      <td className="change-reason">
-                        <div className="reason-text" title={editRequest.changeReason}>
-                          {editRequest.changeReason?.length > 50
-                            ? editRequest.changeReason.substring(0, 50) + '...'
-                            : editRequest.changeReason || 'No reason provided'}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`status-badge ${getStatusBadgeClass(editRequest.status)}`}>
-                          {editRequest.status}
-                        </span>
-                        {editRequest.reviewNotes && editRequest.status === 'rejected' && (
-                          <div className="rejection-reason" title={editRequest.reviewNotes}>
-                            {editRequest.reviewNotes}
-                          </div>
-                        )}
-                      </td>
-                      <td className="actions">
-                        <button
-                          className="view-btn"
-                          onClick={() => openEditRequestModal(editRequest)}
-                        >
-                          {editRequest.status === 'pending' ? 'Review' : 'Details'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {editRequests.length === 0 && (
-                <div className="no-reservations">
-                  No edit requests found.
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {/* Reservations List */}
+      <div className="rr-reservations-list">
+        {paginatedReservations.map(reservation => {
+          const requesterName = reservation.roomReservationData?.requestedBy?.name || reservation.requesterName;
+          const department = reservation.roomReservationData?.requestedBy?.department || reservation.department;
+          const isOnBehalfOf = reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf;
+          const contactName = reservation.roomReservationData?.contactPerson?.name || reservation.contactName;
 
-      {/* Reservations Table - shown for all other tabs */}
-      {activeTab !== 'edit-requests' && (
-        <div className="reservations-table-container">
-          <table className="reservations-table">
-            <thead>
-              <tr>
-                <th>Submitted</th>
-                <th>Event Details</th>
-                <th>Requester</th>
-                <th>Date & Time</th>
-                <th>Rooms</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedReservations.map(reservation => (
-              <tr key={reservation._id}>
-                <td className="submitted-date">
-                  {new Date(reservation.submittedAt).toLocaleDateString()}
-                </td>
-                <td className="event-details">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <strong>{reservation.eventTitle}</strong>
-                    {reservation._isNewUnifiedEvent}
-                  </div>
-                  {reservation.eventDescription && (
-                    <div className="event-desc">{reservation.eventDescription}</div>
-                  )}
+          return (
+            <div key={reservation._id} className="rr-card">
+              {/* Card Header - Event Title + Actions */}
+              <div className="rr-card-header">
+                <div className="rr-card-title-row">
+                  <h3 className="rr-card-title">{reservation.eventTitle}</h3>
                   {reservation.attendeeCount > 0 && (
-                    <div className="attendee-count">👥 {reservation.attendeeCount} attendees</div>
+                    <span className="rr-attendee-pill">{reservation.attendeeCount} attendees</span>
                   )}
-                </td>
-                <td className="requester-info">
-                  <div className="submitter-info">
-                    <strong>Submitted by:</strong>
-                    <div>{reservation.roomReservationData?.requestedBy?.name || reservation.requesterName}</div>
-                    <div className="email">{reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail}</div>
-                  </div>
-                  {(reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf) && (reservation.roomReservationData?.contactPerson?.name || reservation.contactName) && (
-                    <div className="contact-info">
-                      <strong>Contact Person:</strong>
-                      <div>{reservation.roomReservationData?.contactPerson?.name || reservation.contactName}</div>
-                      <div className="email">{reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail}</div>
-                      <div className="delegation-badge">📋 On Behalf Of</div>
-                    </div>
-                  )}
-                  {(reservation.roomReservationData?.requestedBy?.department || reservation.department) && (
-                    <div className="department">{reservation.roomReservationData?.requestedBy?.department || reservation.department}</div>
-                  )}
-                  {reservation.sponsoredBy && (
-                    <div className="sponsor">Sponsored by: {reservation.sponsoredBy}</div>
-                  )}
-                </td>
-                <td className="datetime">
-                  <div>{formatDateTime(reservation.startDateTime)}</div>
-                  <div className="to">to</div>
-                  <div>{formatDateTime(reservation.endDateTime)}</div>
-                </td>
-                <td className="rooms">
-                  {reservation.requestedRooms.map(roomId => {
-                    const roomDetails = getRoomDetails(roomId);
-                    return (
-                      <div 
-                        key={roomId} 
-                        className="room-badge"
-                        title={roomDetails.location ? `${roomDetails.name} - ${roomDetails.location}` : roomDetails.name}
-                      >
-                        {roomDetails.name}
-                      </div>
-                    );
-                  })}
-                </td>
-                <td>
-                  <span className={`status-badge ${getStatusBadgeClass(reservation.status)}`}>
-                    {reservation.status}
-                  </span>
-                  {reservation.rejectionReason && (
-                    <div className="rejection-reason" title={reservation.rejectionReason}>
-                      ❌ {reservation.rejectionReason}
-                    </div>
-                  )}
-                </td>
-                <td className="actions">
+                </div>
+                <div className="rr-card-actions">
                   <button
-                    className="view-btn"
+                    className="rr-btn rr-btn-primary"
                     onClick={() => openReviewModal(reservation)}
                   >
-                    {reservation.status === 'pending' ? 'Review' : 'Details'}
+                    {reservation.status === 'pending' ? 'Review' : 'View Details'}
                   </button>
-                  {reservation.status === 'approved' && reservation.createdEventIds?.length > 0 && (
-                    <button className="view-event-btn">
-                      View Event
-                    </button>
-                  )}
                   <button
-                    className={`delete-btn ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
+                    className={`rr-btn rr-btn-danger ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteClick(reservation);
                     }}
                     disabled={deletingId === reservation._id}
-                    title={`Delete reservation: ${reservation.eventTitle}`}
                   >
                     {deletingId === reservation._id
                       ? 'Deleting...'
@@ -1367,26 +1184,93 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                         ? 'Confirm?'
                         : 'Delete'}
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        
+                </div>
+              </div>
+
+              {/* Card Body - Key Info Grid */}
+              <div className="rr-card-body">
+                {/* When */}
+                <div className="rr-info-block">
+                  <span className="rr-info-label">When</span>
+                  <div className="rr-info-value rr-datetime">
+                    <span className="rr-date">{new Date(reservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                    <span className="rr-time">
+                      {new Date(reservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {' – '}
+                      {new Date(reservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Where */}
+                <div className="rr-info-block">
+                  <span className="rr-info-label">Where</span>
+                  <div className="rr-info-value rr-rooms">
+                    {reservation.requestedRooms.map(roomId => {
+                      const roomDetails = getRoomDetails(roomId);
+                      return (
+                        <span key={roomId} className="rr-room-tag" title={roomDetails.location || ''}>
+                          {roomDetails.name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Requested By */}
+                <div className="rr-info-block">
+                  <span className="rr-info-label">Requested By</span>
+                  <div className="rr-info-value rr-requester">
+                    <span className="rr-requester-name">{requesterName}</span>
+                    {department && <span className="rr-requester-dept">{department}</span>}
+                    {isOnBehalfOf && contactName && (
+                      <span className="rr-on-behalf">for {contactName}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Submitted */}
+                <div className="rr-info-block">
+                  <span className="rr-info-label">Submitted</span>
+                  <div className="rr-info-value rr-submitted">
+                    {new Date(reservation.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Description Preview (if exists) */}
+              {reservation.eventDescription && (
+                <div className="rr-card-description">
+                  {reservation.eventDescription}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
         {paginatedReservations.length === 0 && !loading && (
-          <div className="no-reservations">
-            {activeTab === 'all'
-              ? 'No reservation requests found.'
-              : activeTab === 'deleted'
-              ? 'No deleted events found.'
-              : `No ${activeTab} reservation requests found.`}
+          <div className="rr-empty-state">
+            <div className="rr-empty-icon">
+              {activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'deleted' ? '🗑️' : '📁'}
+            </div>
+            <h3>No {activeTab === 'all' ? '' : activeTab} requests</h3>
+            <p>
+              {activeTab === 'pending'
+                ? 'All caught up! No pending requests to review.'
+                : activeTab === 'published'
+                ? 'No published reservations yet.'
+                : activeTab === 'cancelled'
+                ? 'No canceled reservations.'
+                : activeTab === 'deleted'
+                ? 'No deleted reservations.'
+                : 'No reservation requests found.'}
+            </p>
           </div>
         )}
-        </div>
-      )}
+      </div>
 
-      {/* Pagination - only show for non-edit-requests tabs */}
-      {activeTab !== 'edit-requests' && totalPages > 1 && (
+      {/* Pagination */}
+      {totalPages > 1 && (
         <div className="pagination">
           <button
             disabled={page === 1 || loading}
@@ -1396,7 +1280,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           </button>
           <span className="page-info">
             Page {page} of {totalPages}
-            {stats.total > 0 && ` (${stats.total} total)`}
+            {pagination.totalCount > 0 && ` (${pagination.totalCount} total)`}
           </span>
           <button
             disabled={page === totalPages || loading}

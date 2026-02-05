@@ -19,7 +19,7 @@ export default function MyReservations({ apiToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('drafts');
+  const [activeTab, setActiveTab] = useState('draft');
   const [page, setPage] = useState(1);
   const [selectedReservation, setSelectedReservation] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -31,7 +31,7 @@ export default function MyReservations({ apiToken }) {
   const [showEditRequestForm, setShowEditRequestForm] = useState(false);
   
   // Use room context for efficient room name resolution
-  const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
+  const { getRoomDetails } = useRooms();
   
   // Load all user's reservations once on mount
   useEffect(() => {
@@ -80,24 +80,50 @@ export default function MyReservations({ apiToken }) {
 
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {
-    if (activeTab === 'all') {
-      // 'all' shows everything except drafts and deleted by default
-      return allReservations.filter(r => r.status !== 'draft' && r.status !== 'deleted');
-    }
-    if (activeTab === 'drafts') {
+    if (activeTab === 'draft') {
       return allReservations.filter(r => r.status === 'draft');
     }
+    if (activeTab === 'pending') {
+      return allReservations.filter(r => r.status === 'pending');
+    }
+    if (activeTab === 'published') {
+      // Published = approved status WITHOUT a pending edit request
+      return allReservations.filter(r =>
+        r.status === 'approved' &&
+        (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
+      );
+    }
     if (activeTab === 'published_edit') {
-      // Filter by shadowState for published events with pending edits
-      return allReservations.filter(r => r.shadowState === 'Published_Edit');
+      // Published Edit = approved status WITH a pending edit request
+      return allReservations.filter(r =>
+        r.status === 'approved' &&
+        r.pendingEditRequest?.status === 'pending'
+      );
+    }
+    if (activeTab === 'rejected') {
+      return allReservations.filter(r => r.status === 'rejected');
+    }
+    if (activeTab === 'deleted') {
+      return allReservations.filter(r => r.status === 'deleted');
     }
     return allReservations.filter(reservation => reservation.status === activeTab);
   }, [allReservations, activeTab]);
 
-  // Count drafts for tab badge
-  const draftsCount = useMemo(() =>
-    allReservations.filter(r => r.status === 'draft').length,
-  [allReservations]);
+  // Count for each status tab
+  const statusCounts = useMemo(() => ({
+    draft: allReservations.filter(r => r.status === 'draft').length,
+    pending: allReservations.filter(r => r.status === 'pending').length,
+    published: allReservations.filter(r =>
+      r.status === 'approved' &&
+      (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
+    ).length,
+    published_edit: allReservations.filter(r =>
+      r.status === 'approved' &&
+      r.pendingEditRequest?.status === 'pending'
+    ).length,
+    rejected: allReservations.filter(r => r.status === 'rejected').length,
+    deleted: allReservations.filter(r => r.status === 'deleted').length,
+  }), [allReservations]);
 
   // Pagination for filtered results
   const itemsPerPage = 20;
@@ -224,10 +250,10 @@ export default function MyReservations({ apiToken }) {
     return Math.max(0, daysRemaining);
   };
   
+  // Format date/time for modal display
   const formatDateTime = (date) => {
     return new Date(date).toLocaleString('en-US', {
       weekday: 'short',
-      year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -235,36 +261,31 @@ export default function MyReservations({ apiToken }) {
     });
   };
 
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+  // Get display status (convert 'approved' to 'published' or 'published edit' for display)
+  const getDisplayStatus = (reservation) => {
+    if (reservation.status === 'approved') {
+      // Check if there's a pending edit request
+      if (reservation.pendingEditRequest?.status === 'pending') {
+        return 'Published Edit';
+      }
+      return 'Published';
+    }
+    // Capitalize first letter for display
+    return reservation.status.charAt(0).toUpperCase() + reservation.status.slice(1);
   };
 
-  const formatTime = (date) => {
-    return new Date(date).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  };
-
-  const isSameDay = (date1, date2) => {
-    const d1 = new Date(date1);
-    const d2 = new Date(date2);
-    return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
-  };
-  
-  const getStatusBadgeClass = (status) => {
+  const getStatusBadgeClass = (reservation) => {
+    const status = reservation.status;
+    if (status === 'approved') {
+      // Check if there's a pending edit request
+      if (reservation.pendingEditRequest?.status === 'pending') {
+        return 'status-published-edit';
+      }
+      return 'status-published';
+    }
     switch (status) {
       case 'pending': return 'status-pending';
-      case 'approved': return 'status-approved';
       case 'rejected': return 'status-rejected';
-      case 'cancelled': return 'status-cancelled';
       case 'deleted': return 'status-deleted';
       case 'draft': return 'status-draft';
       default: return '';
@@ -323,167 +344,82 @@ export default function MyReservations({ apiToken }) {
       <div className="tabs-container">
         <div className="tabs">
           <button
-            className={`tab ${activeTab === 'drafts' ? 'active' : ''}`}
-            onClick={() => handleTabChange('drafts')}
+            className={`tab ${activeTab === 'draft' ? 'active' : ''}`}
+            onClick={() => handleTabChange('draft')}
           >
-            Drafts
-            <span className="count draft-count">({draftsCount})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'all' ? 'active' : ''}`}
-            onClick={() => handleTabChange('all')}
-          >
-            All Requests
-            <span className="count">({allReservations.filter(r => r.status !== 'draft' && r.status !== 'deleted').length})</span>
+            Draft
+            <span className="count draft-count">({statusCounts.draft})</span>
           </button>
           <button
             className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
             onClick={() => handleTabChange('pending')}
           >
             Pending
-            <span className="count">({allReservations.filter(r => r.status === 'pending').length})</span>
+            <span className="count">({statusCounts.pending})</span>
           </button>
           <button
-            className={`tab ${activeTab === 'approved' ? 'active' : ''}`}
-            onClick={() => handleTabChange('approved')}
+            className={`tab ${activeTab === 'published' ? 'active' : ''}`}
+            onClick={() => handleTabChange('published')}
           >
-            Approved
-            <span className="count">({allReservations.filter(r => r.status === 'approved').length})</span>
+            Published
+            <span className="count">({statusCounts.published})</span>
+          </button>
+          <button
+            className={`tab ${activeTab === 'published_edit' ? 'active' : ''}`}
+            onClick={() => handleTabChange('published_edit')}
+          >
+            Published Edit
+            <span className="count">({statusCounts.published_edit})</span>
           </button>
           <button
             className={`tab ${activeTab === 'rejected' ? 'active' : ''}`}
             onClick={() => handleTabChange('rejected')}
           >
             Rejected
-            <span className="count">({allReservations.filter(r => r.status === 'rejected').length})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'cancelled' ? 'active' : ''}`}
-            onClick={() => handleTabChange('cancelled')}
-          >
-            Cancelled
-            <span className="count">({allReservations.filter(r => r.status === 'cancelled').length})</span>
+            <span className="count">({statusCounts.rejected})</span>
           </button>
           <button
             className={`tab ${activeTab === 'deleted' ? 'active' : ''}`}
             onClick={() => handleTabChange('deleted')}
           >
             Deleted
-            <span className="count">({allReservations.filter(r => r.status === 'deleted').length})</span>
+            <span className="count">({statusCounts.deleted})</span>
           </button>
         </div>
       </div>
       
-      {/* Reservations Table */}
-      <div className="reservations-table-container">
-        <table className="reservations-table">
-          <thead>
-            <tr>
-              <th>Submitted</th>
-              <th>Event Details</th>
-              <th>Date & Time</th>
-              <th>Rooms</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedReservations.map(reservation => (
-              <tr key={reservation._id} className={reservation.status === 'draft' ? 'draft-row' : ''}>
-                <td className="submitted-date">
-                  <span className="meta-label">
-                    {reservation.status === 'draft' ? 'Saved' : 'Submitted'}
-                  </span>
-                  {new Date(reservation.status === 'draft'
-                    ? (reservation.lastDraftSaved || reservation.submittedAt)
-                    : reservation.submittedAt
-                  ).toLocaleDateString()}
-                </td>
-                <td className="event-details">
-                  <strong>{reservation.eventTitle || 'Untitled'}</strong>
-                  {reservation.roomReservationData?.contactPerson?.isOnBehalfOf && reservation.roomReservationData?.contactPerson?.name && (
-                    <div className="delegation-status">On behalf of {reservation.roomReservationData.contactPerson.name}</div>
-                  )}
-                  {reservation.eventDescription && (
-                    <div className="event-desc">{reservation.eventDescription}</div>
-                  )}
+      {/* Reservations List */}
+      <div className="mr-reservations-list">
+        {paginatedReservations.map(reservation => {
+          const isOnBehalfOf = reservation.roomReservationData?.contactPerson?.isOnBehalfOf;
+          const contactName = reservation.roomReservationData?.contactPerson?.name;
+          const isDraft = reservation.status === 'draft';
+
+          return (
+            <div key={reservation._id} className={`mr-card ${isDraft ? 'mr-card-draft' : ''}`}>
+              {/* Card Header - Event Title + Actions */}
+              <div className="mr-card-header">
+                <div className="mr-card-title-row">
+                  <h3 className="mr-card-title">{reservation.eventTitle || 'Untitled'}</h3>
                   {reservation.attendeeCount > 0 && (
-                    <div className="attendee-count">{reservation.attendeeCount} attendees</div>
+                    <span className="mr-attendee-pill">{reservation.attendeeCount} attendees</span>
                   )}
-                </td>
-                <td className="datetime">
-                  {reservation.startDateTime && reservation.endDateTime ? (
-                    isSameDay(reservation.startDateTime, reservation.endDateTime) ? (
-                      <>
-                        <div className="date">{formatDate(reservation.startDateTime)}</div>
-                        <div className="time-range">{formatTime(reservation.startDateTime)} – {formatTime(reservation.endDateTime)}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>{formatDateTime(reservation.startDateTime)}</div>
-                        <div className="to">to</div>
-                        <div>{formatDateTime(reservation.endDateTime)}</div>
-                      </>
-                    )
-                  ) : (
-                    <span className="not-set">Not set</span>
+                  {isOnBehalfOf && contactName && (
+                    <span className="mr-delegation-pill">On behalf of {contactName}</span>
                   )}
-                </td>
-                <td className="rooms">
-                  {reservation.requestedRooms && reservation.requestedRooms.length > 0 ? (
-                    reservation.requestedRooms.map(roomId => {
-                      const roomDetails = getRoomDetails(roomId);
-                      return (
-                        <div
-                          key={roomId}
-                          className="room-badge"
-                          title={roomDetails.location ? `${roomDetails.name} - ${roomDetails.location}` : roomDetails.name}
-                        >
-                          {roomDetails.name}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <span className="not-set">None</span>
-                  )}
-                </td>
-                <td>
-                  <span className={`status-badge ${getStatusBadgeClass(reservation.status)}`}>
-                    {reservation.status}
-                  </span>
-                  {reservation.status === 'draft' && reservation.draftCreatedAt && (
-                    <div className="status-meta">
-                      Expires in {getDaysUntilDelete(reservation.draftCreatedAt)}d
-                    </div>
-                  )}
-                  {reservation.rejectionReason && (
-                    <div className="status-meta error" title={reservation.rejectionReason}>
-                      {reservation.rejectionReason}
-                    </div>
-                  )}
-                  {reservation.cancelReason && (
-                    <div className="status-meta" title={reservation.cancelReason}>
-                      {reservation.cancelReason}
-                    </div>
-                  )}
-                  {reservation.actionDate && reservation.status !== 'pending' && reservation.status !== 'draft' && (
-                    <div className="status-meta">
-                      {new Date(reservation.actionDate).toLocaleDateString()}
-                    </div>
-                  )}
-                </td>
-                <td className="actions">
-                  {reservation.status === 'draft' ? (
+                </div>
+                <div className="mr-card-actions">
+                  {isDraft ? (
                     <>
                       <button
-                        className="edit-btn"
+                        className="mr-btn mr-btn-primary"
                         onClick={() => handleEditDraft(reservation)}
                         disabled={deletingDraft}
                       >
                         Edit
                       </button>
                       <button
-                        className="delete-btn"
+                        className="mr-btn mr-btn-danger"
                         onClick={() => handleDeleteDraft(reservation)}
                         disabled={deletingDraft}
                       >
@@ -492,27 +428,118 @@ export default function MyReservations({ apiToken }) {
                     </>
                   ) : (
                     <button
-                      className="view-btn"
+                      className="mr-btn mr-btn-primary"
                       onClick={() => setSelectedReservation(reservation)}
                     >
-                      View
+                      View Details
                     </button>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        
+                </div>
+              </div>
+
+              {/* Card Body - Key Info Grid */}
+              <div className="mr-card-body">
+                {/* When */}
+                <div className="mr-info-block">
+                  <span className="mr-info-label">When</span>
+                  <div className="mr-info-value mr-datetime">
+                    {reservation.startDateTime && reservation.endDateTime ? (
+                      <>
+                        <span className="mr-date">
+                          {new Date(reservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                        <span className="mr-time">
+                          {new Date(reservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          {' – '}
+                          {new Date(reservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="mr-not-set">Not set</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Where */}
+                <div className="mr-info-block">
+                  <span className="mr-info-label">Where</span>
+                  <div className="mr-info-value mr-rooms">
+                    {reservation.requestedRooms && reservation.requestedRooms.length > 0 ? (
+                      reservation.requestedRooms.map(roomId => {
+                        const roomDetails = getRoomDetails(roomId);
+                        return (
+                          <span key={roomId} className="mr-room-tag" title={roomDetails.location || ''}>
+                            {roomDetails.name}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="mr-not-set">None selected</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Submitted/Saved */}
+                <div className="mr-info-block">
+                  <span className="mr-info-label">{isDraft ? 'Saved' : 'Submitted'}</span>
+                  <div className="mr-info-value mr-submitted">
+                    {new Date(isDraft
+                      ? (reservation.lastDraftSaved || reservation.submittedAt)
+                      : reservation.submittedAt
+                    ).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                </div>
+
+                {/* Status Info (contextual) */}
+                <div className="mr-info-block">
+                  <span className="mr-info-label">
+                    {isDraft ? 'Expires' : reservation.rejectionReason ? 'Reason' : 'Updated'}
+                  </span>
+                  <div className="mr-info-value mr-status-info">
+                    {isDraft && reservation.draftCreatedAt ? (
+                      <span className="mr-expires">in {getDaysUntilDelete(reservation.draftCreatedAt)} days</span>
+                    ) : reservation.rejectionReason ? (
+                      <span className="mr-rejection" title={reservation.rejectionReason}>{reservation.rejectionReason}</span>
+                    ) : reservation.actionDate && reservation.status !== 'pending' ? (
+                      <span>{new Date(reservation.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    ) : (
+                      <span className="mr-not-set">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Description Preview (if exists) */}
+              {reservation.eventDescription && (
+                <div className="mr-card-description">
+                  {reservation.eventDescription}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
         {paginatedReservations.length === 0 && !loading && (
-          <div className="no-reservations">
-            {activeTab === 'all'
-              ? "You haven't submitted any reservation requests yet."
-              : activeTab === 'drafts'
-              ? "You don't have any saved drafts."
-              : activeTab === 'deleted'
-              ? "You don't have any deleted reservations."
-              : `You don't have any ${activeTab} reservation requests.`}
+          <div className="mr-empty-state">
+            <div className="mr-empty-icon">
+              {activeTab === 'draft' ? '📝' : activeTab === 'pending' ? '⏳' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : activeTab === 'deleted' ? '🗑️' : '📁'}
+            </div>
+            <h3>No {activeTab === 'published_edit' ? 'pending edits' : activeTab} reservations</h3>
+            <p>
+              {activeTab === 'draft'
+                ? "You don't have any saved drafts."
+                : activeTab === 'pending'
+                ? "You don't have any pending requests."
+                : activeTab === 'published'
+                ? "You don't have any published reservations."
+                : activeTab === 'published_edit'
+                ? "No reservations with pending edit requests."
+                : activeTab === 'rejected'
+                ? "You don't have any rejected reservations."
+                : activeTab === 'deleted'
+                ? "You don't have any deleted reservations."
+                : `You don't have any ${activeTab} reservations.`}
+            </p>
           </div>
         )}
       </div>
@@ -582,8 +609,8 @@ export default function MyReservations({ apiToken }) {
               <div className="detail-row">
                 <label>Status:</label>
                 <div>
-                  <span className={`status-badge ${getStatusBadgeClass(selectedReservation.status)}`}>
-                    {selectedReservation.status}
+                  <span className={`status-badge ${getStatusBadgeClass(selectedReservation)}`}>
+                    {getDisplayStatus(selectedReservation)}
                   </span>
                 </div>
               </div>
@@ -646,14 +673,19 @@ export default function MyReservations({ apiToken }) {
                   {cancelling ? 'Cancelling...' : 'Cancel Request'}
                 </button>
               )}
-              {selectedReservation.status === 'approved' && (
+              {selectedReservation.status === 'approved' && !selectedReservation.pendingEditRequest?.status && (
                 <button
                   className="edit-request-btn"
                   onClick={() => handleRequestEdit(selectedReservation)}
-                  title="Request changes to this approved reservation"
+                  title="Request changes to this published reservation"
                 >
                   Request Edit
                 </button>
+              )}
+              {selectedReservation.status === 'approved' && selectedReservation.pendingEditRequest?.status === 'pending' && (
+                <div className="pending-edit-notice">
+                  Edit request pending approval
+                </div>
               )}
               {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
                 <button

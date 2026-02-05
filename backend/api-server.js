@@ -13357,11 +13357,19 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       roomReservationData: { $exists: true, $ne: null }
     };
 
+    // Helper function to build ownership filter using createdBy (primary) with fallback to requestedBy
+    const buildOwnershipFilter = () => ({
+      $or: [
+        { createdBy: userId },
+        { 'roomReservationData.requestedBy.userId': userId }
+      ]
+    });
+
     // Handle status filtering including drafts and deleted
     if (status === 'draft') {
       // Drafts are ALWAYS private - only visible to owner
       query.isDeleted = { $ne: true };
-      query['roomReservationData.requestedBy.userId'] = userId;
+      query.$and = [buildOwnershipFilter()];
       query.status = 'draft';
     } else if (status === 'deleted') {
       // For deleted, show user's own deleted events (both reservations AND direct events)
@@ -13390,25 +13398,30 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
       query.isDeleted = { $ne: true };
       if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
+      } else if (status === 'approved' || status === 'published') {
+        // Published = approved (handle both terms for backward compatibility)
+        query.status = 'approved';
       } else {
         query.status = status;
       }
 
       if (!canViewAll) {
-        query['roomReservationData.requestedBy.userId'] = userId;
+        // Use createdBy as primary ownership field with requestedBy fallback
+        query.$and = query.$and || [];
+        query.$and.push(buildOwnershipFilter());
       }
     } else {
       // No status filter - exclude deleted and drafts (unless own drafts for admin)
       query.isDeleted = { $ne: true };
       if (!canViewAll) {
         // For non-admins: show their own reservations (all statuses except deleted)
-        query['roomReservationData.requestedBy.userId'] = userId;
+        query.$and = [buildOwnershipFilter()];
         query.status = { $ne: 'deleted' };
       } else {
         // For admins: show all non-draft, non-deleted reservations, but only their own drafts
         query.$or = [
           { status: { $nin: ['draft', 'deleted'] } },
-          { status: 'draft', 'roomReservationData.requestedBy.userId': userId }
+          { status: 'draft', $or: [{ createdBy: userId }, { 'roomReservationData.requestedBy.userId': userId }] }
         ];
       }
     }
@@ -13463,6 +13476,11 @@ app.get('/api/room-reservations', verifyToken, async (req, res) => {
         // Draft-specific fields
         draftCreatedAt: event.draftCreatedAt,
         lastDraftSaved: event.lastDraftSaved,
+        // Pending edit request (for Published Edit filtering)
+        pendingEditRequest: event.pendingEditRequest || null,
+        // Ownership fields
+        createdBy: event.createdBy,
+        createdByEmail: event.createdByEmail,
         // Include calendarData for frontend compatibility
         calendarData: cd
       };
