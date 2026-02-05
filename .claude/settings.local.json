@@ -46,7 +46,8 @@
       "Bash(npm test:*)",
       "Bash(az webapp list:*)",
       "Bash(az webapp config appsettings set:*)",
-      "Bash(pgrep:*)"
+      "Bash(pgrep:*)",
+      "Skill(code-review:code-review)"
     ],
     "deny": []
   }

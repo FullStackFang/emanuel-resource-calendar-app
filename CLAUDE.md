@@ -438,37 +438,91 @@ For detailed architecture documentation, see `architecture-notes.md`
 
 ## Current In-Progress Work
 
-### calendarData Migration (Phases 1-3 Complete)
+### graphData Isolation Cleanup (Code Review Findings)
 
-**Status**: Phases 1-3 complete. Phase 4 (cleanup) should be run after 1-2 weeks in production.
+**Status**: Identified 2026-02-04. Needs implementation.
 
-**Background**: Restructured `templeEvents__Events` to consolidate ~40 scattered top-level fields into a `calendarData` nested object for cleaner schema organization.
+**Background**: Code review revealed that `graphData` is not properly isolated. It should ONLY be used for:
+1. Storing raw Microsoft Graph API responses (write once on sync)
+2. Reading when publishing back to Graph API
 
-**Completed** (2026-02-04):
-- ✅ Phase 0: Migration script created and run (`backend/migrate-create-calendar-data.js`)
-- ✅ Phase 0: All existing documents have `calendarData` object populated
-- ✅ Phase 1: Backend writes to `calendarData` ONLY
-- ✅ Phase 2: Frontend reads from `calendarData` with format-aware fallback for non-MongoDB inputs
-- ✅ Phase 3: All tests pass (163 frontend, 32 backend graphApiService)
-- ✅ Phase 4: Cleanup migration run - top-level fields removed
-- ✅ Backend queries updated to use `calendarData.startDateTime`/`calendarData.endDateTime`
+**Problem**: Frontend components and backend sync logic are reading/writing `graphData` for application display and logic, violating separation of concerns.
 
-**Migration Complete**: All calendar/event fields now exclusively in `calendarData` object.
+#### Task 1: Remove Backend Bidirectional Sync
+**File**: `backend/api-server.js` (lines ~19567-19675)
+**Issue**: Form edits sync back to `graphData`, making it no longer a "raw Graph response"
+**Fix**: Remove the sync logic that writes `calendarData` changes to `graphData`. Only update `graphData` when actually publishing to Outlook.
 
-**Key Files**:
-- `backend/api-server.js` - Write operations (updated)
-- `src/utils/eventTransformers.js` - Read operations (updated)
-- `backend/migrate-cleanup-calendar-data.js` - Cleanup script (ready to run)
+```javascript
+// REMOVE this pattern:
+if (updates.eventTitle !== undefined) {
+  updateOperations['graphData.subject'] = updates.eventTitle;
+}
+```
 
-**Updated Endpoints** (now write to `calendarData.*`):
-- `POST /api/events/request` - Room reservation requests
-- `POST /api/room-reservations/public/:token` - Public/guest reservation requests
-- `POST /api/events/batch` - Batch event creation
-- `POST /api/events/:eventId/audit-update` - Create/update via unified form
-- `POST /api/room-reservations/drafts` - Draft reservations
-- `PUT /api/admin/events/:id` - Admin event updates
-- `PUT /api/admin/events/:id/approve-edit` - Approve edit requests
-- `PUT /api/events/:id/department-fields` - Department-specific updates
+#### Task 2: Update View Components to Use calendarData
+**Files to update** (change `graphData.categories` → `calendarData.categories`):
+- [ ] `src/components/Calendar.jsx` (lines 846-847, 1353-1425)
+- [ ] `src/components/WeekView.jsx` (lines 86, 185, 297)
+- [ ] `src/components/DayView.jsx` (lines 102, 201, 308)
+- [ ] `src/components/MonthView.jsx` (line 87)
+- [ ] `src/components/DayEventPanel.jsx` (lines 155, 208-210)
+
+**Pattern**:
+```javascript
+// Before:
+event.graphData?.categories
+
+// After:
+event.calendarData?.categories || event.categories
+```
+
+#### Task 3: Update EventForm.jsx
+**File**: `src/components/EventForm.jsx` (lines 346-351)
+**Issue**: Reads description from `graphData.body.content`
+**Fix**: Read from `calendarData.eventDescription` instead
+
+#### Task 4: Update EventSearch and Export
+**Files**:
+- [ ] `src/components/EventSearch.jsx` (lines 145-146, 183-213)
+- [ ] `src/components/EventSearchExport.jsx` (lines 91-114)
+**Issue**: Reads multiple `graphData` fields for search/export
+**Fix**: Use `calendarData` fields as the authoritative source
+
+#### Task 5: Update MyReservations.jsx to Use Transform Layer
+**File**: `src/components/MyReservations.jsx`
+**Issue**: Does NOT use `transformEventToFlatStructure()`, reads raw MongoDB documents directly
+**Fix**: Add centralized transformer usage:
+
+```javascript
+import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+
+// After fetching:
+const data = await response.json();
+const transformedReservations = transformEventsToFlatStructure(data.reservations || []);
+setAllReservations(transformedReservations);
+```
+
+#### Task 6: Move Recurring Event Metadata to calendarData
+**File**: `src/components/Calendar.jsx` (lines 1353-1425)
+**Issue**: Application logic depends on `graphData.type`, `graphData.seriesMasterId`, `graphData.recurrence`
+**Fix**: Store recurring event metadata in `calendarData` so application logic doesn't depend on Graph structure
+
+---
+
+### Data Architecture Rules (Reference)
+
+**calendarData** (Authoritative for application):
+- All event/calendar fields live here
+- Frontend reads via `transformEventToFlatStructure()`
+- Backend writes here on create/update
+- All queries use `calendarData.*` fields
+
+**graphData** (Graph API integration only):
+- Raw Microsoft Graph API responses
+- Written once during sync from Outlook
+- Read ONLY when publishing to Outlook
+- Frontend should NEVER read for display
 
 ---
 
