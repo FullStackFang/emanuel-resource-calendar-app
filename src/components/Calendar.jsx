@@ -244,7 +244,8 @@
       canSubmitReservation,
       canApproveReservations,
       isAdmin: isSimulatedAdmin,
-      isSimulating
+      isSimulating,
+      simulatedRole
     } = usePermissions();
 
     // Timezone context initialized
@@ -2756,10 +2757,52 @@
     }, [normalizeLocationName]);
 
     /**
+     * Check if event is pending (needs role-based filtering during simulation)
+     */
+    const isPendingEvent = useCallback((event) => {
+      const status = event.status;
+      return status === 'pending' || status === 'room-reservation-request';
+    }, []);
+
+    /**
+     * Check if current user owns this event (is the requester)
+     * Based on sample event data fields:
+     * - roomReservationData.requestedBy.email
+     * - calendarData.requesterEmail
+     * - createdByEmail
+     */
+    const isEventOwner = useCallback((event) => {
+      if (!currentUser?.email) return false;
+      const userEmail = currentUser.email.toLowerCase();
+
+      const requesterEmail = (
+        event.roomReservationData?.requestedBy?.email ||
+        event.calendarData?.requesterEmail ||
+        event.createdByEmail ||
+        ''
+      ).toLowerCase();
+
+      return requesterEmail === userEmail;
+    }, [currentUser?.email]);
+
+    /**
      * Filter and sort events based on selected categories and locations
      */
     const filteredEvents = useMemo(() => {
       const filtered = allEvents.filter(event => {
+
+        // === ROLE SIMULATION: Filter pending events based on simulated role ===
+        if (isSimulating && isPendingEvent(event)) {
+          // Viewer: Cannot see ANY pending events
+          if (simulatedRole === 'viewer') {
+            return false;
+          }
+          // Requester: Only their OWN pending events
+          if (simulatedRole === 'requester' && !isEventOwner(event)) {
+            return false;
+          }
+          // Approver/Admin: See all pending (no filter needed)
+        }
 
         // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
         let categoryMatch = true;
@@ -2884,7 +2927,11 @@
       dynamicLocations,
       isUncategorizedEvent,
       isUnspecifiedLocation,
-      locationsMatch
+      locationsMatch,
+      isSimulating,
+      simulatedRole,
+      isPendingEvent,
+      isEventOwner
     ]);
 
     /**

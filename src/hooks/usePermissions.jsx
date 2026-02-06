@@ -12,6 +12,7 @@ export function usePermissions() {
   const {
     effectivePermissions,
     isSimulating,
+    simulatedRole,
     simulatedRoleName,
     isActualAdmin,
     actualRole,
@@ -64,7 +65,10 @@ export function usePermissions() {
 
     // Actual user status (for showing simulation controls)
     isActualAdmin,
-    actualRole
+    actualRole,
+
+    // Simulated role value (for role-based filtering during simulation)
+    simulatedRole
   };
 }
 
