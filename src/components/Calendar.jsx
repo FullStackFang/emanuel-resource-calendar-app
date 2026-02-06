@@ -110,6 +110,28 @@
     const initializationStarted = useRef(false);
     const initialLoadComplete = useRef(false); // Tracks if initial load in initializeApp has completed
 
+    // Navigation loading state - shows overlay during calendar navigation
+    const [isNavigating, setIsNavigating] = useState(false);
+    const navigationStartTimeRef = useRef(0);
+    const MIN_NAVIGATION_DISPLAY_MS = 500; // Minimum time to show spinner overlay (covers API + render time)
+
+    // Helper to clear navigation state with minimum display time
+    const clearNavigationState = useCallback(() => {
+      const elapsed = Date.now() - navigationStartTimeRef.current;
+      const remaining = MIN_NAVIGATION_DISPLAY_MS - elapsed;
+      if (remaining > 0) {
+        setTimeout(() => setIsNavigating(false), remaining);
+      } else {
+        setIsNavigating(false);
+      }
+    }, []);
+
+    // Helper to start navigation with timestamp tracking
+    const startNavigation = useCallback(() => {
+      navigationStartTimeRef.current = Date.now();
+      setIsNavigating(true);
+    }, []);
+
     // Demo variables
     const [isDemoMode, setIsDemoMode] = useState(false);
     const [demoData, setDemoData] = useState(null);
@@ -3139,23 +3161,27 @@
     // EVENT HANDLERS
     //---------------------------------------------------------------------------
     const handleDatePickerChange = useCallback((selectedDate) => {
+      startNavigation();
       setCurrentDate(new Date(selectedDate));
-    }, []);
+    }, [startNavigation]);
 
     const handleEventSelect = (event, viewOnly = false) => {
       // Close the search panel
       setShowSearch(false);
-      
+
       // Navigate to the event's date in the calendar
       const eventDate = new Date(event.start.dateTime);
-      
+
+      // Show navigation loading overlay while events load
+      startNavigation();
+
       // Set calendar to day view centered on the event date
       setViewType('day');
       setDateRange({
         start: eventDate,
         end: calculateEndDate(eventDate, 'day')
       });
-      
+
       // Only open the edit form if not viewOnly
       if (!viewOnly) {
         setCurrentEvent(event);
@@ -3323,6 +3349,9 @@
       // Use explicit calendarId if provided, otherwise fall back to event.calendarId
       const targetCalendarId = explicitCalendarId || event.calendarId;
 
+      // Show navigation loading overlay while events load
+      startNavigation();
+
       // Switch to the target calendar if different from current
       if (targetCalendarId && targetCalendarId !== selectedCalendarId) {
         setSelectedCalendarId(targetCalendarId);
@@ -3338,15 +3367,17 @@
      * Navigate to today
      */
     const handleToday = useCallback(() => {
+      startNavigation();
       setCurrentDate(new Date());
-    }, []);
+    }, [startNavigation]);
 
     /**
      * Navigate to the next time period
      */
     const handleNext = useCallback(() => {
+      startNavigation();
       let newDate = new Date(currentDate);
-      
+
       switch(viewType) {
         case 'day':
           newDate.setDate(newDate.getDate() + 1);
@@ -3358,16 +3389,17 @@
           newDate.setMonth(newDate.getMonth() + 1);
           break;
       }
-      
+
       setCurrentDate(newDate);
-    }, [viewType, currentDate]);
+    }, [viewType, currentDate, startNavigation]);
 
     /**
      * Navigate to the previous time period
      */
     const handlePrevious = useCallback(() => {
+      startNavigation();
       let newDate = new Date(currentDate);
-      
+
       switch(viewType) {
         case 'day':
           newDate.setDate(newDate.getDate() - 1);
@@ -3379,9 +3411,9 @@
           newDate.setMonth(newDate.getMonth() - 1);
           break;
       }
-      
+
       setCurrentDate(newDate);
-    }, [viewType, currentDate]);
+    }, [viewType, currentDate, startNavigation]);
 
     const handleDayCellClick = useCallback(async (day, category = null, location = null) => {
       // Block if user has no creation permissions at all (Viewer role)
@@ -5983,6 +6015,7 @@
         // (initializeApp already loaded events, no need to reload immediately)
         if (initialLoadComplete.current) {
           initialLoadComplete.current = false; // Reset so future changes trigger loads
+          setIsNavigating(false); // Clear navigation state even when skipping load
           return;
         }
 
@@ -6011,6 +6044,7 @@
             clearTimeout(timeoutId);
             calendarDebug.logStateChange('changingCalendar', true, false);
             setChangingCalendar(false);
+            clearNavigationState(); // Use helper to ensure minimum display time
           });
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6126,7 +6160,17 @@
         </div>
       </div>
     );
-    
+
+    // Navigation loading overlay - matches main loading overlay pattern
+    const NavigationLoadingOverlay = () => (
+      <div className="navigation-loading-overlay">
+        <div className="loading-content">
+          <LoadingSpinner size={64} minHeight={100} />
+          <p>Loading events...</p>
+        </div>
+      </div>
+    );
+
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
         return getLocationGroups();
@@ -6140,7 +6184,8 @@
     return (
       <div className="calendar-container">
         {initializing && <LoadingOverlay/>}
-        
+        {!initializing && (isNavigating || loading) && <NavigationLoadingOverlay />}
+
         {/* Calendar Header */}
         <CalendarHeader
           viewType={viewType}
@@ -6220,6 +6265,7 @@
           <div className="calendar-main-content">
             {/* Calendar grid section */}
             <div className="calendar-grid-container">
+              <div className={`calendar-grid-wrapper ${isNavigating || loading ? 'navigating' : ''}`}>
                   {viewType === 'month' ? (
                     <div className="calendar-content-wrapper">
                       <div 
@@ -6337,6 +6383,7 @@
                       )}
                     </div>
                   )}
+              </div>
             </div>
           </div>
 
