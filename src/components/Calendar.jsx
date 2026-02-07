@@ -245,7 +245,8 @@
       canApproveReservations,
       isAdmin: isSimulatedAdmin,
       isSimulating,
-      simulatedRole
+      simulatedRole,
+      isActualAdmin
     } = usePermissions();
 
     // Timezone context initialized
@@ -412,6 +413,12 @@
         setOriginalEventData(null);
       }
     }, [reviewModal.isOpen, isEditRequestMode]);
+
+    // Update calendarDataService when role simulation changes
+    // This ensures the X-Simulated-Role header is included in API requests
+    useEffect(() => {
+      calendarDataService.setRoleSimulation(simulatedRole, isActualAdmin);
+    }, [simulatedRole, isActualAdmin]);
 
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)

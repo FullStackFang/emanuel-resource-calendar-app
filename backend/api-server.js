@@ -13,7 +13,7 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, getPermissions, getDepartmentEditableFields } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
@@ -2057,6 +2057,7 @@ app.get('/api/graph/calendars/search', verifyToken, async (req, res) => {
 
 /**
  * Get calendar events for a date range
+ * Combines Graph API events with pending MongoDB events based on user role
  */
 app.get('/api/graph/events', verifyToken, async (req, res) => {
   try {
@@ -2069,7 +2070,8 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
 
-    const events = await graphApiService.getCalendarEvents(
+    // Get events from Graph API (approved/published events)
+    const graphEvents = await graphApiService.getCalendarEvents(
       userId,
       calendarId || null,
       startDateTime,
@@ -2077,7 +2079,64 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
       { select, expand }
     );
 
-    res.status(200).json({ value: events });
+    // Also get pending events from MongoDB based on user role
+    const userEmail = req.user.email;
+    const simulatedRole = req.headers['x-simulated-role'];
+
+    // Get user from database to determine actual role
+    const user = await usersCollection.findOne({
+      $or: [
+        { odataId: req.user.userId },
+        { odataId: `https://graph.microsoft.com/v1.0/users('${req.user.userId}')` }
+      ]
+    });
+
+    const actualRole = getEffectiveRole(user, userEmail);
+    const effectiveRole = (simulatedRole && actualRole === 'admin') ? simulatedRole : actualRole;
+    const roleInfo = { role: effectiveRole, userEmail };
+
+    // Get pending events from unified collection based on role
+    const pendingEvents = await getUnifiedEvents(
+      req.user.userId,
+      userId, // calendarOwner
+      new Date(startDateTime),
+      new Date(endDateTime),
+      roleInfo
+    );
+
+    // Filter to only include pending/draft events from MongoDB (Graph events handle approved)
+    const pendingOnlyEvents = pendingEvents.filter(e =>
+      ['pending', 'draft', 'room-reservation-request'].includes(e.status)
+    );
+
+    // Convert pending events to Graph-like format for frontend compatibility
+    const formattedPendingEvents = pendingOnlyEvents.map(event => ({
+      id: event.eventId || event._id?.toString(),
+      subject: event.calendarData?.eventTitle || event.graphData?.subject || 'Untitled',
+      start: event.start || {
+        dateTime: event.calendarData?.startDateTime,
+        timeZone: 'America/New_York'
+      },
+      end: event.end || {
+        dateTime: event.calendarData?.endDateTime,
+        timeZone: 'America/New_York'
+      },
+      location: event.graphData?.location || { displayName: event.calendarData?.location || '' },
+      categories: event.calendarData?.categories || [],
+      bodyPreview: event.calendarData?.eventDescription || '',
+      // Include MongoDB-specific fields
+      _id: event._id,
+      eventId: event.eventId,
+      status: event.status,
+      isPending: true, // Flag to identify pending events in frontend
+      calendarData: event.calendarData,
+      roomReservationData: event.roomReservationData
+    }));
+
+    // Combine Graph events with pending events
+    const allEvents = [...graphEvents, ...formattedPendingEvents];
+
+    res.status(200).json({ value: allEvents });
   } catch (error) {
     logger.error('Error fetching calendar events:', error);
     res.status(error.status || 500).json({
@@ -4111,18 +4170,48 @@ function getCalendarOwnerFromConfig(calendarId) {
  * @param {string} calendarOwner - Calendar owner email (case-insensitive) to filter by
  * @param {Date} startDate - Start of date range
  * @param {Date} endDate - End of date range
+ * @param {Object} roleInfo - Role information for pending event filtering
+ * @param {string} roleInfo.role - User's effective role: 'viewer' | 'requester' | 'approver' | 'admin'
+ * @param {string} roleInfo.userEmail - User's email for requester matching
  */
-async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null) {
+async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, endDate = null, roleInfo = null) {
   try {
     // Simple query using top-level fields only (no complex $or conditions)
-    // Filter out deleted events and non-displayable statuses (cancelled, rejected, pending, deleted, draft)
+    // Filter out deleted events and non-displayable statuses
     const query = {
       isDeleted: { $ne: true },
-      calendarOwner: calendarOwner.toLowerCase(),
-      // Only show published/approved events on the calendar
-      // Exclude: cancelled, rejected, pending, deleted, draft, room-reservation-request
-      status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] }
+      calendarOwner: calendarOwner.toLowerCase()
     };
+
+    // Role-aware status filtering for pending events
+    // - viewer: exclude all pending (can only see approved/published events)
+    // - requester: include pending events they created
+    // - approver/admin: include all pending events
+    const role = roleInfo?.role || 'viewer';
+    const userEmail = roleInfo?.userEmail?.toLowerCase();
+
+    if (role === 'approver' || role === 'admin') {
+      // Approvers and admins can see all pending events
+      query.status = { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] };
+    } else if (role === 'requester' && userEmail) {
+      // Requesters can see approved events + their own pending events
+      query.$or = [
+        // Approved/published events (visible to everyone)
+        { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+        // Pending events created by this user
+        {
+          status: { $in: ['pending', 'room-reservation-request'] },
+          $or: [
+            { createdByEmail: userEmail },
+            { 'roomReservationData.requestedBy.email': userEmail },
+            { 'calendarData.requesterEmail': userEmail }
+          ]
+        }
+      ];
+    } else {
+      // Viewers can only see approved/published events
+      query.status = { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] };
+    }
 
     // Date range filter using calendarData.startDateTime/endDateTime
     if (startDate && endDate) {
@@ -4202,6 +4291,34 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
 
     const { calendarIds, calendarOwners, startTime, endTime, forceRefresh = false } = req.body;
     const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Get user's effective role for pending event filtering
+    // Support role simulation via X-Simulated-Role header (for admin testing)
+    const simulatedRole = req.headers['x-simulated-role'];
+    let effectiveRole = 'viewer'; // Default to most restrictive
+
+    // Get user from database to determine actual role
+    const user = await usersCollection.findOne({
+      $or: [
+        { odataId: userId },
+        { odataId: `https://graph.microsoft.com/v1.0/users('${userId}')` }
+      ]
+    });
+
+    // Determine effective role
+    const actualRole = getEffectiveRole(user, userEmail);
+
+    // Allow role simulation only if actual role is admin
+    if (simulatedRole && actualRole === 'admin') {
+      effectiveRole = simulatedRole;
+      logger.debug(`Admin simulating role: ${simulatedRole}`);
+    } else {
+      effectiveRole = actualRole;
+    }
+
+    const roleInfo = { role: effectiveRole, userEmail };
+    logger.debug(`Effective role for event loading: ${effectiveRole}`);
 
     // Enhanced validation and logging (app-only auth - no user token needed)
     logger.debug('Cache-first events load handler: validating request', {
@@ -4260,7 +4377,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               logger.warn(`No calendarOwner for calendarId: ${calendarId ? calendarId.substring(0, 30) + '...' : 'N/A'}`);
               return { calendarOwner, calendarId, cachedEvents: [], error: null };
             }
-            const cachedEvents = await getUnifiedEvents(userId, calendarOwner, new Date(startTime), new Date(endTime));
+            const cachedEvents = await getUnifiedEvents(userId, calendarOwner, new Date(startTime), new Date(endTime), roleInfo);
             logger.debug(`Found ${cachedEvents.length} cached events for calendarOwner: ${calendarOwner}`);
             return { calendarOwner, calendarId, cachedEvents, error: null };
           } catch (cacheError) {
@@ -4654,8 +4771,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     }
 
     /// STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
-    const userEmail = req.user.email;
-    const user = await usersCollection.findOne({ userId });
+    // Note: userEmail and user are already defined earlier in this function for role detection
     const isAdminUser = canViewAllReservations(user, userEmail);
 
     logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdminUser: ${isAdminUser}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);

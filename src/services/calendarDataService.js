@@ -14,6 +14,30 @@ class CalendarDataService {
     this.calendarOwner = null; // Email of the calendar owner (e.g., temple@emanuelnyc.org)
     this.schemaExtensions = [];
     this.userTimeZone = 'America/New_York'; // Default timezone
+    this.simulatedRole = null; // For role simulation (admin testing)
+    this.isActualAdmin = false; // Track if user is actually an admin
+  }
+
+  // Set role simulation state (only works when isActualAdmin is true)
+  setRoleSimulation(simulatedRole, isActualAdmin) {
+    this.simulatedRole = simulatedRole;
+    this.isActualAdmin = isActualAdmin;
+    logger.debug(`Role simulation set: ${simulatedRole}, isActualAdmin: ${isActualAdmin}`);
+  }
+
+  // Build headers including simulation header if applicable
+  _buildHeaders() {
+    const headers = {
+      'Authorization': `Bearer ${this.apiToken}`,
+      'Content-Type': 'application/json'
+    };
+
+    // Only add simulation header if admin is actually simulating a role
+    if (this.isActualAdmin && this.simulatedRole) {
+      headers['X-Simulated-Role'] = this.simulatedRole;
+    }
+
+    return headers;
   }
 
   // Initialize the service with tokens and settings
@@ -251,10 +275,7 @@ class CalendarDataService {
 
       // Fetch events from backend (which uses app-only auth)
       const response = await fetch(`${API_BASE_URL}/graph/events?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json'
-        }
+        headers: this._buildHeaders()
       });
 
       if (!response.ok) {
@@ -326,10 +347,7 @@ class CalendarDataService {
 
     const response = await fetch(`${API_BASE_URL}/graph/events/${eventId}?${params}`, {
       method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${this.apiToken}`,
-        'Content-Type': 'application/json'
-      }
+      headers: this._buildHeaders()
     });
 
     if (!response.ok) {
@@ -380,10 +398,7 @@ class CalendarDataService {
       // Create new event
       const response = await fetch(`${API_BASE_URL}/graph/events`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers: this._buildHeaders(),
         body: JSON.stringify({
           userId: this.calendarOwner,
           calendarId: this.selectedCalendarId,
@@ -404,10 +419,7 @@ class CalendarDataService {
       // Update existing event
       const response = await fetch(`${API_BASE_URL}/graph/events/${eventId}`, {
         method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${this.apiToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers: this._buildHeaders(),
         body: JSON.stringify({
           userId: this.calendarOwner,
           calendarId: this.selectedCalendarId,
