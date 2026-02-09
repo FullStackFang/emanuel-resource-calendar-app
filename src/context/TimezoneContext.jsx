@@ -17,11 +17,12 @@ export const useTimezone = () => {
 };
 
 // TimezoneProvider component
-export const TimezoneProvider = ({ 
-  children, 
+export const TimezoneProvider = ({
+  children,
   apiToken = null,
   apiBaseUrl = null,
-  initialTimezone = DEFAULT_TIMEZONE 
+  initialTimezone = DEFAULT_TIMEZONE,
+  initialUserData = null  // Pass user data to avoid duplicate /users/current call
 }) => {
   const [userTimezone, setUserTimezone] = useState(() => {
     // Initialize with safe timezone
@@ -148,11 +149,17 @@ export const TimezoneProvider = ({
   }, [updateTimezonePreference]);
 
   // Load user timezone on mount when API tokens become available
+  // Skip API call if initialUserData is provided (eliminates duplicate /users/current call)
   useEffect(() => {
-    if (apiToken && apiBaseUrl) {
+    if (initialUserData?.preferences?.preferredTimeZone) {
+      const savedTimezone = initialUserData.preferences.preferredTimeZone;
+      const safeTimezone = getSafeTimezone(savedTimezone);
+      setUserTimezone(safeTimezone);
+      logger.debug(`Using timezone from initialUserData: ${safeTimezone}`);
+    } else if (apiToken && apiBaseUrl) {
       loadUserTimezone();
     }
-  }, [apiToken, apiBaseUrl, loadUserTimezone]);
+  }, [apiToken, apiBaseUrl, initialUserData, loadUserTimezone]);
 
   // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({

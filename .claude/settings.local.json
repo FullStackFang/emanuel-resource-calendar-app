@@ -49,7 +49,9 @@
       "Bash(pgrep:*)",
       "Skill(code-review:code-review)",
       "Bash(npx jest:*)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(sort:*)",
+      "Bash(du:*)"
     ],
     "deny": []
   }

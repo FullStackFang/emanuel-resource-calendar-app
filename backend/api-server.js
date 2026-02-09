@@ -87,6 +87,16 @@ app.use(express.json());
 app.use('/api/public', publicLimiter);
 app.use('/api', standardLimiter);
 
+// Warmup endpoint for Azure App Service initialization
+// Called by applicationInitialization in web.config to pre-warm the app
+app.get('/api/warmup', (req, res) => {
+  res.status(200).json({
+    status: 'warming',
+    ready: !!db,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Note: Sentry v8+ automatically instruments Express - no manual request handler needed
 
 // Request ID middleware - adds unique ID to each request for tracking
@@ -1732,34 +1742,36 @@ async function connectToDatabase() {
     // Initialize error logging service with database connection
     errorLoggingService.setDbConnection(db);
 
-    // Create indexes for new unified collections
-    await createUnifiedEventIndexes();
-    await createCalendarDeltaIndexes();
-    await createEventAuditHistoryIndexes();
-    await createEventAttachmentsIndexes();
-
-    // Create indexes for room reservation system
-    // createRoomIndexes() removed - deprecated, using createLocationIndexes() instead
-    await createLocationIndexes();
-    await createRoomReservationIndexes();
-    await createReservationAuditHistoryIndexes();
-    await createReservationTokenIndexes();
-    
-    // Create indexes for feature configuration system
-    await createRoomCapabilityTypesIndexes();
-    await createEventServiceTypesIndexes();
-    await createFeatureCategoriesIndexes();
-    await createCategoriesIndexes();
+    // Create indexes for all collections in parallel for faster startup
+    // This reduces cold start time significantly vs sequential creation
+    await Promise.all([
+      createUnifiedEventIndexes(),
+      createCalendarDeltaIndexes(),
+      createEventAuditHistoryIndexes(),
+      createEventAttachmentsIndexes(),
+      // Room reservation system indexes
+      createLocationIndexes(),
+      createRoomReservationIndexes(),
+      createReservationAuditHistoryIndexes(),
+      createReservationTokenIndexes(),
+      // Feature configuration system indexes
+      createRoomCapabilityTypesIndexes(),
+      createEventServiceTypesIndexes(),
+      createFeatureCategoriesIndexes(),
+      createCategoriesIndexes()
+    ]);
     
     // Event cache indexes removed - using unifiedEventsCollection instead
 
     // seedInitialRooms() removed - deprecated, rooms now stored in templeEvents__Locations
 
-    // Seed initial feature configuration data if none exists
-    await seedInitialFeatureCategories();
-    await seedInitialCategories();
-    await seedInitialRoomCapabilityTypes();
-    await seedInitialEventServiceTypes();
+    // Seed initial feature configuration data if none exists (in parallel)
+    await Promise.all([
+      seedInitialFeatureCategories(),
+      seedInitialCategories(),
+      seedInitialRoomCapabilityTypes(),
+      seedInitialEventServiceTypes()
+    ]);
     
     logger.log('Database and collections initialized');
   } catch (error) {

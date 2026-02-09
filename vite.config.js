@@ -110,7 +110,11 @@ export default defineConfig({
           // Authentication - needed early but can be separate chunk
           'auth': ['@azure/msal-browser', '@azure/msal-react'],
           // Core vendor libraries
-          'vendor': ['react', 'react-dom', 'react-router-dom']
+          'vendor': ['react', 'react-dom', 'react-router-dom'],
+          // Date picker - loaded with calendar views
+          'datepicker': ['react-datepicker'],
+          // React Query - data fetching library
+          'query': ['@tanstack/react-query']
         }
       }
     }

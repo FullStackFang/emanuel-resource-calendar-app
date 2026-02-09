@@ -12,7 +12,7 @@
     "test:integration": "node node_modules/jest/bin/jest.js --testPathPattern=integration",
     "test:unit": "node node_modules/jest/bin/jest.js --testPathPattern=unit",
     "build-info": "powershell -Command \"$commit = git rev-parse --short HEAD; $time = Get-Date -Format o; @{commit=$commit; buildTime=$time} | ConvertTo-Json | Out-File -Encoding utf8 build-info.json\"",
-    "deploy": "npm run build-info && az webapp up --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --runtime NODE:20-lts"
+    "deploy": "npm run build-info && az webapp up --resource-group DefaultResourceGroup-EUS --name emanuelnyc-services-api --runtime NODE:20-lts --sku B1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

@@ -1077,9 +1077,28 @@
 
     /**
      * Load schema extensions available for this application
+     * Uses localStorage cache with 5-minute TTL to reduce API calls
      */
     const loadSchemaExtensions = useCallback(async () => {
       if (!apiToken) return [];
+
+      // Check localStorage cache first (5-minute TTL)
+      const CACHE_KEY = 'schemaExtensions';
+      const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < CACHE_TTL_MS) {
+            logger.debug('Using cached schema extensions');
+            setSchemaExtensions(data);
+            return data;
+          }
+        }
+      } catch (cacheErr) {
+        logger.debug('Schema extensions cache miss or invalid:', cacheErr);
+      }
 
       try {
         // Fetch schema extensions via backend (uses app-only auth)
@@ -1101,6 +1120,16 @@
           ext.status === 'Available' &&
           ext.targetTypes.includes('event')
         );
+
+        // Cache the result in localStorage
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify({
+            data: eventExtensions,
+            timestamp: Date.now()
+          }));
+        } catch (storageErr) {
+          logger.debug('Failed to cache schema extensions:', storageErr);
+        }
 
         // Store in state for use in UI
         setSchemaExtensions(eventExtensions);
@@ -3421,9 +3450,15 @@
      * Navigate to today
      */
     const handleToday = useCallback(() => {
+      const today = new Date();
+      // Skip if already on current month - prevents infinite loading spinner
+      if (currentDate.getMonth() === today.getMonth() &&
+          currentDate.getFullYear() === today.getFullYear()) {
+        return;
+      }
       startNavigation();
-      setCurrentDate(new Date());
-    }, [startNavigation]);
+      setCurrentDate(today);
+    }, [startNavigation, currentDate]);
 
     /**
      * Navigate to the next time period

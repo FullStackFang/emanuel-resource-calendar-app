@@ -5,7 +5,6 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { loginRequest, apiRequest } from './config/authConfig';
 import queryClient from './config/queryClient';
 import AppHeader from './components/AppHeader';
-import Calendar from './components/Calendar';
 import CalendarSelector from './components/CalendarSelector';
 import UnifiedEventForm from './components/UnifiedEventForm';
 import ReviewModal from './components/shared/ReviewModal';
@@ -69,6 +68,7 @@ const AppSkeleton = () => (
 
 // Lazy load components to reduce initial bundle size
 // These components are only loaded when their routes are accessed
+const Calendar = lazy(() => import('./components/Calendar'));
 const MySettings = lazy(() => import('./components/MySettings'));
 const MyReservations = lazy(() => import('./components/MyReservations'));
 

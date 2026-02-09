@@ -20,6 +20,8 @@ npm start          # Start production server
 ```
 
 ### Testing
+
+**Backend (Jest):**
 ```bash
 cd backend
 npm test                           # Run all tests (173 tests)
@@ -29,9 +31,22 @@ npm test -- eventApprove.test.js   # Run specific test file
 npm test -- --testNamePattern="Approver"  # Run tests matching pattern
 ```
 
+**Frontend (Vitest):**
+```bash
+npm test                  # Run frontend unit tests (interactive)
+npm run test:run          # Run once (CI-friendly)
+npm run test:coverage     # Run with coverage report
+```
+
 ### Generate Development Certificates
 ```bash
 node generateCert.js  # Creates self-signed certs in /certs folder
+```
+
+### Deployment (Azure Web Apps)
+```bash
+npm run deploy                  # Frontend: build + zip + az webapp deploy
+cd backend && npm run deploy    # Backend: build-info + az webapp up
 ```
 
 ### Migration Scripts
@@ -293,23 +308,6 @@ This ensures changes are verifiable and reduces back-and-forth debugging.
 - Pass data directly to avoid race conditions with async state updates
 - Minimize re-renders with proper useCallback/useMemo usage
 
-### Error Handling
-- Graceful fallbacks for API failures
-- User-friendly error messages
-- Automatic retry logic for transient failures
-
-### Security
-- JWT validation on all protected endpoints
-- Token-based access for public forms
-- Proper CORS configuration
-- Input validation and sanitization
-
-### Code Organization
-- Component-specific CSS classes to avoid conflicts
-- Centralized configuration management
-- Reusable utility functions
-- Clear separation of concerns
-
 ### UI Patterns
 
 #### Button Action Standard (ALL Significant Actions)
@@ -464,6 +462,7 @@ Add field handling in relevant endpoint(s):
 - **Field exists in MongoDB but not in form**: Missing from `eventTransformers.js`
 - **Field saves but doesn't load**: Missing from `transformEventToFlatStructure()`
 - **ObjectId comparison fails**: Use `String(id)` for comparisons
+- **Times display incorrectly**: Datetime strings MUST have `Z` suffix for UTC. Backend adds `Z` during storage; frontend reads `event.start.dateTime` (constructed by API). See `architecture-notes.md` for full DateTime Data Architecture.
 
 ### See Also
 For detailed architecture documentation, see `architecture-notes.md`
@@ -628,58 +627,10 @@ The test suite automatically detects Windows ARM64 and uses x64 MongoDB binary e
 
 ---
 
-### Move Recurring Event Metadata to calendarData - COMPLETED
+### Completed Work (Reference)
 
-**Status**: Completed 2026-02-04
-
-**Goal**: Move recurring event fields (`type`, `seriesMasterId`, `recurrence`) from `graphData` to top-level authoritative fields to complete the graphData isolation cleanup.
-
-**Completed Tasks:**
-- [x] **Backend**: Updated `upsertUnifiedEvent()` in `backend/api-server.js` to add `eventType`, `seriesMasterId`, `recurrence` at top level
-- [x] **Backend**: Created migration script `backend/migrate-add-recurrence-to-calendardata.js` (supports `--dry-run`, `--verify`)
-- [x] **Frontend**: Updated `src/utils/eventTransformers.js` to extract `eventType`, `seriesMasterId` with fallback
-- [x] **Frontend**: Updated `src/components/Calendar.jsx` (6 locations) to use top-level fields with fallback
-- [x] **Frontend**: Updated `src/components/WeekView.jsx` recurring indicator check
-- [x] **Frontend**: Updated `src/components/DayEventPanel.jsx` recurring indicator check
-- [x] **Frontend**: Updated `src/components/RoomReservationReview.jsx` series master ID extraction
-- [x] **Testing**: Added 7 new test cases in `src/__tests__/unit/utils/eventTransformers.test.js` (all 46 tests pass)
-
-**Migration**: Run `cd backend && node migrate-add-recurrence-to-calendardata.js --dry-run` to preview, then without flag to apply.
-
----
-
-### graphData Isolation Cleanup (Code Review Findings) - COMPLETED
-
-**Status**: Completed 2026-02-04.
-
-**Completed Tasks:**
-- [x] **Task 1**: Updated approve endpoint to read from `calendarData` instead of `graphData`
-- [x] **Task 2**: Removed backend bidirectional sync (form edits no longer sync to `graphData`)
-- [x] **Task 3**: Updated view components (Calendar, WeekView, DayView, MonthView, DayEventPanel) to use `calendarData.categories`
-- [x] **Task 4**: Updated EventForm.jsx to read description from `calendarData.eventDescription`
-- [x] **Task 5**: Updated EventSearch.jsx and EventSearchExport.jsx to use `calendarData` fields
-- [x] **Task 6**: Updated MyReservations.jsx to use `transformEventsToFlatStructure()`
-
----
-
-### Data Architecture Rules (Reference)
-
-**calendarData** (Authoritative for application):
-- All event/calendar fields live here
-- Frontend reads via `transformEventToFlatStructure()`
-- Backend writes here on create/update
-- All queries use `calendarData.*` fields
-
-**graphData** (Graph API integration only):
-- Raw Microsoft Graph API responses
-- Written once during sync from Outlook
-- Read ONLY when publishing to Outlook (approve, update, delete operations still call Graph API)
-- Frontend should NEVER read for display
-
-**Recurring Events:** (RESOLVED 2026-02-04)
-- Recurring event metadata now stored at top level: `eventType`, `seriesMasterId`, `recurrence`
-- All components use top-level fields with `graphData` fallback for backward compatibility
-- Migration script available: `backend/migrate-add-recurrence-to-calendardata.js`
+- **graphData Isolation Cleanup** (2026-02-04): All frontend components now read from top-level fields, not `graphData`. Backend bidirectional sync removed.
+- **Recurring Event Metadata Migration** (2026-02-04): `eventType`, `seriesMasterId`, `recurrence` moved to top-level. Migration: `cd backend && node migrate-add-recurrence-to-calendardata.js`
 
 ---
 
