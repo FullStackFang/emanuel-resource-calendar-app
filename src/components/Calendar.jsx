@@ -27,6 +27,7 @@
   import { useReviewModal } from '../hooks/useReviewModal';
   import ReviewModal from './shared/ReviewModal';
   import RecurringScopeDialog from './shared/RecurringScopeDialog';
+import ConflictDialog from './shared/ConflictDialog';
   import LoadingSpinner from './shared/LoadingSpinner';
   import RoomReservationReview from './RoomReservationReview';
     // import { getCalendars } from '../services/graphService';
@@ -6744,6 +6745,7 @@
           showActionButtons={true}
           isRequesterOnly={!canEditEvents && !canApproveReservations}
           itemStatus={reviewModal.currentItem?.status || 'approved'}
+          eventVersion={reviewModal.eventVersion}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
               ? '⚠️ Confirm Delete?'
@@ -6814,6 +6816,24 @@
             />
           )}
         </ReviewModal>
+
+        {/* Conflict Dialog for version conflicts in Review Modal */}
+        <ConflictDialog
+          isOpen={!!reviewModal.conflictInfo}
+          onClose={() => {
+            reviewModal.dismissConflict();
+            reviewModal.closeModal(true);
+            loadEvents(true);
+          }}
+          onRefresh={() => {
+            reviewModal.dismissConflict();
+            reviewModal.closeModal(true);
+            loadEvents(true);
+          }}
+          conflictType={reviewModal.conflictInfo?.conflictType}
+          eventTitle={reviewModal.conflictInfo?.eventTitle}
+          details={reviewModal.conflictInfo?.details}
+        />
 
         {/* Review Modal for Event Creation */}
         <ReviewModal

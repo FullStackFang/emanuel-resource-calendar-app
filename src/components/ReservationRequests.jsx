@@ -11,6 +11,7 @@ import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
 import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
+import ConflictDialog from './shared/ConflictDialog';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -34,7 +35,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Editable form state
   const [editableData, setEditableData] = useState(null);
-  const [originalChangeKey, setOriginalChangeKey] = useState(null);
+  const [eventVersion, setEventVersion] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [isFormValid, setIsFormValid] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -90,6 +91,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [approvingEditRequest, setApprovingEditRequest] = useState(false);
   const [rejectingEditRequest, setRejectingEditRequest] = useState(false);
   const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
+
+  // Conflict dialog state
+  const [conflictDialog, setConflictDialog] = useState({ isOpen: false, conflictType: 'data_changed', details: {} });
 
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
@@ -452,7 +456,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false
     });
 
-    setOriginalChangeKey(reservation.changeKey);
+    setEventVersion(reservation._version || null);
     setHasChanges(false);
 
     logger.debug('📦 OPENING REVIEW MODAL - Reservation Object:', {
@@ -480,7 +484,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setShowReviewModal(false);
     setSelectedReservation(null);
     setEditableData(null);
-    setOriginalChangeKey(null);
+    setEventVersion(null);
     setHasChanges(false);
     setActionNotes('');
     setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -662,21 +666,28 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Save changes with ETag validation
+  // Save changes with version validation
   // This function is now mainly called as a callback from RoomReservationReview
   // RoomReservationReview handles the actual API call and passes the result here
   const handleSaveChanges = async (result) => {
-    // If result is provided, it means RoomReservationReview already saved
-    // Just update our local state with the new changeKey and refresh the data
-    if (result && result.changeKey) {
-      logger.debug('📝 Updating reservation data after save:', result);
+    // If result is null, it's a conflict-triggered refresh request
+    if (result === null) {
+      await loadAllReservations();
+      closeReviewModal();
+      return;
+    }
 
-      setOriginalChangeKey(result.changeKey);
+    // If result is provided, it means RoomReservationReview already saved
+    // Just update our local state with the new version and refresh the data
+    if (result && result._version) {
+      logger.debug('Updating reservation data after save:', result);
+
+      setEventVersion(result._version);
       setHasChanges(false);
 
       // Update the selected reservation with the saved data
       if (result.reservation) {
-        logger.debug('🔄 Updating selectedReservation with saved data');
+        logger.debug('Updating selectedReservation with saved data');
         setSelectedReservation(result.reservation);
 
         // Also update the reservation in allReservations array
@@ -685,10 +696,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             res._id === result.reservation._id ? result.reservation : res
           );
         });
-        logger.debug('✅ Updated allReservations array');
       }
 
-      setError('✅ Changes saved successfully');
+      setError('Changes saved successfully');
       setTimeout(() => setError(''), 3000);
       return;
     }
@@ -699,33 +709,32 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     try {
       setIsSaving(true);
 
+      // Include _version in the request body for optimistic concurrency
+      const bodyData = { ...editableData, _version: eventVersion };
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${selectedReservation._id}`,
         {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`,
-            'If-Match': originalChangeKey || ''
+            'Authorization': `Bearer ${apiToken}`
           },
-          body: JSON.stringify(editableData)
+          body: JSON.stringify(bodyData)
         }
       );
 
       if (response.status === 409) {
         const data = await response.json();
-        const changes = data.changes || [];
-        const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
+        const conflictDetails = data.details || {};
 
-        const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
-                       `Changes made:\n${changesList}\n\n` +
-                       `Your changes have NOT been saved. Would you like to refresh to see the latest version?\n` +
-                       `(Your changes will be lost)`;
+        logger.warn('Conflict detected (409)', { details: conflictDetails });
 
-        if (window.confirm(message)) {
-          await loadAllReservations();
-          closeReviewModal();
-        }
+        setConflictDialog({
+          isOpen: true,
+          conflictType: 'data_changed',
+          details: conflictDetails
+        });
         return;
       }
 
@@ -737,12 +746,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       // Update local state
       setAllReservations(prev => prev.map(r =>
-        r._id === selectedReservation._id ? { ...r, ...editableData, changeKey: saveResult.changeKey } : r
+        r._id === selectedReservation._id ? { ...r, ...editableData } : r
       ));
 
-      setOriginalChangeKey(saveResult.changeKey);
+      setEventVersion(saveResult._version || eventVersion);
       setHasChanges(false);
-      setError('✅ Changes saved successfully');
+      setError('Changes saved successfully');
       setTimeout(() => setError(''), 3000);
 
     } catch (error) {
@@ -787,52 +796,58 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         createCalendarEvent: createCalendarEvent,
         graphToken: graphToken,
         forceApprove: forceApprove,
-        targetCalendar: selectedTargetCalendar || defaultCalendar
+        targetCalendar: selectedTargetCalendar || defaultCalendar,
+        _version: eventVersion || reservation._version || null
       };
 
-      logger.debug('📤 Sending approval request:', requestBody);
+      logger.debug('Sending approval request:', requestBody);
 
       // Use new endpoint for unified events, old endpoint for legacy reservations
       const approveEndpoint = reservation._isNewUnifiedEvent
         ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`
         : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`;
 
-      logger.debug('🔗 Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
+      logger.debug('Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
 
       const response = await fetch(approveEndpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
-          'If-Match': originalChangeKey || reservation.changeKey || ''
+          'Authorization': `Bearer ${apiToken}`
         },
         body: JSON.stringify(requestBody)
       });
 
-      // Handle ETag conflict (409)
+      // Handle conflict (409)
       if (response.status === 409) {
         const data = await response.json();
 
-        // Check if it's a scheduling conflict or ETag conflict
+        // Check if it's a scheduling conflict or version conflict
         if (data.error === 'SchedulingConflict') {
           setConflicts(data.conflicts || []);
-          setError(`⚠️ Cannot approve: ${data.conflicts.length} scheduling conflict(s) detected. ` +
+          setError(`Cannot approve: ${data.conflicts.length} scheduling conflict(s) detected. ` +
                   `Please review conflicts below and either modify the reservation or check "Override conflicts" to force approval.`);
           return;
-        } else if (data.error === 'ConflictError') {
-          const changes = data.changes || [];
-          const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
-
-          const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
-                         `Changes made:\n${changesList}\n\n` +
-                         `Would you like to refresh to see the latest version?`;
-
-          if (window.confirm(message)) {
-            await loadAllReservations();
-            closeReviewModal();
-          }
-          return;
         }
+
+        // Version conflict - show ConflictDialog
+        const conflictDetails = data.details || {};
+        const currentStatus = conflictDetails.currentStatus || data.currentStatus;
+
+        logger.warn('Version conflict detected (409)', { details: conflictDetails });
+
+        // Determine conflict type
+        const expectedStatus = reservation.status;
+        const conflictType = currentStatus && currentStatus !== expectedStatus
+          ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
+          : 'data_changed';
+
+        setConflictDialog({
+          isOpen: true,
+          conflictType,
+          details: conflictDetails
+        });
+        return;
       }
 
       if (!response.ok) {
@@ -926,8 +941,22 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason: rejectionReason })
+        body: JSON.stringify({ reason: rejectionReason, _version: eventVersion || reservation._version || null })
       });
+
+      // Handle version conflict (409)
+      if (response.status === 409) {
+        const data = await response.json();
+        const conflictDetails = data.details || {};
+        const currentStatus = conflictDetails.currentStatus;
+
+        const conflictType = currentStatus && currentStatus !== reservation.status
+          ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
+          : 'data_changed';
+
+        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails });
+        return;
+      }
 
       if (!response.ok) throw new Error('Failed to reject reservation');
 
@@ -986,9 +1015,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         },
         body: JSON.stringify({
           graphToken: hasGraphData ? graphToken : undefined,
-          calendarId: reservation.calendarId
+          calendarId: reservation.calendarId,
+          _version: eventVersion || reservation._version || null
         })
       });
+
+      // Handle version conflict (409)
+      if (response.status === 409) {
+        const data = await response.json();
+        const conflictDetails = data.details || {};
+        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails });
+        return;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -1008,7 +1046,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
 
     } catch (err) {
-      logger.error('❌ Error deleting reservation from modal:', err);
+      logger.error('Error deleting reservation from modal:', err);
       showError(err, { context: 'ReservationRequests.handleModalDelete', userMessage: 'Failed to delete reservation' });
     } finally {
       setIsModalDeleting(false);
@@ -1054,7 +1092,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         },
         body: JSON.stringify({
           graphToken: hasGraphData ? graphToken : undefined,
-          calendarId: reservation.calendarId
+          calendarId: reservation.calendarId,
+          _version: reservation._version || null
         })
       });
 
@@ -1402,6 +1441,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           onSave={handleSaveChanges}
           onDelete={() => handleModalDeleteClick(selectedReservation)}
           isPending={selectedReservation?.status === 'pending'}
+          itemStatus={selectedReservation?.status}
+          eventVersion={eventVersion}
           hasChanges={hasChanges}
           isFormValid={isFormValid}
           isSaving={isSaving}
@@ -1466,6 +1507,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         </ReviewModal>
         </div>
       )}
+      {/* Conflict Dialog for 409 version conflicts */}
+      <ConflictDialog
+        isOpen={conflictDialog.isOpen}
+        onClose={() => setConflictDialog(prev => ({ ...prev, isOpen: false }))}
+        onRefresh={async () => {
+          setConflictDialog(prev => ({ ...prev, isOpen: false }));
+          await loadAllReservations();
+          closeReviewModal();
+        }}
+        conflictType={conflictDialog.conflictType}
+        eventTitle={selectedReservation?.eventTitle || 'Event'}
+        details={conflictDialog.details}
+      />
     </div>
   );
 }

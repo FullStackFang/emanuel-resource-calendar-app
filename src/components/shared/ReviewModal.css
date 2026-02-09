@@ -136,6 +136,20 @@
   color: var(--text-secondary);
 }
 
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  font-family: monospace;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
 /* ==========================================================================
    FORM TOGGLE BUTTON
    ========================================================================== */

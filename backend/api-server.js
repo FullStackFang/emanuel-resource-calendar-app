@@ -17,6 +17,7 @@ const { isAdmin, canViewAllReservations, canGenerateReservationTokens, getPermis
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
+const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -12617,7 +12618,10 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         offsiteAddress: '',
         offsiteLat: null,
         offsiteLon: null
-      }
+      },
+
+      // Optimistic concurrency control
+      _version: 1
     };
 
     // Generate changeKey for the new reservation
@@ -12806,7 +12810,10 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         contactEmail: isOnBehalfOf ? contactEmail : '',
         // Recurrence
         recurrence: recurrence || null
-      }
+      },
+
+      // Optimistic concurrency control
+      _version: 1
     };
 
     const result = await unifiedEventsCollection.insertOne(draft);
@@ -13196,6 +13203,7 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     const reservationId = req.params.id;
     const userId = req.user.userId;
     const userEmail = req.user.email;
+    const { _version } = req.body || {};
 
     // Find the deleted reservation
     const reservation = await unifiedEventsCollection.findOne({
@@ -13224,32 +13232,44 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       }
     }
 
-    // Restore the reservation
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(reservationId) },
-      {
-        $set: {
-          status: previousStatus,
-          isDeleted: false,
-          lastModified: new Date(),
-          lastModifiedBy: userEmail
-        },
-        $unset: {
-          deletedAt: '',
-          deletedBy: '',
-          deletedByEmail: ''
-        },
-        $push: {
-          statusHistory: {
+    // Restore the reservation with version guard
+    let resultEvent;
+    try {
+      resultEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(reservationId) },
+        {
+          $set: {
             status: previousStatus,
-            changedAt: new Date(),
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Restored by owner'
+            isDeleted: false,
+          },
+          $unset: {
+            deletedAt: '',
+            deletedBy: '',
+            deletedByEmail: ''
+          },
+          $push: {
+            statusHistory: {
+              status: previousStatus,
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Restored by owner'
+            }
           }
+        },
+        {
+          expectedVersion: _version || null,
+          expectedStatus: 'deleted',
+          modifiedBy: userEmail
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
+      throw err;
+    }
 
     logger.log('Reservation restored:', {
       reservationId,
@@ -13260,7 +13280,8 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     res.json({
       success: true,
       message: 'Reservation restored successfully',
-      status: previousStatus
+      status: previousStatus,
+      _version: resultEvent._version
     });
   } catch (error) {
     logger.error('Error restoring reservation:', error);
@@ -13519,7 +13540,10 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         offsiteAddress: '',
         offsiteLat: null,
         offsiteLon: null
-      }
+      },
+
+      // Optimistic concurrency control
+      _version: 1
     };
 
     // Generate changeKey for the new reservation
@@ -13822,7 +13846,7 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
   try {
     const reservationId = req.params.id;
     const userId = req.user.userId;
-    const { reason } = req.body;
+    const { reason, _version } = req.body;
 
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: 'Cancellation reason is required' });
@@ -13848,22 +13872,31 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Only pending reservations can be cancelled' });
     }
 
-    // Update the event in unified collection
-    const updateResult = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(reservationId) },
-      {
-        $set: {
-          status: 'cancelled',
-          'roomReservationData.cancelReason': reason.trim(),
-          'roomReservationData.cancelledAt': new Date(),
-          'roomReservationData.cancelledBy': userId,
-          lastModified: new Date()
+    // Atomically cancel with version guard
+    let cancelledEvent;
+    try {
+      cancelledEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(reservationId) },
+        {
+          $set: {
+            status: 'cancelled',
+            'roomReservationData.cancelReason': reason.trim(),
+            'roomReservationData.cancelledAt': new Date(),
+            'roomReservationData.cancelledBy': userId,
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          expectedStatus: event.status,
+          modifiedBy: req.user.email
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
-
-    if (updateResult.matchedCount === 0) {
-      return res.status(404).json({ error: 'Reservation not found' });
+      throw err;
     }
 
     // Log audit entry for cancellation
@@ -13887,7 +13920,8 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
     res.json({
       message: 'Reservation cancelled successfully',
       reservationId,
-      status: 'cancelled'
+      status: 'cancelled',
+      _version: cancelledEvent._version
     });
   } catch (error) {
     logger.error('Error cancelling room reservation:', error);
@@ -13920,7 +13954,8 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       userMessage,
       // Setup/teardown times (in minutes)
       setupTimeMinutes = 0,
-      teardownTimeMinutes = 0
+      teardownTimeMinutes = 0,
+      _version
     } = req.body;
 
     // Validation
@@ -14097,23 +14132,32 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       }
     };
 
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(reservationId) },
-      updateDoc,
-      { returnDocument: 'after' }
-    );
-
-    if (!result.value) {
-      return res.status(404).json({ error: 'Reservation not found' });
+    let resubmittedEvent;
+    try {
+      resubmittedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(reservationId) },
+        updateDoc,
+        {
+          expectedVersion: _version || null,
+          expectedStatus: 'rejected',
+          modifiedBy: userEmail
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
     }
 
-    // Generate new changeKey after resubmission
-    const newChangeKey = generateChangeKey(result.value);
+    // Generate new changeKey after resubmission (single update, includes changeKey)
+    const newChangeKey = generateChangeKey(resubmittedEvent);
     await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(reservationId) },
       { $set: { changeKey: newChangeKey } }
     );
-    result.value.changeKey = newChangeKey;
+    resubmittedEvent.changeKey = newChangeKey;
 
     // Log audit entry for resubmission
     await logReservationAudit({
@@ -14140,9 +14184,10 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
 
     res.json({
       message: 'Reservation resubmitted successfully',
-      reservation: result.value,
+      reservation: resubmittedEvent,
       revisionNumber: newRevisionNumber,
-      changeKey: newChangeKey
+      changeKey: newChangeKey,
+      _version: resubmittedEvent._version
     });
     
   } catch (error) {
@@ -17429,7 +17474,10 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       calendarOwner: calendarOwner || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null), // Email of calendar owner for filtering
       sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
-      syncStatus: 'pending'
+      syncStatus: 'pending',
+
+      // Optimistic concurrency control
+      _version: 1
     };
 
     const result = await unifiedEventsCollection.insertOne(eventDoc);
@@ -17554,9 +17602,9 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
 
     const id = req.params.id;
     // Note: graphToken is no longer needed - using app-only auth via graphApiService
-    const { notes, calendarMode, createCalendarEvent, forceApprove, targetCalendar } = req.body;
+    const { notes, calendarMode, createCalendarEvent, forceApprove, targetCalendar, _version } = req.body;
 
-    // Get event by _id
+    // Get event by _id (needed for processing before atomic update)
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -17567,19 +17615,6 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       return res.status(400).json({
         error: 'Event is not a pending room reservation request',
         currentStatus: event.status
-      });
-    }
-
-    // ETag validation (if provided)
-    const providedETag = req.headers['if-match'];
-    if (providedETag && event.roomReservationData?.changeKey !== providedETag) {
-      // Calculate what changed
-      const changes = [];
-      return res.status(409).json({
-        error: 'ConflictError',
-        message: 'Event was modified by another user. Please refresh and try again.',
-        lastModifiedBy: event.roomReservationData?.reviewedBy?.name || 'Unknown',
-        changes
       });
     }
 
@@ -17719,7 +17754,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       reviewedAt: new Date()
     });
 
-    const updateDoc = {
+    // Step 1: Atomically approve with version guard (BEFORE creating Graph event)
+    const approveUpdate = {
       $set: {
         status: 'approved',
         'roomReservationData.reviewedBy': {
@@ -17732,29 +17768,45 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
         'roomReservationData.reviewingBy': null, // Release soft lock
         'roomReservationData.calendarMode': calendarMode || CALENDAR_CONFIG.DEFAULT_MODE,
-        lastModifiedDateTime: new Date()
       }
     };
 
-    // Add Graph event ID if created
-    if (graphEventId) {
-      updateDoc.$set['graphData.id'] = graphEventId;
-      // Set calendarId and calendarOwner for the approved event
-      if (selectedCalendarId) {
-        updateDoc.$set.calendarId = selectedCalendarId;
+    let approvedEvent;
+    try {
+      approvedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(id) },
+        approveUpdate,
+        {
+          expectedVersion: _version || null,
+          expectedStatus: event.status, // 'pending' or 'room-reservation-request'
+          modifiedBy: userEmail
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-      if (selectedCalendarOwner) {
-        updateDoc.$set.calendarOwner = selectedCalendarOwner;
-      }
-      updateDoc.$push = {
-        'roomReservationData.createdGraphEventIds': graphEventId
-      };
+      throw err;
     }
 
-    const updateResult = await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
-
-    if (updateResult.matchedCount === 0) {
-      return res.status(404).json({ error: 'Event not found' });
+    // Step 2: Add Graph event data if Graph event was created (separate update, safe because already approved)
+    if (graphEventId) {
+      const graphUpdate = {
+        $set: {
+          'graphData.id': graphEventId,
+        },
+        $push: {
+          'roomReservationData.createdGraphEventIds': graphEventId
+        }
+      };
+      if (selectedCalendarId) {
+        graphUpdate.$set.calendarId = selectedCalendarId;
+      }
+      if (selectedCalendarOwner) {
+        graphUpdate.$set.calendarOwner = selectedCalendarOwner;
+      }
+      await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, graphUpdate);
     }
 
     // Audit log
@@ -17819,6 +17871,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     res.json({
       success: true,
       changeKey: newChangeKey,
+      _version: approvedEvent._version,
       calendarEvent: calendarEventResult,
       message: 'Reservation approved successfully'
     });
@@ -17848,13 +17901,13 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
-    const { reason } = req.body;
+    const { reason, _version } = req.body;
 
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: 'Rejection reason is required' });
     }
 
-    // Get event by _id
+    // Get event by _id (for processing context)
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -17868,34 +17921,43 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       });
     }
 
-    // Update event status
+    // Update event status atomically with version guard
     const newChangeKey = generateChangeKey({
       ...event,
       status: 'rejected',
       rejectionReason: reason
     });
 
-    const updateResult = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          status: 'rejected',
-          'roomReservationData.reviewedBy': {
-            userId,
-            name: user?.displayName || userEmail,
-            reviewedAt: new Date()
-          },
-          'roomReservationData.reviewNotes': reason,
-          'roomReservationData.changeKey': newChangeKey,
-          'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
-          'roomReservationData.reviewingBy': null, // Release soft lock
-          lastModifiedDateTime: new Date()
+    let rejectedEvent;
+    try {
+      rejectedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status: 'rejected',
+            'roomReservationData.reviewedBy': {
+              userId,
+              name: user?.displayName || userEmail,
+              reviewedAt: new Date()
+            },
+            'roomReservationData.reviewNotes': reason,
+            'roomReservationData.changeKey': newChangeKey,
+            'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
+            'roomReservationData.reviewingBy': null, // Release soft lock
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          expectedStatus: event.status,
+          modifiedBy: userEmail
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
-
-    if (updateResult.matchedCount === 0) {
-      return res.status(404).json({ error: 'Event not found' });
+      throw err;
     }
 
     // Audit log
@@ -17960,6 +18022,7 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     res.json({
       success: true,
       changeKey: newChangeKey,
+      _version: rejectedEvent._version,
       message: 'Reservation rejected successfully'
     });
 
@@ -18018,7 +18081,8 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       offsiteLon,
       categories,
       services,
-      changeReason // Optional: explanation for the edit request
+      changeReason, // Optional: explanation for the edit request
+      _version
     } = req.body;
 
     // Support both requestedRooms and locationIds (alias)
@@ -18246,19 +18310,27 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       reviewNotes: ''
     };
 
-    // Update the original event with the embedded edit request
-    const updateResult = await unifiedEventsCollection.updateOne(
-      { _id: originalEvent._id },
-      {
-        $set: {
-          pendingEditRequest,
-          lastModifiedDateTime: new Date()
+    // Atomically update with version guard
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: originalEvent._id },
+        {
+          $set: {
+            pendingEditRequest,
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
-
-    if (updateResult.modifiedCount === 0) {
-      return res.status(500).json({ error: 'Failed to create edit request' });
+      throw err;
     }
 
     // Create audit log entry
@@ -18325,6 +18397,7 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       success: true,
       editRequestId,
       eventId: originalEvent.eventId,
+      _version: updatedEvent._version,
       message: 'Edit request submitted successfully',
       proposedChanges
     });
@@ -18553,7 +18626,7 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { notes, graphToken } = req.body;
+    const { notes, graphToken, _version } = req.body;
 
     // Get the event with pending edit request
     let event;
@@ -18582,20 +18655,7 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
     const pendingEditRequest = event.pendingEditRequest;
     const proposedChanges = pendingEditRequest.proposedChanges;
 
-    // Check for concurrent modification
-    const originalValues = pendingEditRequest.originalValues;
-    if (originalValues) {
-      const fieldsChanged = [];
-      for (const [key, originalValue] of Object.entries(originalValues)) {
-        if (event[key] !== originalValue) {
-          fieldsChanged.push(key);
-        }
-      }
-      if (fieldsChanged.length > 0) {
-        logger.warn('Event modified since edit request was created:', { fieldsChanged });
-        // Allow admin to force approve anyway
-      }
-    }
+    // Concurrent modification check is now handled atomically via _version
 
     // Build update object - apply proposed changes to calendarData
     const updateFields = {};
@@ -18673,13 +18733,25 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
       email: userEmail
     };
     updateFields['pendingEditRequest.reviewNotes'] = notes || '';
-    updateFields.lastModifiedDateTime = new Date();
 
-    // Apply changes to the event
-    await unifiedEventsCollection.updateOne(
-      { _id: event._id },
-      { $set: updateFields }
-    );
+    // Apply changes atomically with version guard
+    let approvedEditEvent;
+    try {
+      approvedEditEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: event._id },
+        { $set: updateFields },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
 
     // If the event has a Graph event ID, update it in Graph API
     const graphEventId = event.graphData?.id;
@@ -18807,6 +18879,7 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
       success: true,
       message: 'Edit request approved and changes applied',
       eventId: event.eventId,
+      _version: approvedEditEvent._version,
       changesApplied: proposedChanges
     });
 
@@ -18837,7 +18910,7 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { reason } = req.body;
+    const { reason, _version } = req.body;
 
     if (!reason || !reason.trim()) {
       return res.status(400).json({ error: 'Rejection reason is required' });
@@ -18869,23 +18942,35 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
 
     const pendingEditRequest = event.pendingEditRequest;
 
-    // Update pendingEditRequest status to rejected
-    await unifiedEventsCollection.updateOne(
-      { _id: event._id },
-      {
-        $set: {
-          'pendingEditRequest.status': 'rejected',
-          'pendingEditRequest.reviewedAt': new Date(),
-          'pendingEditRequest.reviewedBy': {
-            userId,
-            name: user?.displayName || userEmail,
-            email: userEmail
-          },
-          'pendingEditRequest.reviewNotes': reason.trim(),
-          lastModifiedDateTime: new Date()
+    // Atomically reject edit request with version guard
+    let rejectedEditEvent;
+    try {
+      rejectedEditEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: event._id },
+        {
+          $set: {
+            'pendingEditRequest.status': 'rejected',
+            'pendingEditRequest.reviewedAt': new Date(),
+            'pendingEditRequest.reviewedBy': {
+              userId,
+              name: user?.displayName || userEmail,
+              email: userEmail
+            },
+            'pendingEditRequest.reviewNotes': reason.trim(),
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
+      throw err;
+    }
 
     // Create audit log entry
     await eventAuditHistoryCollection.insertOne({
@@ -18938,7 +19023,8 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
     res.json({
       success: true,
       message: 'Edit request rejected',
-      eventId: event.eventId
+      eventId: event.eventId,
+      _version: rejectedEditEvent._version
     });
 
   } catch (error) {
@@ -19741,11 +19827,19 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       createdByName: _createdByName,
       createdSource: _createdSource,
       graphData: _graphData,
+      calendarData: _calendarData, // Nested object - individual fields handled via CALENDAR_DATA_FIELDS
+      roomReservationData: _roomReservationData, // Nested object - not directly settable
+      internalData: _internalData, // Nested object - not directly settable
       editScope: _editScope,
       occurrenceDate: _occurrenceDate,
       seriesMasterId: _seriesMasterId,
       start: _start,  // Remove to avoid conflict with start.dateTime
       end: _end,      // Remove to avoid conflict with end.dateTime
+      graphToken: _graphToken2, // Already extracted above
+      _version: _versionField, // Handled by conditionalUpdate
+      _isNewUnifiedEvent: _isNew, // Frontend-only flag
+      _isPreProcessed: _isPreProcessed, // Frontend-only flag
+      changeKey: _changeKey, // Generated server-side
       ...safeUpdates
     } = updates;
 
@@ -19940,20 +20034,28 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
-    const updateResult = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          ...finalUpdateOperations,
-          changeKey: newChangeKey,
-          lastModifiedDateTime: new Date(),
-          lastModifiedBy: userId
+    // Atomically update with version guard
+    let updatedEventDoc;
+    try {
+      updatedEventDoc = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            ...finalUpdateOperations,
+            changeKey: newChangeKey,
+          }
+        },
+        {
+          expectedVersion: updates._version || null,
+          modifiedBy: userId
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
-
-    if (updateResult.matchedCount === 0) {
-      return res.status(404).json({ error: 'Event not found' });
+      throw err;
     }
 
     logger.info('Event updated:', {
@@ -19965,6 +20067,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     res.json({
       success: true,
       changeKey: newChangeKey,
+      _version: updatedEventDoc._version,
       message: 'Event updated successfully'
     });
 
@@ -19999,7 +20102,7 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
-    const { graphToken, editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId } = req.body;
+    const { graphToken, editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId, _version } = req.body;
 
     logger.log('DELETE request params:', {
       mongoId: id,
@@ -20150,39 +20253,41 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Step 3: Soft delete the event from MongoDB (set status to 'deleted' and isDeleted flag)
+    // Step 3: Soft delete with version guard
     logger.log('🔄 Soft-deleting from MongoDB...');
-    const deleteResult = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          status: 'deleted',
-          isDeleted: true,
-          deletedAt: new Date(),
-          deletedBy: userId,
-          deletedByEmail: userEmail,
-          lastModified: new Date(),
-          lastModifiedBy: userEmail
-        },
-        $push: {
-          statusHistory: {
+    let deletedEvent;
+    try {
+      deletedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(id) },
+        {
+          $set: {
             status: 'deleted',
-            changedAt: new Date(),
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Deleted by admin'
+            isDeleted: true,
+            deletedAt: new Date(),
+            deletedBy: userId,
+            deletedByEmail: userEmail,
+          },
+          $push: {
+            statusHistory: {
+              status: 'deleted',
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Deleted by admin'
+            }
           }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
       }
-    );
-
-    logger.log('📊 MongoDB soft-delete result:', {
-      modifiedCount: deleteResult.modifiedCount
-    });
-
-    if (deleteResult.modifiedCount === 0) {
-      logger.log('❌ Event not found in MongoDB for deletion');
-      return res.status(404).json({ error: 'Event not found' });
+      throw err;
     }
 
     logger.log('✅ Event soft-deleted from MongoDB');
@@ -20199,7 +20304,8 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       success: true,
       message: 'Event deleted successfully',
       graphDeleted,
-      status: 'deleted'
+      status: 'deleted',
+      _version: deletedEvent._version
     });
 
   } catch (error) {

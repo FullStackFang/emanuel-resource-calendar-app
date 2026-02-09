@@ -82,6 +82,9 @@ function createBaseEvent(options = {}) {
       notes: options.notes || '',
     },
 
+    // Optimistic concurrency control
+    _version: options._version || 1,
+
     // Metadata
     createdAt: options.createdAt || now,
     createdBy: options.createdBy || options.userId || 'test-user',

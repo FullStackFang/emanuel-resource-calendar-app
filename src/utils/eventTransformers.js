@@ -281,6 +281,9 @@ export function transformEventToFlatStructure(event) {
     // Preserve full graphData for fallback access
     graphData: event.graphData || null,
 
+    // Optimistic concurrency control
+    _version: event._version || null,
+
     // Flags
     _isNewUnifiedEvent: true, // Flag to identify source
     _isPreProcessed: true // Flag to tell FormBase that data is pre-processed

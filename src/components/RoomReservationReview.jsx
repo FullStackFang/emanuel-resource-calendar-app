@@ -9,6 +9,7 @@ import RoomReservationFormBase from './RoomReservationFormBase';
 import ReservationAuditHistory from './ReservationAuditHistory';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
+import ConflictDialog from './shared/ConflictDialog';
 import './RoomReservationForm.css';
 
 /**
@@ -61,8 +62,11 @@ export default function RoomReservationReview({
   // Review-specific state
   const [isSaving, setIsSaving] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
-  const [originalChangeKey, setOriginalChangeKey] = useState(reservation?.changeKey || null);
+  const [eventVersion, setEventVersion] = useState(reservation?._version || null);
   const [auditRefreshTrigger, setAuditRefreshTrigger] = useState(0);
+
+  // Conflict dialog state
+  const [conflictDialog, setConflictDialog] = useState({ isOpen: false, conflictType: 'data_changed', details: {} });
 
   // Refs to access base component's state
   const formDataRef = useRef(null);
@@ -80,11 +84,11 @@ export default function RoomReservationReview({
     return transformEventToFlatStructure(reservation);
   }, [reservation]);
 
-  // Update changeKey when reservation changes
+  // Update version when reservation changes
   useEffect(() => {
     const currentId = reservation?._id || reservation?.eventId;
     if (currentId && currentId !== prevReservationIdRef.current) {
-      setOriginalChangeKey(reservation?.changeKey || null);
+      setEventVersion(reservation?._version || null);
       prevReservationIdRef.current = currentId;
     }
   }, [reservation]);
@@ -187,34 +191,40 @@ export default function RoomReservationReview({
         ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`
         : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`;
 
-      // Make API call with If-Match header for optimistic concurrency control
+      // Include _version for optimistic concurrency control
+      updatedData._version = eventVersion;
+
       const response = await fetch(
         updateEndpoint,
         {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`,
-            'If-Match': originalChangeKey || ''
+            'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify(updatedData)
         }
       );
 
-
       // Handle conflict (409)
       if (response.status === 409) {
         const data = await response.json();
-        const changes = data.changes || [];
-        const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
+        const conflictDetails = data.details || {};
+        const currentStatus = conflictDetails.currentStatus || data.currentStatus;
 
-        const message = `This reservation was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
-                       `Changes made:\n${changesList}\n\n` +
-                       `Your changes have NOT been saved. Please refresh to see the latest version.\n` +
-                       `(Your changes will be lost)`;
+        logger.warn('Conflict detected (409)', { details: conflictDetails });
 
-        logger.warn('Conflict detected (409)', { lastModifiedBy: data.lastModifiedBy });
-        showWarning(message);
+        // Determine conflict type based on status change
+        const expectedStatus = reservation?.status;
+        const conflictType = currentStatus && currentStatus !== expectedStatus
+          ? 'status_changed'
+          : 'data_changed';
+
+        setConflictDialog({
+          isOpen: true,
+          conflictType,
+          details: conflictDetails
+        });
         return;
       }
 
@@ -224,8 +234,8 @@ export default function RoomReservationReview({
 
       const result = await response.json();
 
-      // Update originalChangeKey with the new changeKey from server
-      setOriginalChangeKey(result.changeKey);
+      // Update eventVersion with the new version from server
+      setEventVersion(result._version || eventVersion);
 
       // Refresh audit history
       setAuditRefreshTrigger(prev => prev + 1);
@@ -242,7 +252,7 @@ export default function RoomReservationReview({
     } finally {
       setIsSaving(false);
     }
-  }, [formDataRef, validateRef, reservation, apiToken, graphToken, editScope, originalChangeKey, onSave]);
+  }, [formDataRef, validateRef, reservation, apiToken, graphToken, editScope, eventVersion, onSave]);
 
   // Expose save function to parent
   useEffect(() => {
@@ -284,7 +294,7 @@ export default function RoomReservationReview({
       setupTimeMinutes,
       teardownTimeMinutes,
       locations: formData.requestedRooms, // Use locations field as single source of truth
-      changeKey: originalChangeKey
+      _version: eventVersion
     };
 
     // Remove separate date/time fields
@@ -295,7 +305,7 @@ export default function RoomReservationReview({
     delete processedData.requestedRooms;
 
     return processedData;
-  }, [originalChangeKey]);
+  }, [eventVersion]);
 
   // Keep the ref updated with the latest getProcessedFormData function
   getProcessedFormDataRef.current = getProcessedFormData;
@@ -346,7 +356,7 @@ export default function RoomReservationReview({
         attendeeCount: parseInt(formData.attendeeCount) || 0,
         setupTimeMinutes,
         teardownTimeMinutes,
-        changeKey: originalChangeKey
+        _version: eventVersion
       };
 
       delete updatedData.startDate;
@@ -354,7 +364,7 @@ export default function RoomReservationReview({
       delete updatedData.endDate;
       delete updatedData.endTime;
 
-      onApprove(updatedData, formData.reviewNotes, originalChangeKey);
+      onApprove(updatedData, formData.reviewNotes, eventVersion);
     }
   };
 
@@ -481,6 +491,20 @@ export default function RoomReservationReview({
           )}
         />
       </form>
+
+      {/* Conflict Dialog for 409 version conflicts */}
+      <ConflictDialog
+        isOpen={conflictDialog.isOpen}
+        onClose={() => setConflictDialog(prev => ({ ...prev, isOpen: false }))}
+        onRefresh={() => {
+          setConflictDialog(prev => ({ ...prev, isOpen: false }));
+          // Trigger parent to reload the event data
+          if (onSave) onSave(null);
+        }}
+        conflictType={conflictDialog.conflictType}
+        eventTitle={reservation?.eventTitle || reservation?.subject || 'Event'}
+        details={conflictDialog.details}
+      />
     </div>
   );
 }

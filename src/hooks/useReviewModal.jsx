@@ -26,7 +26,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [isDeleting, setIsDeleting] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [editableData, setEditableData] = useState(null);
-  const [originalChangeKey, setOriginalChangeKey] = useState(null);
+  const [eventVersion, setEventVersion] = useState(null);
+
+  // Conflict dialog state (for 409 VERSION_CONFLICT responses)
+  const [conflictInfo, setConflictInfo] = useState(null);
 
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
@@ -127,7 +130,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPrefetchedAvailability(availability);
     setCurrentItem(item);
     setEditableData(item);
-    setOriginalChangeKey(item.changeKey);
+    setEventVersion(item._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
@@ -153,7 +156,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsOpen(false);
     setCurrentItem(null);
     setEditableData(null);
-    setOriginalChangeKey(null);
+    setEventVersion(null);
+    setConflictInfo(null);
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
     setEditScope(null); // Reset edit scope for recurring events
@@ -309,22 +313,26 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
-          'If-Match': originalChangeKey || ''
+          'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify(bodyData)
+        body: JSON.stringify({
+          ...bodyData,
+          _version: eventVersion
+        })
       });
 
       if (response.status === 409) {
         const data = await response.json();
-        const changes = data.changes || [];
-        const changesList = changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n');
-
-        const message =
-          `This item was modified by ${data.lastModifiedBy} while you were editing.\n\n` +
-          `Changes made:\n${changesList}\n\n` +
-          `Your changes have NOT been saved. Please refresh to see the latest version.`;
-
+        if (data.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {}
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+        // Legacy 409 (e.g., scheduling conflict)
+        const message = data.error || 'Conflict detected. Please refresh and try again.';
         if (onError) onError(message);
         return { success: false, error: message };
       }
@@ -334,7 +342,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      setOriginalChangeKey(result.changeKey);
+      setEventVersion(result._version || eventVersion);
       setHasChanges(false);
 
       if (onSuccess) onSuccess(result);
@@ -346,7 +354,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, originalChangeKey, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation]);
+  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation]);
 
   /**
    * Approve the reservation/event
@@ -408,14 +416,26 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiToken}`,
-              'If-Match': originalChangeKey || currentItem.changeKey || ''
+              'Authorization': `Bearer ${apiToken}`
             },
             body: JSON.stringify({
               ...formData,
-              graphToken // Include for any Graph sync needed
+              graphToken, // Include for any Graph sync needed
+              _version: eventVersion
             })
           });
+
+          if (saveResponse.status === 409) {
+            const saveData = await saveResponse.json();
+            if (saveData.code === 'VERSION_CONFLICT') {
+              setConflictInfo({
+                conflictType: 'data_changed',
+                eventTitle: currentItem.eventTitle || 'Event',
+                details: saveData.details || {}
+              });
+              return { success: false, error: 'VERSION_CONFLICT' };
+            }
+          }
 
           if (!saveResponse.ok) {
             const errorText = await saveResponse.text();
@@ -423,6 +443,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           }
 
           const saveResult = await saveResponse.json();
+          // Update version after successful save so approve step uses latest
+          if (saveResult._version) {
+            setEventVersion(saveResult._version);
+          }
           logger.log('[handleApprove] Form data saved successfully:', saveResult);
         } catch (saveError) {
           logger.error('Failed to save form data before approval:', saveError);
@@ -440,8 +464,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`,
-          'If-Match': '' // Don't use ETag since we just updated the record
+          'Authorization': `Bearer ${apiToken}`
         },
         body: JSON.stringify({
           graphToken,
@@ -449,12 +472,29 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           calendarMode: safeApprovalData.calendarMode || 'production',
           createCalendarEvent: true, // Let the backend create the Graph event from the saved data
           forceApprove: safeApprovalData.forceApprove || false,
-          targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || ''
+          targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
+          _version: eventVersion
         })
       });
 
       if (response.status === 409) {
         const data = await response.json();
+        if (data.code === 'VERSION_CONFLICT') {
+          // Determine conflict type based on current status
+          const currentStatus = data.details?.currentStatus;
+          let conflictType = 'data_changed';
+          if (currentStatus === 'approved' || currentStatus === 'rejected') {
+            conflictType = 'already_actioned';
+          } else if (currentStatus && currentStatus !== 'pending') {
+            conflictType = 'status_changed';
+          }
+          setConflictInfo({
+            conflictType,
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {}
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
         if (data.error === 'SchedulingConflict') {
           const message = `Cannot approve: ${data.conflicts?.length || 0} scheduling conflict(s) detected.`;
           if (onError) onError(message, data.conflicts);
@@ -477,7 +517,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, editableData, originalChangeKey, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
+  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
 
   /**
    * Reject the reservation/event
@@ -517,8 +557,27 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason: reason.trim() })
+        body: JSON.stringify({ reason: reason.trim(), _version: eventVersion })
       });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.code === 'VERSION_CONFLICT') {
+          const currentStatus = data.details?.currentStatus;
+          let conflictType = 'data_changed';
+          if (currentStatus === 'approved' || currentStatus === 'rejected') {
+            conflictType = 'already_actioned';
+          } else if (currentStatus && currentStatus !== 'pending') {
+            conflictType = 'status_changed';
+          }
+          setConflictInfo({
+            conflictType,
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {}
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+      }
 
       if (!response.ok) {
         throw new Error('Failed to reject');
@@ -536,7 +595,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRejecting(false);
     }
-  }, [currentItem, apiToken, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation]);
+  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation]);
 
   /**
    * Cancel the pending reject confirmation
@@ -585,9 +644,22 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           // For 'thisEvent' scope, include occurrence identification data
           occurrenceDate: editScope === 'thisEvent' ? currentItem.start?.dateTime : null,
           seriesMasterId: editScope ? (currentItem.seriesMasterId || currentItem.graphData?.seriesMasterId || currentItem.graphData?.id) : null,
-          calendarId: currentItem.calendarId
+          calendarId: currentItem.calendarId,
+          _version: eventVersion
         })
       });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.code === 'VERSION_CONFLICT') {
+          setConflictInfo({
+            conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
+            eventTitle: currentItem.eventTitle || 'Event',
+            details: data.details || {}
+          });
+          return { success: false, error: 'VERSION_CONFLICT' };
+        }
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to delete: ${response.status}`);
@@ -604,7 +676,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsDeleting(false);
     }
-  }, [currentItem, apiToken, graphToken, editScope, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
+  }, [currentItem, apiToken, graphToken, editScope, eventVersion, onSuccess, onError, closeModal, pendingDeleteConfirmation]);
 
   // Cancel confirmation functions
   const cancelDeleteConfirmation = useCallback(() => {
@@ -620,6 +692,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
   const cancelSaveConfirmation = useCallback(() => {
     setPendingSaveConfirmation(false);
+  }, []);
+
+  /**
+   * Dismiss the conflict dialog
+   */
+  const dismissConflict = useCallback(() => {
+    setConflictInfo(null);
   }, []);
 
   /**
@@ -860,6 +939,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     pendingApproveConfirmation,
     pendingRejectConfirmation,
     pendingSaveConfirmation,
+    eventVersion, // Current document version for optimistic concurrency
+    conflictInfo, // Conflict dialog data (set on 409 VERSION_CONFLICT)
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
 
@@ -887,6 +968,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     cancelApproveConfirmation,
     cancelRejectConfirmation,
     cancelSaveConfirmation,
+    dismissConflict, // Dismiss the conflict dialog
 
     // Draft-specific actions
     handleSaveDraft,

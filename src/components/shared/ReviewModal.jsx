@@ -56,6 +56,8 @@ export default function ReviewModal({
   isRequesterOnly = false,
   // Current item status for status badge display
   itemStatus = null,
+  // Current document version (for debugging/testing concurrency)
+  eventVersion = null,
   // Confirmation states for inline confirmation buttons
   isDeleteConfirming = false,
   onCancelDelete = null,
@@ -184,6 +186,13 @@ export default function ReviewModal({
             {itemStatus && !isEditRequestMode && !isViewingEditRequest && (
               <span className={`status-pill ${getStatusClass(itemStatus)}`}>
                 {formatStatus(itemStatus)}
+              </span>
+            )}
+
+            {/* Version indicator (for concurrency testing) */}
+            {eventVersion != null && (
+              <span className="version-badge" title="Document version (for concurrency control)">
+                v{eventVersion}
               </span>
             )}
 

@@ -176,7 +176,7 @@ export default function MyReservations({ apiToken }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
         },
-        body: JSON.stringify({ reason: cancelReason })
+        body: JSON.stringify({ reason: cancelReason, _version: reservation._version || null })
       });
 
       if (!response.ok) throw new Error('Failed to cancel reservation');
@@ -284,8 +284,10 @@ export default function MyReservations({ apiToken }) {
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/restore`, {
         method: 'PUT',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiToken}`
-        }
+        },
+        body: JSON.stringify({ _version: reservation._version || null })
       });
 
       if (!response.ok) throw new Error('Failed to restore reservation');
