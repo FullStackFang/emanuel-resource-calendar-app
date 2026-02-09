@@ -223,7 +223,8 @@ export default function RoomReservationReview({
         setConflictDialog({
           isOpen: true,
           conflictType,
-          details: conflictDetails
+          details: conflictDetails,
+          staleData: reservation
         });
         return;
       }
@@ -504,6 +505,7 @@ export default function RoomReservationReview({
         conflictType={conflictDialog.conflictType}
         eventTitle={reservation?.eventTitle || reservation?.subject || 'Event'}
         details={conflictDialog.details}
+        staleData={conflictDialog.staleData}
       />
     </div>
   );

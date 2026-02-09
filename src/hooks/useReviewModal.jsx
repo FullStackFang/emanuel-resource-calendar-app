@@ -323,11 +323,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       if (response.status === 409) {
         const data = await response.json();
-        if (data.code === 'VERSION_CONFLICT') {
+        if (data.details?.code === 'VERSION_CONFLICT') {
           setConflictInfo({
             conflictType: 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
-            details: data.details || {}
+            details: data.details || {},
+            staleData: editableData
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -427,11 +428,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
           if (saveResponse.status === 409) {
             const saveData = await saveResponse.json();
-            if (saveData.code === 'VERSION_CONFLICT') {
+            if (saveData.details?.code === 'VERSION_CONFLICT') {
               setConflictInfo({
                 conflictType: 'data_changed',
                 eventTitle: currentItem.eventTitle || 'Event',
-                details: saveData.details || {}
+                details: saveData.details || {},
+                staleData: editableData
               });
               return { success: false, error: 'VERSION_CONFLICT' };
             }
@@ -479,7 +481,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       if (response.status === 409) {
         const data = await response.json();
-        if (data.code === 'VERSION_CONFLICT') {
+        if (data.details?.code === 'VERSION_CONFLICT') {
           // Determine conflict type based on current status
           const currentStatus = data.details?.currentStatus;
           let conflictType = 'data_changed';
@@ -491,7 +493,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           setConflictInfo({
             conflictType,
             eventTitle: currentItem.eventTitle || 'Event',
-            details: data.details || {}
+            details: data.details || {},
+            staleData: editableData
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -562,7 +565,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       if (response.status === 409) {
         const data = await response.json();
-        if (data.code === 'VERSION_CONFLICT') {
+        if (data.details?.code === 'VERSION_CONFLICT') {
           const currentStatus = data.details?.currentStatus;
           let conflictType = 'data_changed';
           if (currentStatus === 'approved' || currentStatus === 'rejected') {
@@ -573,7 +576,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           setConflictInfo({
             conflictType,
             eventTitle: currentItem.eventTitle || 'Event',
-            details: data.details || {}
+            details: data.details || {},
+            staleData: currentItem
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
@@ -651,11 +655,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       if (response.status === 409) {
         const data = await response.json();
-        if (data.code === 'VERSION_CONFLICT') {
+        if (data.details?.code === 'VERSION_CONFLICT') {
           setConflictInfo({
             conflictType: data.details?.currentStatus !== currentItem.status ? 'status_changed' : 'data_changed',
             eventTitle: currentItem.eventTitle || 'Event',
-            details: data.details || {}
+            details: data.details || {},
+            staleData: currentItem
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }

@@ -1,5 +1,6 @@
 // src/components/shared/ConflictDialog.jsx
 import React, { useEffect, useCallback } from 'react';
+import { computeConflictDiff } from '../../utils/conflictDiffUtils';
 import './ConflictDialog.css';
 
 /**
@@ -20,6 +21,8 @@ import './ConflictDialog.css';
  * @param {string} details.currentStatus - Current document status
  * @param {string} details.lastModifiedBy - Who last modified the document
  * @param {string} details.lastModifiedDateTime - When it was last modified
+ * @param {Object} details.snapshot - Current field values for diff display
+ * @param {Object} staleData - The user's form data at the time of the failed save (for diff)
  */
 export default function ConflictDialog({
   isOpen,
@@ -27,7 +30,8 @@ export default function ConflictDialog({
   onRefresh,
   conflictType = 'data_changed',
   eventTitle = 'Event',
-  details = {}
+  details = {},
+  staleData = null
 }) {
   // Handle ESC key to close
   const handleKeyDown = useCallback((e) => {
@@ -56,7 +60,10 @@ export default function ConflictDialog({
 
   if (!isOpen) return null;
 
-  const { currentStatus, lastModifiedBy, lastModifiedDateTime } = details;
+  const { currentStatus, lastModifiedBy, lastModifiedDateTime, snapshot } = details;
+
+  // Compute field-level diff between user's stale data and server snapshot
+  const changedFields = staleData && snapshot ? computeConflictDiff(staleData, snapshot) : [];
 
   // Format the modification time
   const formattedTime = lastModifiedDateTime
@@ -127,6 +134,24 @@ export default function ConflictDialog({
         <div className="conflict-dialog-content">
           <p className="conflict-dialog-event-title">{eventTitle}</p>
           <p className="conflict-dialog-message">{message}</p>
+
+          {changedFields.length > 0 && (
+            <div className="conflict-dialog-changes">
+              <div className="conflict-dialog-changes-heading">What changed</div>
+              <ul className="conflict-dialog-changes-list">
+                {changedFields.map(({ field, label, staleValue, currentValue }) => (
+                  <li key={field} className="conflict-dialog-change-item">
+                    <span className="conflict-dialog-change-label">{label}:</span>
+                    <span className="conflict-dialog-change-values">
+                      <span className="conflict-dialog-change-old">{staleValue}</span>
+                      <span className="conflict-dialog-change-arrow">&rarr;</span>
+                      <span className="conflict-dialog-change-new">{currentValue}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {currentStatus && (
             <div className="conflict-dialog-status">

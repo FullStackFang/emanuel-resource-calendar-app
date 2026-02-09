@@ -17,6 +17,23 @@
 const ApiError = require('./ApiError');
 
 /**
+ * Get a nested value from an object using a dot-separated path.
+ * @param {Object} obj - Source object
+ * @param {string} path - Dot-separated path (e.g. 'calendarData.eventTitle')
+ * @returns {*} The value at the path, or undefined if not found
+ */
+function getNestedValue(obj, path) {
+  if (!obj || !path) return undefined;
+  const parts = path.split('.');
+  let current = obj;
+  for (const part of parts) {
+    if (current == null) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+/**
  * Perform an atomic version-guarded update on a document.
  *
  * @param {Collection} collection - MongoDB collection
@@ -26,11 +43,12 @@ const ApiError = require('./ApiError');
  * @param {number|null} [options.expectedVersion] - Expected _version value. Null/undefined skips version check (backward compat).
  * @param {string|null} [options.expectedStatus] - Expected status value for atomic state transitions.
  * @param {string|null} [options.modifiedBy] - Who is making this change (for lastModifiedBy).
+ * @param {Array<{key: string, path: string}>|null} [options.snapshotFields] - Fields to include in 409 response snapshot.
  * @returns {Object} The updated document (returnDocument: 'after')
  * @throws {ApiError} 404 if document not found, 409 if version/status mismatch
  */
 async function conditionalUpdate(collection, filter, update, options = {}) {
-  const { expectedVersion, expectedStatus, modifiedBy } = options;
+  const { expectedVersion, expectedStatus, modifiedBy, snapshotFields } = options;
 
   // Build versioned filter
   const versionedFilter = { ...filter };
@@ -93,10 +111,18 @@ async function conditionalUpdate(collection, filter, update, options = {}) {
     lastModifiedDateTime: currentDoc.lastModifiedDateTime || currentDoc.lastModified || null,
   };
 
+  // Include field snapshot if requested (for frontend diff display)
+  if (snapshotFields?.length) {
+    details.snapshot = {};
+    for (const { key, path } of snapshotFields) {
+      details.snapshot[key] = getNestedValue(currentDoc, path);
+    }
+  }
+
   throw ApiError.conflict(
     'This event was modified by another user. Please refresh and try again.',
     details
   );
 }
 
-module.exports = { conditionalUpdate };
+module.exports = { conditionalUpdate, getNestedValue };

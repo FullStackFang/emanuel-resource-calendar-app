@@ -6833,6 +6833,7 @@ import ConflictDialog from './shared/ConflictDialog';
           conflictType={reviewModal.conflictInfo?.conflictType}
           eventTitle={reviewModal.conflictInfo?.eventTitle}
           details={reviewModal.conflictInfo?.details}
+          staleData={reviewModal.conflictInfo?.staleData}
         />
 
         {/* Review Modal for Event Creation */}

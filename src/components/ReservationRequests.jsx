@@ -733,7 +733,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         setConflictDialog({
           isOpen: true,
           conflictType: 'data_changed',
-          details: conflictDetails
+          details: conflictDetails,
+          staleData: editableData
         });
         return;
       }
@@ -845,7 +846,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         setConflictDialog({
           isOpen: true,
           conflictType,
-          details: conflictDetails
+          details: conflictDetails,
+          staleData: reservation
         });
         return;
       }
@@ -954,7 +956,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
           : 'data_changed';
 
-        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails });
+        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails, staleData: reservation });
         return;
       }
 
@@ -1024,7 +1026,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       if (response.status === 409) {
         const data = await response.json();
         const conflictDetails = data.details || {};
-        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails });
+        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails, staleData: reservation });
         return;
       }
 
@@ -1519,6 +1521,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         conflictType={conflictDialog.conflictType}
         eventTitle={selectedReservation?.eventTitle || 'Event'}
         details={conflictDialog.details}
+        staleData={conflictDialog.staleData}
       />
     </div>
   );

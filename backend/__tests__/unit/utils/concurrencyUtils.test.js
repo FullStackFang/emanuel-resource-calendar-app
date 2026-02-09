@@ -197,6 +197,100 @@ describe('conditionalUpdate', () => {
     });
   });
 
+  describe('snapshotFields', () => {
+    it('should include snapshot of specified fields on version conflict', async () => {
+      const doc = {
+        _id: new ObjectId(),
+        status: 'approved',
+        _version: 3,
+        calendarData: {
+          eventTitle: 'Board Meeting',
+          startDate: '2026-03-01',
+          startTime: '09:00',
+        }
+      };
+      await collection.insertOne(doc);
+
+      await expect(
+        conditionalUpdate(
+          collection,
+          { _id: doc._id },
+          { $set: { status: 'rejected' } },
+          {
+            expectedVersion: 1,
+            snapshotFields: [
+              { key: 'eventTitle', path: 'calendarData.eventTitle' },
+              { key: 'startDate', path: 'calendarData.startDate' },
+              { key: 'startTime', path: 'calendarData.startTime' },
+              { key: 'status', path: 'status' },
+            ]
+          }
+        )
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        details: expect.objectContaining({
+          code: 'VERSION_CONFLICT',
+          snapshot: {
+            eventTitle: 'Board Meeting',
+            startDate: '2026-03-01',
+            startTime: '09:00',
+            status: 'approved',
+          }
+        }),
+      });
+    });
+
+    it('should not include snapshot when snapshotFields is not provided', async () => {
+      const doc = { _id: new ObjectId(), status: 'pending', _version: 2, eventTitle: 'Test' };
+      await collection.insertOne(doc);
+
+      try {
+        await conditionalUpdate(
+          collection,
+          { _id: doc._id },
+          { $set: { status: 'approved' } },
+          { expectedVersion: 1 }
+        );
+      } catch (err) {
+        expect(err.statusCode).toBe(409);
+        expect(err.details.snapshot).toBeUndefined();
+      }
+    });
+
+    it('should return undefined for missing nested paths gracefully', async () => {
+      const doc = {
+        _id: new ObjectId(),
+        status: 'pending',
+        _version: 2,
+        // No calendarData at all
+      };
+      await collection.insertOne(doc);
+
+      await expect(
+        conditionalUpdate(
+          collection,
+          { _id: doc._id },
+          { $set: { status: 'approved' } },
+          {
+            expectedVersion: 1,
+            snapshotFields: [
+              { key: 'eventTitle', path: 'calendarData.eventTitle' },
+              { key: 'status', path: 'status' },
+            ]
+          }
+        )
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        details: expect.objectContaining({
+          snapshot: {
+            eventTitle: undefined,
+            status: 'pending',
+          }
+        }),
+      });
+    });
+  });
+
   describe('lastModifiedDateTime always set', () => {
     it('should set lastModifiedDateTime even when not in original update', async () => {
       const doc = { _id: new ObjectId(), status: 'pending', _version: 1 };

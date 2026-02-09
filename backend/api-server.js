@@ -18,6 +18,7 @@ const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middlewa
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
+const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -5686,7 +5687,10 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
           reason: 'Event created via unified form'
         }],
         lastAccessedAt: new Date(),
-        syncedAt: new Date()
+        syncedAt: new Date(),
+
+        // Optimistic concurrency control
+        _version: 1
       };
 
       // CALENDAR DATA (consolidated event/calendar fields)
@@ -13261,7 +13265,8 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
         {
           expectedVersion: _version || null,
           expectedStatus: 'deleted',
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -13889,7 +13894,8 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
         {
           expectedVersion: _version || null,
           expectedStatus: event.status,
-          modifiedBy: req.user.email
+          modifiedBy: req.user.email,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -14141,7 +14147,8 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
         {
           expectedVersion: _version || null,
           expectedStatus: 'rejected',
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -17780,7 +17787,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         {
           expectedVersion: _version || null,
           expectedStatus: event.status, // 'pending' or 'room-reservation-request'
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -17950,7 +17958,8 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
         {
           expectedVersion: _version || null,
           expectedStatus: event.status,
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -18323,7 +18332,8 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
         },
         {
           expectedVersion: _version || null,
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -18743,7 +18753,8 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
         { $set: updateFields },
         {
           expectedVersion: _version || null,
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -18962,7 +18973,8 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
         },
         {
           expectedVersion: _version || null,
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -20048,7 +20060,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         },
         {
           expectedVersion: updates._version || null,
-          modifiedBy: userId
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
@@ -20102,12 +20115,11 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     const id = req.params.id;
-    const { graphToken, editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId, _version } = req.body;
+    // Note: graphToken is no longer needed - using app-only auth via graphApiService
+    const { editScope, occurrenceDate, seriesMasterId, calendarId: reqCalendarId, _version } = req.body;
 
     logger.log('DELETE request params:', {
       mongoId: id,
-      hasGraphToken: !!graphToken,
-      graphTokenLength: graphToken?.length,
       userEmail,
       editScope,
       occurrenceDate,
@@ -20132,22 +20144,21 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     let graphDeleted = false;
 
-    // Step 2: If event has eventId, delete from Microsoft Graph first
-    if (event.eventId && graphToken) {
-      logger.log('🔄 Attempting Graph API delete...');
+    // Step 2: If event has a Graph event ID, delete from Microsoft Graph first
+    // Uses app-only auth via graphApiService (no user graphToken needed)
+    const graphEventId = event.graphData?.id || event.eventId;
+    const calendarOwner = event.calendarOwner;
+    const calendarId = reqCalendarId || event.calendarId;
+
+    if (graphEventId && calendarOwner) {
+      logger.log('🔄 Attempting Graph API delete via graphApiService...', {
+        graphEventId,
+        calendarOwner,
+        calendarId,
+        editScope
+      });
       try {
-        // Use graphData.id (Graph API ID) instead of eventId (internal MongoDB UUID)
-        const graphEventId = event.graphData?.id || event.eventId;
-        const calendarId = reqCalendarId || event.calendarId;
-
-        // calendarId is required for Graph API operations
-        if (!calendarId) {
-          logger.error('Cannot delete Graph event: calendarId is required', { eventId: event.eventId, graphEventId });
-          return res.status(400).json({ error: 'calendarId is required for Graph API operations' });
-        }
-
-        let graphApiUrl;
-        let targetOccurrenceId = null;
+        let deleteTargetId = graphEventId;
 
         // Handle recurring event deletion based on editScope
         if (editScope === 'thisEvent' && seriesMasterId && occurrenceDate) {
@@ -20158,98 +20169,81 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             editScope
           });
 
-          // Query Graph API to find the specific occurrence
           const occurrenceDateObj = new Date(occurrenceDate);
           const startRange = new Date(occurrenceDateObj);
           startRange.setHours(0, 0, 0, 0);
           const endRange = new Date(occurrenceDateObj);
           endRange.setHours(23, 59, 59, 999);
 
-          const instancesUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}/instances?startDateTime=${startRange.toISOString()}&endDateTime=${endRange.toISOString()}`;
+          try {
+            const instances = await graphApiService.getRecurringEventInstances(
+              calendarOwner,
+              calendarId || null,
+              seriesMasterId,
+              startRange.toISOString(),
+              endRange.toISOString()
+            );
 
-          logger.log('📡 Fetching occurrence instances:', instancesUrl);
-
-          const instancesResponse = await fetch(instancesUrl, {
-            headers: {
-              'Authorization': `Bearer ${graphToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (instancesResponse.ok) {
-            const instancesData = await instancesResponse.json();
-            if (instancesData.value && instancesData.value.length > 0) {
-              // Find the occurrence matching the date
-              const targetOccurrence = instancesData.value.find(occ => {
+            if (instances && instances.length > 0) {
+              const targetOccurrence = instances.find(occ => {
                 const occStart = new Date(occ.start.dateTime);
                 return occStart.toDateString() === occurrenceDateObj.toDateString();
               });
 
               if (targetOccurrence) {
-                targetOccurrenceId = targetOccurrence.id;
-                logger.log('✅ Found occurrence ID:', targetOccurrenceId);
+                deleteTargetId = targetOccurrence.id;
+                logger.log('✅ Found occurrence ID:', deleteTargetId);
               } else {
-                logger.log('⚠️ No matching occurrence found for date');
+                logger.log('⚠️ No matching occurrence found for date, using graphEventId');
               }
             }
-          } else {
-            const errorText = await instancesResponse.text();
-            logger.log('⚠️ Failed to fetch instances:', instancesResponse.status, errorText);
+          } catch (instancesError) {
+            logger.log('⚠️ Failed to fetch instances:', instancesError.message);
           }
-
-          // Use occurrence ID if found, otherwise fall back to series master
-          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${targetOccurrenceId || graphEventId}`;
 
         } else if (editScope === 'allEvents' && seriesMasterId) {
           // Delete entire series - delete the series master
           logger.log('🔄 Deleting entire recurring series:', { seriesMasterId });
-          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${seriesMasterId}`;
-        } else {
-          // Regular single event delete (non-recurring)
-          graphApiUrl = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
+          deleteTargetId = seriesMasterId;
         }
 
-        logger.log('📡 Graph API URL:', graphApiUrl);
-        logger.log('📡 Using Graph Event ID:', targetOccurrenceId || graphEventId);
-        logger.log('📡 Edit scope:', editScope || 'single event');
-
-        const graphResponse = await fetch(graphApiUrl, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${graphToken}`
-          }
+        logger.log('📡 Deleting Graph event:', {
+          calendarOwner,
+          calendarId: calendarId || '(default)',
+          deleteTargetId,
+          editScope: editScope || 'single event'
         });
 
-        logger.log('📊 Graph API response:', {
-          status: graphResponse.status,
-          statusText: graphResponse.statusText,
-          ok: graphResponse.ok
-        });
+        await graphApiService.deleteCalendarEvent(
+          calendarOwner,
+          calendarId || null,
+          deleteTargetId
+        );
 
-        if (graphResponse.ok || graphResponse.status === 404) {
-          // 404 means already deleted from Graph - that's okay
+        graphDeleted = true;
+        logger.log('✅ Event deleted from Microsoft Graph');
+        logger.info('Event deleted from Microsoft Graph:', {
+          eventId: event.eventId,
+          graphEventId: deleteTargetId,
+          calendarOwner,
+          calendarId: calendarId || '(default)',
+          editScope: editScope || 'single'
+        });
+      } catch (graphError) {
+        // 404 means already deleted from Graph - that's okay
+        if (graphError.message?.includes('404') || graphError.status === 404) {
           graphDeleted = true;
-          logger.log('✅ Event deleted from Microsoft Graph');
-          logger.info('Event deleted from Microsoft Graph:', {
-            eventId: event.eventId,
-            calendarId: calendarId,
-            editScope: editScope || 'single',
-            targetOccurrenceId
-          });
+          logger.log('✅ Event already deleted from Microsoft Graph (404)');
         } else {
-          logger.log('⚠️ Graph API delete returned non-OK status:', graphResponse.status);
-          logger.warn(`Graph API delete returned ${graphResponse.status}, continuing with MongoDB deletion`);
+          logger.log('❌ Graph API delete error:', graphError.message);
+          logger.warn('Error deleting from Graph API, continuing with MongoDB deletion:', graphError);
           graphDeleted = false;
         }
-      } catch (graphError) {
-        logger.log('❌ Graph API delete error:', graphError.message);
-        logger.warn('Error deleting from Graph API, continuing with MongoDB deletion:', graphError);
-        graphDeleted = false;
       }
     } else {
       logger.log('⏭️ Skipping Graph API delete:', {
-        hasEventId: !!event.eventId,
-        hasGraphToken: !!graphToken
+        hasGraphEventId: !!graphEventId,
+        hasCalendarOwner: !!calendarOwner
       });
     }
 
@@ -20280,7 +20274,8 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
         },
         {
           expectedVersion: _version || null,
-          modifiedBy: userEmail
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
       );
     } catch (err) {
