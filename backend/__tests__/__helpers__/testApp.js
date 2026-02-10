@@ -203,6 +203,15 @@ function createTestApp(options = {}) {
           attendees: attendees || 0,
         },
 
+        // Status history
+        statusHistory: [{
+          status: 'draft',
+          changedAt: now,
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: 'Draft created'
+        }],
+
         // Metadata
         createdAt: now,
         createdBy: userId,
@@ -375,6 +384,15 @@ function createTestApp(options = {}) {
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
         },
+        $push: {
+          statusHistory: {
+            status: 'pending',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Submitted for review'
+          }
+        }
       });
 
       const submittedEvent = await testCollections.events.findOne(query);
@@ -606,6 +624,15 @@ function createTestApp(options = {}) {
             webLink: graphResult.webLink,
           },
         },
+        $push: {
+          statusHistory: {
+            status: 'approved',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Approved by admin',
+          },
+        },
       });
 
       const approvedEvent = await testCollections.events.findOne(query);
@@ -681,6 +708,15 @@ function createTestApp(options = {}) {
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
         },
+        $push: {
+          statusHistory: {
+            status: 'rejected',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: reason,
+          },
+        },
       });
 
       const rejectedEvent = await testCollections.events.findOne(query);
@@ -755,6 +791,15 @@ function createTestApp(options = {}) {
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
         },
+        $push: {
+          statusHistory: {
+            status: 'deleted',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Deleted by admin'
+          }
+        }
       });
 
       // Create audit log
@@ -778,22 +823,23 @@ function createTestApp(options = {}) {
   });
 
   /**
-   * PUT /api/admin/events/:id/restore - Restore a deleted event
+   * PUT /api/admin/events/:id/restore - Restore a deleted event (Admin only)
    */
   app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
     try {
       const userId = req.user.userId;
       const userEmail = req.user.email;
       const eventId = req.params.id;
+      const { _version } = req.body || {};
 
       // Get user from database
       const userDoc = await testCollections.users.findOne({
         $or: [{ odataId: userId }, { email: userEmail }],
       });
 
-      // Check approver permission
-      if (!hasRole(userDoc, userEmail, 'approver')) {
-        return res.status(403).json({ error: 'Permission denied. Approver role required.' });
+      // Check admin permission
+      if (!hasRole(userDoc, userEmail, 'admin')) {
+        return res.status(403).json({ error: 'Admin access required' });
       }
 
       const query = ObjectId.isValid(eventId)
@@ -803,27 +849,61 @@ function createTestApp(options = {}) {
       const event = await testCollections.events.findOne(query);
 
       if (!event) {
-        return res.status(404).json({ error: 'Event not found' });
+        return res.status(404).json({ error: 'Deleted event not found' });
       }
 
-      if (!event.isDeleted) {
-        return res.status(400).json({ error: 'Event is not deleted' });
+      if (event.status !== 'deleted') {
+        return res.status(404).json({ error: 'Deleted event not found' });
       }
 
-      // Restore to previous status
-      const restoredStatus = event.previousStatus || 'draft';
+      // Version conflict check
+      if (_version && event._version && _version !== event._version) {
+        return res.status(409).json({
+          error: 'VERSION_CONFLICT',
+          message: 'This event has been modified by another user',
+          conflictType: 'data_changed',
+          currentVersion: event._version,
+        });
+      }
+
+      // Find previous status from statusHistory
+      const statusHistory = event.statusHistory || [];
+      let previousStatus = 'draft';
+      for (let i = statusHistory.length - 1; i >= 0; i--) {
+        if (statusHistory[i].status !== 'deleted') {
+          previousStatus = statusHistory[i].status;
+          break;
+        }
+      }
+      // Fallback to previousStatus field for backward compat
+      if (previousStatus === 'draft' && event.previousStatus) {
+        previousStatus = event.previousStatus;
+      }
+
       const now = new Date();
+      const newVersion = (event._version || 0) + 1;
       await testCollections.events.updateOne(query, {
         $set: {
-          status: restoredStatus,
+          status: previousStatus,
           isDeleted: false,
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
+          _version: newVersion,
         },
         $unset: {
           deletedAt: '',
           deletedBy: '',
+          deletedByEmail: '',
           previousStatus: '',
+        },
+        $push: {
+          statusHistory: {
+            status: previousStatus,
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Restored by admin',
+          },
         },
       });
 
@@ -837,12 +917,43 @@ function createTestApp(options = {}) {
         performedByEmail: userEmail,
         previousState: event,
         newState: restoredEvent,
-        changes: { status: { from: 'deleted', to: restoredStatus } },
+        changes: { status: { from: 'deleted', to: previousStatus } },
       });
+
+      // Republish to Graph if event previously had a Graph/Outlook event
+      let graphPublished = false;
+      const hadGraphEvent = !!(event.graphData?.id);
+      if (hadGraphEvent && event.calendarOwner) {
+        try {
+          const graphResult = await graphApiMock.createCalendarEvent(
+            TEST_CALENDAR_OWNER, null,
+            {
+              subject: event.eventTitle,
+              start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
+              end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
+              body: { contentType: 'Text', content: event.eventDescription || '' },
+            }
+          );
+
+          await testCollections.events.updateOne(query, {
+            $set: {
+              'graphData.id': graphResult.id,
+              'graphData.webLink': graphResult.webLink,
+            }
+          });
+          graphPublished = true;
+        } catch (graphError) {
+          // Don't fail restore if Graph fails
+          graphPublished = false;
+        }
+      }
 
       res.json({
         success: true,
-        event: restoredEvent,
+        message: 'Event restored successfully',
+        status: previousStatus,
+        graphPublished,
+        _version: newVersion,
       });
     } catch (error) {
       console.error('Error restoring event:', error);

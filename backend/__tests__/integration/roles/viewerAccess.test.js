@@ -259,7 +259,7 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
         .expect(403);
 
       expect(res.body).toHaveProperty('error');
-      expect(res.body.error).toMatch(/permission denied/i);
+      expect(res.body.error).toMatch(/admin/i);
     });
   });
 

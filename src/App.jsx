@@ -81,6 +81,7 @@ const ReservationRequests = lazy(() => import('./components/ReservationRequests'
 const FeatureManagement = lazy(() => import('./components/FeatureManagement'));
 const EmailTestAdmin = lazy(() => import('./components/EmailTestAdmin'));
 const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
+const EventManagement = lazy(() => import('./components/EventManagement'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 function App() {
@@ -479,6 +480,7 @@ function App() {
                   <Route path="/admin/feature-management" element={<FeatureManagement apiToken={apiToken} />} />
                   <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
+                  <Route path="/admin/events" element={<EventManagement apiToken={apiToken} />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Suspense>

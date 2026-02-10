@@ -10,7 +10,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { getServerOptions } = require('../../__helpers__/testSetup');
-const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
+const { createApprover, createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPendingEvent,
   createApprovedEvent,
@@ -29,6 +29,8 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
   let app;
   let approverUser;
   let approverToken;
+  let adminUser;
+  let adminToken;
   let requesterUser;
 
   beforeAll(async () => {
@@ -62,10 +64,12 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
     // Create test users
     approverUser = createApprover();
+    adminUser = createAdmin();
     requesterUser = createRequester();
-    await insertUsers(db, [approverUser, requesterUser]);
+    await insertUsers(db, [approverUser, adminUser, requesterUser]);
 
     approverToken = await createMockToken(approverUser);
+    adminToken = await createMockToken(adminUser);
   });
 
   describe('A-13: Delete approved (published) event', () => {
@@ -175,7 +179,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
     });
   });
 
-  describe('A-21: Restore deleted event', () => {
+  describe('A-21: Restore deleted event (Admin only)', () => {
     it('should restore deleted event to previous status', async () => {
       const deleted = createDeletedEvent({
         userId: requesterUser.odataId,
@@ -187,15 +191,15 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.event.isDeleted).toBe(false);
+      expect(res.body.status).toBe(STATUS.APPROVED);
     });
 
-    it('should return 400 when event is not deleted', async () => {
+    it('should return 404 when event is not deleted', async () => {
       const approved = createApprovedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -204,10 +208,11 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .put(`/api/admin/events/${savedApproved._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
-        .expect(400);
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedApproved._version })
+        .expect(404);
 
-      expect(res.body.error).toMatch(/not deleted/i);
+      expect(res.body.error).toMatch(/not found/i);
     });
 
     it('should create audit log entry', async () => {
@@ -220,13 +225,14 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
       await assertAuditEntry(db, {
         eventId: savedDeleted.eventId,
         action: 'restored',
-        performedBy: approverUser.odataId,
+        performedBy: adminUser.odataId,
       });
     });
   });
@@ -241,10 +247,11 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.APPROVED);
     });
 
     it('should restore to pending status', async () => {
@@ -256,10 +263,11 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.PENDING);
+      expect(res.body.status).toBe(STATUS.PENDING);
     });
 
     it('should restore to rejected status', async () => {
@@ -271,26 +279,29 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
       const res = await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.REJECTED);
+      expect(res.body.status).toBe(STATUS.REJECTED);
     });
 
     it('should default to draft if no previous status', async () => {
       const deleted = createDeletedEvent({
         userId: requesterUser.odataId,
       });
-      // Remove previousStatus
+      // Remove previousStatus and statusHistory to simulate legacy data
       delete deleted.previousStatus;
+      deleted.statusHistory = [];
       const [savedDeleted] = await insertEvents(db, [deleted]);
 
       const res = await request(app)
         .put(`/api/admin/events/${savedDeleted._id}/restore`)
-        .set('Authorization', `Bearer ${approverToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: savedDeleted._version })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.DRAFT);
+      expect(res.body.status).toBe(STATUS.DRAFT);
     });
   });
 

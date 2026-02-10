@@ -82,6 +82,15 @@ function createBaseEvent(options = {}) {
       notes: options.notes || '',
     },
 
+    // Status history for tracking transitions
+    statusHistory: options.statusHistory || [{
+      status: options.status || STATUS.DRAFT,
+      changedAt: options.createdAt || now,
+      changedBy: options.createdBy || options.userId || 'test-user',
+      changedByEmail: options.requesterEmail || 'requester@external.com',
+      reason: `Event created with status: ${options.status || STATUS.DRAFT}`
+    }],
+
     // Optimistic concurrency control
     _version: options._version || 1,
 
@@ -180,12 +189,31 @@ function createRejectedEvent(options = {}) {
 function createDeletedEvent(options = {}) {
   // Store the previous status before deletion
   const previousStatus = options.previousStatus || STATUS.APPROVED;
+  const now = new Date();
+  // Generate realistic 2-entry statusHistory (previousStatus + deleted) unless explicitly provided
+  const defaultStatusHistory = [
+    {
+      status: previousStatus,
+      changedAt: new Date(now.getTime() - 60000), // 1 minute before deletion
+      changedBy: options.createdBy || options.userId || 'test-user',
+      changedByEmail: options.requesterEmail || 'requester@external.com',
+      reason: `Event created with status: ${previousStatus}`
+    },
+    {
+      status: STATUS.DELETED,
+      changedAt: options.deletedAt || now,
+      changedBy: options.deletedBy || 'admin@emanuelnyc.org',
+      changedByEmail: options.deletedBy || 'admin@emanuelnyc.org',
+      reason: 'Deleted by admin'
+    }
+  ];
   return createBaseEvent({
     status: STATUS.DELETED,
     isDeleted: true,
-    deletedAt: options.deletedAt || new Date(),
+    deletedAt: options.deletedAt || now,
     deletedBy: options.deletedBy || 'admin@emanuelnyc.org',
     previousStatus, // Store for restore functionality
+    statusHistory: options.statusHistory !== undefined ? options.statusHistory : defaultStatusHistory,
     ...options,
   });
 }

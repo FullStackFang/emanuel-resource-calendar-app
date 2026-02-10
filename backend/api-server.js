@@ -6923,6 +6923,45 @@ app.get('/api/admin/unified/counts', verifyToken, async (req, res) => {
 });
 
 /**
+ * Admin endpoint - Get event counts by status (all events, not user-scoped)
+ * Used by Event Management admin page
+ */
+app.get('/api/admin/events/counts', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdminUser = isAdmin(user, userEmail);
+
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+
+    const [total, pending, approved, rejected, deleted, draft] = await Promise.all([
+      unifiedEventsCollection.countDocuments({}),
+      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'pending' }),
+      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'approved' }),
+      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'rejected' }),
+      unifiedEventsCollection.countDocuments({ isDeleted: true }),
+      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
+    ]);
+
+    const active = total - deleted;
+
+    res.json({ total, active, pending, approved, rejected, deleted, draft });
+  } catch (error) {
+    logger.error('Error getting admin event counts:', error);
+    res.status(500).json({ error: 'Failed to get event counts' });
+  }
+});
+
+/**
  * Admin endpoint - Get delta tokens
  * Simple query, no aggregation needed
  */
@@ -7270,6 +7309,18 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         { "internalData.setupMinutes": { $gt: 0 } },
         { "internalData.teardownMinutes": { $gt: 0 } }
       ];
+    } else if (status === 'pending') {
+      query.isDeleted = { $ne: true };
+      query.status = 'pending';
+    } else if (status === 'approved') {
+      query.isDeleted = { $ne: true };
+      query.status = 'approved';
+    } else if (status === 'rejected') {
+      query.isDeleted = { $ne: true };
+      query.status = 'rejected';
+    } else if (status === 'draft') {
+      query.isDeleted = { $ne: true };
+      query.status = 'draft';
     }
 
     // Search filter - use only essential top-level fields to reduce Cosmos DB RU consumption
@@ -7444,9 +7495,9 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     events.sort((a, b) => {
       const dateA = a.startDateTime ? new Date(a.startDateTime) : new Date(0);
       const dateB = b.startDateTime ? new Date(b.startDateTime) : new Date(0);
-      return dateA - dateB;
+      return dateB - dateA;
     });
-    
+
     // Format events for response - include all fields needed by EventSearch.jsx
     // Only include essential graphData fields to reduce response size
     const formattedEvents = events.map(event => {
@@ -12624,6 +12675,15 @@ app.post('/api/room-reservations', verifyToken, async (req, res) => {
         offsiteLon: null
       },
 
+      // Status history for tracking transitions
+      statusHistory: [{
+        status: 'pending',
+        changedAt: new Date(),
+        changedBy: userId,
+        changedByEmail: userEmail,
+        reason: 'Room reservation submitted'
+      }],
+
       // Optimistic concurrency control
       _version: 1
     };
@@ -12815,6 +12875,15 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         // Recurrence
         recurrence: recurrence || null
       },
+
+      // Status history for tracking transitions
+      statusHistory: [{
+        status: 'draft',
+        changedAt: new Date(),
+        changedBy: userId,
+        changedByEmail: userEmail,
+        reason: 'Draft created'
+      }],
 
       // Optimistic concurrency control
       _version: 1
@@ -13066,7 +13135,16 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       { _id: new ObjectId(draftId) },
       {
         $set: updateData,
-        $unset: { draftCreatedAt: "" }
+        $unset: { draftCreatedAt: "" },
+        $push: {
+          statusHistory: {
+            status: 'pending',
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Submitted for review'
+          }
+        }
       }
     );
 
@@ -13291,6 +13369,175 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error restoring reservation:', error);
     res.status(500).json({ error: 'Failed to restore reservation' });
+  }
+});
+
+/**
+ * Admin endpoint - Restore a deleted event (Admin only)
+ * PUT /api/admin/events/:id/restore
+ */
+app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { _version } = req.body || {};
+
+    // Check admin permissions
+    const user = await usersCollection.findOne({ userId });
+    const isAdminUser = isAdmin(user, userEmail);
+
+    if (!isAdminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const eventId = req.params.id;
+
+    // Find the deleted event
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(eventId),
+      status: 'deleted'
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Deleted event not found' });
+    }
+
+    // Find the previous status from statusHistory (before 'deleted')
+    const statusHistory = event.statusHistory || [];
+    let previousStatus = 'draft'; // Default fallback
+
+    for (let i = statusHistory.length - 1; i >= 0; i--) {
+      if (statusHistory[i].status !== 'deleted') {
+        previousStatus = statusHistory[i].status;
+        break;
+      }
+    }
+
+    // Restore the event with version guard
+    let resultEvent;
+    try {
+      resultEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(eventId) },
+        {
+          $set: {
+            status: previousStatus,
+            isDeleted: false,
+          },
+          $unset: {
+            deletedAt: '',
+            deletedBy: '',
+            deletedByEmail: ''
+          },
+          $push: {
+            statusHistory: {
+              status: previousStatus,
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Restored by admin'
+            }
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          expectedStatus: 'deleted',
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Republish to Outlook if event previously had a Graph/Outlook event
+    let graphPublished = false;
+    const hadGraphEvent = !!(event.graphData?.id);
+    if (hadGraphEvent) {
+      const calendarOwner = event.calendarOwner;
+      const calendarId = event.calendarId || null;
+
+      if (calendarOwner) {
+        try {
+          const eventTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+          const locationDisplayNames = event.calendarData?.locationDisplayNames
+            || event.locationDisplayNames || '';
+
+          let graphLocation = { displayName: locationDisplayNames };
+          const isOffsite = event.calendarData?.isOffsite || event.isOffsite;
+          if (isOffsite && event.offsiteName && event.offsiteAddress) {
+            graphLocation = buildOffsiteGraphLocation(
+              event.offsiteName, event.offsiteAddress,
+              event.offsiteLat, event.offsiteLon
+            );
+          }
+
+          const graphEventData = {
+            subject: event.calendarData?.eventTitle || event.eventTitle || 'Untitled Event',
+            start: {
+              dateTime: event.calendarData?.startDateTime || event.startDateTime,
+              timeZone: eventTimezone
+            },
+            end: {
+              dateTime: event.calendarData?.endDateTime || event.endDateTime,
+              timeZone: eventTimezone
+            },
+            location: graphLocation,
+            body: {
+              contentType: 'Text',
+              content: event.calendarData?.eventDescription || event.eventDescription || ''
+            },
+            categories: event.calendarData?.categories || event.categories || [],
+            importance: event.graphData?.importance || 'normal',
+            showAs: event.graphData?.showAs || 'busy'
+          };
+
+          const createdEvent = await graphApiService.createCalendarEvent(
+            calendarOwner, calendarId, graphEventData
+          );
+
+          // Store new Graph data in MongoDB
+          await unifiedEventsCollection.updateOne(
+            { _id: new ObjectId(eventId) },
+            { $set: {
+              'graphData.id': createdEvent.id,
+              'graphData.webLink': createdEvent.webLink,
+              'graphData.changeKey': createdEvent.changeKey,
+            }}
+          );
+
+          graphPublished = true;
+          logger.info('Restored event republished to Outlook:', {
+            eventId, graphEventId: createdEvent.id, calendarOwner
+          });
+        } catch (graphError) {
+          // Don't fail the restore if Graph republishing fails
+          logger.warn('Failed to republish restored event to Outlook:', graphError.message);
+          graphPublished = false;
+        }
+      }
+    }
+
+    logger.log('Event restored by admin:', {
+      eventId,
+      previousStatus,
+      restoredBy: userEmail,
+      graphPublished
+    });
+
+    res.json({
+      success: true,
+      message: 'Event restored successfully',
+      status: previousStatus,
+      graphPublished,
+      _version: resultEvent._version
+    });
+  } catch (error) {
+    logger.error('Error restoring event (admin):', error);
+    res.status(500).json({ error: 'Failed to restore event' });
   }
 });
 
@@ -13546,6 +13793,15 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         offsiteLat: null,
         offsiteLon: null
       },
+
+      // Status history for tracking transitions
+      statusHistory: [{
+        status: 'pending',
+        changedAt: new Date(),
+        changedBy: `guest-${tokenDoc._id}`,
+        changedByEmail: requesterEmail,
+        reason: 'Guest reservation submitted'
+      }],
 
       // Optimistic concurrency control
       _version: 1
@@ -13889,6 +14145,15 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
             'roomReservationData.cancelReason': reason.trim(),
             'roomReservationData.cancelledAt': new Date(),
             'roomReservationData.cancelledBy': userId,
+          },
+          $push: {
+            statusHistory: {
+              status: 'cancelled',
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: req.user.email,
+              reason: reason.trim()
+            }
           }
         },
         {
@@ -14134,7 +14399,14 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       },
       $push: {
         'roomReservationData.communicationHistory': resubmissionEntry,
-        'roomReservationData.revisions': revisionEntry
+        'roomReservationData.revisions': revisionEntry,
+        statusHistory: {
+          status: 'pending',
+          changedAt: new Date(),
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: 'Resubmitted after rejection'
+        }
       }
     };
 
@@ -15731,7 +16003,14 @@ app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res
         ...(conflictDetails && { approvedWithOverride: conflictDetails })
       },
       $push: {
-        communicationHistory: approvalEntry
+        communicationHistory: approvalEntry,
+        statusHistory: {
+          status: 'approved',
+          changedAt: new Date(),
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: notes ? `Approved: ${notes}` : 'Approved'
+        }
       },
       $unset: {
         reviewingBy: '',
@@ -15889,7 +16168,14 @@ app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res)
         reviewStatus: 'not_reviewing'
       },
       $push: {
-        communicationHistory: rejectionEntry
+        communicationHistory: rejectionEntry,
+        statusHistory: {
+          status: 'rejected',
+          changedAt: new Date(),
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: reason.trim()
+        }
       },
       $unset: {
         reviewingBy: '',
@@ -17483,6 +17769,15 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       sourceMetadata: {},
       syncStatus: 'pending',
 
+      // Status history for tracking transitions
+      statusHistory: [{
+        status: 'pending',
+        changedAt: new Date(),
+        changedBy: userId,
+        changedByEmail: userEmail,
+        reason: 'Event request submitted'
+      }],
+
       // Optimistic concurrency control
       _version: 1
     };
@@ -17775,6 +18070,15 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
         'roomReservationData.reviewingBy': null, // Release soft lock
         'roomReservationData.calendarMode': calendarMode || CALENDAR_CONFIG.DEFAULT_MODE,
+      },
+      $push: {
+        statusHistory: {
+          status: 'approved',
+          changedAt: new Date(),
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: notes ? `Approved: ${notes}` : 'Approved by admin'
+        }
       }
     };
 
@@ -17953,6 +18257,15 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
             'roomReservationData.changeKey': newChangeKey,
             'roomReservationData.currentRevision': (event.roomReservationData?.currentRevision || 1) + 1,
             'roomReservationData.reviewingBy': null, // Release soft lock
+          },
+          $push: {
+            statusHistory: {
+              status: 'rejected',
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: reason
+            }
           }
         },
         {

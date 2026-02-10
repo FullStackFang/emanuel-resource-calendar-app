@@ -183,6 +183,15 @@ export default function Navigation({ apiToken }) {
                     Error Logs
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/admin/events"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Event Management
+                  </NavLink>
+                </li>
               </ul>
             )}
           </li>
