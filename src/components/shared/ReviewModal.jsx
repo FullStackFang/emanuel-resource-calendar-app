@@ -125,6 +125,7 @@ export default function ReviewModal({
     switch (status) {
       case 'pending': return 'status-pending';
       case 'approved': return 'status-approved';
+      case 'published': return 'status-published';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
       case 'draft': return 'status-draft';

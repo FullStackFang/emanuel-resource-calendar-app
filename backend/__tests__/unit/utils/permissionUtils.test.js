@@ -121,30 +121,30 @@ describe('permissionUtils', () => {
         expect(getEffectiveRole(user, 'staff@emanuelnyc.org')).toBe('requester');
       });
 
-      it('should ignore invalid role values', () => {
+      it('should ignore invalid role values and fall through', () => {
         const user = { role: 'invalid_role' };
-        expect(getEffectiveRole(user, 'staff@emanuelnyc.org')).toBe('admin');
+        expect(getEffectiveRole(user, 'staff@emanuelnyc.org')).toBe('viewer');
       });
     });
 
-    describe('Priority 2: Domain-based admin', () => {
-      it('should grant admin for emanuelnyc.org domain', () => {
-        expect(getEffectiveRole(null, 'staff@emanuelnyc.org')).toBe('admin');
-        expect(getEffectiveRole({}, 'anyone@emanuelnyc.org')).toBe('admin');
+    describe('No domain-based admin fallback', () => {
+      it('should NOT grant admin for emanuelnyc.org domain without a DB role', () => {
+        expect(getEffectiveRole(null, 'staff@emanuelnyc.org')).toBe('viewer');
+        expect(getEffectiveRole({}, 'anyone@emanuelnyc.org')).toBe('viewer');
       });
 
-      it('should be case-insensitive for domain check', () => {
-        expect(getEffectiveRole(null, 'staff@EMANUELNYC.ORG')).toBe('admin');
-        expect(getEffectiveRole(null, 'staff@EmanuelNYC.Org')).toBe('admin');
+      it('should NOT grant admin for any domain email variant', () => {
+        expect(getEffectiveRole(null, 'staff@EMANUELNYC.ORG')).toBe('viewer');
+        expect(getEffectiveRole(null, 'staff@EmanuelNYC.Org')).toBe('viewer');
       });
 
-      it('should not grant admin for similar domains', () => {
-        expect(getEffectiveRole(null, 'staff@emanuelnyc.org.fake.com')).toBe('viewer');
-        expect(getEffectiveRole(null, 'staff@notemanunyc.org')).toBe('viewer');
+      it('should respect explicit DB role for domain users', () => {
+        expect(getEffectiveRole({ role: 'requester' }, 'staff@emanuelnyc.org')).toBe('requester');
+        expect(getEffectiveRole({ role: 'admin' }, 'staff@emanuelnyc.org')).toBe('admin');
       });
     });
 
-    describe('Priority 3: Legacy isAdmin flag', () => {
+    describe('Priority 2: Legacy isAdmin flag', () => {
       it('should grant admin for isAdmin true', () => {
         const user = { isAdmin: true };
         expect(getEffectiveRole(user, 'user@external.com')).toBe('admin');
@@ -156,7 +156,7 @@ describe('permissionUtils', () => {
       });
     });
 
-    describe('Priority 4: Legacy granular permissions', () => {
+    describe('Priority 3: Legacy granular permissions', () => {
       it('should grant approver for canViewAllReservations', () => {
         const user = { permissions: { canViewAllReservations: true } };
         expect(getEffectiveRole(user, 'user@external.com')).toBe('approver');
@@ -168,7 +168,7 @@ describe('permissionUtils', () => {
       });
     });
 
-    describe('Priority 5: Default to viewer', () => {
+    describe('Priority 4: Default to viewer', () => {
       it('should default to viewer for null user', () => {
         expect(getEffectiveRole(null, 'user@external.com')).toBe('viewer');
       });

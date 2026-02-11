@@ -116,16 +116,16 @@ function createAdmin(overrides = {}) {
 }
 
 /**
- * Create a domain-based admin (emanuelnyc.org domain)
- * Tests the domain-based admin logic
+ * Create a domain user (emanuelnyc.org domain, no special privileges)
+ * Verifies that domain alone does NOT grant admin access
  * @param {Object} overrides - Properties to override
- * @returns {Object} Domain admin user object
+ * @returns {Object} Domain user object
  */
-function createDomainAdmin(overrides = {}) {
+function createDomainUser(overrides = {}) {
   return createBaseUser({
-    email: TEST_EMAILS.DOMAIN_ADMIN,
+    email: TEST_EMAILS.DOMAIN_ADMIN, // email key kept for backward compat in testConstants
     displayName: 'Domain Staff',
-    role: null, // Role determined by domain
+    role: 'viewer',
     ...overrides,
   });
 }
@@ -196,7 +196,7 @@ async function createAllTestUsers(db) {
   const otherRequester = createOtherRequester();
   const approver = createApprover();
   const admin = createAdmin();
-  const domainAdmin = createDomainAdmin();
+  const domainUser = createDomainUser();
 
   const users = await insertUsers(db, [
     viewer,
@@ -204,7 +204,7 @@ async function createAllTestUsers(db) {
     otherRequester,
     approver,
     admin,
-    domainAdmin,
+    domainUser,
   ]);
 
   return {
@@ -213,7 +213,7 @@ async function createAllTestUsers(db) {
     otherRequester: users[2],
     approver: users[3],
     admin: users[4],
-    domainAdmin: users[5],
+    domainUser: users[5],
   };
 }
 
@@ -224,7 +224,7 @@ module.exports = {
   createOtherRequester,
   createApprover,
   createAdmin,
-  createDomainAdmin,
+  createDomainUser,
   createSecurityUser,
   createMaintenanceUser,
   insertUser,

@@ -93,13 +93,16 @@ const DEFAULT_ADMIN_DOMAIN = '@emanuelnyc.org';
  *
  * Priority order:
  * 1. New role field (if set and valid)
- * 2. Domain-based admin (configurable via ADMIN_DOMAIN env var)
- * 3. Legacy isAdmin flag
- * 4. Legacy granular permissions (canViewAllReservations -> approver)
- * 5. Default to 'viewer'
+ * 2. Legacy isAdmin flag
+ * 3. Legacy granular permissions (canViewAllReservations -> approver)
+ * 4. Default to 'viewer'
+ *
+ * NOTE: Domain-based admin fallback was removed as a security fix.
+ * All users must have an explicit role in the database. Run
+ * migrate-permissions-to-role.js to backfill existing users.
  *
  * @param {Object} user - User object from database (can be null)
- * @param {string} userEmail - User's email address
+ * @param {string} userEmail - User's email address (unused, kept for API compatibility)
  * @returns {string} The effective role: 'viewer' | 'requester' | 'approver' | 'admin'
  */
 function getEffectiveRole(user, userEmail) {
@@ -108,26 +111,18 @@ function getEffectiveRole(user, userEmail) {
     return user.role;
   }
 
-  // 2. Domain-based admin (configurable via ADMIN_DOMAIN env var)
-  const adminDomain = process.env.ADMIN_DOMAIN || DEFAULT_ADMIN_DOMAIN;
-  if (userEmail && typeof userEmail === 'string') {
-    if (userEmail.toLowerCase().endsWith(adminDomain.toLowerCase())) {
-      return 'admin';
-    }
-  }
-
-  // 3. Legacy isAdmin flag
+  // 2. Legacy isAdmin flag
   if (user?.isAdmin === true) {
     return 'admin';
   }
 
-  // 4. Legacy granular permissions
+  // 3. Legacy granular permissions
   if (user?.permissions?.canViewAllReservations === true ||
       user?.permissions?.canGenerateReservationTokens === true) {
     return 'approver';
   }
 
-  // 5. Default to viewer
+  // 4. Default to viewer
   return 'viewer';
 }
 

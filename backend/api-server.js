@@ -29,6 +29,99 @@ const crypto = require('crypto');
 
 dotenv.config();
 
+/**
+ * Build a case-insensitive MongoDB query for email matching.
+ * Escapes regex special characters in the email address.
+ * @param {string} email - Email address to match
+ * @returns {Object} MongoDB query object
+ */
+function emailQuery(email) {
+  if (!email) return { email: null };
+  const escaped = email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { email: { $regex: new RegExp(`^${escaped}$`, 'i') } };
+}
+
+/**
+ * Find a user by JWT identity, trying multiple lookup strategies:
+ * 1. userId field (matches JWT oid directly)
+ * 2. odataId field (legacy — some records store OID here)
+ * 3. Case-insensitive email fallback
+ *
+ * When found via fallback, reconciles the userId field so future lookups
+ * succeed on the first try.
+ *
+ * @param {Collection} collection - MongoDB users collection
+ * @param {string} userId - JWT oid/sub claim
+ * @param {string} email - JWT preferred_username/email claim
+ * @returns {Promise<Object|null>} User document or null
+ */
+async function findUserByIdentity(collection, userId, email) {
+  // 1. Direct userId match (fastest path for reconciled users)
+  let user = await collection.findOne({ userId });
+
+  // 2. odataId match (legacy records store OID in this field)
+  if (!user && userId) {
+    user = await collection.findOne({
+      $or: [
+        { odataId: userId },
+        { odataId: `https://graph.microsoft.com/v1.0/users('${userId}')` }
+      ]
+    });
+  }
+
+  // 3. Case-insensitive email fallback
+  if (!user && email) {
+    user = await collection.findOne(emailQuery(email));
+  }
+
+  // 4. Merge duplicate: if the found record has no role, look for a companion
+  //    record by email that DOES have a role (handles duplicate-user scenario
+  //    where admin set role on a different record for the same person).
+  if (user && !user.role && email) {
+    const companion = await collection.findOne({
+      ...emailQuery(email),
+      _id: { $ne: user._id },
+      role: { $exists: true, $ne: null }
+    });
+    if (companion) {
+      // Copy role + department to the primary record and delete the duplicate
+      const mergeFields = {};
+      if (companion.role) mergeFields.role = companion.role;
+      if (companion.department !== undefined) mergeFields.department = companion.department;
+
+      try {
+        await collection.updateOne(
+          { _id: user._id },
+          { $set: mergeFields }
+        );
+        await collection.deleteOne({ _id: companion._id });
+        Object.assign(user, mergeFields);
+        logger.log(`Merged duplicate user records for ${email}: copied role=${companion.role}, deleted duplicate _id=${companion._id}`);
+      } catch (err) {
+        // Non-fatal — at minimum copy the fields in-memory so this request works
+        Object.assign(user, mergeFields);
+        logger.error('Failed to merge duplicate user records:', err);
+      }
+    }
+  }
+
+  // 5. Reconcile userId so future lookups hit step 1
+  if (user && userId && user.userId !== userId) {
+    try {
+      await collection.updateOne(
+        { _id: user._id },
+        { $set: { userId } }
+      );
+      user.userId = userId;
+      logger.log(`Reconciled userId for ${email}: set userId=${userId}`);
+    } catch (err) {
+      logger.error('Failed to reconcile userId:', err);
+    }
+  }
+
+  return user;
+}
+
 // Initialize Sentry BEFORE creating Express app
 if (process.env.SENTRY_DSN) {
   Sentry.init({
@@ -2866,7 +2959,7 @@ app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => 
 app.get('/api/internal-events/sync-status', verifyToken, async (req, res) => {
   try {
     // Check if user is admin
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
     if (!isAdmin(user, req.user.email)) {
       return res.status(403).json({ error: 'Admin access required' });
     }
@@ -11288,11 +11381,7 @@ app.get('/api/version', (req, res) => {
 // Get current user's permissions
 app.get('/api/users/me/permissions', verifyToken, async (req, res) => {
   try {
-    // Try to find user by userId first, then by email (for backward compatibility)
-    let user = await usersCollection.findOne({ userId: req.user.userId });
-    if (!user) {
-      user = await usersCollection.findOne({ email: req.user.email });
-    }
+    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
     const permissions = getPermissions(user, req.user.email);
     res.json({
       userId: req.user.userId,
@@ -11309,20 +11398,14 @@ app.get('/api/users/me/permissions', verifyToken, async (req, res) => {
 app.get('/api/users/current', verifyToken, async (req, res) => {
   try {
     logger.log('Getting current user for:', req.user.email);
-    
-    // First try to find user by userId (MSAL ID)
-    let user = await usersCollection.findOne({ userId: req.user.userId });
-    
-    // If not found, try to find by email
-    if (!user) {
-      user = await usersCollection.findOne({ email: req.user.email });
-    }
-    
+
+    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+
     if (!user) {
       logger.log('User not found, returning 404');
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Update lastLogin if you want to track this
     await usersCollection.updateOne(
       { _id: user._id },
@@ -11342,15 +11425,9 @@ app.put('/api/users/current', verifyToken, async (req, res) => {
   try {
     const updates = req.body;
     logger.log('Updating current user, received data:', updates);
-    
-    // First try to find user by userId (MSAL ID)
-    let user = await usersCollection.findOne({ userId: req.user.userId });
-    
-    // If not found, try to find by email
-    if (!user) {
-      user = await usersCollection.findOne({ email: req.user.email });
-    }
-    
+
+    let user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+
     if (!user) {
       // User doesn't exist, create a new one
       logger.log('User not found, creating new user');
@@ -11421,16 +11498,9 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
       });
     }
     
-    // First try to find user by userId (MSAL ID)
-    let user = await usersCollection.findOne({ userId: req.user.userId });
-    logger.log('User found by userId:', user ? 'yes' : 'no');
-    
-    // If not found, try to find by email
-    if (!user) {
-      user = await usersCollection.findOne({ email: req.user.email });
-      logger.log('User found by email:', user ? 'yes' : 'no');
-    }
-    
+    const user = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
+    logger.log('User found:', user ? 'yes' : 'no');
+
     if (!user) {
       logger.log('No preferences found, returning default preferences');
       // Return default preferences instead of 404
@@ -11511,7 +11581,7 @@ app.get('/api/users/:id', verifyToken, async (req, res) => {
 app.get('/api/users/email/:email', verifyToken, async (req, res) => {
   try {
     const email = req.params.email;
-    const user = await usersCollection.findOne({ email: email });
+    const user = await usersCollection.findOne(emailQuery(email));
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -11528,15 +11598,15 @@ app.get('/api/users/email/:email', verifyToken, async (req, res) => {
 app.post('/api/users', verifyToken, async (req, res) => {
   try {
     // Check admin permission
-    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
     if (!isAdmin(requestingUser, req.user.email)) {
       return res.status(403).json({ error: 'Admin access required to create users' });
     }
 
     const userData = req.body;
 
-    // Check if user with this email already exists
-    const existingUser = await usersCollection.findOne({ email: userData.email });
+    // Check if user with this email already exists (case-insensitive)
+    const existingUser = await usersCollection.findOne(emailQuery(userData.email));
     if (existingUser) {
       return res.status(409).json({ error: 'User with this email already exists' });
     }
@@ -11560,7 +11630,7 @@ app.post('/api/users', verifyToken, async (req, res) => {
 app.put('/api/users/:id', verifyToken, async (req, res) => {
   try {
     // Check admin permission
-    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
     if (!isAdmin(requestingUser, req.user.email)) {
       return res.status(403).json({ error: 'Admin access required to update users' });
     }
@@ -11593,7 +11663,7 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
 app.delete('/api/users/:id', verifyToken, async (req, res) => {
   try {
     // Check admin permission
-    const requestingUser = await usersCollection.findOne({ userId: req.user.userId });
+    const requestingUser = await findUserByIdentity(usersCollection, req.user.userId, req.user.email);
     if (!isAdmin(requestingUser, req.user.email)) {
       return res.status(403).json({ error: 'Admin access required to delete users' });
     }
@@ -19159,7 +19229,7 @@ app.get('/api/admin/email/config', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19205,7 +19275,7 @@ app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19270,7 +19340,7 @@ app.post('/api/admin/email/test', verifyToken, async (req, res) => {
     const userName = req.user.name || userEmail;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19346,7 +19416,7 @@ app.get('/api/admin/email/templates', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19372,7 +19442,7 @@ app.get('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
     const { templateId } = req.params;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19403,7 +19473,7 @@ app.put('/api/admin/email/templates/:templateId', verifyToken, async (req, res) 
     const { subject, body } = req.body;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19462,7 +19532,7 @@ app.post('/api/admin/email/templates/:templateId/preview', verifyToken, async (r
     const { subject: customSubject, body: customBody } = req.body;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {
@@ -19488,7 +19558,7 @@ app.post('/api/admin/email/templates/:templateId/reset', verifyToken, async (req
     const { templateId } = req.params;
 
     // Admin check
-    const user = await usersCollection.findOne({ userId: req.user.userId });
+    const user = await findUserByIdentity(usersCollection, req.user.userId, userEmail);
     const isAdminUser = isAdmin(user, userEmail);
 
     if (!isAdminUser) {

@@ -7,10 +7,11 @@
  * SECURITY NOTE: Admin access is granted via:
  * 1. Database field: user.role === 'admin'
  * 2. Database flag (legacy): user.isAdmin === true
- * 3. Domain-based: emails ending with @emanuelnyc.org (configurable via ADMIN_DOMAIN env var)
  *
- * The dangerous pattern `userEmail.includes('admin')` has been removed
- * as it allowed any email containing 'admin' to gain admin access.
+ * Domain-based admin fallback (@emanuelnyc.org → admin) was REMOVED as a
+ * security fix — it allowed any domain user whose DB lookup failed to get
+ * admin access. All users must now have an explicit role in the database.
+ * ADMIN_DOMAIN is still exported for use by the migration script.
  */
 
 const { hasRole, getPermissions, getEffectiveRole, getDepartmentEditableFields, canEditField, DEPARTMENT_EDITABLE_FIELDS, DEFAULT_ADMIN_DOMAIN } = require('./permissionUtils');

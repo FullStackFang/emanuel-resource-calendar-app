@@ -150,7 +150,7 @@ export default function UnifiedEventForm({
       // but internal hasChanges stays true, so real changes don't trigger the useEffect
       logger.debug('Applied prefill data to form:', mappedData);
     }
-  }, [mode, prefillData, location.state, isResubmitMode]);
+  }, [mode, prefillData, location.state]);
 
   // Auto-fill user email/name in create mode (authenticated users only)
   useEffect(() => {
@@ -298,7 +298,7 @@ export default function UnifiedEventForm({
         onIsSavingChange(false);
       }
     }
-  }, [formDataRef, validateRef, isPublic, token, apiToken, onSuccess, onIsSavingChange, submitting, isResubmitMode, resubmitReservationId, resubmitReservation, userMessage, navigate]);
+  }, [formDataRef, validateRef, isPublic, token, apiToken, onSuccess, onIsSavingChange, submitting, navigate]);
 
   // Save changes (reservation mode)
   const handleSaveChanges = useCallback(async () => {

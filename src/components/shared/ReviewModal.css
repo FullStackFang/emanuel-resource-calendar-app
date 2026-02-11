@@ -115,6 +115,11 @@
   color: var(--color-success-700);
 }
 
+.status-pill.status-published {
+  background: var(--color-info-50, #eff6ff);
+  color: var(--color-info-700, #1d4ed8);
+}
+
 .status-pill.status-pending {
   background: var(--color-warning-50);
   color: var(--color-warning-600);
