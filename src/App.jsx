@@ -8,6 +8,7 @@ import AppHeader from './components/AppHeader';
 import CalendarSelector from './components/CalendarSelector';
 import UnifiedEventForm from './components/UnifiedEventForm';
 import ReviewModal from './components/shared/ReviewModal';
+import NewReservationModal from './components/NewReservationModal';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import ErrorReportModal from './components/shared/ErrorReportModal';
 import { useReviewModal } from './hooks/useReviewModal';
@@ -881,6 +882,13 @@ function App() {
                   />
                 </ReviewModal>
               </div>
+
+              {/* New Reservation Modal - triggered from MyReservations */}
+              <NewReservationModal
+                apiToken={apiToken}
+                selectedCalendarId={selectedCalendarId}
+                availableCalendars={availableCalendars}
+              />
               </RoomProvider>
             </TimezoneProvider>
           ) : signedOut ? (

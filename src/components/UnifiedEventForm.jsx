@@ -330,13 +330,12 @@ export default function UnifiedEventForm({
       delete updatedData.endTime;
 
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`,
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`,
         {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`,
-            'If-Match': originalChangeKey || ''
+            'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify(updatedData)
         }

@@ -354,7 +354,7 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
       // Determine endpoint based on public/authenticated access
       const endpoint = isPublic
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/public/${token}`
-        : `${APP_CONFIG.API_BASE_URL}/room-reservations`;
+        : `${APP_CONFIG.API_BASE_URL}/events/request`;
 
       const response = await fetch(endpoint, {
         method: 'POST',

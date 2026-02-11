@@ -88,7 +88,7 @@ export default function EventManagement({ apiToken }) {
   const fetchCounts = useCallback(async () => {
     if (!apiToken) return;
     try {
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/counts`, {
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`, {
         headers: { Authorization: `Bearer ${apiToken}` }
       });
       if (res.ok) {
@@ -113,7 +113,7 @@ export default function EventManagement({ apiToken }) {
       if (startDate) params.set('startDate', startDate);
       if (endDate) params.set('endDate', endDate);
 
-      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/unified/events?${params}`, {
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`, {
         headers: { Authorization: `Bearer ${apiToken}` }
       });
       if (res.ok) {

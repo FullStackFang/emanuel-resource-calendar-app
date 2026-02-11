@@ -48,14 +48,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     childSaveFunctionRef.current = saveFunc;
   }, []);
 
-  // Soft hold state
-  const [reviewHold, setReviewHold] = useState(null);
-  const [holdTimer, setHoldTimer] = useState(null);
-  const [holdError, setHoldError] = useState(null);
-
   // Conflict detection state
-  const [conflicts, setConflicts] = useState([]);
-  const [checkingConflicts, setCheckingConflicts] = useState(false);
   const [forceApprove, setForceApprove] = useState(false);
 
   // Feature flag: Toggle between old and new review form
@@ -133,15 +126,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Cleanup hold timer on unmount
-  useEffect(() => {
-    return () => {
-      if (holdTimer) {
-        clearInterval(holdTimer);
-      }
-    };
-  }, [holdTimer]);
-
   const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
@@ -149,7 +133,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       // Load all reservations at once (small dataset, <100 items typically)
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/room-reservation-events?limit=1000`,
+        `${APP_CONFIG.API_BASE_URL}/events/list?view=approval-queue&limit=1000`,
         {
           headers: {
             'Authorization': `Bearer ${apiToken}`
@@ -276,119 +260,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Note: Edit requests functionality preserved but tab removed from UI
   // Edit requests can be managed through other admin interfaces if needed
 
-  // Acquire soft hold when opening review modal
-  const acquireReviewHold = async (reservationId, isNewUnifiedEvent = false) => {
-    // Skip review hold for new unified events (endpoint not implemented yet)
-    if (isNewUnifiedEvent) {
-      logger.info('Skipping review hold for new unified event');
-      setHoldError(null);
-      return true;
-    }
-
-    try {
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/start-review`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
-      );
-
-      if (response.status === 423) {
-        const data = await response.json();
-        setHoldError(`This reservation is currently being reviewed by ${data.reviewingBy}. ` +
-                     `The hold will expire in ${data.minutesRemaining} minutes.`);
-        return false;
-      }
-
-      if (!response.ok) {
-        throw new Error('Failed to acquire review hold');
-      }
-
-      const data = await response.json();
-
-      setReviewHold({
-        startedAt: new Date(),
-      });
-      setHoldError(null);
-
-      // Return fresh _version from the database document
-      return { success: true, freshVersion: data.reservation?._version || null };
-
-    } catch (error) {
-      logger.error('Failed to acquire review hold:', error);
-      // Don't set error for network issues - allow modal to open
-      setHoldError(null);
-      return { success: true, freshVersion: null };
-    }
-  };
-
-  // Release soft hold when closing modal
-  const releaseReviewHold = async (reservationId) => {
-    if (holdTimer) {
-      clearInterval(holdTimer);
-      setHoldTimer(null);
-    }
-
-    if (!reservationId) return;
-
-    try {
-      await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/release-review`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
-      );
-    } catch (error) {
-      logger.error('Failed to release hold:', error);
-    }
-
-    setReviewHold(null);
-    setHoldError(null);
-  };
-
-  // Check for scheduling conflicts
-  const checkConflicts = async (reservation) => {
-    try {
-      setCheckingConflicts(true);
-
-      // Skip conflict check for new unified events (endpoint not implemented yet)
-      if (reservation._isNewUnifiedEvent) {
-        logger.info('Skipping pre-check conflicts for new unified event (checked during approval)');
-        setConflicts([]);
-        return;
-      }
-
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/check-conflicts`,
-        {
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to check conflicts');
-      }
-
-      const data = await response.json();
-      setConflicts(data.conflicts || []);
-
-    } catch (error) {
-      logger.error('Failed to check conflicts:', error);
-      setConflicts([]); // Show as no conflicts on error
-    } finally {
-      setCheckingConflicts(false);
-    }
-  };
-
-
   // Client-side pagination
   const totalPages = Math.ceil(filteredReservations.length / PAGE_SIZE);
   const startIndex = (page - 1) * PAGE_SIZE;
@@ -407,28 +278,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Open review modal (using ReviewModal component)
   const openReviewModal = async (reservation) => {
-    // For pending reservations, try to acquire soft hold
-    let freshVersion = null;
-    if (reservation.status === 'pending') {
-      try {
-        const holdResult = await acquireReviewHold(reservation._id, reservation._isNewUnifiedEvent);
-        if (holdResult === false || (holdResult && !holdResult.success)) {
-          // Block if someone else is reviewing
-          if (holdError?.includes('currently being reviewed by')) {
-            return;
-          }
-        }
-        // Extract fresh _version from the review lock response
-        if (holdResult?.freshVersion != null) {
-          freshVersion = holdResult.freshVersion;
-        }
-      } catch (error) {
-        // Network error - allow modal to open without hold
-        logger.error('Failed to acquire soft hold:', error);
-        setHoldError(null);
-      }
-    }
-
     // Initialize editable data (includes all fields needed for conflict diff)
     setEditableData({
       eventTitle: reservation.eventTitle || '',
@@ -461,8 +310,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false
     });
 
-    // Use fresh version from review lock if available (prevents stale version 409s)
-    setEventVersion(freshVersion || reservation._version || null);
+    setEventVersion(reservation._version || null);
     setHasChanges(false);
 
     logger.debug('📦 OPENING REVIEW MODAL - Reservation Object:', {
@@ -476,17 +324,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     setSelectedReservation(reservation);
     setShowReviewModal(true);
-
-    // Check for scheduling conflicts
-    await checkConflicts(reservation);
   };
 
-  // Close review modal and release hold
+  // Close review modal
   const closeReviewModal = async () => {
-    if (selectedReservation) {
-      await releaseReviewHold(selectedReservation._id);
-    }
-
     setShowReviewModal(false);
     setSelectedReservation(null);
     setEditableData(null);
@@ -495,7 +336,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setActionNotes('');
     setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
     setCreateCalendarEvent(true);
-    setConflicts([]);
     setForceApprove(false);
     // Reset confirmation states
     setIsApproveConfirming(false);
@@ -661,15 +501,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       [field]: value
     }));
     setHasChanges(true);
-
-    // Re-check conflicts if time or room fields changed
-    if (['startDateTime', 'endDateTime', 'setupTimeMinutes', 'teardownTimeMinutes', 'requestedRooms'].includes(field)) {
-      checkConflicts({
-        ...selectedReservation,
-        ...editableData,
-        [field]: value
-      });
-    }
   };
 
   // Save changes with version validation
@@ -709,65 +540,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setTimeout(() => setError(''), 3000);
       return;
     }
-
-    // Legacy path (in case called without result) - kept for backwards compatibility
-    if (!hasChanges) return;
-
-    try {
-      setIsSaving(true);
-
-      // Include _version in the request body for optimistic concurrency
-      const bodyData = { ...editableData, _version: eventVersion };
-
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${selectedReservation._id}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          },
-          body: JSON.stringify(bodyData)
-        }
-      );
-
-      if (response.status === 409) {
-        const data = await response.json();
-        const conflictDetails = data.details || {};
-
-        logger.warn('Conflict detected (409)', { details: conflictDetails });
-
-        setConflictDialog({
-          isOpen: true,
-          conflictType: 'data_changed',
-          details: conflictDetails,
-          staleData: editableData
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error('Failed to save changes');
-      }
-
-      const saveResult = await response.json();
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === selectedReservation._id ? { ...r, ...editableData } : r
-      ));
-
-      setEventVersion(saveResult._version || eventVersion);
-      setHasChanges(false);
-      setError('Changes saved successfully');
-      setTimeout(() => setError(''), 3000);
-
-    } catch (error) {
-      logger.error('Error saving changes:', error);
-      setError(`Failed to save changes: ${error.message}`);
-    } finally {
-      setIsSaving(false);
-    }
   };
   
   // Handle approve click - two-click confirmation pattern
@@ -794,7 +566,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         eventTitle: reservation.eventTitle,
         calendarMode,
         createCalendarEvent,
-        hasConflicts: conflicts.length > 0,
         forceApprove
       });
 
@@ -810,12 +581,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       logger.debug('Sending approval request:', requestBody);
 
-      // Use new endpoint for unified events, old endpoint for legacy reservations
-      const approveEndpoint = reservation._isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/approve`;
-
-      logger.debug('Using endpoint:', approveEndpoint, '(isNew:', reservation._isNewUnifiedEvent, ')');
+      const approveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`;
 
       const response = await fetch(approveEndpoint, {
         method: 'PUT',
@@ -939,10 +705,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsRejecting(true);
       setIsRejectConfirming(false);
 
-      // Use new endpoint for unified events, old endpoint for legacy reservations
-      const rejectEndpoint = reservation._isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/reject`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/reject`;
+      const rejectEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/reject`;
 
       const response = await fetch(rejectEndpoint, {
         method: 'PUT',
@@ -1136,70 +899,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  const handleSync = async (reservation) => {
-    try {
-      logger.debug('🔄 Starting reservation calendar sync:', {
-        reservationId: reservation._id,
-        eventTitle: reservation.eventTitle,
-        calendarMode,
-        hasCalendarEventId: !!reservation.calendarEventId
-      });
-
-      const requestBody = { 
-        calendarMode: calendarMode,
-        graphToken: graphToken
-      };
-
-      logger.debug('📤 Sending sync request:', requestBody);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}/sync`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify(requestBody)
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('❌ Sync request failed:', response.status, errorText);
-        throw new Error(`Failed to sync calendar event: ${response.status} ${errorText}`);
-      }
-
-      const result = await response.json();
-      logger.debug('✅ Sync response received:', result);
-
-      // Check for calendar event sync results
-      const calendarEventResult = result.calendarEvent;
-      
-      if (calendarEventResult && calendarEventResult.success) {
-        logger.debug('📅 Calendar event synced successfully:', {
-          eventId: calendarEventResult.eventId,
-          calendar: calendarEventResult.targetCalendar
-        });
-        setError(`🔄 Calendar event synced successfully in ${calendarEventResult.targetCalendar}`);
-      } else {
-        logger.error('📅 Calendar event sync failed:', calendarEventResult?.error);
-        setError(`⚠️ Calendar event sync failed: ${calendarEventResult?.error || 'Unknown error'}`);
-      }
-      
-      // Refresh reservations to show updated data
-      await loadAllReservations();
-      
-      setSelectedReservation(null);
-      setActionNotes('');
-      
-      // Clear success message after 5 seconds
-      setTimeout(() => setError(''), 5000);
-      
-    } catch (err) {
-      logger.error('❌ Error in sync process:', err);
-      logger.error('Error syncing reservation:', err);
-      setError(`Failed to sync calendar event: ${err.message}`);
-    }
-  };
-  
   // Show loading while permissions are being determined
   if (permissionsLoading) {
     return <LoadingSpinner />;

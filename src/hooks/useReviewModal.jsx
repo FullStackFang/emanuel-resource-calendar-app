@@ -45,11 +45,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Inline confirmation state for save action
   const [pendingSaveConfirmation, setPendingSaveConfirmation] = useState(false);
 
-  // Soft hold state
-  const [reviewHold, setReviewHold] = useState(null);
-  const [holdTimer, setHoldTimer] = useState(null);
-  const [holdError, setHoldError] = useState(null);
-
   // Edit scope for recurring events: 'thisEvent' | 'allEvents' | null
   const [editScope, setEditScope] = useState(null);
 
@@ -96,19 +91,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setDraftId(null);
     }
 
-    // Try to acquire soft hold if item is pending
-    let freshVersion = null;
-    if (item.status === 'pending' && !item._isNewUnifiedEvent) {
-      const holdResult = await acquireReviewHold(item._id);
-      if (holdResult === false || (holdResult && !holdResult.success)) {
-        if (holdError) return; // Block if someone else is reviewing
-      }
-      // Extract fresh _version from the review lock response
-      if (holdResult?.freshVersion != null) {
-        freshVersion = holdResult.freshVersion;
-      }
-    }
-
     // Pre-fetch room availability for existing events with dates
     // This ensures the modal opens with all data ready (no loading spinner inside)
     let availability = null;
@@ -135,28 +117,22 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPrefetchedAvailability(availability);
     setCurrentItem(item);
     setEditableData(item);
-    // Use fresh version from review lock if available (prevents stale version 409s)
-    setEventVersion(freshVersion || item._version || null);
+    setEventVersion(item._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
-  }, [apiToken, holdError]);
+  }, [apiToken]);
 
   /**
-   * Close modal and release any holds
+   * Close modal
    * @param {boolean} force - If true, close without showing draft dialog
    */
   const closeModal = useCallback(async (force = false) => {
     // Show draft save dialog if there are unsaved changes (for new items, not drafts already being edited)
     // Only prompt if not forcing close and has changes and not already a draft
-    if (!force && hasChanges && !isDraft && currentItem?._isNewUnifiedEvent) {
+    if (!force && hasChanges && !isDraft) {
       setShowDraftDialog(true);
       return;
-    }
-
-    // Only release hold if one was actually acquired (reviewHold state exists)
-    if (reviewHold && currentItem) {
-      await releaseReviewHold(currentItem._id);
     }
 
     setIsOpen(false);
@@ -171,80 +147,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
-  }, [currentItem, reviewHold, hasChanges, isDraft]);
-
-  /**
-   * Acquire soft hold when opening review modal
-   */
-  const acquireReviewHold = async (reservationId) => {
-    try {
-      const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/start-review`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
-      );
-
-      if (response.status === 423) {
-        const data = await response.json();
-        setHoldError(
-          `This reservation is currently being reviewed by ${data.reviewingBy}. ` +
-          `The hold will expire in ${data.minutesRemaining} minutes.`
-        );
-        return false;
-      }
-
-      if (!response.ok) {
-        throw new Error('Failed to acquire review hold');
-      }
-
-      const data = await response.json();
-
-      setReviewHold({
-        startedAt: new Date(),
-      });
-      setHoldError(null);
-
-      // Return fresh _version from the database document
-      return { success: true, freshVersion: data.reservation?._version || null };
-    } catch (error) {
-      logger.error('Failed to acquire review hold:', error);
-      setHoldError(null);
-      return { success: true, freshVersion: null }; // Allow modal to open without hold
-    }
-  };
-
-  /**
-   * Release soft hold when closing modal
-   */
-  const releaseReviewHold = async (reservationId) => {
-    if (holdTimer) {
-      clearInterval(holdTimer);
-      setHoldTimer(null);
-    }
-
-    if (!reservationId) return;
-
-    try {
-      await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservationId}/release-review`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiToken}`
-          }
-        }
-      );
-    } catch (error) {
-      logger.error('Failed to release hold:', error);
-    }
-
-    setReviewHold(null);
-    setHoldError(null);
-  };
+  }, [hasChanges, isDraft]);
 
   /**
    * Update editable data
@@ -937,8 +840,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     isDeleting,
     isApproving,
     isRejecting,
-    holdError,
-    reviewHold,
     pendingDeleteConfirmation,
     pendingApproveConfirmation,
     pendingRejectConfirmation,

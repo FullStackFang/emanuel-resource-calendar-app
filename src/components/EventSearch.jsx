@@ -112,7 +112,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
     logger.debug("Display timezone:", timezone);
 
     // Make the API request to unified search endpoint
-    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/unified/events?${params.toString()}`, {
+    const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params.toString()}`, {
       headers: {
         'Authorization': `Bearer ${apiToken}`,
         'Content-Type': 'application/json'
@@ -245,9 +245,9 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
 
     return {
       results: convertedResults,
-      nextLink: data.hasNextPage ? page + 1 : null,
-      totalCount: data.totalCount || convertedResults.length,
-      totalCapped: data.totalCapped || false, // True if count exceeds 5000
+      nextLink: data.pagination?.hasMore ? page + 1 : null,
+      totalCount: data.pagination?.totalCount || convertedResults.length,
+      totalCapped: false,
       timezone: timezone
     };
   } catch (error) {

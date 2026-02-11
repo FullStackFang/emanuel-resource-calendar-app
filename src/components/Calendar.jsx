@@ -5923,18 +5923,8 @@ import ConflictDialog from './shared/ConflictDialog';
           // Use MongoDB _id to call backend DELETE endpoint (same logic as useReviewModal.jsx)
           const mongoId = event._id;
 
-          // Determine if this is a room reservation by checking status field
-          const isRoomReservation = event.status && (
-            event.status === 'pending' ||
-            event.status === 'room-reservation-request' ||
-            event.status === 'approved' ||
-            event.status === 'rejected'
-          );
-
-          // Choose the appropriate endpoint (API_BASE_URL already includes /api)
-          const endpoint = isRoomReservation
-            ? `${API_BASE_URL}/admin/room-reservations/${mongoId}`
-            : `${API_BASE_URL}/admin/events/${mongoId}`;
+          // All events use the unified events endpoint
+          const endpoint = `${API_BASE_URL}/admin/events/${mongoId}`;
 
           const response = await fetch(endpoint, {
             method: 'DELETE',

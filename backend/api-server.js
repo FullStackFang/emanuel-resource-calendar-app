@@ -5158,83 +5158,302 @@ app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
   }
 });
 
+// ============================================================================
+// UNIFIED EVENT LIST ENDPOINTS
+// ============================================================================
+
 /**
- * NEW: Get room reservation request events (dedicated endpoint)
- * GET /api/room-reservation-events?page=1&limit=20&status=pending
+ * Unified event list endpoint — replaces room-reservation-events, room-reservations (list),
+ * admin/unified/events, and admin/events/counts.
+ *
+ * GET /api/events/list?view=my-events|approval-queue|admin-browse
  *
  * Query params:
- *   - page: Page number (default: 1)
- *   - limit: Items per page (default: 20, max: 100)
- *   - status: Filter by status ('pending', 'approved', 'rejected', 'cancelled', or 'all')
+ *   - view (required): my-events | approval-queue | admin-browse
+ *   - status: Filter by status (pending, approved, rejected, draft, deleted, all)
+ *   - search: Text search (regex on eventTitle, eventDescription, locationDisplayName)
+ *   - startDate / endDate: Date range filter
+ *   - categories: Comma-separated category filter
+ *   - locations: Comma-separated location filter
+ *   - page / limit: Pagination (defaults: page=1, limit=20)
+ *   - includeDeleted: Include deleted events (my-events view)
+ *   - calendarOwner / calendarId: Calendar filter (admin-browse only)
  */
-app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
-  logger.log('===== /api/room-reservation-events endpoint hit =====');
+app.get('/api/events/list', verifyToken, async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
-    logger.log('📥 Request params:', { page, limit, status, rawQuery: req.query });
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Validate and sanitize pagination params
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const {
+      view,
+      status = 'all',
+      search = '',
+      startDate = '',
+      endDate = '',
+      categories = '',
+      locations = '',
+      page = 1,
+      limit = 20,
+      includeDeleted,
+      calendarOwner: qCalendarOwner = '',
+      calendarId: qCalendarId = ''
+    } = req.query;
 
-    // Build query for room reservations
+    if (!view || !['my-events', 'approval-queue', 'admin-browse'].includes(view)) {
+      return res.status(400).json({ error: 'Missing or invalid view parameter. Must be: my-events, approval-queue, or admin-browse' });
+    }
+
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+
+    // Look up user for role checks
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = canViewAllReservations(user, userEmail);
+    const adminUser = isAdmin(user, userEmail);
+
+    // Role gate
+    if (view === 'approval-queue' && !canViewAll) {
+      return res.status(403).json({ error: 'Approver or Admin access required' });
+    }
+    if (view === 'admin-browse' && !adminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
+    const shouldIncludeDeleted = includeDeleted === 'true';
+
+    // ── Build base query per view ──
     let query = {};
 
-    // Handle deleted status specially - include ALL deleted events (not just reservations)
-    if (status === 'deleted') {
-      // For deleted tab, show ALL deleted events (reservations AND direct events)
-      query = {
-        $or: [
-          { status: 'deleted' },
-          { isDeleted: true }
-        ]
-      };
-    } else {
-      // For other statuses, only show room reservations
-      query = {
-        isDeleted: { $ne: true },
-        roomReservationData: { $exists: true, $ne: null }
-      };
+    if (view === 'my-events') {
+      query.roomReservationData = { $exists: true, $ne: null };
+      // Ownership filter
+      if (!canViewAll) {
+        query['calendarData.requesterEmail'] = userEmail;
+      }
+      // Status filtering
+      if (status === 'deleted') {
+        // Show deleted events (status field or isDeleted flag)
+        delete query.roomReservationData; // deleted may include non-reservations
+        query.$or = [{ status: 'deleted' }, { isDeleted: true }];
+        // Re-scope to user if not admin
+        if (!canViewAll) {
+          query['calendarData.requesterEmail'] = userEmail;
+          query.roomReservationData = { $exists: true, $ne: null };
+          delete query.$or;
+          query.$or = [{ status: 'deleted' }, { isDeleted: true }];
+        }
+      } else if (status === 'draft') {
+        query.status = 'draft';
+      } else if (status === 'pending') {
+        query.status = { $in: ['pending', 'room-reservation-request'] };
+      } else if (status === 'approved' || status === 'published') {
+        query.status = 'approved';
+      } else if (status && status !== 'all') {
+        query.status = status;
+      } else {
+        // Default: exclude deleted unless includeDeleted
+        if (!shouldIncludeDeleted) {
+          query.status = { $nin: ['deleted'] };
+        }
+      }
 
-      // Add status filter if provided (and not 'all')
-      if (status && status !== 'all') {
-        // Handle 'pending' status which may include legacy 'room-reservation-request'
+    } else if (view === 'approval-queue') {
+      if (status === 'deleted') {
+        // Show ALL deleted events for approvers
+        query = { $or: [{ status: 'deleted' }, { isDeleted: true }] };
+      } else {
+        query.isDeleted = { $ne: true };
+        query.roomReservationData = { $exists: true, $ne: null };
         if (status === 'pending') {
           query.status = { $in: ['pending', 'room-reservation-request'] };
-        } else {
+        } else if (status && status !== 'all') {
           query.status = status;
+        }
+      }
+
+    } else if (view === 'admin-browse') {
+      // Calendar filter
+      if (qCalendarOwner) {
+        query.calendarOwner = qCalendarOwner.toLowerCase();
+      } else if (qCalendarId) {
+        const ownerEmail = getCalendarOwnerFromConfig(qCalendarId);
+        if (ownerEmail) {
+          query.calendarOwner = ownerEmail.toLowerCase();
+        }
+      }
+
+      // Date range filter
+      if (startDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
+      }
+      if (endDate) {
+        query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query['calendarData.startDateTime'].$lte = endOfDay.toISOString();
+      }
+
+      // Status filter
+      if (status === 'published') {
+        query.isDeleted = { $ne: true };
+      } else if (status === 'deleted') {
+        query.isDeleted = true;
+      } else if (status === 'enriched') {
+        query.isDeleted = { $ne: true };
+        query.$or = [
+          { "internalData.mecCategories.0": { $exists: true } },
+          { "internalData.setupMinutes": { $gt: 0 } },
+          { "internalData.teardownMinutes": { $gt: 0 } }
+        ];
+      } else if (status === 'pending') {
+        query.isDeleted = { $ne: true };
+        query.status = 'pending';
+      } else if (status === 'approved') {
+        query.isDeleted = { $ne: true };
+        query.status = 'approved';
+      } else if (status === 'rejected') {
+        query.isDeleted = { $ne: true };
+        query.status = 'rejected';
+      } else if (status === 'draft') {
+        query.isDeleted = { $ne: true };
+        query.status = 'draft';
+      }
+    }
+
+    // ── Search filter (admin-browse and approval-queue) ──
+    if (search) {
+      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const searchConditions = [
+        { eventTitle: { $regex: escapedSearch, $options: 'i' } },
+        { eventDescription: { $regex: escapedSearch, $options: 'i' } },
+        { locationDisplayName: { $regex: escapedSearch, $options: 'i' } }
+      ];
+
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: searchConditions }];
+        delete query.$or;
+      } else {
+        query.$or = searchConditions;
+      }
+    }
+
+    // ── Category filter ──
+    if (categories) {
+      const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
+      if (categoryList.length > 0) {
+        const categoryConditions = [];
+
+        if (categoryList.includes('Uncategorized')) {
+          categoryConditions.push({ categories: { $exists: false } });
+          categoryConditions.push({ categories: { $size: 0 } });
+          categoryConditions.push({ categories: null });
+          categoryConditions.push({
+            $and: [
+              { 'graphData.categories': { $exists: false } },
+              { 'internalData.mecCategories': { $exists: false } }
+            ]
+          });
+        }
+
+        const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
+        if (actualCategories.length > 0) {
+          categoryConditions.push({ categories: { $in: actualCategories } });
+          categoryConditions.push({ 'graphData.categories': { $in: actualCategories } });
+          categoryConditions.push({ 'internalData.mecCategories': { $in: actualCategories } });
+        }
+
+        if (categoryConditions.length > 0) {
+          if (query.$and) {
+            query.$and.push({ $or: categoryConditions });
+          } else if (query.$or) {
+            query.$and = [{ $or: query.$or }, { $or: categoryConditions }];
+            delete query.$or;
+          } else {
+            query.$or = categoryConditions;
+          }
         }
       }
     }
 
-    // Check if user can view all reservations
-    const user = await usersCollection.findOne({ userId });
-    const canViewAll = canViewAllReservations(user, userEmail);
+    // ── Location filter ──
+    if (locations) {
+      const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
+      if (locationList.length > 0) {
+        const locationConditions = locationList.map(loc => {
+          const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return {
+            $or: [
+              { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } },
+              { 'calendarData.locations': { $in: [loc] } },
+              { 'calendarData.locationCodes': { $in: [loc] } },
+              { 'graphData.location.displayName': { $regex: escapedLoc, $options: 'i' } }
+            ]
+          };
+        });
 
-    logger.log('👤 User info:', { userId, userEmail, canViewAll });
+        const locationFilter = { $or: locationConditions };
 
-    // Non-admin users can only see their own requests
-    // Exception: For 'deleted' status, approvers/admins see ALL deleted events (no user filter)
-    if (!canViewAll && status !== 'deleted') {
-      query['roomReservationData.requestedBy.userId'] = userId;
+        if (query.$and) {
+          query.$and.push(locationFilter);
+        } else if (query.$or) {
+          query.$and = [{ $or: query.$or }, locationFilter];
+          delete query.$or;
+        } else {
+          query.$and = [locationFilter];
+        }
+      }
     }
 
-    logger.log('🔍 MongoDB query:', JSON.stringify(query, null, 2));
+    // ── Projection (reduce response size) ──
+    const projection = {
+      _id: 1, eventId: 1, status: 1, isDeleted: 1,
+      calendarId: 1, calendarOwner: 1, calendarName: 1,
+      calendarData: 1,
+      roomReservationData: 1,
+      internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
+      pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
+      createdAt: 1, createdBy: 1, createdByEmail: 1,
+      _version: 1,
+      'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
+      'graphData.location': 1, 'graphData.categories': 1,
+      'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
+    };
 
-    // Execute query with pagination
-    const skip = (pageNum - 1) * limitNum;
-    const events = await unifiedEventsCollection
-      .find(query)
-      .sort({ _id: -1 }) // Newest first (ObjectId contains timestamp)
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
+    // ── Execute query ──
+    const MAX_COUNT = 5000;
+    let totalCount = 0;
+    let totalCapped = false;
 
-    const totalCount = await unifiedEventsCollection.countDocuments(query);
+    if (limitNum > 0) {
+      totalCount = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query, { limit: MAX_COUNT + 1 }));
+      if (totalCount > MAX_COUNT) {
+        totalCapped = true;
+        totalCount = MAX_COUNT;
+      }
+    }
 
-    logger.log('📊 Query results:', { totalCount, returnedCount: events.length, page: pageNum, limit: limitNum });
+    let events = await withCosmosRetry(async () => {
+      let cursor = unifiedEventsCollection.find(query).project(projection);
+      if (limitNum > 0) {
+        cursor = cursor.skip(skip).limit(limitNum);
+      }
+      return cursor.toArray();
+    });
+
+    // Sort client-side (Cosmos DB index limitations)
+    events.sort((a, b) => {
+      const dateA = a.calendarData?.startDateTime || a.graphData?.start?.dateTime || '';
+      const dateB = b.calendarData?.startDateTime || b.graphData?.start?.dateTime || '';
+      return dateB.localeCompare(dateA);
+    });
+
+    const totalPages = limitNum > 0 ? Math.ceil(totalCount / limitNum) : 1;
+    const hasMore = limitNum > 0 && (skip + events.length) < totalCount;
 
     res.json({
       events,
@@ -5242,68 +5461,102 @@ app.get('/api/room-reservation-events', verifyToken, async (req, res) => {
         page: pageNum,
         limit: limitNum,
         totalCount,
-        totalPages: Math.ceil(totalCount / limitNum),
-        hasMore: pageNum * limitNum < totalCount
+        totalPages: totalCapped ? '?' : totalPages,
+        hasMore: totalCapped || hasMore
       }
     });
 
   } catch (error) {
-    logger.error('Error fetching room reservation events:', error);
-    res.status(500).json({ error: 'Failed to fetch room reservation events' });
+    logger.error('Error in GET /api/events/list:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
 
 /**
- * Get counts for each status (for Approval Queue tab badges)
- * GET /api/room-reservation-events/counts
+ * Unified event counts endpoint
+ * GET /api/events/list/counts?view=my-events|approval-queue|admin-browse
  */
-app.get('/api/room-reservation-events/counts', verifyToken, async (req, res) => {
+app.get('/api/events/list/counts', verifyToken, async (req, res) => {
   try {
-    // Base query for room reservations (non-deleted)
-    const baseQuery = {
-      isDeleted: { $ne: true },
-      roomReservationData: { $exists: true, $ne: null }
-    };
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+    const { view } = req.query;
 
-    // Count each status in parallel
-    const [allCount, pendingCount, approvedCount, rejectedCount, deletedCount] = await Promise.all([
-      // All (non-deleted room reservations)
-      unifiedEventsCollection.countDocuments(baseQuery),
-      // Pending
-      unifiedEventsCollection.countDocuments({
-        ...baseQuery,
-        status: { $in: ['pending', 'room-reservation-request'] }
-      }),
-      // Approved
-      unifiedEventsCollection.countDocuments({
-        ...baseQuery,
-        status: 'approved'
-      }),
-      // Rejected
-      unifiedEventsCollection.countDocuments({
-        ...baseQuery,
-        status: 'rejected'
-      }),
-      // Deleted (ALL deleted events, not just reservations)
-      unifiedEventsCollection.countDocuments({
-        $or: [
-          { status: 'deleted' },
-          { isDeleted: true }
-        ]
-      })
-    ]);
+    if (!view || !['my-events', 'approval-queue', 'admin-browse'].includes(view)) {
+      return res.status(400).json({ error: 'Missing or invalid view parameter' });
+    }
 
-    res.json({
-      all: allCount,
-      pending: pendingCount,
-      approved: approvedCount,
-      rejected: rejectedCount,
-      deleted: deletedCount
-    });
+    if (!unifiedEventsCollection) {
+      return res.status(500).json({ error: 'Database collections not initialized' });
+    }
+
+    const user = await usersCollection.findOne({ userId });
+    const canViewAll = canViewAllReservations(user, userEmail);
+    const adminUser = isAdmin(user, userEmail);
+
+    if (view === 'approval-queue' && !canViewAll) {
+      return res.status(403).json({ error: 'Approver or Admin access required' });
+    }
+    if (view === 'admin-browse' && !adminUser) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    if (view === 'my-events') {
+      // Counts for user's own reservations
+      const baseQuery = { roomReservationData: { $exists: true, $ne: null } };
+      if (!canViewAll) {
+        baseQuery['calendarData.requesterEmail'] = userEmail;
+      }
+
+      const [all, pending, approved, rejected, cancelled, draft, deleted] = await Promise.all([
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'cancelled' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft' }),
+        unifiedEventsCollection.countDocuments({
+          ...(canViewAll ? {} : { 'calendarData.requesterEmail': userEmail }),
+          roomReservationData: { $exists: true, $ne: null },
+          $or: [{ status: 'deleted' }, { isDeleted: true }]
+        })
+      ]);
+
+      res.json({ all, pending, approved, rejected, cancelled, draft, deleted });
+
+    } else if (view === 'approval-queue') {
+      const baseQuery = {
+        isDeleted: { $ne: true },
+        roomReservationData: { $exists: true, $ne: null }
+      };
+
+      const [all, pending, approved, rejected, deleted] = await Promise.all([
+        unifiedEventsCollection.countDocuments(baseQuery),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
+        unifiedEventsCollection.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] })
+      ]);
+
+      res.json({ all, pending, approved, rejected, deleted });
+
+    } else if (view === 'admin-browse') {
+      const [total, pending, approved, rejected, deleted, draft] = await Promise.all([
+        unifiedEventsCollection.countDocuments({}),
+        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'pending' }),
+        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'rejected' }),
+        unifiedEventsCollection.countDocuments({ isDeleted: true }),
+        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
+      ]);
+
+      const published = total - deleted;
+      res.json({ total, published, pending, approved, rejected, deleted, draft });
+    }
 
   } catch (error) {
-    logger.error('Error fetching reservation counts:', error);
-    res.status(500).json({ error: 'Failed to fetch counts' });
+    logger.error('Error in GET /api/events/list/counts:', error);
+    res.status(500).json({ error: 'Failed to get event counts' });
   }
 });
 
@@ -6861,107 +7114,6 @@ app.get('/api/events/sync-stats', verifyToken, async (req, res) => {
 // ============================================
 
 /**
- * Admin endpoint - Get simple counts for unified events
- * Cosmos DB compatible - uses simple count queries
- */
-app.get('/api/admin/unified/counts', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    // Check if collections are initialized
-    if (!unifiedEventsCollection) {
-      logger.error('Collections not initialized in unified counts');
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-    
-    // Get simple counts using count queries (Cosmos DB compatible)
-    const [total, deleted, enrichedResult] = await Promise.all([
-      // Total events
-      unifiedEventsCollection.countDocuments({ userId: userId }),
-      
-      // Deleted events
-      unifiedEventsCollection.countDocuments({ 
-        userId: userId, 
-        isDeleted: true 
-      }),
-      
-      // Enriched events - using find with limit to check if any exist
-      unifiedEventsCollection.findOne({
-        userId: userId,
-        isDeleted: { $ne: true },
-        "internalData.mecCategories.0": { $exists: true }
-      })
-    ]);
-    
-    // Calculate enriched count more simply
-    let enrichedCount = 0;
-    if (enrichedResult) {
-      // If we found one, count them properly
-      enrichedCount = await unifiedEventsCollection.countDocuments({
-        userId: userId,
-        isDeleted: { $ne: true },
-        $or: [
-          { "internalData.mecCategories.0": { $exists: true } },
-          { "internalData.setupMinutes": { $gt: 0 } },
-          { "internalData.teardownMinutes": { $gt: 0 } }
-        ]
-      });
-    }
-    
-    const active = total - deleted;
-    
-    res.status(200).json({
-      total,
-      active,
-      deleted,
-      enriched: enrichedCount
-    });
-  } catch (error) {
-    logger.error('Error getting unified counts:', error);
-    res.status(500).json({ error: 'Failed to get counts' });
-  }
-});
-
-/**
- * Admin endpoint - Get event counts by status (all events, not user-scoped)
- * Used by Event Management admin page
- */
-app.get('/api/admin/events/counts', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    if (!unifiedEventsCollection) {
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-
-    const [total, pending, approved, rejected, deleted, draft] = await Promise.all([
-      unifiedEventsCollection.countDocuments({}),
-      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'pending' }),
-      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'approved' }),
-      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'rejected' }),
-      unifiedEventsCollection.countDocuments({ isDeleted: true }),
-      unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
-    ]);
-
-    const published = total - deleted;
-
-    res.json({ total, published, pending, approved, rejected, deleted, draft });
-  } catch (error) {
-    logger.error('Error getting admin event counts:', error);
-    res.status(500).json({ error: 'Failed to get event counts' });
-  }
-});
-
-/**
  * Admin endpoint - Get delta tokens
  * Simple query, no aggregation needed
  */
@@ -7213,372 +7365,6 @@ app.put('/api/admin/calendar-display-settings', verifyToken, async (req, res) =>
   } catch (error) {
     logger.error('Error updating allowed display calendars:', error);
     res.status(500).json({ error: 'Failed to update allowed display calendars' });
-  }
-});
-
-/**
- * Admin endpoint - Browse unified events with simple filtering
- * Cosmos DB compatible - uses find with simple queries
- */
-app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    
-    if (!unifiedEventsCollection) {
-      logger.error('Events collection not initialized');
-      return res.status(500).json({ error: 'Database collections not initialized' });
-    }
-    
-    const {
-      page = 1,
-      limit = 100, // Default to 100 to prevent Cosmos DB rate limiting; use 0 for no limit
-      status = 'all',
-      search = '',
-      calendarId = '',
-      calendarOwner = '',
-      startDate = '',
-      endDate = '',
-      categories = '',
-      locations = ''
-    } = req.query;
-
-    const pageNum = parseInt(page);
-    const limitNum = limit === '0' || limit === 0 ? 0 : parseInt(limit) || 100;
-    const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
-
-    // Build query - filter by calendarOwner (email) like the main calendar page
-    let query = {};
-
-    // Calendar filter - prefer calendarOwner (email), fall back to calendarId
-    // Use case-insensitive matching for email
-    if (calendarOwner) {
-      query.calendarOwner = calendarOwner.toLowerCase();
-    } else if (calendarId) {
-      // If calendarId is provided, try to get the calendarOwner from config
-      const ownerEmail = getCalendarOwnerFromConfig(calendarId);
-      if (ownerEmail) {
-        query.calendarOwner = ownerEmail.toLowerCase();
-        logger.log(`Resolved calendarId to calendarOwner: ${ownerEmail}`);
-      } else {
-        // CalendarId not in config - search across all calendars
-        // This happens when user is viewing a calendar folder that's not in the config
-        logger.log(`CalendarId not found in config, searching across all calendars`);
-        // Don't filter by calendar - will search all events
-      }
-    }
-    // If no calendar filter at all, search across all events
-
-    // Date range filter - use calendarData.startDateTime for filtering
-    if (startDate) {
-      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-      query['calendarData.startDateTime'].$gte = new Date(startDate).toISOString();
-    }
-    if (endDate) {
-      query['calendarData.startDateTime'] = query['calendarData.startDateTime'] || {};
-      // End of day for the end date
-      const endOfDay = new Date(endDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      query['calendarData.startDateTime'].$lte = endOfDay.toISOString();
-    }
-
-    // Debug logging - use console.log for visibility during debugging
-    logger.log('=== Unified Events Search Debug ===');
-    logger.log('Query params:', {
-      calendarOwner: query.calendarOwner || 'not set',
-      calendarId: query.calendarId || 'not set',
-      status,
-      search,
-      startDate,
-      endDate,
-      categories: categories || 'not set',
-      locations: locations || 'not set',
-      page: pageNum,
-      limit: limitNum
-    });
-    logger.debug('Unified events query:', { calendarOwner: query.calendarOwner, status, search, startDate, endDate, page: pageNum, limit: limitNum });
-
-    // Status filter
-    if (status === 'published') {
-      query.isDeleted = { $ne: true };
-    } else if (status === 'deleted') {
-      query.isDeleted = true;
-    } else if (status === 'enriched') {
-      query.isDeleted = { $ne: true };
-      query.$or = [
-        { "internalData.mecCategories.0": { $exists: true } },
-        { "internalData.setupMinutes": { $gt: 0 } },
-        { "internalData.teardownMinutes": { $gt: 0 } }
-      ];
-    } else if (status === 'pending') {
-      query.isDeleted = { $ne: true };
-      query.status = 'pending';
-    } else if (status === 'approved') {
-      query.isDeleted = { $ne: true };
-      query.status = 'approved';
-    } else if (status === 'rejected') {
-      query.isDeleted = { $ne: true };
-      query.status = 'rejected';
-    } else if (status === 'draft') {
-      query.isDeleted = { $ne: true };
-      query.status = 'draft';
-    }
-
-    // Search filter - use only essential top-level fields to reduce Cosmos DB RU consumption
-    // Reduced from 9 fields to 3 to prevent 429 rate limiting errors
-    if (search) {
-      // Escape special regex characters in search term
-      const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const searchConditions = [
-        // Top-level fields only (source of truth for unified events)
-        // eventTitle contains the canonical title (from CSV or Graph sync)
-        { eventTitle: { $regex: escapedSearch, $options: 'i' } },
-        // eventDescription contains notes/body content
-        { eventDescription: { $regex: escapedSearch, $options: 'i' } },
-        // locationDisplayName is the consolidated location string
-        { locationDisplayName: { $regex: escapedSearch, $options: 'i' } }
-      ];
-
-      // If there's already an $or condition (for enriched status), combine them
-      if (query.$or) {
-        query.$and = [
-          { $or: query.$or }, // existing status filter
-          { $or: searchConditions } // search filter
-        ];
-        delete query.$or;
-      } else {
-        query.$or = searchConditions;
-      }
-    }
-
-    // Category filter - filter by categories array or graphData.categories or internalData.mecCategories
-    if (categories) {
-      const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
-      if (categoryList.length > 0) {
-        const categoryConditions = [];
-
-        // Check for "Uncategorized" special case
-        if (categoryList.includes('Uncategorized')) {
-          // Include events with no categories
-          categoryConditions.push({ categories: { $exists: false } });
-          categoryConditions.push({ categories: { $size: 0 } });
-          categoryConditions.push({ categories: null });
-          categoryConditions.push({
-            $and: [
-              { 'graphData.categories': { $exists: false } },
-              { 'internalData.mecCategories': { $exists: false } }
-            ]
-          });
-        }
-
-        // Filter out "Uncategorized" for actual category matching
-        const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
-        if (actualCategories.length > 0) {
-          // Match against top-level categories, graphData.categories, or internalData.mecCategories
-          categoryConditions.push({ categories: { $in: actualCategories } });
-          categoryConditions.push({ 'graphData.categories': { $in: actualCategories } });
-          categoryConditions.push({ 'internalData.mecCategories': { $in: actualCategories } });
-        }
-
-        if (categoryConditions.length > 0) {
-          // Combine with existing query using $and
-          if (query.$and) {
-            query.$and.push({ $or: categoryConditions });
-          } else if (query.$or) {
-            query.$and = [
-              { $or: query.$or },
-              { $or: categoryConditions }
-            ];
-            delete query.$or;
-          } else {
-            query.$or = categoryConditions;
-          }
-        }
-
-        logger.log('Category filter applied:', categoryList);
-      }
-    }
-
-    // Location filter - filter by calendarData location fields or graphData.location
-    if (locations) {
-      const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
-      if (locationList.length > 0) {
-        const locationConditions = locationList.map(loc => {
-          const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          return {
-            $or: [
-              { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } },
-              { 'calendarData.locations': { $in: [loc] } },
-              { 'calendarData.locationCodes': { $in: [loc] } },
-              { 'graphData.location.displayName': { $regex: escapedLoc, $options: 'i' } }
-            ]
-          };
-        });
-
-        // Events must match at least one of the selected locations
-        const locationFilter = { $or: locationConditions };
-
-        // Combine with existing query using $and
-        if (query.$and) {
-          query.$and.push(locationFilter);
-        } else if (query.$or) {
-          query.$and = [
-            { $or: query.$or },
-            locationFilter
-          ];
-          delete query.$or;
-        } else {
-          query.$and = [locationFilter];
-        }
-
-        logger.log('Location filter applied:', locationList);
-      }
-    }
-
-    // Get total count first
-    logger.log('Final query (userId, calendarId, isDeleted):', {
-      userId: query.userId,
-      calendarId: query.calendarId,
-      isDeleted: query.isDeleted,
-      hasOr: !!query.$or,
-      hasAnd: !!query.$and,
-      orConditionsCount: query.$or?.length || 0
-    });
-    if (search) {
-      logger.log('Search term:', search);
-    }
-
-    // Wrap database operations with retry logic for Cosmos DB rate limiting
-    // Cap count at 5000 to prevent long-running queries on broad searches
-    const MAX_COUNT = 5000;
-    let total = 0;
-    let totalCapped = false;
-
-    // For paginated queries, get the count (needed for pagination UI)
-    // For limit=0 (export), skip count to save RUs
-    if (limitNum > 0) {
-      total = await withCosmosRetry(() => unifiedEventsCollection.countDocuments(query, { limit: MAX_COUNT + 1 }));
-      if (total > MAX_COUNT) {
-        totalCapped = true;
-        total = MAX_COUNT;
-        logger.log(`Total events capped at ${MAX_COUNT} (actual count exceeds limit)`);
-      } else {
-        logger.log('Total events found:', total);
-      }
-    }
-
-    logger.debug('Total events found:', total, 'capped:', totalCapped, 'with query:', JSON.stringify(query));
-
-    // Get events without server-side sorting to avoid Cosmos DB index issues
-    // Sort client-side after fetching
-    // Use projection to reduce document size and RU consumption
-    // Include calendarData (source of truth) and essential metadata fields
-    let events = await withCosmosRetry(async () => {
-      let cursor = unifiedEventsCollection.find(query).project({
-        _id: 1, eventId: 1, status: 1,
-        calendarId: 1, calendarOwner: 1, calendarName: 1,
-        isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
-        calendarData: 1, // All calendar fields are now in calendarData
-        'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
-        'graphData.location': 1, 'graphData.categories': 1, 'graphData.organizer': 1, 'graphData.bodyPreview': 1
-      });
-
-      // Apply pagination only if limit is specified (limitNum > 0)
-      if (limitNum > 0) {
-        cursor = cursor.skip(skip).limit(limitNum);
-      }
-
-      return cursor.toArray();
-    });
-    logger.log('Events returned:', events.length);
-
-    // Sort client-side by startDateTime (Cosmos DB doesn't support sorting without index)
-    events.sort((a, b) => {
-      const dateA = a.startDateTime ? new Date(a.startDateTime) : new Date(0);
-      const dateB = b.startDateTime ? new Date(b.startDateTime) : new Date(0);
-      return dateB - dateA;
-    });
-
-    // Format events for response - include all fields needed by EventSearch.jsx
-    // Only include essential graphData fields to reduce response size
-    const formattedEvents = events.map(event => {
-      // Extract only essential fields from graphData to avoid huge response
-      const essentialGraphData = event.graphData ? {
-        subject: event.graphData.subject,
-        start: event.graphData.start,
-        end: event.graphData.end,
-        location: event.graphData.location,
-        categories: event.graphData.categories,
-        bodyPreview: event.graphData.bodyPreview,
-        organizer: event.graphData.organizer
-      } : null;
-
-      return {
-        _id: event._id,
-        eventId: event.eventId,
-        // Title fields - read from calendarData (source of truth)
-        eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
-        subject: event.calendarData?.eventTitle || event.graphData?.subject || 'No Subject',
-        // Include only essential graphData for proper datetime formatting
-        graphData: essentialGraphData,
-        // Include calendarData datetime fields (source of truth)
-        startDateTime: event.calendarData?.startDateTime || event.graphData?.start?.dateTime,
-        endDateTime: event.calendarData?.endDateTime || event.graphData?.end?.dateTime,
-        startDate: event.calendarData?.startDate,
-        startTime: event.calendarData?.startTime,
-        endDate: event.calendarData?.endDate,
-        endTime: event.calendarData?.endTime,
-        startTimeZone: event.graphData?.start?.timeZone || 'America/New_York',
-        endTimeZone: event.graphData?.end?.timeZone || 'America/New_York',
-        isAllDayEvent: event.calendarData?.isAllDayEvent,
-        // Setup/teardown times
-        setupTime: event.calendarData?.setupTime,
-        teardownTime: event.calendarData?.teardownTime,
-        doorOpenTime: event.calendarData?.doorOpenTime,
-        doorCloseTime: event.calendarData?.doorCloseTime,
-        setupMinutes: event.calendarData?.setupTimeMinutes,
-        teardownMinutes: event.calendarData?.teardownTimeMinutes,
-        // Internal notes
-        setupNotes: event.calendarData?.setupNotes || '',
-        doorNotes: event.calendarData?.doorNotes || '',
-        eventNotes: event.calendarData?.eventNotes || '',
-        // Location fields
-        location: event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName,
-        locationDisplayName: event.calendarData?.locationDisplayNames,
-        locationDisplayNames: event.calendarData?.locationDisplayNames,
-        locations: event.calendarData?.locations,
-        locationCodes: event.calendarData?.locationCodes,
-        // Event metadata
-        eventDescription: event.calendarData?.eventDescription,
-        calendarId: event.calendarId,
-        calendarOwner: event.calendarOwner,
-        calendarName: event.calendarName,
-        categories: event.calendarData?.categories || event.graphData?.categories,
-        status: event.status || 'draft',
-        isDeleted: event.isDeleted || false,
-        hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
-        internalData: event.internalData,
-        sourceCalendars: event.sourceCalendars || [],
-        lastSyncedAt: event.lastSyncedAt
-      };
-    });
-    
-    // Calculate pagination info
-    const hasNextPage = limitNum > 0 && (skip + formattedEvents.length) < total;
-    const totalPages = limitNum > 0 ? Math.ceil(total / limitNum) : 1;
-
-    res.status(200).json({
-      events: formattedEvents,
-      total: total,
-      totalCount: total, // Alias for frontend compatibility
-      totalCapped: totalCapped, // True if actual count exceeds MAX_COUNT
-      page: pageNum,
-      limit: limitNum,
-      hasNextPage: totalCapped || hasNextPage, // If capped, there are definitely more
-      totalPages: totalCapped ? '?' : totalPages // Unknown if capped
-    });
-  } catch (error) {
-    logger.error('Error getting unified events:', error);
-    res.status(500).json({ error: 'Failed to get events' });
   }
 });
 
@@ -12436,295 +12222,6 @@ app.get('/api/rooms/availability', async (req, res) => {
 });
 
 /**
- * Submit a room reservation request (authenticated users)
- */
-app.post('/api/room-reservations', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    
-    const {
-      eventTitle,
-      eventDescription,
-      startDateTime,
-      endDateTime,
-      attendeeCount,
-      requestedRooms,
-      requiredFeatures,
-      specialRequirements,
-      department,
-      phone,
-      // Setup/teardown times (in minutes)
-      setupTimeMinutes = 0,
-      teardownTimeMinutes = 0,
-      // Access & Operations Times
-      setupTime,
-      teardownTime,
-      doorOpenTime,
-      doorCloseTime,
-      // Internal Notes
-      setupNotes,
-      doorNotes,
-      eventNotes,
-      // New delegation fields
-      isOnBehalfOf = false,
-      contactName,
-      contactEmail,
-      // Categories
-      categories,
-      // Concurrent scheduling settings (admin-only)
-      isAllowedConcurrent = false,
-      allowedConcurrentCategories = []
-    } = req.body;
-    
-    // Validation
-    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms' 
-      });
-    }
-    
-    // Validate delegation fields if on behalf of someone else
-    if (isOnBehalfOf) {
-      if (!contactName || !contactEmail) {
-        return res.status(400).json({
-          error: 'Contact name and email are required when submitting on behalf of someone else'
-        });
-      }
-
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(contactEmail)) {
-        return res.status(400).json({
-          error: 'Invalid contact email format'
-        });
-      }
-    }
-
-    // Calculate effective blocking times (setup to teardown)
-    const baseStart = new Date(startDateTime);
-    const baseEnd = new Date(endDateTime);
-
-    // If setup time is provided, use it as the effective start
-    let effectiveStart = baseStart;
-    if (setupTime) {
-      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
-      effectiveStart = new Date(baseStart);
-      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
-    }
-
-    // If teardown time is provided, use it as the effective end
-    let effectiveEnd = baseEnd;
-    if (teardownTime) {
-      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
-      effectiveEnd = new Date(baseEnd);
-      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
-    }
-
-    // Helper function to create reservation snapshot
-    const createReservationSnapshot = (reservationData) => ({
-      eventTitle: reservationData.eventTitle,
-      eventDescription: reservationData.eventDescription,
-      startDateTime: reservationData.startDateTime,
-      endDateTime: reservationData.endDateTime,
-      attendeeCount: reservationData.attendeeCount,
-      requestedRooms: reservationData.requestedRooms,
-      requiredFeatures: reservationData.requiredFeatures,
-      specialRequirements: reservationData.specialRequirements,
-      contactEmail: reservationData.contactEmail,
-      department: reservationData.department,
-      phone: reservationData.phone,
-      setupTimeMinutes: reservationData.setupTimeMinutes,
-      teardownTimeMinutes: reservationData.teardownTimeMinutes,
-      // Access & Operations Times
-      setupTime: reservationData.setupTime,
-      teardownTime: reservationData.teardownTime,
-      doorOpenTime: reservationData.doorOpenTime,
-      doorCloseTime: reservationData.doorCloseTime,
-      // Internal Notes
-      setupNotes: reservationData.setupNotes,
-      doorNotes: reservationData.doorNotes,
-      eventNotes: reservationData.eventNotes
-    });
-
-    // Create initial communication history entry
-    const initialSubmissionEntry = {
-      timestamp: new Date(),
-      type: 'submission',
-      author: userId,
-      authorName: req.user.name || userEmail,
-      message: 'Initial reservation submission',
-      revisionNumber: 1,
-      reservationSnapshot: createReservationSnapshot({
-        eventTitle,
-        eventDescription: eventDescription || '',
-        startDateTime: new Date(startDateTime),
-        endDateTime: new Date(endDateTime),
-        attendeeCount: attendeeCount || 0,
-        requestedRooms,
-        requiredFeatures: requiredFeatures || [],
-        specialRequirements: specialRequirements || '',
-        contactEmail: isOnBehalfOf ? contactEmail : null,
-        department: department || '',
-        phone: phone || '',
-        setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0,
-        setupTime: setupTime || null,
-        teardownTime: teardownTime || null,
-        doorOpenTime: doorOpenTime || null,
-        doorCloseTime: doorCloseTime || null,
-        setupNotes: setupNotes || '',
-        doorNotes: doorNotes || '',
-        eventNotes: eventNotes || ''
-      })
-    };
-
-    // Parse date components for calendarData
-    const startDateObj = new Date(startDateTime);
-    const endDateObj = new Date(endDateTime);
-    const startDateStr = startDateTime.split('T')[0];
-    const startTimeStr = startDateTime.split('T')[1]?.substring(0, 5) || '';
-    const endDateStr = endDateTime.split('T')[0];
-    const endTimeStr = endDateTime.split('T')[1]?.substring(0, 5) || '';
-
-    // Create reservation record with calendarData structure
-    const reservation = {
-      // Identity and status fields (top-level)
-      requesterId: userId,
-      status: 'pending',
-      effectiveStart: effectiveStart, // Used for room blocking (includes setup)
-      effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
-
-      // Concurrent scheduling settings (top-level for indexing)
-      isAllowedConcurrent: isAllowedConcurrent || false,
-      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
-        try { return new ObjectId(id); } catch { return id; }
-      }),
-
-      // Resubmission fields
-      currentRevision: 1,
-      resubmissionAllowed: true,
-      communicationHistory: [initialSubmissionEntry],
-
-      // Conflict resolution fields
-      reviewStatus: 'not_reviewing',
-      revisions: [],
-      lastModifiedBy: userEmail,
-
-      assignedTo: null,
-      reviewNotes: '',
-      approvedBy: null,
-      actionDate: null,
-      rejectionReason: '',
-      createdEventIds: [],
-
-      submittedAt: new Date(),
-      lastModified: new Date(),
-      attachments: [],
-
-      // CALENDAR DATA (consolidated event/calendar fields - source of truth)
-      calendarData: {
-        eventTitle,
-        eventDescription: eventDescription || '',
-        // Store datetime as ISO strings (local time)
-        startDateTime: startDateTime.replace(/Z$/, ''),
-        endDateTime: endDateTime.replace(/Z$/, ''),
-        // Date and time components
-        startDate: startDateStr,
-        startTime: startTimeStr,
-        endDate: endDateStr,
-        endTime: endTimeStr,
-        isAllDayEvent: false,
-        // Setup and teardown times
-        setupTime: setupTime || null,
-        teardownTime: teardownTime || null,
-        setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0,
-        doorOpenTime: doorOpenTime || null,
-        doorCloseTime: doorCloseTime || null,
-        // Internal Notes (staff use only)
-        setupNotes: setupNotes || '',
-        doorNotes: doorNotes || '',
-        eventNotes: eventNotes || '',
-        // Locations - use requestedRooms as ObjectId array
-        locations: requestedRooms,
-        locationDisplayNames: '', // Will be populated when approved
-        // Requester info
-        requesterName: req.user.name || userEmail,
-        requesterEmail: userEmail,
-        department: department || '',
-        phone: phone || '',
-        // Delegation fields
-        isOnBehalfOf: isOnBehalfOf,
-        contactName: isOnBehalfOf ? contactName : null,
-        contactEmail: isOnBehalfOf ? contactEmail : null,
-        // Event details
-        attendeeCount: attendeeCount || 0,
-        specialRequirements: specialRequirements || '',
-        requiredFeatures: requiredFeatures || [],
-        // Categories
-        categories: categories || [],
-        assignedTo: '',
-        // Virtual meeting (not applicable for room reservations)
-        virtualMeetingUrl: null,
-        virtualPlatform: null,
-        // Offsite (not applicable for room reservations)
-        isOffsite: false,
-        offsiteName: '',
-        offsiteAddress: '',
-        offsiteLat: null,
-        offsiteLon: null
-      },
-
-      // Status history for tracking transitions
-      statusHistory: [{
-        status: 'pending',
-        changedAt: new Date(),
-        changedBy: userId,
-        changedByEmail: userEmail,
-        reason: 'Room reservation submitted'
-      }],
-
-      // Optimistic concurrency control
-      _version: 1
-    };
-
-    // Generate changeKey for the new reservation
-    reservation.changeKey = generateChangeKey(reservation);
-
-    const result = await unifiedEventsCollection.insertOne(reservation);
-    const createdReservation = await unifiedEventsCollection.findOne({ _id: result.insertedId });
-
-    // Log audit entry for reservation creation
-    await logReservationAudit({
-      reservationId: result.insertedId,
-      userId: userId,
-      userEmail: userEmail,
-      changeType: 'create',
-      source: 'Space Booking Form',
-      metadata: {
-        eventTitle: eventTitle,
-        rooms: requestedRooms,
-        startDateTime: startDateTime,
-        endDateTime: endDateTime
-      }
-    });
-
-    logger.log('Room reservation submitted:', {
-      reservationId: result.insertedId,
-      requester: userEmail,
-      eventTitle,
-      rooms: requestedRooms
-    });
-
-    res.status(201).json(createdReservation);
-  } catch (error) {
-    logger.error('Error submitting room reservation:', error);
-    res.status(500).json({ error: 'Failed to submit room reservation' });
-  }
-});
-
-/**
  * Save a room reservation as draft (authenticated users)
  * Minimal validation - only eventTitle required
  * Does NOT check conflicts or notify admins
@@ -13921,130 +13418,6 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
   } catch (error) {
     logger.error('Error submitting guest room reservation:', error);
     res.status(500).json({ error: 'Failed to submit room reservation' });
-  }
-});
-
-/**
- * Get room reservations (filtered by permissions)
- * Now queries unified events collection (templeEvents__Events) instead of legacy unifiedEventsCollection
- * Includes draft support: users can see their own drafts, admins can see all drafts
- */
-app.get('/api/room-reservations', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { status, page = 1, limit: queryLimit = 20, includeDeleted } = req.query;
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(queryLimit) || 20;
-    const shouldIncludeDeleted = includeDeleted === 'true';
-
-    // Check if user can view all reservations or just their own
-    const user = await usersCollection.findOne({ userId });
-    const canViewAll = canViewAllReservations(user, userEmail);
-
-    // Build query - use calendarData.requesterEmail for ownership, top-level status for filtering
-    let query = {
-      roomReservationData: { $exists: true, $ne: null }
-    };
-
-    // Ownership filter using calendarData.requesterEmail (consistent field)
-    if (!canViewAll) {
-      query['calendarData.requesterEmail'] = userEmail;
-    }
-
-    // Status filtering using top-level status field
-    if (status === 'draft') {
-      query.status = 'draft';
-    } else if (status === 'deleted') {
-      query.status = 'deleted';
-    } else if (status === 'pending') {
-      query.status = { $in: ['pending', 'room-reservation-request'] };
-    } else if (status === 'approved' || status === 'published') {
-      query.status = 'approved';
-    } else if (status) {
-      query.status = status;
-    } else {
-      // No status filter - include all statuses for client-side filtering when includeDeleted=true
-      if (!shouldIncludeDeleted) {
-        query.status = { $nin: ['deleted'] };
-      }
-    }
-
-    const skip = (pageNum - 1) * limitNum;
-
-    // Query unified events collection instead of legacy unifiedEventsCollection
-    // Note: Using _id for sorting as it's always indexed and provides chronological order for ObjectIds
-    const events = await unifiedEventsCollection
-      .find(query)
-      .sort({ _id: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
-
-    // Transform events to match expected reservation format for frontend
-    // Read all calendar fields from calendarData (source of truth)
-    const reservations = events.map(event => {
-      const cd = event.calendarData || {};
-      return {
-        _id: event._id,
-        eventId: event.eventId,
-        eventTitle: cd.eventTitle || event.graphData?.subject || 'Untitled',
-        eventDescription: cd.eventDescription || event.graphData?.bodyPreview || '',
-        startDateTime: cd.startDateTime || event.graphData?.start?.dateTime,
-        endDateTime: cd.endDateTime || event.graphData?.end?.dateTime,
-        status: event.status === 'room-reservation-request' ? 'pending' : event.status,
-        requestedRooms: cd.locations || [],
-        attendeeCount: cd.attendeeCount || 0,
-        requesterId: event.roomReservationData?.requestedBy?.userId,
-        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
-        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
-        submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
-        roomReservationData: event.roomReservationData,
-        rejectionReason: event.roomReservationData?.rejectionReason,
-        cancelReason: event.roomReservationData?.cancelReason,
-        actionDate: event.roomReservationData?.reviewedAt,
-        // Include additional fields that may be needed
-        specialRequirements: cd.specialRequirements,
-        setupTime: cd.setupTime,
-        teardownTime: cd.teardownTime,
-        doorOpenTime: cd.doorOpenTime,
-        doorCloseTime: cd.doorCloseTime,
-        // Separate date/time fields for draft partial support
-        startDate: cd.startDate || null,
-        startTime: cd.startTime || null,
-        endDate: cd.endDate || null,
-        endTime: cd.endTime || null,
-        // Categories and services (for draft editing)
-        categories: cd.categories || [],
-        services: cd.services || {},
-        // Draft-specific fields
-        draftCreatedAt: event.draftCreatedAt,
-        lastDraftSaved: event.lastDraftSaved,
-        // Pending edit request (for Published Edit filtering)
-        pendingEditRequest: event.pendingEditRequest || null,
-        // Ownership fields
-        createdBy: event.createdBy,
-        createdByEmail: event.createdByEmail,
-        // Include calendarData for frontend compatibility
-        calendarData: cd
-      };
-    });
-
-    const totalCount = await unifiedEventsCollection.countDocuments(query);
-
-    res.json({
-      reservations,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limitNum),
-        hasMore: pageNum * limitNum < totalCount
-      }
-    });
-  } catch (error) {
-    logger.error('Error fetching room reservations:', error.message, error.stack);
-    res.status(500).json({ error: 'Failed to fetch room reservations', details: error.message });
   }
 });
 
@@ -15496,812 +14869,12 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
   }
 });
 
-/**
- * Start reviewing a room reservation (Admin only)
- * This creates a soft hold on the reservation to prevent concurrent edits
- */
-app.post('/api/admin/room-reservations/:id/start-review', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
+// Legacy admin/room-reservations endpoints removed in Phase 2 endpoint streamlining.
+// All admin operations now use /api/admin/events/* endpoints with _version-based concurrency.
 
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
 
-    // Get current reservation/event from unified events collection
-    // (Room reservations are now stored in templeEvents__Events, not the legacy unifiedEventsCollection)
-    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!reservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
 
-    // Check if already being reviewed by someone else
-    if (reservation.reviewStatus === 'reviewing' && reservation.reviewingBy && reservation.reviewingBy !== userEmail) {
-      return res.status(423).json({
-        error: 'Reservation is currently being reviewed by another user',
-        reviewingBy: reservation.reviewingBy,
-        reviewStartedAt: reservation.reviewStartedAt
-      });
-    }
-
-    // Generate initial changeKey if it doesn't exist
-    const changeKey = reservation.changeKey || generateChangeKey(reservation);
-
-    // Update reservation to mark as being reviewed
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          reviewStatus: 'reviewing',
-          reviewingBy: userEmail,
-          reviewStartedAt: new Date(),
-          changeKey: changeKey,
-          lastModified: new Date()
-        }
-      },
-      { returnDocument: 'after' }
-    );
-
-    if (!result) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    logger.log('Review started:', { reservationId: id, reviewer: userEmail });
-    res.json({
-      message: 'Review session started',
-      reservation: result,
-      changeKey: changeKey
-    });
-  } catch (error) {
-    logger.error('Error starting review:', error);
-    res.status(500).json({ error: 'Failed to start review session' });
-  }
-});
-
-/**
- * Release review hold on a room reservation (Admin only)
- */
-app.post('/api/admin/room-reservations/:id/release-review', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get current reservation/event from unified events collection
-    // (Room reservations are now stored in templeEvents__Events, not the legacy unifiedEventsCollection)
-    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!reservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Only allow releasing if you're the reviewer or if no one is reviewing
-    if (reservation.reviewingBy && reservation.reviewingBy !== userEmail) {
-      return res.status(403).json({
-        error: 'Cannot release review hold - reservation is being reviewed by another user',
-        reviewingBy: reservation.reviewingBy
-      });
-    }
-
-    // Release the review hold
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          reviewStatus: 'not_reviewing',
-          lastModified: new Date()
-        },
-        $unset: {
-          reviewingBy: '',
-          reviewStartedAt: ''
-        }
-      },
-      { returnDocument: 'after' }
-    );
-
-    logger.log('Review released:', { reservationId: id, reviewer: userEmail });
-    res.json({
-      message: 'Review session released',
-      reservation: result
-    });
-  } catch (error) {
-    logger.error('Error releasing review:', error);
-    res.status(500).json({ error: 'Failed to release review session' });
-  }
-});
-
-/**
- * Check for scheduling conflicts with a room reservation (Admin only)
- */
-app.get('/api/admin/room-reservations/:id/check-conflicts', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get the reservation
-    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!reservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Check for conflicts
-    const conflicts = await checkRoomConflicts(reservation, id);
-
-    res.json({
-      hasConflicts: conflicts.length > 0,
-      conflicts: conflicts
-    });
-  } catch (error) {
-    logger.error('Error checking conflicts:', error);
-    res.status(500).json({ error: 'Failed to check conflicts' });
-  }
-});
-
-/**
- * Update a room reservation with optimistic concurrency control (Admin only)
- */
-app.put('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-    const ifMatch = req.headers['if-match'];
-    const updates = req.body;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get current reservation
-    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!currentReservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Validate ETag if provided
-    if (ifMatch) {
-      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
-      if (ifMatch !== currentChangeKey) {
-        return res.status(409).json({
-          error: 'Conflict: Reservation has been modified by another user',
-          currentChangeKey: currentChangeKey,
-          providedChangeKey: ifMatch
-        });
-      }
-    }
-
-    // Check if being reviewed by someone else
-    if (currentReservation.reviewStatus === 'reviewing' &&
-        currentReservation.reviewingBy &&
-        currentReservation.reviewingBy !== userEmail) {
-      return res.status(423).json({
-        error: 'Reservation is currently being reviewed by another user',
-        reviewingBy: currentReservation.reviewingBy
-      });
-    }
-
-    // Fields that can be updated
-    const allowedFields = [
-      'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
-      'attendeeCount', 'requestedRooms', 'locations', 'requiredFeatures', 'specialRequirements',
-      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone',
-      'contactName', 'contactEmail', 'reviewNotes',
-      'setupTime', 'doorOpenTime', 'doorCloseTime', 'teardownTime',
-      'setupNotes', 'doorNotes', 'eventNotes',
-      'categories', 'services',  // Categories sync with Outlook, services are internal
-      'isAllowedConcurrent', 'allowedConcurrentCategories'  // Concurrent scheduling settings
-    ];
-
-    // Build update document
-    const updateDoc = { $set: {} };
-    allowedFields.forEach(field => {
-      if (updates[field] !== undefined) {
-        updateDoc.$set[field] = updates[field];
-      }
-    });
-
-    // Convert date fields
-    if (updateDoc.$set.startDateTime) {
-      updateDoc.$set.startDateTime = new Date(updateDoc.$set.startDateTime);
-    }
-    if (updateDoc.$set.endDateTime) {
-      updateDoc.$set.endDateTime = new Date(updateDoc.$set.endDateTime);
-    }
-
-    // Convert allowedConcurrentCategories to ObjectIds if provided
-    if (updateDoc.$set.allowedConcurrentCategories && Array.isArray(updateDoc.$set.allowedConcurrentCategories)) {
-      updateDoc.$set.allowedConcurrentCategories = updateDoc.$set.allowedConcurrentCategories.map(id => {
-        try {
-          return new ObjectId(id);
-        } catch {
-          return id; // Keep as-is if not a valid ObjectId
-        }
-      });
-    }
-
-    // Track changes for revision history
-    const changes = getChanges(currentReservation, updateDoc.$set, allowedFields);
-
-    if (changes.length > 0) {
-      // Increment revision number
-      const newRevision = (currentReservation.currentRevision || 1) + 1;
-      updateDoc.$set.currentRevision = newRevision;
-
-      // Create revision entry
-      const revisionEntry = {
-        revisionNumber: newRevision,
-        timestamp: new Date(),
-        modifiedBy: userEmail,
-        modifiedByName: req.user.name || userEmail,
-        changes: changes
-      };
-
-      updateDoc.$push = {
-        revisions: revisionEntry
-      };
-    }
-
-    // Update lastModified and lastModifiedBy
-    updateDoc.$set.lastModified = new Date();
-    updateDoc.$set.lastModifiedBy = userEmail;
-
-    // Perform the update
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      updateDoc,
-      { returnDocument: 'after' }
-    );
-
-    if (!result) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Extract the document from the result
-    // MongoDB driver may return either the document directly or wrapped in {value: ...}
-    const updatedReservation = result.value || result;
-
-    // Generate new changeKey
-    const newChangeKey = generateChangeKey(updatedReservation);
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { changeKey: newChangeKey } }
-    );
-
-    updatedReservation.changeKey = newChangeKey;
-
-    // Log audit entry for update if there were changes
-    if (changes.length > 0) {
-      await logReservationAudit({
-        reservationId: new ObjectId(id),
-        userId: userId,
-        userEmail: userEmail,
-        changeType: 'update',
-        source: 'Admin Edit',
-        changeSet: changes,
-        metadata: {
-          revisionNumber: updatedReservation.currentRevision
-        }
-      });
-    }
-
-    logger.log('Reservation updated:', {
-      reservationId: id,
-      updatedBy: userEmail,
-      changes: changes.map(c => c.field)
-    });
-
-    res.json({
-      message: 'Reservation updated successfully',
-      reservation: updatedReservation,
-      changeKey: newChangeKey,
-      changesApplied: changes.length
-    });
-  } catch (error) {
-    logger.error('Error updating reservation:', error);
-    res.status(500).json({ error: 'Failed to update reservation' });
-  }
-});
-
-/**
- * Approve a room reservation (Admin only)
- */
-app.put('/api/admin/room-reservations/:id/approve', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-    const ifMatch = req.headers['if-match'];
-    const { notes, calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, createCalendarEvent = true, graphToken, ignoreConflicts = false } = req.body;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get the current reservation to determine revision number
-    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!currentReservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Validate ETag if provided
-    if (ifMatch) {
-      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
-      if (ifMatch !== currentChangeKey) {
-        return res.status(409).json({
-          error: 'Conflict: Reservation has been modified by another user',
-          currentChangeKey: currentChangeKey,
-          providedChangeKey: ifMatch
-        });
-      }
-    }
-
-    // Check for scheduling conflicts unless explicitly ignored
-    let conflictDetails = null;
-    if (!ignoreConflicts) {
-      const conflicts = await checkRoomConflicts(currentReservation, id);
-      if (conflicts.length > 0) {
-        return res.status(409).json({
-          error: 'Scheduling conflict detected',
-          conflicts: conflicts,
-          message: 'This reservation conflicts with existing reservations. Set ignoreConflicts=true to approve anyway.'
-        });
-      }
-    } else {
-      // If conflicts were ignored, record them for audit purposes
-      const conflicts = await checkRoomConflicts(currentReservation, id);
-      if (conflicts.length > 0) {
-        conflictDetails = {
-          conflictsDetected: conflicts.length,
-          overriddenBy: userEmail,
-          overriddenAt: new Date()
-        };
-      }
-    }
-
-    // Create approval communication history entry
-    const approvalEntry = {
-      timestamp: new Date(),
-      type: 'approval',
-      author: userId,
-      authorName: req.user.name || userEmail,
-      message: notes ? notes.trim() : 'Reservation approved',
-      revisionNumber: currentReservation.currentRevision || 1,
-      reservationSnapshot: null // No changes to reservation data on approval
-    };
-
-    const updateDoc = {
-      $set: {
-        status: 'approved',
-        actionDate: new Date(),
-        actionBy: userId,
-        actionByEmail: userEmail,
-        lastModified: new Date(),
-        lastModifiedBy: userEmail,
-        // Release review hold
-        reviewStatus: 'not_reviewing',
-        ...(notes && { actionNotes: notes.trim() }),
-        ...(conflictDetails && { approvedWithOverride: conflictDetails })
-      },
-      $push: {
-        communicationHistory: approvalEntry,
-        statusHistory: {
-          status: 'approved',
-          changedAt: new Date(),
-          changedBy: userId,
-          changedByEmail: userEmail,
-          reason: notes ? `Approved: ${notes}` : 'Approved'
-        }
-      },
-      $unset: {
-        reviewingBy: '',
-        reviewStartedAt: ''
-      }
-    };
-
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id), status: 'pending' },
-      updateDoc,
-      { returnDocument: 'after' }
-    );
-
-    if (!result.value) {
-      return res.status(404).json({ error: 'Pending reservation not found' });
-    }
-
-    // Generate new changeKey after approval
-    const newChangeKey = generateChangeKey(result.value);
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { changeKey: newChangeKey } }
-    );
-    result.value.changeKey = newChangeKey;
-
-    // Log audit entry for approval
-    await logReservationAudit({
-      reservationId: new ObjectId(id),
-      userId: userId,
-      userEmail: userEmail,
-      changeType: 'approve',
-      source: 'Admin Review',
-      metadata: {
-        notes: notes,
-        conflictOverride: !!conflictDetails,
-        calendarEventCreated: createCalendarEvent
-      }
-    });
-
-    // Create calendar event if requested (uses automatic service authentication)
-    let calendarEventResult = null;
-    if (createCalendarEvent) {
-      try {
-        calendarEventResult = await createRoomReservationCalendarEvent(
-          result.value, 
-          calendarMode,
-          graphToken
-        );
-        
-        // Update the reservation with calendar event information
-        if (calendarEventResult.success) {
-          await unifiedEventsCollection.updateOne(
-            { _id: new ObjectId(id) },
-            {
-              $set: {
-                calendarEventId: calendarEventResult.eventId,
-                targetCalendar: calendarEventResult.targetCalendar,
-                calendarCreatedAt: new Date()
-              }
-            }
-          );
-        }
-        
-        logger.log('Calendar event created for reservation:', {
-          reservationId: id,
-          eventId: calendarEventResult.eventId,
-          calendar: calendarEventResult.targetCalendar
-        });
-      } catch (calendarError) {
-        logger.error('Failed to create calendar event:', {
-          reservationId: id,
-          error: calendarError.message
-        });
-        // Don't fail the approval if calendar creation fails
-        calendarEventResult = { 
-          success: false, 
-          error: calendarError.message 
-        };
-      }
-    }
-    
-    logger.log('Room reservation approved:', { reservationId: id, approvedBy: userEmail });
-    res.json({
-      ...result.value,
-      calendarEvent: calendarEventResult
-    });
-  } catch (error) {
-    logger.error('Error approving reservation:', error);
-    res.status(500).json({ error: 'Failed to approve reservation' });
-  }
-});
-
-/**
- * Reject a room reservation (Admin only)
- */
-app.put('/api/admin/room-reservations/:id/reject', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-    const ifMatch = req.headers['if-match'];
-    const { reason } = req.body;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    if (!reason || !reason.trim()) {
-      return res.status(400).json({ error: 'Rejection reason is required' });
-    }
-
-    // Get the current reservation to determine revision number
-    const currentReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!currentReservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-
-    // Validate ETag if provided
-    if (ifMatch) {
-      const currentChangeKey = currentReservation.changeKey || generateChangeKey(currentReservation);
-      if (ifMatch !== currentChangeKey) {
-        return res.status(409).json({
-          error: 'Conflict: Reservation has been modified by another user',
-          currentChangeKey: currentChangeKey,
-          providedChangeKey: ifMatch
-        });
-      }
-    }
-
-    // Create rejection communication history entry
-    const rejectionEntry = {
-      timestamp: new Date(),
-      type: 'rejection',
-      author: userId,
-      authorName: req.user.name || userEmail,
-      message: reason.trim(),
-      revisionNumber: currentReservation.currentRevision || 1,
-      reservationSnapshot: null // No changes to reservation data on rejection
-    };
-
-    const updateDoc = {
-      $set: {
-        status: 'rejected',
-        actionDate: new Date(),
-        actionBy: userId,
-        actionByEmail: userEmail,
-        rejectionReason: reason.trim(), // Keep for backward compatibility
-        lastModified: new Date(),
-        lastModifiedBy: userEmail,
-        // Release review hold
-        reviewStatus: 'not_reviewing'
-      },
-      $push: {
-        communicationHistory: rejectionEntry,
-        statusHistory: {
-          status: 'rejected',
-          changedAt: new Date(),
-          changedBy: userId,
-          changedByEmail: userEmail,
-          reason: reason.trim()
-        }
-      },
-      $unset: {
-        reviewingBy: '',
-        reviewStartedAt: ''
-      }
-    };
-
-    const result = await unifiedEventsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id), status: 'pending' },
-      updateDoc,
-      { returnDocument: 'after' }
-    );
-
-    if (!result.value) {
-      return res.status(404).json({ error: 'Pending reservation not found' });
-    }
-
-    // Generate new changeKey after rejection
-    const newChangeKey = generateChangeKey(result.value);
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { changeKey: newChangeKey } }
-    );
-    result.value.changeKey = newChangeKey;
-
-    // Log audit entry for rejection
-    await logReservationAudit({
-      reservationId: new ObjectId(id),
-      userId: userId,
-      userEmail: userEmail,
-      changeType: 'reject',
-      source: 'Admin Review',
-      metadata: {
-        reason: reason.trim()
-      }
-    });
-
-    logger.log('Room reservation rejected:', { reservationId: id, rejectedBy: userEmail, reason });
-    res.json(result.value);
-  } catch (error) {
-    logger.error('Error rejecting reservation:', error);
-    res.status(500).json({ error: 'Failed to reject reservation' });
-  }
-});
-
-/**
- * Delete a room reservation (Admin only)
- */
-app.delete('/api/admin/room-reservations/:id', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    // Get the event to check if it exists and for Graph deletion
-    const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    let graphDeleted = false;
-
-    // Delete from Graph API if event has graphData
-    if (event.graphData?.id && event.calendarOwner) {
-      try {
-        logger.log('Deleting event from Graph API:', { graphId: event.graphData.id, calendarOwner: event.calendarOwner });
-        await graphApiService.deleteCalendarEvent(event.calendarOwner, event.calendarId || null, event.graphData.id);
-        graphDeleted = true;
-        logger.log('Graph API delete successful');
-      } catch (graphError) {
-        logger.warn('Failed to delete from Graph API (continuing with soft delete):', graphError.message);
-      }
-    }
-
-    // Soft delete the event
-    const result = await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          status: 'deleted',
-          isDeleted: true,
-          deletedAt: new Date(),
-          deletedBy: userId,
-          deletedByEmail: userEmail,
-          lastModified: new Date(),
-          lastModifiedBy: userEmail
-        },
-        $push: {
-          statusHistory: {
-            status: 'deleted',
-            changedAt: new Date(),
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Deleted by admin'
-          }
-        }
-      }
-    );
-
-    if (result.modifiedCount === 0) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-
-    logger.log('Event soft-deleted:', {
-      eventId: id,
-      eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
-      deletedBy: userEmail,
-      originalStatus: event.status,
-      graphDeleted
-    });
-
-    res.json({
-      message: 'Event deleted successfully',
-      deletedId: id,
-      eventTitle: event.calendarData?.eventTitle || event.graphData?.subject,
-      status: 'deleted',
-      graphDeleted
-    });
-  } catch (error) {
-    logger.error('Error deleting event:', error);
-    res.status(500).json({ error: 'Failed to delete event' });
-  }
-});
-
-/**
- * Sync/create calendar event for an approved room reservation (Admin only)
- */
-app.put('/api/admin/room-reservations/:id/sync', verifyToken, async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { id } = req.params;
-    const { calendarMode = CALENDAR_CONFIG.DEFAULT_MODE, graphToken } = req.body;
-    
-    // Check admin permissions
-    const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
-    
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    
-    // Get the reservation
-    const reservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
-    if (!reservation) {
-      return res.status(404).json({ error: 'Reservation not found' });
-    }
-    
-    // Only allow sync for approved reservations
-    if (reservation.status !== 'approved') {
-      return res.status(400).json({ error: 'Can only sync calendar events for approved reservations' });
-    }
-    
-    // Create calendar event
-    let calendarEventResult = null;
-    try {
-      calendarEventResult = await createRoomReservationCalendarEvent(
-        reservation,
-        calendarMode,
-        graphToken
-      );
-      
-      // Update the reservation with calendar event information if successful
-      if (calendarEventResult.success) {
-        await unifiedEventsCollection.updateOne(
-          { _id: new ObjectId(id) },
-          {
-            $set: {
-              calendarEventId: calendarEventResult.eventId,
-              targetCalendar: calendarEventResult.targetCalendar,
-              calendarCreatedAt: new Date(),
-              calendarSyncedAt: new Date() // Track when it was manually synced
-            }
-          }
-        );
-      }
-      
-      logger.log('Room reservation calendar event synced:', { 
-        reservationId: id, 
-        syncedBy: userEmail,
-        success: calendarEventResult.success,
-        eventId: calendarEventResult.eventId
-      });
-      
-      res.json({
-        message: calendarEventResult.success ? 
-          `Calendar event synced successfully in ${calendarEventResult.targetCalendar}` : 
-          `Calendar event sync failed: ${calendarEventResult.error}`,
-        calendarEvent: calendarEventResult,
-        reservation: reservation
-      });
-      
-    } catch (calendarError) {
-      logger.error('Calendar sync error:', calendarError);
-      res.json({
-        message: 'Reservation found but calendar event sync failed',
-        calendarEvent: { 
-          success: false, 
-          error: calendarError.message 
-        },
-        reservation: reservation
-      });
-    }
-  } catch (error) {
-    logger.error('Error syncing reservation calendar event:', error);
-    res.status(500).json({ error: 'Failed to sync calendar event' });
-  }
-});
 
 // ==========================================
 // FEATURE CONFIGURATION ENDPOINTS
@@ -17445,7 +16018,12 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       offsiteLon,
       // Categories (syncs with Outlook) and Services (internal)
       categories,
-      services
+      services,
+      // Room feature filtering
+      requiredFeatures,
+      // Concurrent scheduling settings (admin-only)
+      isAllowedConcurrent = false,
+      allowedConcurrentCategories = []
     } = req.body;
 
     // Validate required fields - requestedRooms not required if isOffsite is true
@@ -17527,6 +16105,24 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       ? `${offsiteName} (Offsite) - ${offsiteAddress}`
       : (roomNames.length > 0 ? roomNames.join('; ') : 'Unspecified');
 
+    // Calculate effective blocking times (setup to teardown) for room conflict detection
+    const baseStart = new Date(startDateTime);
+    const baseEnd = new Date(endDateTime);
+
+    let effectiveStart = baseStart;
+    if (setupTime) {
+      const [setupHours, setupMinutes] = setupTime.split(':').map(Number);
+      effectiveStart = new Date(baseStart);
+      effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
+    }
+
+    let effectiveEnd = baseEnd;
+    if (teardownTime) {
+      const [teardownHours, teardownMinutes] = teardownTime.split(':').map(Number);
+      effectiveEnd = new Date(baseEnd);
+      effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
+    }
+
     // Generate unique event ID
     const eventId = `evt-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -17534,9 +16130,17 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
     const eventDoc = {
       eventId,
       userId,
+      requesterId: userId, // Backward compatibility with room-reservations format
       source: 'Room Reservation System',
       status: 'pending', // Status 'pending' allows event to show on calendar with pending styling
       isDeleted: false,
+      effectiveStart, // Used for room blocking (includes setup)
+      effectiveEnd, // Used for room blocking (includes teardown)
+      // Concurrent scheduling settings (top-level for indexing)
+      isAllowedConcurrent: isAllowedConcurrent || false,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      }),
 
       // Minimal graphData structure (not yet a real Graph event)
       graphData: {
@@ -17659,6 +16263,11 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         requesterEmail: requesterEmail || userEmail,
         department: department || '',
         phone: phone || '',
+        // Room feature filtering
+        requiredFeatures: requiredFeatures || [],
+        // Concurrent scheduling settings
+        isAllowedConcurrent: isAllowedConcurrent || false,
+        allowedConcurrentCategories: allowedConcurrentCategories || [],
         // Contact person (for delegation)
         contactName: isOnBehalfOf ? contactName : '',
         contactEmail: isOnBehalfOf ? contactEmail : '',
@@ -18103,6 +16712,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to approve reservation' });
   }
 });
+
 
 /**
  * Reject a room reservation request (Admin only)
@@ -20529,70 +19139,6 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error deleting internal event:', error);
     res.status(500).json({ error: 'Failed to delete event' });
-  }
-});
-
-/**
- * Get events by status (supports filtering for room-reservation-request)
- * GET /api/events?status=room-reservation-request
- */
-app.get('/api/events', verifyToken, async (req, res) => {
-  logger.log('===== CODE UPDATE LOADED! =====');
-  try {
-    const userId = req.user.userId;
-    const userEmail = req.user.email;
-    const { status, page = 1, limit = 20 } = req.query;
-
-    // Build query
-    const query = { isDeleted: { $ne: true } };
-
-    if (status) {
-      query.status = status;
-      // If filtering by room-reservation-request, ensure roomReservationData exists
-      if (status === 'room-reservation-request') {
-        query.roomReservationData = { $exists: true, $ne: null };
-      }
-    }
-
-    // Check if user can view all reservations (match old endpoint logic)
-    const user = await usersCollection.findOne({ userId });
-    const canViewAll = canViewAllReservations(user, userEmail);
-
-    // Non-admin users can only see their own requests
-    if (!canViewAll && status === 'room-reservation-request') {
-      // Filter by the userId stored in roomReservationData.requestedBy.userId
-      query['roomReservationData.requestedBy.userId'] = userId;
-    }
-
-    logger.log('🔍 GET /api/events query:', JSON.stringify(query, null, 2));
-    logger.log('👤 User info:', { userId, userEmail, canViewAll });
-
-    // Execute query with pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const events = await unifiedEventsCollection
-      .find(query)
-      .sort({ 'graphData.start.dateTime': -1, submittedAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .toArray();
-
-    const totalCount = await unifiedEventsCollection.countDocuments(query);
-
-    logger.log('📊 Query results:', { totalCount, returnedCount: events.length });
-
-    res.json({
-      events,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalCount,
-        totalPages: Math.ceil(totalCount / parseInt(limit))
-      }
-    });
-
-  } catch (error) {
-    logger.error('Error fetching events:', error);
-    res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
 

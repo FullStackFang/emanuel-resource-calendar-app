@@ -6,7 +6,6 @@ import { usePermissions } from '../hooks/usePermissions';
 import APP_CONFIG from '../config/config';
 import { transformEventToFlatStructure } from '../utils/eventTransformers';
 import RoomReservationFormBase from './RoomReservationFormBase';
-import ReservationAuditHistory from './ReservationAuditHistory';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
 import ConflictDialog from './shared/ConflictDialog';
@@ -185,11 +184,7 @@ export default function RoomReservationReview({
 
       logger.debug('Saving event', { reservationId: reservation._id });
 
-      // Use correct endpoint based on event type
-      // New unified events use /admin/events, legacy reservations use /admin/room-reservations
-      const updateEndpoint = reservation._isNewUnifiedEvent
-        ? `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`
-        : `${APP_CONFIG.API_BASE_URL}/admin/room-reservations/${reservation._id}`;
+      const updateEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`;
 
       // Include _version for optimistic concurrency control
       updatedData._version = eventVersion;
@@ -426,18 +421,10 @@ export default function RoomReservationReview({
               {/* Tab: History */}
               {activeTab === 'history' && reservation && apiToken && (
                 <div style={{ padding: '20px' }}>
-                  {reservation._isNewUnifiedEvent ? (
-                    <EventAuditHistory
-                      eventId={reservation.eventId}
-                      apiToken={apiToken}
-                    />
-                  ) : (
-                    <ReservationAuditHistory
-                      reservationId={reservation._id}
-                      apiToken={apiToken}
-                      refreshTrigger={auditRefreshTrigger}
-                    />
-                  )}
+                  <EventAuditHistory
+                    eventId={reservation.eventId}
+                    apiToken={apiToken}
+                  />
                 </div>
               )}
 

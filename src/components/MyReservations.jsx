@@ -1,6 +1,5 @@
 // src/components/MyReservations.jsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -13,7 +12,6 @@ import EditRequestForm from './EditRequestForm';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
-  const navigate = useNavigate();
   const { canSubmitReservation, permissionsLoading } = usePermissions();
   const { showWarning, showSuccess, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
@@ -66,17 +64,17 @@ export default function MyReservations({ apiToken }) {
       setError('');
       
       // Load all user's reservations including deleted (API automatically filters by user)
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations?limit=1000&includeDeleted=true`, {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
         headers: {
           'Authorization': `Bearer ${apiToken}`
         }
       });
-      
+
       if (!response.ok) throw new Error('Failed to load reservations');
-      
+
       const data = await response.json();
-      // Transform reservations to flatten calendarData fields to top-level for easier access
-      const transformedReservations = transformEventsToFlatStructure(data.reservations || []);
+      // Transform events to flatten calendarData fields to top-level for easier access
+      const transformedReservations = transformEventsToFlatStructure(data.events || []);
       setAllReservations(transformedReservations);
     } catch (err) {
       logger.error('Error loading user reservations:', err);
@@ -453,7 +451,7 @@ export default function MyReservations({ apiToken }) {
         </div>
         <button
           className="new-reservation-btn"
-          onClick={() => navigate('/booking')}
+          onClick={() => window.dispatchEvent(new CustomEvent('open-new-reservation-modal'))}
           disabled={!canSubmitReservation}
           title={!canSubmitReservation ? 'You do not have permission to submit reservations' : 'Create a new reservation request'}
         >

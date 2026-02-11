@@ -286,7 +286,6 @@ export function transformEventToFlatStructure(event) {
     _version: event._version || null,
 
     // Flags
-    _isNewUnifiedEvent: true, // Flag to identify source
     _isPreProcessed: true // Flag to tell FormBase that data is pre-processed
   };
 }
