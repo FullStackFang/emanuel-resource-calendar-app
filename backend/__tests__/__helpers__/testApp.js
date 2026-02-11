@@ -621,6 +621,7 @@ function createTestApp(options = {}) {
           lastModifiedBy: userId,
           graphData: {
             id: graphResult.id,
+            iCalUId: graphResult.iCalUId,
             webLink: graphResult.webLink,
           },
         },
@@ -938,6 +939,7 @@ function createTestApp(options = {}) {
           await testCollections.events.updateOne(query, {
             $set: {
               'graphData.id': graphResult.id,
+              'graphData.iCalUId': graphResult.iCalUId,
               'graphData.webLink': graphResult.webLink,
             }
           });
@@ -1068,6 +1070,7 @@ function createTestApp(options = {}) {
           await testCollections.events.updateOne(query, {
             $set: {
               'graphData.id': graphResult.id,
+              'graphData.iCalUId': graphResult.iCalUId,
               'graphData.webLink': graphResult.webLink,
             }
           });
@@ -1546,7 +1549,7 @@ function createTestApp(options = {}) {
       }
 
       // Determine if Graph-syncable fields changed
-      const eventICalUId = event.iCalUId || event.graphData?.iCalUId;
+      const storedGraphEventId = event.graphData?.id;
       const hasGraphSyncableChanges = !!(
         updates.eventTitle !== undefined ||
         updates.locations !== undefined ||
@@ -1557,14 +1560,15 @@ function createTestApp(options = {}) {
         updates.eventDescription !== undefined
       );
 
-      // Graph sync gate - allows sync via calendarOwner (app-only auth) or graphToken (user auth)
+      // Graph sync gate - uses graphData.id + calendarOwner (app-only auth via graphApiService)
       let graphSynced = false;
-      if (eventICalUId && hasGraphSyncableChanges && (event.calendarOwner || graphToken)) {
+      let graphSyncResult = null;
+      if (storedGraphEventId && hasGraphSyncableChanges && event.calendarOwner) {
         try {
-          await graphApiMock.updateCalendarEvent(
-            event.calendarOwner || 'personal-calendar',
+          graphSyncResult = await graphApiMock.updateCalendarEvent(
+            event.calendarOwner,
             event.calendarId,
-            event.graphData?.id || eventICalUId,
+            storedGraphEventId,
             {
               subject: updates.eventTitle || event.eventTitle,
               startDateTime: updates.startDateTime || event.startDateTime,
@@ -1598,6 +1602,11 @@ function createTestApp(options = {}) {
       // Handle requestedRooms → locations mapping
       if (updates.requestedRooms !== undefined) {
         mongoUpdate.locations = updates.requestedRooms;
+      }
+
+      // Sync full Graph response to graphData (matches production behavior)
+      if (graphSyncResult) {
+        mongoUpdate.graphData = { ...(event.graphData || {}), ...graphSyncResult };
       }
 
       mongoUpdate.lastModifiedDateTime = new Date();

@@ -153,12 +153,12 @@ describe('Event Update Tests - Graph Sync Gate', () => {
       expect(res.body.event.eventTitle).toBe('Updated Without Auth');
     });
 
-    it('should sync to Graph for personal calendar events with graphToken', async () => {
+    it('should sync to Graph when calendarOwner exists (app-only auth)', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Personal Event',
-        calendarOwner: null, // Personal calendar - no calendarOwner
+        eventTitle: 'Shared Calendar Event',
+        calendarOwner: TEST_CALENDAR_OWNER, // Required for app-only auth
       });
       const [saved] = await insertEvents(db, [published]);
 
@@ -166,8 +166,8 @@ describe('Event Update Tests - Graph Sync Gate', () => {
         .put(`/api/admin/events/${saved._id}`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          eventTitle: 'Updated Personal Event',
-          graphToken: 'user-delegated-token',
+          eventTitle: 'Updated Shared Event',
+          // No graphToken needed — app-only auth via calendarOwner
         })
         .expect(200);
 
@@ -176,6 +176,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
       const graphCalls = graphApiMock.getCallHistory('updateCalendarEvent');
       expect(graphCalls).toHaveLength(1);
+      expect(graphCalls[0].calendarOwner).toBe(TEST_CALENDAR_OWNER);
     });
   });
 
@@ -205,6 +206,42 @@ describe('Event Update Tests - Graph Sync Gate', () => {
       expect(graphCalls).toHaveLength(0);
     });
 
+    it('should sync when event has graphData.id even without iCalUId', async () => {
+      // Bug fix: sync gate now uses graphData.id instead of iCalUId,
+      // so events with graphData.id but no iCalUId now sync correctly
+      const approved = createApprovedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Has ID But No iCalUId',
+        calendarOwner: TEST_CALENDAR_OWNER,
+        graphData: {
+          id: 'AAMkASomeGraphId123',
+          webLink: 'https://outlook.office365.com/calendar/item/AAMkASomeGraphId123',
+          // No iCalUId — previously blocked sync, now works via graphData.id
+        },
+      });
+      const [saved] = await insertEvents(db, [approved]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Updated Title Without iCalUId',
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.graphSynced).toBe(true);
+
+      // Graph API SHOULD be called — graphData.id is sufficient
+      const graphCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(graphCalls).toHaveLength(1);
+      expect(graphCalls[0].eventId).toBe('AAMkASomeGraphId123');
+
+      // MongoDB should still be updated
+      expect(res.body.event.eventTitle).toBe('Updated Title Without iCalUId');
+    });
+
     it('should NOT sync when no Graph-syncable fields changed', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
@@ -226,6 +263,63 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
       const graphCalls = graphApiMock.getCallHistory('updateCalendarEvent');
       expect(graphCalls).toHaveLength(0);
+    });
+  });
+
+  describe('Graph response sync to graphData', () => {
+    it('should sync full Graph API response back to graphData', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Original Title',
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Updated Title',
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.graphSynced).toBe(true);
+
+      // Verify full Graph response was merged into graphData in MongoDB
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      // Mock returns { id, changeKey, ...eventData } — subject comes from eventData
+      expect(updated.graphData.subject).toBe('Updated Title');
+      // Original graphData fields should be preserved
+      expect(updated.graphData.id).toBeDefined();
+      expect(updated.graphData.iCalUId).toBeDefined();
+      expect(updated.graphData.webLink).toBeDefined();
+    });
+
+    it('should NOT overwrite graphData when Graph sync is skipped', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        calendarOwner: TEST_CALENDAR_OWNER,
+      });
+      const [saved] = await insertEvents(db, [published]);
+      const originalGraphData = saved.graphData;
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          setupTime: '30', // Not a Graph-syncable field
+        })
+        .expect(200);
+
+      expect(res.body.graphSynced).toBe(false);
+
+      // graphData should remain unchanged
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.graphData.id).toBe(originalGraphData.id);
+      expect(updated.graphData.iCalUId).toBe(originalGraphData.iCalUId);
     });
   });
 

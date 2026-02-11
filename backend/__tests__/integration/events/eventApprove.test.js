@@ -126,6 +126,8 @@ describe('Event Approval Tests (A-7)', () => {
 
       expect(res.body.event.graphData).toBeDefined();
       expect(res.body.event.graphData.id).toBeDefined();
+      expect(res.body.event.graphData.iCalUId).toBeDefined();
+      expect(res.body.event.graphData.iCalUId).toMatch(/^ical-/);
       expect(res.body.event.graphData.webLink).toBeDefined();
     });
 
