@@ -33,7 +33,11 @@ export default function MyReservations({ apiToken }) {
   // Edit request state
   const [editRequestReservation, setEditRequestReservation] = useState(null);
   const [showEditRequestForm, setShowEditRequestForm] = useState(false);
-  
+
+  // Resubmit state (in-button confirmation pattern)
+  const [resubmittingId, setResubmittingId] = useState(null);
+  const [confirmResubmitId, setConfirmResubmitId] = useState(null);
+
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
   
@@ -107,6 +111,9 @@ export default function MyReservations({ apiToken }) {
     if (activeTab === 'rejected') {
       return allReservations.filter(r => r.status === 'rejected');
     }
+    if (activeTab === 'cancelled') {
+      return allReservations.filter(r => r.status === 'cancelled');
+    }
     if (activeTab === 'deleted') {
       return allReservations.filter(r => r.status === 'deleted');
     }
@@ -126,6 +133,7 @@ export default function MyReservations({ apiToken }) {
       r.pendingEditRequest?.status === 'pending'
     ).length,
     rejected: allReservations.filter(r => r.status === 'rejected').length,
+    cancelled: allReservations.filter(r => r.status === 'cancelled').length,
     deleted: allReservations.filter(r => r.status === 'deleted').length,
   }), [allReservations]);
 
@@ -199,15 +207,49 @@ export default function MyReservations({ apiToken }) {
     }
   };
 
-  const handleResubmitReservation = (reservation) => {
-    // Navigate to unified booking form with resubmit mode
-    navigate('/booking', {
-      state: {
-        reservationId: reservation._id,
-        originalReservation: reservation,
-        mode: 'resubmit'
-      }
-    });
+  // Handle resubmit - first click shows confirm, second click resubmits
+  const handleResubmitClick = (reservation) => {
+    if (confirmResubmitId === reservation._id) {
+      // Already in confirm state, proceed with resubmit
+      handleResubmit(reservation);
+    } else {
+      // First click - enter confirm state
+      setConfirmResubmitId(reservation._id);
+      // Auto-reset after 3 seconds if not confirmed
+      setTimeout(() => {
+        setConfirmResubmitId(prev => prev === reservation._id ? null : prev);
+      }, 3000);
+    }
+  };
+
+  const handleResubmit = async (reservation) => {
+    try {
+      setResubmittingId(reservation._id);
+      setConfirmResubmitId(null);
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/resubmit`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ _version: reservation._version || null })
+      });
+
+      if (!response.ok) throw new Error('Failed to resubmit reservation');
+
+      // Update local state
+      setAllReservations(prev => prev.map(r =>
+        r._id === reservation._id ? { ...r, status: 'pending' } : r
+      ));
+      setSelectedReservation(null);
+      showSuccess(`"${reservation.eventTitle}" resubmitted for review`);
+    } catch (err) {
+      logger.error('Error resubmitting reservation:', err);
+      showError(err, { context: 'MyReservations.handleResubmit' });
+    } finally {
+      setResubmittingId(null);
+    }
   };
 
   // Handle continue editing a draft - dispatch event to open modal
@@ -465,6 +507,13 @@ export default function MyReservations({ apiToken }) {
           >
             Rejected
             <span className="count">({statusCounts.rejected})</span>
+          </button>
+          <button
+            className={`tab ${activeTab === 'cancelled' ? 'active' : ''}`}
+            onClick={() => handleTabChange('cancelled')}
+          >
+            Cancelled
+            <span className="count">({statusCounts.cancelled})</span>
           </button>
           <button
             className={`tab ${activeTab === 'deleted' ? 'active' : ''}`}
@@ -794,11 +843,30 @@ export default function MyReservations({ apiToken }) {
               )}
               {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
                 <button
-                  className="resubmit-btn"
-                  onClick={() => handleResubmitReservation(selectedReservation)}
-                  title="Edit and resubmit this reservation"
+                  className={`resubmit-btn ${confirmResubmitId === selectedReservation._id ? 'confirm' : ''}`}
+                  onClick={() => handleResubmitClick(selectedReservation)}
+                  disabled={resubmittingId === selectedReservation._id}
+                  title="Resubmit this reservation for review"
                 >
-                  Resubmit
+                  {resubmittingId === selectedReservation._id
+                    ? 'Resubmitting...'
+                    : confirmResubmitId === selectedReservation._id
+                      ? 'Confirm?'
+                      : 'Resubmit'}
+                </button>
+              )}
+              {selectedReservation.status === 'cancelled' && (
+                <button
+                  className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirm' : ''}`}
+                  onClick={() => handleRestoreClick(selectedReservation)}
+                  disabled={restoringId === selectedReservation._id}
+                  title="Restore this reservation to its previous status"
+                >
+                  {restoringId === selectedReservation._id
+                    ? 'Restoring...'
+                    : confirmRestoreId === selectedReservation._id
+                      ? 'Confirm?'
+                      : 'Restore'}
                 </button>
               )}
               {selectedReservation.status === 'deleted' && (
@@ -840,6 +908,7 @@ export default function MyReservations({ apiToken }) {
           onSuccess={handleEditRequestSuccess}
         />
       )}
+
     </div>
   );
 }

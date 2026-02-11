@@ -909,6 +909,33 @@
   cursor: not-allowed;
 }
 
+.my-reservations .resubmit-btn {
+  background: var(--color-success-500);
+  color: var(--text-inverse);
+  padding: var(--space-2) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-all);
+}
+
+.my-reservations .resubmit-btn:hover:not(:disabled) {
+  background: var(--color-success-600);
+}
+
+.my-reservations .resubmit-btn.confirm {
+  background: var(--color-success-600);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.my-reservations .resubmit-btn:disabled {
+  background: var(--color-neutral-300);
+  cursor: not-allowed;
+}
+
 /* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */
@@ -974,7 +1001,8 @@
   .my-reservations .confirm-cancel-btn,
   .my-reservations .close-btn,
   .my-reservations .edit-request-btn,
-  .my-reservations .restore-btn {
+  .my-reservations .restore-btn,
+  .my-reservations .resubmit-btn {
     width: 100%;
   }
 }

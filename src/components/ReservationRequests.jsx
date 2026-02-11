@@ -5,7 +5,7 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
-import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
 import UnifiedEventForm from './UnifiedEventForm';
@@ -308,31 +308,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       }
 
       const data = await response.json();
-      const expiresAt = new Date(data.reviewExpiresAt);
 
       setReviewHold({
-        expiresAt,
-        durationMinutes: data.durationMinutes
+        startedAt: new Date(),
       });
       setHoldError(null);
 
-      // Set up countdown timer
-      const timer = setInterval(() => {
-        const remaining = expiresAt - Date.now();
-        if (remaining <= 0) {
-          setHoldError('Your review session has expired. Please reopen the modal to continue.');
-          closeReviewModal();
-        }
-      }, 60000); // Check every minute
-
-      setHoldTimer(timer);
-      return true;
+      // Return fresh _version from the database document
+      return { success: true, freshVersion: data.reservation?._version || null };
 
     } catch (error) {
       logger.error('Failed to acquire review hold:', error);
       // Don't set error for network issues - allow modal to open
       setHoldError(null);
-      return true;
+      return { success: true, freshVersion: null };
     }
   };
 
@@ -419,14 +408,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Open review modal (using ReviewModal component)
   const openReviewModal = async (reservation) => {
     // For pending reservations, try to acquire soft hold
+    let freshVersion = null;
     if (reservation.status === 'pending') {
       try {
-        const holdAcquired = await acquireReviewHold(reservation._id, reservation._isNewUnifiedEvent);
-        if (!holdAcquired && holdError) {
+        const holdResult = await acquireReviewHold(reservation._id, reservation._isNewUnifiedEvent);
+        if (holdResult === false || (holdResult && !holdResult.success)) {
           // Block if someone else is reviewing
-          if (holdError.includes('currently being reviewed by')) {
+          if (holdError?.includes('currently being reviewed by')) {
             return;
           }
+        }
+        // Extract fresh _version from the review lock response
+        if (holdResult?.freshVersion != null) {
+          freshVersion = holdResult.freshVersion;
         }
       } catch (error) {
         // Network error - allow modal to open without hold
@@ -435,17 +429,28 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       }
     }
 
-    // Initialize editable data
+    // Initialize editable data (includes all fields needed for conflict diff)
     setEditableData({
       eventTitle: reservation.eventTitle || '',
       eventDescription: reservation.eventDescription || '',
       startDateTime: reservation.startDateTime,
       endDateTime: reservation.endDateTime,
+      startDate: reservation.startDate || '',
+      startTime: reservation.startTime || '',
+      endDate: reservation.endDate || '',
+      endTime: reservation.endTime || '',
+      setupTime: reservation.setupTime || '',
+      teardownTime: reservation.teardownTime || '',
+      doorOpenTime: reservation.doorOpenTime || '',
+      doorCloseTime: reservation.doorCloseTime || '',
       setupTimeMinutes: reservation.setupTimeMinutes || 0,
       teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
       attendeeCount: reservation.attendeeCount || 0,
       requestedRooms: reservation.requestedRooms || [],
+      locationDisplayNames: reservation.locationDisplayNames || '',
+      categories: reservation.categories || [],
       specialRequirements: reservation.specialRequirements || '',
+      status: reservation.status || '',
       requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
       requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
       contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
@@ -456,7 +461,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false
     });
 
-    setEventVersion(reservation._version || null);
+    // Use fresh version from review lock if available (prevents stale version 409s)
+    setEventVersion(freshVersion || reservation._version || null);
     setHasChanges(false);
 
     logger.debug('📦 OPENING REVIEW MODAL - Reservation Object:', {
@@ -685,15 +691,16 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setEventVersion(result._version);
       setHasChanges(false);
 
-      // Update the selected reservation with the saved data
+      // Update the selected reservation with the saved data (transform to flat structure)
       if (result.reservation) {
         logger.debug('Updating selectedReservation with saved data');
-        setSelectedReservation(result.reservation);
+        const flatReservation = transformEventToFlatStructure(result.reservation);
+        setSelectedReservation(flatReservation);
 
         // Also update the reservation in allReservations array
         setAllReservations(prev => {
           return prev.map(res =>
-            res._id === result.reservation._id ? result.reservation : res
+            res._id === result.reservation._id ? flatReservation : res
           );
         });
       }
@@ -847,7 +854,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           isOpen: true,
           conflictType,
           details: conflictDetails,
-          staleData: reservation
+          staleData: editableData
         });
         return;
       }
@@ -956,7 +963,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
           : 'data_changed';
 
-        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails, staleData: reservation });
+        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails, staleData: editableData });
         return;
       }
 
@@ -1026,7 +1033,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       if (response.status === 409) {
         const data = await response.json();
         const conflictDetails = data.details || {};
-        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails, staleData: reservation });
+        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails, staleData: editableData });
         return;
       }
 

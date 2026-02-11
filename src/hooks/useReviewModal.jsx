@@ -97,10 +97,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Try to acquire soft hold if item is pending
+    let freshVersion = null;
     if (item.status === 'pending' && !item._isNewUnifiedEvent) {
-      const holdAcquired = await acquireReviewHold(item._id);
-      if (!holdAcquired && holdError) {
-        return; // Block if someone else is reviewing
+      const holdResult = await acquireReviewHold(item._id);
+      if (holdResult === false || (holdResult && !holdResult.success)) {
+        if (holdError) return; // Block if someone else is reviewing
+      }
+      // Extract fresh _version from the review lock response
+      if (holdResult?.freshVersion != null) {
+        freshVersion = holdResult.freshVersion;
       }
     }
 
@@ -130,7 +135,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPrefetchedAvailability(availability);
     setCurrentItem(item);
     setEditableData(item);
-    setEventVersion(item._version || null);
+    // Use fresh version from review lock if available (prevents stale version 409s)
+    setEventVersion(freshVersion || item._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
@@ -196,29 +202,18 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const data = await response.json();
-      const expiresAt = new Date(data.reviewExpiresAt);
 
       setReviewHold({
-        expiresAt,
-        durationMinutes: data.durationMinutes
+        startedAt: new Date(),
       });
       setHoldError(null);
 
-      // Set up countdown timer
-      const timer = setInterval(() => {
-        const remaining = expiresAt - Date.now();
-        if (remaining <= 0) {
-          setHoldError('Your review session has expired. Please reopen the modal to continue.');
-          closeModal();
-        }
-      }, 60000); // Check every minute
-
-      setHoldTimer(timer);
-      return true;
+      // Return fresh _version from the database document
+      return { success: true, freshVersion: data.reservation?._version || null };
     } catch (error) {
       logger.error('Failed to acquire review hold:', error);
       setHoldError(null);
-      return true; // Allow modal to open without hold
+      return { success: true, freshVersion: null }; // Allow modal to open without hold
     }
   };
 
@@ -406,6 +401,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         logger.log('[handleApprove] WARNING: formDataGetter not available');
       }
 
+      // Track the latest version locally (React state won't update within this closure)
+      let latestVersion = eventVersion;
+
       // Step 1: Save the form data to the existing record FIRST (if we have form data)
       // This ensures all form edits are persisted before creating the Graph event
       if (formData) {
@@ -422,7 +420,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             body: JSON.stringify({
               ...formData,
               graphToken, // Include for any Graph sync needed
-              _version: eventVersion
+              _version: latestVersion
             })
           });
 
@@ -447,6 +445,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           const saveResult = await saveResponse.json();
           // Update version after successful save so approve step uses latest
           if (saveResult._version) {
+            latestVersion = saveResult._version;
             setEventVersion(saveResult._version);
           }
           logger.log('[handleApprove] Form data saved successfully:', saveResult);
@@ -475,7 +474,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           createCalendarEvent: true, // Let the backend create the Graph event from the saved data
           forceApprove: safeApprovalData.forceApprove || false,
           targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
-          _version: eventVersion
+          _version: latestVersion
         })
       });
 

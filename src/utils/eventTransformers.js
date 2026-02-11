@@ -277,6 +277,7 @@ export function transformEventToFlatStructure(event) {
     // Calendar-specific enrichments
     assignedTo: getField(event, 'assignedTo', ''),
     location: isCalendarEvent ? event.location?.displayName : (event.graphData?.location?.displayName || ''),
+    locationDisplayNames: getField(event, 'locationDisplayNames', ''),
 
     // Preserve full graphData for fallback access
     graphData: event.graphData || null,

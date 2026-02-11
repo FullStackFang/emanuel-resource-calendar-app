@@ -73,6 +73,10 @@ const ENDPOINTS = {
   APPROVE_EDIT: (id) => `/api/admin/events/${id}/approve-edit`,
   REJECT_EDIT: (id) => `/api/admin/events/${id}/reject-edit`,
 
+  // Room reservation endpoints
+  OWNER_RESTORE_RESERVATION: (id) => `/api/room-reservations/${id}/restore`,
+  RESUBMIT_RESERVATION: (id) => `/api/room-reservations/${id}/resubmit`,
+
   // User endpoints
   GET_USER: '/api/users/me',
   GET_RESERVATIONS: '/api/reservations/my',

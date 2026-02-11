@@ -6561,9 +6561,9 @@ import ConflictDialog from './shared/ConflictDialog';
           isOpen={isModalOpen && (modalType === 'add' || modalType === 'edit' || modalType === 'view')} 
           onClose={() => setIsModalOpen(false)}
           title={
-            modalType === 'add' ? `Add Event - ${getTargetCalendarName()}` : 
-            modalType === 'edit' ? `Edit Event - ${getTargetCalendarName()}` : 
-            `View Event - ${getTargetCalendarName()}`
+            modalType === 'add' ? 'Add Event' :
+            modalType === 'edit' ? 'Edit Event' :
+            'View Event'
           }
           hideTitle={false}
         >
@@ -6840,8 +6840,8 @@ import ConflictDialog from './shared/ConflictDialog';
         <ReviewModal
           isOpen={eventReviewModal.isOpen}
           title={eventReviewModal.mode === 'create'
-            ? `Request Event - ${getTargetCalendarName()}`
-            : (eventReviewModal.event?.id ? `Edit Event - ${getTargetCalendarName()}` : `Add Event - ${getTargetCalendarName()}`)}
+            ? 'Request Event'
+            : (eventReviewModal.event?.id ? 'Edit Event' : 'Add Event')}
           onClose={handleEventReviewModalClose}
           onSave={handleEventReviewModalSave}
           onDelete={eventReviewModal.mode === 'event' && (eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleEventReviewModalDelete : null}

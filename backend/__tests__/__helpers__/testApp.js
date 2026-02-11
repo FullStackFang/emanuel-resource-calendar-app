@@ -961,6 +961,233 @@ function createTestApp(options = {}) {
     }
   });
 
+  /**
+   * PUT /api/room-reservations/:id/restore - Restore a deleted/cancelled reservation (Owner only)
+   */
+  app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const reservationId = req.params.id;
+      const { _version } = req.body || {};
+
+      const query = ObjectId.isValid(reservationId)
+        ? { _id: new ObjectId(reservationId) }
+        : { eventId: reservationId };
+
+      const event = await testCollections.events.findOne(query);
+
+      if (!event) {
+        return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
+      }
+
+      if (event.status !== 'deleted' && event.status !== 'cancelled') {
+        return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
+      }
+
+      // Ownership check
+      const isOwner =
+        event.userId === userId ||
+        event.roomReservationData?.requesterEmail === userEmail;
+
+      if (!isOwner) {
+        return res.status(403).json({ error: 'You can only restore your own reservations' });
+      }
+
+      // Version conflict check
+      if (_version && event._version && _version !== event._version) {
+        return res.status(409).json({
+          error: 'VERSION_CONFLICT',
+          message: 'This event has been modified by another user',
+          conflictType: 'data_changed',
+          currentVersion: event._version,
+        });
+      }
+
+      const currentStatus = event.status;
+
+      // Find previous status from statusHistory
+      const statusHistory = event.statusHistory || [];
+      let previousStatus = 'draft';
+      for (let i = statusHistory.length - 1; i >= 0; i--) {
+        if (statusHistory[i].status !== currentStatus) {
+          previousStatus = statusHistory[i].status;
+          break;
+        }
+      }
+
+      const now = new Date();
+      const newVersion = (event._version || 0) + 1;
+
+      const updateOp = {
+        $set: {
+          status: previousStatus,
+          lastModifiedDateTime: now,
+          lastModifiedBy: userId,
+          _version: newVersion,
+        },
+        $push: {
+          statusHistory: {
+            status: previousStatus,
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: `Restored from ${currentStatus} by owner`,
+          },
+        },
+      };
+
+      // Only clean up deletion fields if restoring from deleted
+      if (currentStatus === 'deleted') {
+        updateOp.$set.isDeleted = false;
+        updateOp.$unset = {
+          deletedAt: '',
+          deletedBy: '',
+          deletedByEmail: '',
+          previousStatus: '',
+        };
+      }
+
+      await testCollections.events.updateOne(query, updateOp);
+
+      // Republish to Graph if event previously had a Graph/Outlook event
+      let graphPublished = false;
+      const hadGraphEvent = !!(event.graphData?.id);
+      if (hadGraphEvent && event.calendarOwner) {
+        try {
+          const graphResult = await graphApiMock.createCalendarEvent(
+            TEST_CALENDAR_OWNER, null,
+            {
+              subject: event.eventTitle,
+              start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
+              end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
+              body: { contentType: 'Text', content: event.eventDescription || '' },
+            }
+          );
+
+          await testCollections.events.updateOne(query, {
+            $set: {
+              'graphData.id': graphResult.id,
+              'graphData.webLink': graphResult.webLink,
+            }
+          });
+          graphPublished = true;
+        } catch (graphError) {
+          // Don't fail restore if Graph fails
+          graphPublished = false;
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Reservation restored successfully',
+        status: previousStatus,
+        graphPublished,
+        _version: newVersion,
+      });
+    } catch (error) {
+      console.error('Error restoring reservation:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * PUT /api/room-reservations/:id/resubmit - Resubmit a rejected reservation
+   */
+  app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const reservationId = req.params.id;
+      const { _version } = req.body || {};
+
+      const query = ObjectId.isValid(reservationId)
+        ? { _id: new ObjectId(reservationId) }
+        : { eventId: reservationId };
+
+      const event = await testCollections.events.findOne(query);
+
+      if (!event) {
+        return res.status(404).json({ error: 'Reservation not found' });
+      }
+
+      // Ownership check
+      const isOwner =
+        event.userId === userId ||
+        event.roomReservationData?.requestedBy?.userId === userId ||
+        event.roomReservationData?.requesterEmail === userEmail;
+
+      if (!isOwner) {
+        return res.status(403).json({ error: 'You can only resubmit your own reservation requests' });
+      }
+
+      // Status guard
+      if (event.status !== 'rejected') {
+        return res.status(400).json({ error: 'Only rejected reservations can be resubmitted' });
+      }
+
+      // Resubmission allowed check
+      if (event.roomReservationData?.resubmissionAllowed === false) {
+        return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
+      }
+
+      // Version conflict check
+      if (_version && event._version && _version !== event._version) {
+        return res.status(409).json({
+          error: 'VERSION_CONFLICT',
+          message: 'This event has been modified by another user',
+          conflictType: 'data_changed',
+          currentVersion: event._version,
+        });
+      }
+
+      const now = new Date();
+      const newVersion = (event._version || 0) + 1;
+
+      await testCollections.events.updateOne(query, {
+        $set: {
+          status: 'pending',
+          'roomReservationData.reviewedAt': null,
+          'roomReservationData.reviewedBy': null,
+          lastModified: now,
+          lastModifiedBy: userEmail,
+          _version: newVersion,
+        },
+        $push: {
+          statusHistory: {
+            status: 'pending',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Resubmitted after rejection',
+          },
+        },
+      });
+
+      const updatedEvent = await testCollections.events.findOne(query);
+
+      // Create audit log
+      await createAuditLog({
+        eventId: event.eventId,
+        action: 'resubmitted',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        previousState: event,
+        newState: updatedEvent,
+        changes: { status: { from: 'rejected', to: 'pending' } },
+      });
+
+      res.json({
+        message: 'Reservation resubmitted successfully',
+        reservation: updatedEvent,
+        _version: newVersion,
+      });
+    } catch (error) {
+      console.error('Error resubmitting reservation:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================
   // USER RESERVATION ENDPOINTS
   // ============================================

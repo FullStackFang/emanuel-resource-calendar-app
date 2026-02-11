@@ -6952,9 +6952,9 @@ app.get('/api/admin/events/counts', verifyToken, async (req, res) => {
       unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
     ]);
 
-    const active = total - deleted;
+    const published = total - deleted;
 
-    res.json({ total, active, pending, approved, rejected, deleted, draft });
+    res.json({ total, published, pending, approved, rejected, deleted, draft });
   } catch (error) {
     logger.error('Error getting admin event counts:', error);
     res.status(500).json({ error: 'Failed to get event counts' });
@@ -7298,7 +7298,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     logger.debug('Unified events query:', { calendarOwner: query.calendarOwner, status, search, startDate, endDate, page: pageNum, limit: limitNum });
 
     // Status filter
-    if (status === 'active') {
+    if (status === 'published') {
       query.isDeleted = { $ne: true };
     } else if (status === 'deleted') {
       query.isDeleted = true;
@@ -7474,7 +7474,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
     // Include calendarData (source of truth) and essential metadata fields
     let events = await withCosmosRetry(async () => {
       let cursor = unifiedEventsCollection.find(query).project({
-        _id: 1, eventId: 1,
+        _id: 1, eventId: 1, status: 1,
         calendarId: 1, calendarOwner: 1, calendarName: 1,
         isDeleted: 1, internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
         calendarData: 1, // All calendar fields are now in calendarData
@@ -7553,6 +7553,7 @@ app.get('/api/admin/unified/events', verifyToken, async (req, res) => {
         calendarOwner: event.calendarOwner,
         calendarName: event.calendarName,
         categories: event.calendarData?.categories || event.graphData?.categories,
+        status: event.status || 'draft',
         isDeleted: event.isDeleted || false,
         hasEnrichment: !!(event.internalData && Object.keys(event.internalData).length > 0),
         internalData: event.internalData,
@@ -13287,14 +13288,14 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     const userEmail = req.user.email;
     const { _version } = req.body || {};
 
-    // Find the deleted reservation
+    // Find the deleted or cancelled reservation
     const reservation = await unifiedEventsCollection.findOne({
       _id: new ObjectId(reservationId),
-      status: 'deleted'
+      status: { $in: ['deleted', 'cancelled'] }
     });
 
     if (!reservation) {
-      return res.status(404).json({ error: 'Deleted reservation not found' });
+      return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
     }
 
     // Validate ownership using calendarData.requesterEmail
@@ -13302,16 +13303,44 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'You can only restore your own reservations' });
     }
 
-    // Find the previous status from statusHistory (before 'deleted')
+    const currentStatus = reservation.status;
+
+    // Find the previous status from statusHistory (before current status)
     const statusHistory = reservation.statusHistory || [];
     let previousStatus = 'draft'; // Default fallback
 
-    // Find the last non-deleted status
+    // Find the last status that isn't the current one (deleted or cancelled)
     for (let i = statusHistory.length - 1; i >= 0; i--) {
-      if (statusHistory[i].status !== 'deleted') {
+      if (statusHistory[i].status !== currentStatus) {
         previousStatus = statusHistory[i].status;
         break;
       }
+    }
+
+    // Build update operation
+    const updateOp = {
+      $set: {
+        status: previousStatus,
+      },
+      $push: {
+        statusHistory: {
+          status: previousStatus,
+          changedAt: new Date(),
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: `Restored from ${currentStatus} by owner`
+        }
+      }
+    };
+
+    // Only clean up deletion fields if restoring from deleted
+    if (currentStatus === 'deleted') {
+      updateOp.$set.isDeleted = false;
+      updateOp.$unset = {
+        deletedAt: '',
+        deletedBy: '',
+        deletedByEmail: ''
+      };
     }
 
     // Restore the reservation with version guard
@@ -13320,29 +13349,10 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       resultEvent = await conditionalUpdate(
         unifiedEventsCollection,
         { _id: new ObjectId(reservationId) },
-        {
-          $set: {
-            status: previousStatus,
-            isDeleted: false,
-          },
-          $unset: {
-            deletedAt: '',
-            deletedBy: '',
-            deletedByEmail: ''
-          },
-          $push: {
-            statusHistory: {
-              status: previousStatus,
-              changedAt: new Date(),
-              changedBy: userId,
-              changedByEmail: userEmail,
-              reason: 'Restored by owner'
-            }
-          }
-        },
+        updateOp,
         {
           expectedVersion: _version || null,
-          expectedStatus: 'deleted',
+          expectedStatus: currentStatus,
           modifiedBy: userEmail,
           snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
@@ -13354,16 +13364,86 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       throw err;
     }
 
+    // Republish to Outlook if event previously had a Graph/Outlook event
+    let graphPublished = false;
+    const hadGraphEvent = !!(reservation.graphData?.id);
+    if (hadGraphEvent) {
+      const calendarOwner = reservation.calendarOwner;
+      const calendarId = reservation.calendarId || null;
+
+      if (calendarOwner) {
+        try {
+          const eventTimezone = reservation.graphData?.start?.timeZone || 'America/New_York';
+          const locationDisplayNames = reservation.calendarData?.locationDisplayNames
+            || reservation.locationDisplayNames || '';
+
+          let graphLocation = { displayName: locationDisplayNames };
+          const isOffsite = reservation.calendarData?.isOffsite || reservation.isOffsite;
+          if (isOffsite && reservation.offsiteName && reservation.offsiteAddress) {
+            graphLocation = buildOffsiteGraphLocation(
+              reservation.offsiteName, reservation.offsiteAddress,
+              reservation.offsiteLat, reservation.offsiteLon
+            );
+          }
+
+          const graphEventData = {
+            subject: reservation.calendarData?.eventTitle || reservation.eventTitle || 'Untitled Event',
+            start: {
+              dateTime: reservation.calendarData?.startDateTime || reservation.startDateTime,
+              timeZone: eventTimezone
+            },
+            end: {
+              dateTime: reservation.calendarData?.endDateTime || reservation.endDateTime,
+              timeZone: eventTimezone
+            },
+            location: graphLocation,
+            body: {
+              contentType: 'Text',
+              content: reservation.calendarData?.eventDescription || reservation.eventDescription || ''
+            },
+            categories: reservation.calendarData?.categories || reservation.categories || [],
+            importance: reservation.graphData?.importance || 'normal',
+            showAs: reservation.graphData?.showAs || 'busy'
+          };
+
+          const createdEvent = await graphApiService.createCalendarEvent(
+            calendarOwner, calendarId, graphEventData
+          );
+
+          // Store new Graph data in MongoDB
+          await unifiedEventsCollection.updateOne(
+            { _id: new ObjectId(reservationId) },
+            { $set: {
+              'graphData.id': createdEvent.id,
+              'graphData.webLink': createdEvent.webLink,
+              'graphData.changeKey': createdEvent.changeKey,
+            }}
+          );
+
+          graphPublished = true;
+          logger.info('Restored reservation republished to Outlook:', {
+            reservationId, graphEventId: createdEvent.id, calendarOwner
+          });
+        } catch (graphError) {
+          // Don't fail the restore if Graph republishing fails
+          logger.warn('Failed to republish restored reservation to Outlook:', graphError.message);
+          graphPublished = false;
+        }
+      }
+    }
+
     logger.log('Reservation restored:', {
       reservationId,
       previousStatus,
-      restoredBy: userEmail
+      restoredBy: userEmail,
+      graphPublished
     });
 
     res.json({
       success: true,
       message: 'Reservation restored successfully',
       status: previousStatus,
+      graphPublished,
       _version: resultEvent._version
     });
   } catch (error) {
@@ -14201,7 +14281,7 @@ app.put('/api/room-reservations/:id/cancel', verifyToken, async (req, res) => {
 });
 
 /**
- * Resubmit a rejected room reservation with changes
+ * Resubmit a rejected room reservation (moves back to pending)
  * Now queries unified events collection (templeEvents__Events)
  */
 app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => {
@@ -14209,38 +14289,7 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
     const reservationId = req.params.id;
     const userId = req.user.userId;
     const userEmail = req.user.email;
-
-    const {
-      eventTitle,
-      eventDescription,
-      startDateTime,
-      endDateTime,
-      attendeeCount,
-      requestedRooms,
-      requiredFeatures,
-      specialRequirements,
-      department,
-      phone,
-      contactEmail,
-      userMessage,
-      // Setup/teardown times (in minutes)
-      setupTimeMinutes = 0,
-      teardownTimeMinutes = 0,
-      _version
-    } = req.body;
-
-    // Validation
-    if (!eventTitle || !startDateTime || !endDateTime || !requestedRooms || requestedRooms.length === 0) {
-      return res.status(400).json({
-        error: 'Missing required fields: eventTitle, startDateTime, endDateTime, requestedRooms'
-      });
-    }
-
-    if (!userMessage || !userMessage.trim()) {
-      return res.status(400).json({
-        error: 'Response message is required for resubmissions'
-      });
-    }
+    const { _version } = req.body;
 
     // Find the original event from unified collection
     const event = await unifiedEventsCollection.findOne({
@@ -14262,147 +14311,25 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       return res.status(400).json({ error: 'Only rejected reservations can be resubmitted' });
     }
 
-    if (!event.roomReservationData?.resubmissionAllowed) {
+    if (event.roomReservationData?.resubmissionAllowed === false) {
       return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
     }
 
-    // Check revision limits (max 5 revisions)
-    const currentRevision = event.roomReservationData?.currentRevision || 1;
-    if (currentRevision >= 5) {
-      return res.status(400).json({ error: 'Maximum number of revisions reached (5)' });
-    }
-    
-    
-    // Helper function to create reservation snapshot
-    const createReservationSnapshot = (reservationData) => ({
-      eventTitle: reservationData.eventTitle,
-      eventDescription: reservationData.eventDescription,
-      startDateTime: reservationData.startDateTime,
-      endDateTime: reservationData.endDateTime,
-      attendeeCount: reservationData.attendeeCount,
-      requestedRooms: reservationData.requestedRooms,
-      requiredFeatures: reservationData.requiredFeatures,
-      specialRequirements: reservationData.specialRequirements,
-      contactEmail: reservationData.contactEmail,
-      department: reservationData.department,
-      phone: reservationData.phone,
-      setupTimeMinutes: reservationData.setupTimeMinutes,
-      teardownTimeMinutes: reservationData.teardownTimeMinutes,
-      // Access & Operations Times
-      setupTime: reservationData.setupTime,
-      teardownTime: reservationData.teardownTime,
-      doorOpenTime: reservationData.doorOpenTime,
-      doorCloseTime: reservationData.doorCloseTime,
-      // Internal Notes
-      setupNotes: reservationData.setupNotes,
-      doorNotes: reservationData.doorNotes,
-      eventNotes: reservationData.eventNotes
-    });
-    
-    const newRevisionNumber = currentRevision + 1;
-    const newStartDateTime = new Date(startDateTime);
-    const newEndDateTime = new Date(endDateTime);
-    
-    // Create resubmission communication history entry
-    const resubmissionEntry = {
-      timestamp: new Date(),
-      type: 'resubmission',
-      author: userId,
-      authorName: req.user.name || userEmail,
-      message: userMessage.trim(),
-      revisionNumber: newRevisionNumber,
-      reservationSnapshot: createReservationSnapshot({
-        eventTitle,
-        eventDescription: eventDescription || '',
-        startDateTime: newStartDateTime,
-        endDateTime: newEndDateTime,
-        attendeeCount: attendeeCount || 0,
-        requestedRooms,
-        requiredFeatures: requiredFeatures || [],
-        specialRequirements: specialRequirements || '',
-        contactEmail: contactEmail || null,
-        department: department || '',
-        phone: phone || '',
-        setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0
-      })
-    };
-    
-    // Track changes for revision history
-    const fieldsToTrack = [
-      'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
-      'attendeeCount', 'requestedRooms', 'requiredFeatures', 'specialRequirements',
-      'setupTimeMinutes', 'teardownTimeMinutes', 'department', 'phone'
-    ];
+    const now = new Date();
 
-    const newData = {
-      eventTitle,
-      eventDescription: eventDescription || '',
-      startDateTime: newStartDateTime,
-      endDateTime: newEndDateTime,
-      attendeeCount: attendeeCount || 0,
-      requestedRooms,
-      requiredFeatures: requiredFeatures || [],
-      specialRequirements: specialRequirements || '',
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-      department: department || '',
-      phone: phone || ''
-    };
-
-    const changes = getChanges(event, newData, fieldsToTrack);
-
-    // Create revision entry
-    const revisionEntry = {
-      revisionNumber: newRevisionNumber,
-      timestamp: new Date(),
-      modifiedBy: userEmail,
-      modifiedByName: req.user.name || userEmail,
-      changes: changes,
-      type: 'resubmission'
-    };
-
-    // Update event with new data and add communication history (in unified collection)
+    // Update: set status to pending, clear review fields
     const updateDoc = {
       $set: {
-        // Update main event fields (top-level operational data)
-        eventTitle,
-        eventDescription: eventDescription || '',
-        startDateTime: newStartDateTime,
-        endDateTime: newEndDateTime,
-        attendeeCount: attendeeCount || 0,
-        locations: requestedRooms, // Use 'locations' for unified events
-        requiredFeatures: requiredFeatures || [],
-        specialRequirements: specialRequirements || '',
-
-        // Setup and teardown times
-        setupTimeMinutes: setupTimeMinutes || 0,
-        teardownTimeMinutes: teardownTimeMinutes || 0,
-
-        // Update requester info in roomReservationData
-        'roomReservationData.requestedBy.department': department || '',
-        'roomReservationData.requestedBy.phone': phone || '',
-        'roomReservationData.contactPerson': contactEmail ? {
-          email: contactEmail,
-          isOnBehalfOf: true
-        } : null,
-
-        // Update status and revision tracking
         status: 'pending',
-        'roomReservationData.currentRevision': newRevisionNumber,
-        lastModified: new Date(),
-        lastModifiedBy: userEmail,
-
-        // Clear previous action data in roomReservationData
         'roomReservationData.reviewedAt': null,
-        'roomReservationData.reviewedBy': null
+        'roomReservationData.reviewedBy': null,
+        lastModified: now,
+        lastModifiedBy: userEmail
       },
       $push: {
-        'roomReservationData.communicationHistory': resubmissionEntry,
-        'roomReservationData.revisions': revisionEntry,
         statusHistory: {
           status: 'pending',
-          changedAt: new Date(),
+          changedAt: now,
           changedBy: userId,
           changedByEmail: userEmail,
           reason: 'Resubmitted after rejection'
@@ -14430,45 +14357,28 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       throw err;
     }
 
-    // Generate new changeKey after resubmission (single update, includes changeKey)
-    const newChangeKey = generateChangeKey(resubmittedEvent);
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(reservationId) },
-      { $set: { changeKey: newChangeKey } }
-    );
-    resubmittedEvent.changeKey = newChangeKey;
-
     // Log audit entry for resubmission
     await logReservationAudit({
       reservationId: new ObjectId(reservationId),
       userId: userId,
       userEmail: userEmail,
       changeType: 'resubmit',
-      source: 'Resubmission Form',
-      changeSet: changes,
-      metadata: {
-        previousRevision: currentRevision,
-        newRevision: newRevisionNumber,
-        userMessage: userMessage
-      }
+      source: 'My Reservations',
+      changeSet: [{ field: 'status', from: 'rejected', to: 'pending' }],
+      metadata: {}
     });
 
     logger.info('Room reservation resubmitted:', {
       reservationId,
-      resubmittedBy: userEmail,
-      revisionNumber: newRevisionNumber,
-      eventTitle,
-      changesApplied: changes.length
+      resubmittedBy: userEmail
     });
 
     res.json({
       message: 'Reservation resubmitted successfully',
       reservation: resubmittedEvent,
-      revisionNumber: newRevisionNumber,
-      changeKey: newChangeKey,
       _version: resubmittedEvent._version
     });
-    
+
   } catch (error) {
     logger.error('Error resubmitting room reservation:', error);
     res.status(500).json({ error: 'Failed to resubmit reservation' });

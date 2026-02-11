@@ -9,7 +9,7 @@ import './EventManagement.css';
 
 const TABS = [
   { key: 'all', label: 'All', statusParam: 'all' },
-  { key: 'active', label: 'Active', statusParam: 'active' },
+  { key: 'published', label: 'Published', statusParam: 'published' },
   { key: 'pending', label: 'Pending', statusParam: 'pending' },
   { key: 'approved', label: 'Approved', statusParam: 'approved' },
   { key: 'rejected', label: 'Rejected', statusParam: 'rejected' },
@@ -62,7 +62,7 @@ export default function EventManagement({ apiToken }) {
 
   // Data state
   const [events, setEvents] = useState([]);
-  const [counts, setCounts] = useState({ total: 0, active: 0, pending: 0, approved: 0, rejected: 0, deleted: 0, draft: 0 });
+  const [counts, setCounts] = useState({ total: 0, published: 0, pending: 0, approved: 0, rejected: 0, deleted: 0, draft: 0 });
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -327,7 +327,7 @@ export default function EventManagement({ apiToken }) {
   const getTabCount = (key) => {
     switch (key) {
       case 'all': return counts.total;
-      case 'active': return counts.active;
+      case 'published': return counts.published;
       case 'pending': return counts.pending;
       case 'approved': return counts.approved;
       case 'rejected': return counts.rejected;
@@ -376,16 +376,16 @@ export default function EventManagement({ apiToken }) {
             <p>Total Events</p>
           </div>
         </div>
-        <div className="em-stat-card active">
-          <div className="em-stat-icon active">
+        <div className="em-stat-card published">
+          <div className="em-stat-icon published">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
           </div>
           <div className="em-stat-content">
-            <h4>{counts.active.toLocaleString()}</h4>
-            <p>Active Events</p>
+            <h4>{counts.published.toLocaleString()}</h4>
+            <p>Published Events</p>
           </div>
         </div>
         <div className="em-stat-card deleted">
