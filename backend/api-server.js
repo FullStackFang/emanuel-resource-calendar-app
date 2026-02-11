@@ -18354,7 +18354,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     let graphApiResponseLocations = null;
 
     // Use iCalUId to sync with Graph - this is the stable identifier that works for any user
-    if (eventICalUId && graphToken && hasGraphSyncableChanges) {
+    // Allow sync when calendarOwner exists (app-only auth) OR when graphToken is provided (user auth)
+    if (eventICalUId && hasGraphSyncableChanges && (event.calendarOwner || graphToken)) {
       try {
         // Get calendarId for shared calendar support - REQUIRED for Graph API operations
         const calendarId = event.calendarId;

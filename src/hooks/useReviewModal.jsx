@@ -188,7 +188,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       // All events (including pending reservations) are now stored in templeEvents__Events
       // Use the unified events endpoint for all saves
-      const isGraphEvent = currentItem.calendarId && !currentItem.status;
+      const isGraphEvent = !!(currentItem.calendarId && (currentItem.calendarOwner || !currentItem.status));
       const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}`;
 
       // Add graphToken for Graph events

@@ -1511,6 +1511,113 @@ function createTestApp(options = {}) {
     }
   });
 
+  /**
+   * PUT /api/admin/events/:id - Update an event (admin only)
+   * Simplified test version focusing on Graph sync gate logic
+   */
+  app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+
+      // Check admin permissions
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+      if (!isAdmin(userDoc, userEmail)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const id = req.params.id;
+      const updates = req.body;
+      const graphToken = updates.graphToken;
+
+      // Get event
+      let query;
+      try {
+        query = { _id: new ObjectId(id) };
+      } catch {
+        return res.status(400).json({ error: 'Invalid event ID' });
+      }
+
+      const event = await testCollections.events.findOne(query);
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      // Determine if Graph-syncable fields changed
+      const eventICalUId = event.iCalUId || event.graphData?.iCalUId;
+      const hasGraphSyncableChanges = !!(
+        updates.eventTitle !== undefined ||
+        updates.locations !== undefined ||
+        updates.requestedRooms !== undefined ||
+        updates.startDateTime !== undefined ||
+        updates.endDateTime !== undefined ||
+        updates.categories !== undefined ||
+        updates.eventDescription !== undefined
+      );
+
+      // Graph sync gate - allows sync via calendarOwner (app-only auth) or graphToken (user auth)
+      let graphSynced = false;
+      if (eventICalUId && hasGraphSyncableChanges && (event.calendarOwner || graphToken)) {
+        try {
+          await graphApiMock.updateCalendarEvent(
+            event.calendarOwner || 'personal-calendar',
+            event.calendarId,
+            event.graphData?.id || eventICalUId,
+            {
+              subject: updates.eventTitle || event.eventTitle,
+              startDateTime: updates.startDateTime || event.startDateTime,
+              endDateTime: updates.endDateTime || event.endDateTime,
+              eventDescription: updates.eventDescription || event.eventDescription,
+            }
+          );
+          graphSynced = true;
+        } catch (graphError) {
+          console.error('Graph sync failed:', graphError.message);
+          // Continue with MongoDB update even if Graph sync fails
+        }
+      }
+
+      // Build MongoDB update
+      const mongoUpdate = {};
+      const fieldsToSync = [
+        'eventTitle', 'eventDescription', 'startDateTime', 'endDateTime',
+        'startDate', 'startTime', 'endDate', 'endTime',
+        'locations', 'locationDisplayNames', 'categories',
+        'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime',
+        'services', 'assignedTo',
+      ];
+
+      for (const field of fieldsToSync) {
+        if (updates[field] !== undefined) {
+          mongoUpdate[field] = updates[field];
+        }
+      }
+
+      // Handle requestedRooms → locations mapping
+      if (updates.requestedRooms !== undefined) {
+        mongoUpdate.locations = updates.requestedRooms;
+      }
+
+      mongoUpdate.lastModifiedDateTime = new Date();
+      mongoUpdate.lastModifiedBy = userId;
+
+      await testCollections.events.updateOne(query, { $set: mongoUpdate });
+
+      const updatedEvent = await testCollections.events.findOne(query);
+
+      res.json({
+        success: true,
+        event: updatedEvent,
+        graphSynced,
+      });
+    } catch (error) {
+      console.error('Error updating event:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Error handling middleware
   app.use((err, req, res, next) => {
     console.error('Test app error:', err);
