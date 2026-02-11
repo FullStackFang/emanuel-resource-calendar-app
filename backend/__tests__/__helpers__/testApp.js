@@ -111,6 +111,60 @@ async function createAuditLog(data) {
 }
 
 /**
+ * Check for scheduling conflicts in test DB (simplified version of checkRoomConflicts)
+ * @param {Object} event - The event being restored
+ * @param {ObjectId} excludeId - Event ID to exclude from conflict check
+ * @param {Collection} eventsCollection - MongoDB collection
+ * @returns {Array} Array of conflicting events
+ */
+async function checkTestConflicts(event, excludeId, eventsCollection) {
+  const roomIds = event.calendarData?.locations || event.locations || [];
+  if (roomIds.length === 0) return [];
+
+  const startTime = new Date(event.startDateTime || event.calendarData?.startDateTime);
+  const endTime = new Date(event.endDateTime || event.calendarData?.endDateTime);
+
+  // Convert to string format matching stored calendarData values (ISO local time, no Z)
+  // Production stores calendarData.startDateTime as local-time strings
+  // Must use local-time getters to avoid UTC shift on non-UTC machines
+  const pad = (n) => String(n).padStart(2, '0');
+  const toLocalISOString = (d) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const startTimeStr = toLocalISOString(startTime);
+  const endTimeStr = toLocalISOString(endTime);
+
+  // Find overlapping pending/approved/published events in the same rooms
+  const query = {
+    status: { $in: ['pending', 'approved', 'published'] },
+    _id: { $ne: excludeId },
+    $or: [
+      { 'calendarData.locations': { $in: roomIds } },
+      { locations: { $in: roomIds } },
+    ],
+    $and: [
+      {
+        $or: [
+          // Check calendarData string fields (production format)
+          { 'calendarData.startDateTime': { $gte: startTimeStr, $lt: endTimeStr } },
+          { 'calendarData.endDateTime': { $gt: startTimeStr, $lte: endTimeStr } },
+          { 'calendarData.startDateTime': { $lte: startTimeStr }, 'calendarData.endDateTime': { $gte: endTimeStr } },
+        ],
+      },
+    ],
+  };
+
+  const conflicts = await eventsCollection.find(query).toArray();
+  return conflicts.map(c => ({
+    id: c._id.toString(),
+    eventTitle: c.calendarData?.eventTitle || c.eventTitle,
+    startDateTime: c.calendarData?.startDateTime || c.startDateTime,
+    endDateTime: c.calendarData?.endDateTime || c.endDateTime,
+    rooms: c.calendarData?.locations || c.locations || [],
+    status: c.status,
+  }));
+}
+
+/**
  * Create the test Express application
  * @param {Object} options - App configuration options
  * @returns {Express} Configured Express app
@@ -831,7 +885,7 @@ function createTestApp(options = {}) {
       const userId = req.user.userId;
       const userEmail = req.user.email;
       const eventId = req.params.id;
-      const { _version } = req.body || {};
+      const { _version, forceRestore } = req.body || {};
 
       // Get user from database
       const userDoc = await testCollections.users.findOne({
@@ -879,6 +933,23 @@ function createTestApp(options = {}) {
       // Fallback to previousStatus field for backward compat
       if (previousStatus === 'draft' && event.previousStatus) {
         previousStatus = event.previousStatus;
+      }
+
+      // Check for scheduling conflicts before restoring
+      if (!forceRestore && ['pending', 'approved', 'published'].includes(previousStatus)) {
+        const roomIds = event.calendarData?.locations || event.locations || [];
+        if (roomIds.length > 0) {
+          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
+          if (conflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected`,
+              conflicts,
+              previousStatus,
+              _version: event._version,
+            });
+          }
+        }
       }
 
       const now = new Date();
@@ -1015,6 +1086,23 @@ function createTestApp(options = {}) {
         if (statusHistory[i].status !== currentStatus) {
           previousStatus = statusHistory[i].status;
           break;
+        }
+      }
+
+      // Check for scheduling conflicts before restoring (no forceRestore for owners)
+      if (['pending', 'approved', 'published'].includes(previousStatus)) {
+        const roomIds = event.calendarData?.locations || event.locations || [];
+        if (roomIds.length > 0) {
+          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
+          if (conflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected. Please submit a new reservation with different times or contact an admin.`,
+              conflicts,
+              previousStatus,
+              _version: event._version,
+            });
+          }
         }
       }
 

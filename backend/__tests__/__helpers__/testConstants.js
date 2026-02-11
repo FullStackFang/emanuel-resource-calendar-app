@@ -11,6 +11,7 @@ const STATUS = {
   APPROVED: 'approved',
   REJECTED: 'rejected',
   DELETED: 'deleted',
+  PUBLISHED: 'published',
 };
 
 // Spec terminology mapping (for documentation clarity)

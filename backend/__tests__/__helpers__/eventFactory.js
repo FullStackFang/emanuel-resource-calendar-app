@@ -7,6 +7,12 @@
 const { ObjectId } = require('mongodb');
 const { STATUS, COLLECTIONS, TEST_CALENDAR_OWNER, TEST_CALENDAR_ID } = require('./testConstants');
 
+// Format a Date as local-time ISO string matching production storage format (no ms, no Z)
+const pad = (n) => String(n).padStart(2, '0');
+function toLocalISOString(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 // Counter for generating unique IDs
 let eventIdCounter = 1;
 
@@ -99,6 +105,17 @@ function createBaseEvent(options = {}) {
     createdBy: options.createdBy || options.userId || 'test-user',
     lastModifiedDateTime: options.lastModifiedDateTime || now,
     lastModifiedBy: options.lastModifiedBy || options.userId || 'test-user',
+
+    // calendarData structure matching production storage format
+    // Production stores startDateTime/endDateTime as local-time ISO strings (no ms, no Z)
+    // Must use local-time getters to avoid UTC shift on non-UTC machines
+    calendarData: options.calendarData || {
+      startDateTime: toLocalISOString(startDateTime),
+      endDateTime: toLocalISOString(endDateTime),
+      locations: options.locations || [],
+      setupTimeMinutes: options.setupTimeMinutes || 0,
+      teardownTimeMinutes: options.teardownTimeMinutes || 0,
+    },
 
     // Optional nested structures
     graphData: options.graphData || null,

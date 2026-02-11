@@ -80,6 +80,7 @@ export default function EventManagement({ apiToken }) {
   const [restoringId, setRestoringId] = useState(null);
   const [confirmRestoreId, setConfirmRestoreId] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
+  const [restoreConflicts, setRestoreConflicts] = useState(null);
 
   const searchTimeoutRef = useRef(null);
   const debouncedSearchRef = useRef('');
@@ -275,7 +276,7 @@ export default function EventManagement({ apiToken }) {
     }
   };
 
-  const handleRestore = async (event) => {
+  const handleRestore = async (event, forceRestore = false) => {
     const eventId = String(event._id);
     try {
       setRestoringId(eventId);
@@ -286,13 +287,18 @@ export default function EventManagement({ apiToken }) {
           Authorization: `Bearer ${apiToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ _version: event._version }),
+        body: JSON.stringify({ _version: event._version, forceRestore }),
       });
 
       if (res.status === 409) {
-        const conflict = await res.json();
+        const data = await res.json();
+        if (data.error === 'SchedulingConflict') {
+          setRestoreConflicts({ ...data, event });
+          return;
+        }
+        // Version conflict
         setConflictDialog({
-          ...conflict,
+          ...data,
           eventTitle: getTitle(event),
           staleData: event,
         });
@@ -749,6 +755,49 @@ export default function EventManagement({ apiToken }) {
           </div>
         );
       })()}
+
+      {/* Scheduling Conflict Modal */}
+      {restoreConflicts && (
+        <div className="em-modal-overlay" onClick={() => setRestoreConflicts(null)}>
+          <div className="em-scheduling-conflict-modal" onClick={e => e.stopPropagation()}>
+            <h3>Scheduling Conflict</h3>
+            <p>
+              Cannot restore &quot;{getTitle(restoreConflicts.event)}&quot; to <strong>{restoreConflicts.previousStatus}</strong> because
+              {' '}{restoreConflicts.conflicts.length} conflicting event{restoreConflicts.conflicts.length > 1 ? 's' : ''} now
+              {' '}occupy the same room and time:
+            </p>
+            <ul className="em-conflict-list">
+              {restoreConflicts.conflicts.map(c => (
+                <li key={c.id}>
+                  <strong>{c.eventTitle}</strong>
+                  <span className="em-conflict-time">
+                    {formatDateTime(c.startDateTime)} &ndash; {formatDateTime(c.endDateTime)}
+                  </span>
+                  <span className={`em-status-badge em-status-${c.status}`}>{c.status}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="em-conflict-actions">
+              <button
+                className="em-btn em-btn-secondary"
+                onClick={() => setRestoreConflicts(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="em-btn em-btn-warning"
+                onClick={() => {
+                  const event = restoreConflicts.event;
+                  setRestoreConflicts(null);
+                  handleRestore(event, true);
+                }}
+              >
+                Override &amp; Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Conflict Dialog */}
       {conflictDialog && (

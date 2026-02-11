@@ -1,12 +1,13 @@
 /**
- * Admin Restore Tests (AR-1 to AR-15)
+ * Admin Restore Tests (AR-1 to AR-24)
  *
  * Tests the admin-only restore endpoint PUT /api/admin/events/:id/restore.
  * AR-11 to AR-15 test Graph API republishing on restore of events with graphData.
+ * AR-16 to AR-22 test scheduling conflict detection on restore.
  */
 
 const request = require('supertest');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
@@ -16,13 +17,14 @@ const {
   createDeletedEvent,
   createApprovedEvent,
   createPendingEvent,
+  createBaseEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Admin Restore Tests (AR-1 to AR-15)', () => {
+describe('Admin Restore Tests (AR-1 to AR-24)', () => {
   let mongoServer;
   let mongoClient;
   let db;
@@ -432,6 +434,404 @@ describe('Admin Restore Tests (AR-1 to AR-15)', () => {
       expect(restored.graphData.id).toBeTruthy();
       expect(restored.graphData.webLink).not.toBe('https://outlook.office365.com/old-link');
       expect(restored.graphData.webLink).toBeTruthy();
+    });
+  });
+
+  // ============================================
+  // AR-16 to AR-22: Scheduling Conflict Detection
+  // ============================================
+
+  describe('Scheduling conflict detection', () => {
+    const roomId = new ObjectId();
+    const roomId2 = new ObjectId();
+    const conflictStart = new Date('2026-03-15T10:00:00Z');
+    const conflictEnd = new Date('2026-03-15T12:00:00Z');
+
+    describe('AR-16: Conflict when restoring to approved (overlapping approved event in same room)', () => {
+      it('should return 409 SchedulingConflict', async () => {
+        // Create an existing approved event occupying the room
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Approved Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        // Create the deleted event that would conflict
+        const deleted = createDeletedEvent({
+          eventTitle: 'Deleted Event To Restore',
+          previousStatus: STATUS.APPROVED,
+          startDateTime: new Date('2026-03-15T11:00:00Z'),
+          endDateTime: new Date('2026-03-15T13:00:00Z'),
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+        expect(res.body.conflicts).toHaveLength(1);
+        expect(res.body.previousStatus).toBe(STATUS.APPROVED);
+      });
+    });
+
+    describe('AR-17: Conflict when restoring to pending', () => {
+      it('should return 409 SchedulingConflict', async () => {
+        const existing = createPendingEvent({
+          eventTitle: 'Existing Pending Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Deleted Pending Event',
+          previousStatus: STATUS.PENDING,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: 'requester@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+      });
+    });
+
+    describe('AR-18: No conflict check when restoring to draft', () => {
+      it('should restore successfully without conflict check', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Deleted Draft Event',
+          previousStatus: STATUS.DRAFT,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.DRAFT, changedAt: new Date('2026-01-01'), changedByEmail: 'requester@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe(STATUS.DRAFT);
+      });
+    });
+
+    describe('AR-19: No conflict check when restoring to rejected', () => {
+      it('should restore successfully without conflict check', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Deleted Rejected Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: 'requester@test.com' },
+            { status: STATUS.REJECTED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(200);
+        expect(res.body.status).toBe(STATUS.REJECTED);
+      });
+    });
+
+    describe('AR-20: forceRestore overrides conflicts', () => {
+      it('should restore successfully with forceRestore: true despite conflicts', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Force Restored Event',
+          previousStatus: STATUS.APPROVED,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version, forceRestore: true });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        expect(res.body.status).toBe(STATUS.APPROVED);
+      });
+    });
+
+    describe('AR-21: No conflict when event has no rooms', () => {
+      it('should restore successfully when event has empty locations', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Virtual Event (no rooms)',
+          previousStatus: STATUS.APPROVED,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [], // No rooms
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
+    });
+
+    describe('AR-22: Conflict response includes correct details', () => {
+      it('should include conflicts array with event details', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Blocking Event Alpha',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Conflicting Restore',
+          previousStatus: STATUS.APPROVED,
+          startDateTime: new Date('2026-03-15T11:00:00Z'),
+          endDateTime: new Date('2026-03-15T13:00:00Z'),
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        const [existingSaved] = await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+        expect(res.body.conflicts).toHaveLength(1);
+
+        const conflict = res.body.conflicts[0];
+        expect(conflict.id).toBe(existingSaved._id.toString());
+        expect(conflict.eventTitle).toBe('Blocking Event Alpha');
+        expect(conflict.status).toBe(STATUS.APPROVED);
+        expect(res.body._version).toBe(saved._version);
+      });
+    });
+
+    describe('AR-23: Conflict with published event blocking the room', () => {
+      it('should detect conflict with a published event occupying the same room/time', async () => {
+        const publishedEvent = createBaseEvent({
+          status: STATUS.PUBLISHED,
+          eventTitle: 'Published Admin Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Restore Blocked By Published',
+          previousStatus: STATUS.APPROVED,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [publishedEvent]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+        expect(res.body.conflicts).toHaveLength(1);
+        expect(res.body.conflicts[0].status).toBe(STATUS.PUBLISHED);
+      });
+    });
+
+    describe('AR-24: Conflict check runs when previousStatus is published', () => {
+      it('should run conflict check when restoring an event whose previous status was published', async () => {
+        const existing = createApprovedEvent({
+          eventTitle: 'Existing Approved Event',
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+        });
+
+        const deleted = createDeletedEvent({
+          eventTitle: 'Previously Published Event',
+          previousStatus: STATUS.PUBLISHED,
+          startDateTime: conflictStart,
+          endDateTime: conflictEnd,
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'admin@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+        });
+
+        await insertEvents(db, [existing]);
+        const [saved] = await insertEvents(db, [deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${saved._id}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: saved._version });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+      });
+    });
+
+    describe('AR-25: Conflict detection with production data structure (calendarData strings)', () => {
+      it('should detect conflict when events only have calendarData.startDateTime as strings (no top-level)', async () => {
+        // Production events store startDateTime as strings in calendarData, not as BSON Dates at top level
+        const existingId = new ObjectId();
+        const existing = {
+          _id: existingId,
+          eventId: 'production-published-event',
+          status: STATUS.PUBLISHED,
+          isDeleted: false,
+          eventTitle: 'Published Via Unified Form',
+          calendarData: {
+            eventTitle: 'Published Via Unified Form',
+            startDateTime: '2026-03-15T10:00:00',
+            endDateTime: '2026-03-15T12:00:00',
+            locations: [roomId],
+            setupTimeMinutes: 0,
+            teardownTimeMinutes: 0,
+          },
+          locations: [roomId],
+          statusHistory: [
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'admin@test.com' },
+          ],
+          _version: 1,
+        };
+
+        const deletedId = new ObjectId();
+        const deleted = {
+          _id: deletedId,
+          eventId: 'production-deleted-event',
+          status: STATUS.DELETED,
+          isDeleted: true,
+          eventTitle: 'Deleted Reservation',
+          calendarData: {
+            eventTitle: 'Deleted Reservation',
+            startDateTime: '2026-03-15T10:30:00',
+            endDateTime: '2026-03-15T11:30:00',
+            locations: [roomId],
+            setupTimeMinutes: 0,
+            teardownTimeMinutes: 0,
+          },
+          locations: [roomId],
+          deletedAt: new Date(),
+          deletedBy: 'admin@emanuelnyc.org',
+          statusHistory: [
+            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
+          ],
+          _version: 1,
+          userId: 'test-user',
+          calendarOwner: 'templeeventssandbox@emanuelnyc.org',
+        };
+
+        await db.collection(COLLECTIONS.EVENTS).insertMany([existing, deleted]);
+
+        const res = await request(app)
+          .put(`/api/admin/events/${deletedId}/restore`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ _version: 1 });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe('SchedulingConflict');
+        expect(res.body.conflicts).toHaveLength(1);
+        expect(res.body.conflicts[0].eventTitle).toBe('Published Via Unified Form');
+      });
     });
   });
 });

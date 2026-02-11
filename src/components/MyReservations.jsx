@@ -27,6 +27,7 @@ export default function MyReservations({ apiToken }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
   const [confirmRestoreId, setConfirmRestoreId] = useState(null);
+  const [restoreConflicts, setRestoreConflicts] = useState(null);
 
   // Edit request state
   const [editRequestReservation, setEditRequestReservation] = useState(null);
@@ -329,6 +330,15 @@ export default function MyReservations({ apiToken }) {
         },
         body: JSON.stringify({ _version: reservation._version || null })
       });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.error === 'SchedulingConflict') {
+          setRestoreConflicts({ ...data, eventTitle: reservation.eventTitle });
+          return;
+        }
+        throw new Error(data.message || 'Version conflict');
+      }
 
       if (!response.ok) throw new Error('Failed to restore reservation');
 
@@ -889,6 +899,41 @@ export default function MyReservations({ apiToken }) {
                   setIsCancelConfirming(false);
                 }}
                 disabled={cancelling}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduling Conflict Modal */}
+      {restoreConflicts && (
+        <div className="mr-modal-overlay" onClick={() => setRestoreConflicts(null)}>
+          <div className="mr-scheduling-conflict-modal" onClick={e => e.stopPropagation()}>
+            <h3>Scheduling Conflict</h3>
+            <p>
+              Cannot restore &quot;{restoreConflicts.eventTitle}&quot; because
+              {' '}{restoreConflicts.conflicts.length} conflicting event{restoreConflicts.conflicts.length > 1 ? 's' : ''} now
+              {' '}occupy the same room and time.
+            </p>
+            <ul className="mr-conflict-list">
+              {restoreConflicts.conflicts.map(c => (
+                <li key={c.id}>
+                  <strong>{c.eventTitle}</strong>
+                  <span className="mr-conflict-time">
+                    {formatDateTime(c.startDateTime)} &ndash; {formatDateTime(c.endDateTime)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mr-conflict-guidance">
+              Please submit a new reservation with different times, or contact an admin to override.
+            </p>
+            <div className="mr-conflict-actions">
+              <button
+                className="mr-btn-close"
+                onClick={() => setRestoreConflicts(null)}
               >
                 Close
               </button>

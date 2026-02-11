@@ -1619,22 +1619,32 @@ function buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offs
 async function checkRoomConflicts(reservation, excludeId = null) {
   try {
     // Calculate the full time window including setup and teardown
-    const setupMinutes = reservation.setupTimeMinutes || 0;
-    const teardownMinutes = reservation.teardownTimeMinutes || 0;
+    // Fall back to calendarData paths since room reservations store fields there
+    const setupMinutes = reservation.setupTimeMinutes ?? reservation.calendarData?.setupTimeMinutes ?? 0;
+    const teardownMinutes = reservation.teardownTimeMinutes ?? reservation.calendarData?.teardownTimeMinutes ?? 0;
 
-    const startTime = new Date(reservation.startDateTime);
-    const endTime = new Date(reservation.endDateTime);
+    const startTime = new Date(reservation.startDateTime || reservation.calendarData?.startDateTime);
+    const endTime = new Date(reservation.endDateTime || reservation.calendarData?.endDateTime);
 
     // Extend the time window for conflict checking
     const effectiveStart = new Date(startTime.getTime() - (setupMinutes * 60 * 1000));
     const effectiveEnd = new Date(endTime.getTime() + (teardownMinutes * 60 * 1000));
+
+    // Convert to string format matching stored calendarData values (ISO local time, no Z)
+    // calendarData.startDateTime is stored as a local-time string (e.g., "2026-02-12T13:15:00")
+    // Must use local-time getters (getHours, not getUTCHours) since stored strings are local time
+    const pad = (n) => String(n).padStart(2, '0');
+    const toLocalISOString = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const effectiveStartStr = toLocalISOString(effectiveStart);
+    const effectiveEndStr = toLocalISOString(effectiveEnd);
 
     // Build query to find overlapping reservations
     // Read locations from calendarData (source of truth)
     const roomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
     const query = {
       $and: [
-        { status: { $in: ['pending', 'approved'] } }, // Only check against pending and approved
+        { status: { $in: ['pending', 'approved', 'published'] } }, // Only check against pending, approved, and published
         {
           // Check calendarData.locations (source of truth)
           'calendarData.locations': { $in: roomIds }
@@ -1643,16 +1653,16 @@ async function checkRoomConflicts(reservation, excludeId = null) {
           $or: [
             {
               // Case 1: Existing reservation starts during our window
-              'calendarData.startDateTime': { $gte: effectiveStart, $lt: effectiveEnd }
+              'calendarData.startDateTime': { $gte: effectiveStartStr, $lt: effectiveEndStr }
             },
             {
               // Case 2: Existing reservation ends during our window
-              'calendarData.endDateTime': { $gt: effectiveStart, $lte: effectiveEnd }
+              'calendarData.endDateTime': { $gt: effectiveStartStr, $lte: effectiveEndStr }
             },
             {
               // Case 3: Existing reservation completely encompasses our window
-              'calendarData.startDateTime': { $lte: effectiveStart },
-              'calendarData.endDateTime': { $gte: effectiveEnd }
+              'calendarData.startDateTime': { $lte: effectiveStartStr },
+              'calendarData.endDateTime': { $gte: effectiveEndStr }
             }
           ]
         }
@@ -1719,15 +1729,16 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     });
 
     // Return detailed conflict information
+    // Fall back to calendarData fields since published/reservation events store data there
     return actualConflicts.map(conflict => ({
       id: conflict._id.toString(),
-      eventTitle: conflict.eventTitle,
-      startDateTime: conflict.startDateTime,
-      endDateTime: conflict.endDateTime,
-      rooms: conflict.requestedRooms,
+      eventTitle: conflict.eventTitle || conflict.calendarData?.eventTitle,
+      startDateTime: conflict.startDateTime || conflict.calendarData?.startDateTime,
+      endDateTime: conflict.endDateTime || conflict.calendarData?.endDateTime,
+      rooms: conflict.requestedRooms || conflict.calendarData?.locations,
       status: conflict.status,
-      setupTimeMinutes: conflict.setupTimeMinutes || 0,
-      teardownTimeMinutes: conflict.teardownTimeMinutes || 0,
+      setupTimeMinutes: conflict.setupTimeMinutes || conflict.calendarData?.setupTimeMinutes || 0,
+      teardownTimeMinutes: conflict.teardownTimeMinutes || conflict.calendarData?.teardownTimeMinutes || 0,
       isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
       allowedConcurrentCategories: conflict.allowedConcurrentCategories || []
     }));
@@ -12885,6 +12896,23 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       }
     }
 
+    // Check for scheduling conflicts before restoring (only for statuses that occupy rooms)
+    if (['pending', 'approved', 'published'].includes(previousStatus)) {
+      const roomIds = reservation.calendarData?.locations || reservation.locations || [];
+      if (roomIds.length > 0) {
+        const conflicts = await checkRoomConflicts(reservation, reservationId);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected. Please submit a new reservation with different times or contact an admin.`,
+            conflicts,
+            previousStatus,
+            _version: reservation._version
+          });
+        }
+      }
+    }
+
     // Build update operation
     const updateOp = {
       $set: {
@@ -13029,7 +13057,7 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
-    const { _version } = req.body || {};
+    const { _version, forceRestore } = req.body || {};
 
     // Check admin permissions
     const user = await usersCollection.findOne({ userId });
@@ -13059,6 +13087,23 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
       if (statusHistory[i].status !== 'deleted') {
         previousStatus = statusHistory[i].status;
         break;
+      }
+    }
+
+    // Check for scheduling conflicts before restoring (only for statuses that occupy rooms)
+    if (!forceRestore && ['pending', 'approved', 'published'].includes(previousStatus)) {
+      const roomIds = event.calendarData?.locations || event.locations || [];
+      if (roomIds.length > 0) {
+        const conflicts = await checkRoomConflicts(event, eventId);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected`,
+            conflicts,
+            previousStatus,
+            _version: event._version
+          });
+        }
       }
     }
 
