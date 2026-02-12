@@ -12123,6 +12123,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     if (roomObjectIds.length > 0) {
       allEvents = await unifiedEventsCollection.find({
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
+        status: { $ne: 'draft' },  // Drafts should never block scheduling
         'calendarData.startDateTime': { $lt: end },
         'calendarData.endDateTime': { $gt: start },
         // Match both ObjectId format (room reservations) and string format (unified form events)

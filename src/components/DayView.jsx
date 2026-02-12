@@ -213,11 +213,22 @@ const DayView = memo(({
 
                 // Calculate overlap counts for each event
                 const getOverlapInfo = (event, allEvents) => {
+                  // Timeless drafts should not participate in overlap detection
+                  const isTimelessDraft = event.status === 'draft' &&
+                    !event.calendarData?.startTime && !event.calendarData?.endTime;
+                  if (isTimelessDraft) {
+                    return { overlapCount: 0, hasParentEvent: false, isParentEvent: false };
+                  }
+
                   const eventStart = new Date(event.start?.dateTime || event.startDateTime);
                   const eventEnd = new Date(event.end?.dateTime || event.endDateTime);
 
                   const overlapping = allEvents.filter(other => {
                     if (other.eventId === event.eventId || other.id === event.id) return false;
+                    // Skip timeless drafts as overlap candidates
+                    const otherIsTimelessDraft = other.status === 'draft' &&
+                      !other.calendarData?.startTime && !other.calendarData?.endTime;
+                    if (otherIsTimelessDraft) return false;
                     const otherStart = new Date(other.start?.dateTime || other.startDateTime);
                     const otherEnd = new Date(other.end?.dateTime || other.endDateTime);
                     const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
@@ -274,8 +285,14 @@ const DayView = memo(({
                       // Check if it's an all-day event (24 hours or more)
                       const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
 
+                      // Detect drafts without specific times (defaulted to 00:00-23:59)
+                      const isTimelessDraft = event.status === 'draft' &&
+                        !event.calendarData?.startTime && !event.calendarData?.endTime;
+
                       let timeDisplay;
-                      if (isAllDay) {
+                      if (isTimelessDraft) {
+                        timeDisplay = "All day (time TBD)";
+                      } else if (isAllDay) {
                         timeDisplay = "All day";
                       } else {
                         // Use formatEventTime utility which properly handles timezone conversion
