@@ -60,16 +60,16 @@ function createBaseEvent(options = {}) {
     startTime: startDateTime.toTimeString().slice(0, 5),
     endDate: endDateTime.toISOString().split('T')[0],
     endTime: endDateTime.toTimeString().slice(0, 5),
-    locations: options.locations || [],
-    locationDisplayNames: options.locationDisplayNames || [],
-    categories: options.categories || [],
+    locations: options.locations || [{ displayName: 'Room A' }],
+    locationDisplayNames: options.locationDisplayNames || ['Room A'],
+    categories: options.categories || ['Meeting'],
     services: options.services || [],
     assignedTo: options.assignedTo || [],
 
-    // Timing fields
-    setupTime: options.setupTime || null,
+    // Timing fields (use undefined check to allow explicit null)
+    setupTime: options.setupTime !== undefined ? options.setupTime : '15 minutes',
     teardownTime: options.teardownTime || null,
-    doorOpenTime: options.doorOpenTime || null,
+    doorOpenTime: options.doorOpenTime !== undefined ? options.doorOpenTime : '09:00',
     doorCloseTime: options.doorCloseTime || null,
 
     // Recurring event fields
@@ -112,9 +112,20 @@ function createBaseEvent(options = {}) {
     // Must use local-time getters to avoid UTC shift on non-UTC machines
     calendarData: options.calendarData || {
       eventTitle: options.eventTitle || `Test Event ${eventId}`,
+      eventDescription: options.eventDescription || 'Test event description',
       startDateTime: toLocalISOString(startDateTime),
       endDateTime: toLocalISOString(endDateTime),
-      locations: options.locations || [],
+      startDate: startDateTime.toISOString().split('T')[0],
+      startTime: startDateTime.toTimeString().slice(0, 5),
+      endDate: endDateTime.toISOString().split('T')[0],
+      endTime: endDateTime.toTimeString().slice(0, 5),
+      locations: options.locations || [{ displayName: 'Room A' }],
+      locationDisplayNames: options.locationDisplayNames || ['Room A'],
+      categories: options.categories || ['Meeting'],
+      setupTime: options.setupTime !== undefined ? options.setupTime : '15 minutes',
+      teardownTime: options.teardownTime || null,
+      doorOpenTime: options.doorOpenTime !== undefined ? options.doorOpenTime : '09:00',
+      doorCloseTime: options.doorCloseTime || null,
       setupTimeMinutes: options.setupTimeMinutes || 0,
       teardownTimeMinutes: options.teardownTimeMinutes || 0,
     },

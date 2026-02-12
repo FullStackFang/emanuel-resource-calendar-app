@@ -129,7 +129,7 @@ export default function ReviewModal({
   submittingEditRequestModal = false
 }) {
   // Get admin status from permissions hook
-  const { isAdmin } = usePermissions();
+  const { isAdmin, canApproveReservations } = usePermissions();
 
   // Helper to get status class for badge
   const getStatusClass = (status) => {
@@ -519,7 +519,7 @@ export default function ReviewModal({
                   disabled={isSaving || savingDraft || !isFormValid}
                   title={!isFormValid ? 'Please fill all required fields' : undefined}
                 >
-                  {isSaving ? 'Submitting...' : 'Submit Request'}
+                  {isSaving ? (canApproveReservations ? 'Creating...' : 'Submitting...') : (canApproveReservations ? 'Create Event' : 'Submit Request')}
                 </button>
               )}
 
@@ -576,7 +576,7 @@ export default function ReviewModal({
 
               {/* Save button - available in edit mode OR review mode with pending items (not for requesters) */}
               {/* Hide when viewing an edit request */}
-              {!isRequesterOnly && onSave && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
+              {!isRequesterOnly && onSave && !isDraft && (mode === 'edit' || (mode === 'review' && isPending)) && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"

@@ -386,6 +386,9 @@ describe('Resubmit Integration Tests (RS-1 to RS-14)', () => {
           startDateTime: '2026-03-01T10:00:00Z',
           endDateTime: '2026-03-01T11:00:00Z',
           locations: ['room-1'],
+          categories: ['Meeting'],
+          setupTime: '15 minutes',
+          doorOpenTime: '09:00',
           requesterName: requesterUser.displayName,
           requesterEmail: requesterUser.email,
         });

@@ -981,7 +981,7 @@ export default function RoomReservationFormBase({
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
   // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
   // Admins and users with canEditEvents permission can edit approved/rejected events
-  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending');
+  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft');
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
   // even on published events. Only respect isViewingEditRequest - readOnly doesn't apply

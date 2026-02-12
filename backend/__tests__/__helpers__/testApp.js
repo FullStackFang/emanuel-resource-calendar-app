@@ -220,6 +220,8 @@ function createTestApp(options = {}) {
         attendees,
         categories,
         services,
+        setupTime,
+        doorOpenTime,
       } = req.body;
 
       // Validate required fields
@@ -238,7 +240,7 @@ function createTestApp(options = {}) {
         status: 'draft',
         isDeleted: false,
 
-        // Calendar fields
+        // Calendar fields (top-level for backward compat)
         eventTitle,
         eventDescription: eventDescription || '',
         startDateTime: new Date(startDateTime),
@@ -247,6 +249,21 @@ function createTestApp(options = {}) {
         locationDisplayNames: [],
         categories: categories || [],
         services: services || [],
+        setupTime: setupTime || null,
+        doorOpenTime: doorOpenTime || null,
+
+        // calendarData (nested structure matching production)
+        calendarData: {
+          eventTitle,
+          eventDescription: eventDescription || '',
+          startDateTime: new Date(startDateTime),
+          endDateTime: new Date(endDateTime),
+          locations: locations || [],
+          locationDisplayNames: [],
+          categories: categories || [],
+          setupTime: setupTime || null,
+          doorOpenTime: doorOpenTime || null,
+        },
 
         // Room reservation data
         roomReservationData: {
@@ -436,43 +453,126 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'Permission denied. Only the owner or an approver can submit this draft.' });
       }
 
-      // Update status to pending
+      // Calendar data is stored inside calendarData, not at top level
+      const cd = draft.calendarData || {};
+
+      // Validate required fields for submission
+      const validationErrors = [];
+      if (!cd.eventTitle || !cd.eventTitle.trim()) validationErrors.push('Event title is required');
+      if (!cd.startDateTime) validationErrors.push('Start date and time are required');
+      if (!cd.endDateTime) validationErrors.push('End date and time are required');
+      if (!cd.locations || cd.locations.length === 0) validationErrors.push('At least one room must be selected');
+      if (!cd.categories || cd.categories.length === 0) validationErrors.push('At least one category must be selected');
+      if (!cd.setupTime) validationErrors.push('Setup time is required');
+      if (!cd.doorOpenTime) validationErrors.push('Door open time is required');
+
+      if (validationErrors.length > 0) {
+        return res.status(400).json({
+          error: 'Draft is incomplete and cannot be submitted',
+          validationErrors
+        });
+      }
+
       const now = new Date();
-      await testCollections.events.updateOne(query, {
-        $set: {
-          status: 'pending',
-          submittedAt: now,
-          lastModifiedDateTime: now,
-          lastModifiedBy: userId,
-        },
-        $push: {
-          statusHistory: {
-            status: 'pending',
-            changedAt: now,
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Submitted for review'
+      const canAutoApprove = isApproverOrAdmin;
+
+      if (canAutoApprove) {
+        // Auto-approve path for admins/approvers
+        const graphResult = await graphApiMock.createCalendarEvent(
+          TEST_CALENDAR_OWNER,
+          null,
+          {
+            subject: cd.eventTitle,
+            startDateTime: cd.startDateTime,
+            endDateTime: cd.endDateTime,
+            eventDescription: cd.eventDescription,
           }
-        }
-      });
+        );
 
-      const submittedEvent = await testCollections.events.findOne(query);
+        await testCollections.events.updateOne(query, {
+          $set: {
+            status: 'approved',
+            approvedAt: now,
+            approvedBy: userEmail,
+            reviewedAt: now,
+            reviewedBy: userEmail,
+            submittedAt: now,
+            lastModifiedDateTime: now,
+            lastModifiedBy: userId,
+            graphData: {
+              id: graphResult.id,
+              iCalUId: graphResult.iCalUId,
+              webLink: graphResult.webLink,
+            },
+          },
+          $unset: { draftCreatedAt: "" },
+          $push: {
+            statusHistory: {
+              status: 'approved',
+              changedAt: now,
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Auto-approved on creation',
+            },
+          },
+        });
 
-      // Create audit log
-      await createAuditLog({
-        eventId: draft.eventId,
-        action: 'submitted',
-        performedBy: userId,
-        performedByEmail: userEmail,
-        previousState: draft,
-        newState: submittedEvent,
-        changes: { status: { from: 'draft', to: 'pending' } },
-      });
+        const approvedEvent = await testCollections.events.findOne(query);
 
-      res.json({
-        success: true,
-        event: submittedEvent,
-      });
+        await createAuditLog({
+          eventId: draft.eventId,
+          action: 'auto-approved',
+          performedBy: userId,
+          performedByEmail: userEmail,
+          previousState: draft,
+          newState: approvedEvent,
+          changes: { status: { from: 'draft', to: 'approved' } },
+        });
+
+        res.json({
+          success: true,
+          event: approvedEvent,
+          autoApproved: true,
+          graphEventId: graphResult.id,
+        });
+      } else {
+        // Standard requester path: draft → pending
+        await testCollections.events.updateOne(query, {
+          $set: {
+            status: 'pending',
+            submittedAt: now,
+            lastModifiedDateTime: now,
+            lastModifiedBy: userId,
+          },
+          $unset: { draftCreatedAt: "" },
+          $push: {
+            statusHistory: {
+              status: 'pending',
+              changedAt: now,
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Submitted for review'
+            }
+          }
+        });
+
+        const submittedEvent = await testCollections.events.findOne(query);
+
+        await createAuditLog({
+          eventId: draft.eventId,
+          action: 'submitted',
+          performedBy: userId,
+          performedByEmail: userEmail,
+          previousState: draft,
+          newState: submittedEvent,
+          changes: { status: { from: 'draft', to: 'pending' } },
+        });
+
+        res.json({
+          success: true,
+          event: submittedEvent,
+        });
+      }
     } catch (error) {
       console.error('Error submitting draft:', error);
       res.status(500).json({ error: error.message });

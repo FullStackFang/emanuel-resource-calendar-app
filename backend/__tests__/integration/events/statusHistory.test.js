@@ -559,6 +559,10 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
           eventDescription: 'Testing accumulation',
           startDateTime: new Date(Date.now() + 86400000).toISOString(),
           endDateTime: new Date(Date.now() + 90000000).toISOString(),
+          locations: [{ displayName: 'Room A' }],
+          categories: ['Meeting'],
+          setupTime: '15 minutes',
+          doorOpenTime: '09:00',
         })
         .expect(201);
 

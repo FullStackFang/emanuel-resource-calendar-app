@@ -908,6 +908,13 @@ function App() {
                       const result = await response.json();
                       logger.log('Draft submitted:', result);
 
+                      // Role-aware success feedback
+                      if (result.autoApproved) {
+                        showSuccess('Event created and published to calendar');
+                      } else {
+                        showSuccess('Request submitted for review');
+                      }
+
                       // Close modal and reset state
                       setShowDraftModal(false);
                       setDraftPrefillData(null);

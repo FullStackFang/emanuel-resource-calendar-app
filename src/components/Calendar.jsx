@@ -6749,7 +6749,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onClose={reviewModal.closeModal}
           onApprove={reviewModal.handleApprove}
           onReject={reviewModal.handleReject}
-          onSave={reviewModal.handleSave}
+          onSave={reviewModal.isDraft ? null : reviewModal.handleSave}
           onDelete={reviewModal.handleDelete}
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
@@ -6839,7 +6839,7 @@ import ConflictDialog from './shared/ConflictDialog';
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={reviewModal.setIsFormValid}
-              readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode}
+              readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft}
               editScope={reviewModal.editScope}
             />
           )}

@@ -200,6 +200,10 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Submit Me',
+        locations: [{ displayName: 'Room A' }],
+        categories: ['Meeting'],
+        setupTime: '15 minutes',
+        doorOpenTime: '09:00',
       });
       const [savedDraft] = await insertEvents(db, [draft]);
 

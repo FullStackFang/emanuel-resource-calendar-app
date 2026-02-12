@@ -13,7 +13,7 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
@@ -12685,33 +12685,43 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       return res.status(404).json({ error: 'Draft not found' });
     }
 
-    // Validate ownership
-    if (draft.roomReservationData?.requestedBy?.userId !== userId) {
+    // Look up user and check role for auto-approve
+    const user = await usersCollection.findOne({
+      $or: [{ odataId: userId }, { email: userEmail }]
+    });
+    const canAutoApprove = canApproveReservations(user, userEmail);
+
+    // Validate ownership — approvers/admins can submit any draft
+    const isOwner = draft.roomReservationData?.requestedBy?.userId === userId;
+    if (!isOwner && !canAutoApprove) {
       return res.status(403).json({ error: 'You can only submit your own drafts' });
     }
+
+    // Calendar data is stored inside calendarData, not at top level
+    const cd = draft.calendarData || {};
 
     // Full validation for submission
     const validationErrors = [];
 
-    if (!draft.eventTitle || !draft.eventTitle.trim()) {
+    if (!cd.eventTitle || !cd.eventTitle.trim()) {
       validationErrors.push('Event title is required');
     }
-    if (!draft.startDateTime) {
+    if (!cd.startDateTime) {
       validationErrors.push('Start date and time are required');
     }
-    if (!draft.endDateTime) {
+    if (!cd.endDateTime) {
       validationErrors.push('End date and time are required');
     }
-    if (!draft.locations || draft.locations.length === 0) {
+    if (!cd.locations || cd.locations.length === 0) {
       validationErrors.push('At least one room must be selected');
     }
-    if (!draft.categories || draft.categories.length === 0) {
+    if (!cd.categories || cd.categories.length === 0) {
       validationErrors.push('At least one category must be selected');
     }
-    if (!draft.setupTime) {
+    if (!cd.setupTime) {
       validationErrors.push('Setup time is required');
     }
-    if (!draft.doorOpenTime) {
+    if (!cd.doorOpenTime) {
       validationErrors.push('Door open time is required');
     }
 
@@ -12724,12 +12734,12 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
 
     // Check for scheduling conflicts
     const reservationForConflict = {
-      startDateTime: draft.startDateTime,
-      endDateTime: draft.endDateTime,
-      setupTimeMinutes: draft.setupTimeMinutes || 0,
-      teardownTimeMinutes: draft.teardownTimeMinutes || 0,
-      requestedRooms: draft.locations,
-      locations: draft.locations
+      startDateTime: cd.startDateTime,
+      endDateTime: cd.endDateTime,
+      setupTimeMinutes: cd.setupTimeMinutes || 0,
+      teardownTimeMinutes: cd.teardownTimeMinutes || 0,
+      requestedRooms: cd.locations,
+      locations: cd.locations
     };
 
     const conflicts = await checkRoomConflicts(reservationForConflict, draftId);
@@ -12740,79 +12750,153 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       });
     }
 
-    // Update draft to pending status
-    const updateData = {
-      status: 'pending',
-      calendarOwner: draft.calendarOwner || getDefaultCalendarOwner(),
-      'roomReservationData.submittedAt': new Date(),
-      lastModified: new Date()
-    };
+    const calendarOwner = draft.calendarOwner || getDefaultCalendarOwner();
 
-    // Remove draftCreatedAt to stop TTL (use $unset)
-    await unifiedEventsCollection.updateOne(
-      { _id: new ObjectId(draftId) },
-      {
-        $set: updateData,
-        $unset: { draftCreatedAt: "" },
-        $push: {
-          statusHistory: {
-            status: 'pending',
-            changedAt: new Date(),
-            changedBy: userId,
-            changedByEmail: userEmail,
-            reason: 'Submitted for review'
-          }
-        }
-      }
-    );
-
-    const submittedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
-
-    // Send admin notification
-    try {
-      const reservationForEmail = {
-        _id: submittedReservation._id,
-        eventTitle: submittedReservation.eventTitle,
-        startDateTime: submittedReservation.startDateTime,
-        endDateTime: submittedReservation.endDateTime,
-        requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
-        requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
-        requestedRooms: submittedReservation.locations
+    if (canAutoApprove) {
+      // --- Auto-approve path for admins/approvers ---
+      // Create Graph calendar event
+      const locationDisplayNames = cd.locationDisplayNames || draft.graphData?.location?.displayName || '';
+      const graphEventData = {
+        subject: cd.eventTitle || 'Untitled Event',
+        start: {
+          dateTime: cd.startDateTime instanceof Date ? cd.startDateTime.toISOString() : cd.startDateTime,
+          timeZone: 'America/New_York'
+        },
+        end: {
+          dateTime: cd.endDateTime instanceof Date ? cd.endDateTime.toISOString() : cd.endDateTime,
+          timeZone: 'America/New_York'
+        },
+        location: { displayName: Array.isArray(locationDisplayNames) ? locationDisplayNames.join('; ') : locationDisplayNames },
+        body: {
+          contentType: 'Text',
+          content: cd.eventDescription || ''
+        },
+        categories: cd.categories || [],
+        importance: 'normal',
+        showAs: 'busy'
       };
 
-      // Send confirmation to requester
-      await emailService.sendSubmissionConfirmation(reservationForEmail);
+      const createdEvent = await graphApiService.createCalendarEvent(
+        calendarOwner,
+        draft.calendarId || null,
+        graphEventData
+      );
 
-      // Send alert to admins
-      const adminEmails = await emailService.getAdminEmails(db);
-      if (adminEmails.length > 0) {
-        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
-        await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
+      const now = new Date();
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(draftId) },
+        {
+          $set: {
+            status: 'approved',
+            calendarOwner,
+            approvedAt: now,
+            approvedBy: userEmail,
+            reviewedAt: now,
+            reviewedBy: userEmail,
+            'roomReservationData.submittedAt': now,
+            lastModified: now,
+            'graphData.id': createdEvent.id,
+            'graphData.iCalUId': createdEvent.iCalUId,
+            'graphData.webLink': createdEvent.webLink,
+          },
+          $unset: { draftCreatedAt: "" },
+          $push: {
+            statusHistory: {
+              status: 'approved',
+              changedAt: now,
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Auto-approved on creation'
+            }
+          }
+        }
+      );
+
+      const approvedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+
+      logger.log('Draft auto-approved:', {
+        draftId,
+        approvedBy: userEmail,
+        graphEventId: createdEvent.id,
+        eventTitle: cd.eventTitle
+      });
+
+      res.json({ ...approvedReservation, autoApproved: true });
+    } else {
+      // --- Standard requester path: draft → pending ---
+      const updateData = {
+        status: 'pending',
+        calendarOwner,
+        'roomReservationData.submittedAt': new Date(),
+        lastModified: new Date()
+      };
+
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(draftId) },
+        {
+          $set: updateData,
+          $unset: { draftCreatedAt: "" },
+          $push: {
+            statusHistory: {
+              status: 'pending',
+              changedAt: new Date(),
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: 'Submitted for review'
+            }
+          }
+        }
+      );
+
+      const submittedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+
+      // Send admin notification
+      try {
+        const submittedCd = submittedReservation.calendarData || {};
+        const reservationForEmail = {
+          _id: submittedReservation._id,
+          eventTitle: submittedCd.eventTitle,
+          startDateTime: submittedCd.startDateTime,
+          endDateTime: submittedCd.endDateTime,
+          requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
+          requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
+          requestedRooms: submittedCd.locations
+        };
+
+        // Send confirmation to requester
+        await emailService.sendSubmissionConfirmation(reservationForEmail);
+
+        // Send alert to admins
+        const adminEmails = await emailService.getAdminEmails(db);
+        if (adminEmails.length > 0) {
+          const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+          await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
+        }
+
+        // Record in communication history
+        await emailService.recordEmailInHistory(
+          unifiedEventsCollection,
+          submittedReservation._id,
+          { correlationId: new ObjectId().toString() },
+          'submission_confirmation',
+          [userEmail],
+          `Reservation Request Submitted: ${submittedCd.eventTitle}`
+        );
+      } catch (emailError) {
+        logger.error('Email notification failed (draft still submitted):', {
+          draftId,
+          error: emailError.message
+        });
       }
 
-      // Record in communication history
-      await emailService.recordEmailInHistory(
-        unifiedEventsCollection,
-        submittedReservation._id,
-        { correlationId: new ObjectId().toString() },
-        'submission_confirmation',
-        [userEmail],
-        `Reservation Request Submitted: ${submittedReservation.eventTitle}`
-      );
-    } catch (emailError) {
-      logger.error('Email notification failed (draft still submitted):', {
+      logger.log('Draft reservation submitted:', {
         draftId,
-        error: emailError.message
+        requester: userEmail,
+        eventTitle: cd.eventTitle
       });
+
+      res.json(submittedReservation);
     }
-
-    logger.log('Draft reservation submitted:', {
-      draftId,
-      requester: userEmail,
-      eventTitle: draft.eventTitle
-    });
-
-    res.json(submittedReservation);
   } catch (error) {
     logger.error('Error submitting draft reservation:', error);
     res.status(500).json({ error: 'Failed to submit draft reservation' });
