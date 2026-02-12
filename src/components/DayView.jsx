@@ -253,7 +253,7 @@ const DayView = memo(({
                 };
 
                 return (
-                  <div className="event-container">
+                  <div className="event-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {sortedEvents.map((event) => {
                       const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                       // Determine which times to use (registration vs actual event times)
@@ -342,7 +342,7 @@ const DayView = memo(({
                             backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
                             borderLeft: `3px ${isDraft ? 'dotted' : isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                             padding: '8px 10px',
-                            margin: '2px 0',
+                            margin: 0,
                             cursor: 'pointer',
                             borderRadius: '8px',
                             color: '#333',
