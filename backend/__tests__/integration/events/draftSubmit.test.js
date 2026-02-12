@@ -287,6 +287,72 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
     });
   });
 
+  describe('DS-10a: Admin simulating requester role skips auto-approve', () => {
+    it('should transition to pending (not approved) when X-Simulated-Role is requester', async () => {
+      const draft = createCompleteDraft({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Simulated Requester Draft',
+      });
+      const [savedDraft] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Simulated-Role', 'requester')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PENDING);
+      expect(res.body.autoApproved).toBeUndefined();
+      // Graph API should NOT have been called
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls).toHaveLength(0);
+    });
+  });
+
+  describe('DS-10b: Approver simulating viewer role skips auto-approve', () => {
+    it('should transition to pending when X-Simulated-Role is viewer', async () => {
+      const draft = createCompleteDraft({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Simulated Viewer Draft',
+      });
+      const [savedDraft] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .set('X-Simulated-Role', 'viewer')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PENDING);
+      expect(res.body.autoApproved).toBeUndefined();
+    });
+  });
+
+  describe('DS-10c: Simulating admin role still auto-approves', () => {
+    it('should auto-approve when X-Simulated-Role is admin', async () => {
+      const draft = createCompleteDraft({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Simulated Admin Draft',
+      });
+      const [savedDraft] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Simulated-Role', 'admin')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.APPROVED);
+      expect(res.body.autoApproved).toBe(true);
+    });
+  });
+
   describe('DS-10: Submit incomplete draft returns 400', () => {
     it('should return 400 with validationErrors when draft is missing required fields', async () => {
       // Create draft with no locations, categories, setupTime, or doorOpenTime

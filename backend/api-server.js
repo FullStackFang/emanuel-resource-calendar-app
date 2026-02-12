@@ -182,7 +182,7 @@ app.use(cors({
     process.env.FRONTEND_URL || webAppURL
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token', 'If-Match'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Graph-Token', 'If-Match', 'X-Simulated-Role'],
   credentials: true,
   exposedHeaders: ['Authorization', 'ETag'],
   preflightContinue: false,
@@ -264,7 +264,7 @@ const attachmentUpload = multer({
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token, If-Match');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token, If-Match, X-Simulated-Role');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Expose-Headers', 'Authorization, ETag');
   res.sendStatus(204);
@@ -12690,7 +12690,14 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     const user = await usersCollection.findOne({
       $or: [{ odataId: userId }, { email: userEmail }]
     });
-    const canAutoApprove = canApproveReservations(user, userEmail);
+    let canAutoApprove = canApproveReservations(user, userEmail);
+
+    // Respect role simulation: if simulating a non-approver role, skip auto-approve
+    // This is safe — it can only make behavior MORE restrictive (force pending instead of auto-approve)
+    const simulatedRole = req.headers['x-simulated-role'];
+    if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
+      canAutoApprove = false;
+    }
 
     // Validate ownership — approvers/admins can submit any draft
     const isOwner = draft.roomReservationData?.requestedBy?.userId === userId;

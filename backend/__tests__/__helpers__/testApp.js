@@ -474,7 +474,13 @@ function createTestApp(options = {}) {
       }
 
       const now = new Date();
-      const canAutoApprove = isApproverOrAdmin;
+      let canAutoApprove = isApproverOrAdmin;
+
+      // Respect role simulation: if simulating a non-approver role, skip auto-approve
+      const simulatedRole = req.headers['x-simulated-role'];
+      if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
+        canAutoApprove = false;
+      }
 
       if (canAutoApprove) {
         // Auto-approve path for admins/approvers

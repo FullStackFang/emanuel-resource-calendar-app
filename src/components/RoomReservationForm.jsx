@@ -243,14 +243,21 @@ export default function RoomReservationForm({ apiToken, isPublic }) {
     setError('');
 
     try {
+      const submitHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiToken}`
+      };
+      // Pass simulated role to backend when role simulation is active
+      const simSession = localStorage.getItem('role_simulation_session');
+      if (simSession) {
+        try { submitHeaders['X-Simulated-Role'] = JSON.parse(simSession).roleKey; } catch (e) { /* ignore */ }
+      }
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}/submit`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiToken}`
-          }
+          headers: submitHeaders
         }
       );
 

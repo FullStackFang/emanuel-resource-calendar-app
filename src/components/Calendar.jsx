@@ -6888,7 +6888,7 @@ import ConflictDialog from './shared/ConflictDialog';
                   : `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`)
               : pendingSaveConfirmation
                 ? getSaveConfirmationText()
-                : (!eventReviewModal.event?.id && effectivePermissions.isAdmin
+                : (!eventReviewModal.event?.id && effectivePermissions.createEvents
                   ? '✨ Create'
                   : null)
           }
