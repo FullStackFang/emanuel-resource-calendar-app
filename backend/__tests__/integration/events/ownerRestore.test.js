@@ -21,7 +21,7 @@ const {
 const {
   createBaseEvent,
   createDeletedEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -74,16 +74,16 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     otherRequesterToken = await createMockToken(otherRequesterUser);
   });
 
-  describe('OR-1: Restore deleted reservation to previous status (approved)', () => {
-    it('should restore a deleted reservation to its previous approved status', async () => {
+  describe('OR-1: Restore deleted reservation to previous status (published)', () => {
+    it('should restore a deleted reservation to its previous published status', async () => {
       const deleted = createDeletedEvent({
-        eventTitle: 'Previously Approved Reservation',
-        previousStatus: STATUS.APPROVED,
+        eventTitle: 'Previously Published Reservation',
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -96,7 +96,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body._version).toBe((saved._version || 0) + 1);
     });
   });
@@ -131,7 +131,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     it('should republish to Outlook when restored event had graphData', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Published Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         graphData: {
@@ -141,7 +141,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
         },
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -200,7 +200,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     it('should reject restore from a different user', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Someone Else Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
       });
@@ -227,14 +227,14 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       expect(res.status).toBe(404);
     });
 
-    it('should return 404 for an approved event (not deleted/cancelled)', async () => {
-      const approved = createBaseEvent({
-        eventTitle: 'Approved Reservation',
-        status: STATUS.APPROVED,
+    it('should return 404 for a published event (not deleted/cancelled)', async () => {
+      const published = createBaseEvent({
+        eventTitle: 'Published Reservation',
+        status: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
       });
-      const [saved] = await insertEvents(db, [approved]);
+      const [saved] = await insertEvents(db, [published]);
 
       const res = await request(app)
         .put(ENDPOINTS.OWNER_RESTORE_RESERVATION(saved._id))
@@ -249,7 +249,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     it('should return 409 when _version does not match', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Stale Version Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         _version: 3,
@@ -270,12 +270,12 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     it('should add a statusHistory entry with restore reason', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'StatusHistory Test Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -290,7 +290,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       expect(restored.statusHistory).toHaveLength(4);
 
       const lastEntry = restored.statusHistory[3];
-      expect(lastEntry.status).toBe(STATUS.APPROVED);
+      expect(lastEntry.status).toBe(STATUS.PUBLISHED);
       expect(lastEntry.changedByEmail).toBe(requesterUser.email);
       expect(lastEntry.reason).toMatch(/Restored from deleted by owner/);
     });
@@ -300,7 +300,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     it('should clear isDeleted, deletedAt, deletedBy, deletedByEmail for deleted events', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Cleanup Test Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         deletedBy: 'admin@emanuelnyc.org',
@@ -318,7 +318,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       expect(restored.deletedAt).toBeUndefined();
       expect(restored.deletedBy).toBeUndefined();
       expect(restored.deletedByEmail).toBeUndefined();
-      expect(restored.status).toBe(STATUS.APPROVED);
+      expect(restored.status).toBe(STATUS.PUBLISHED);
     });
 
     it('should NOT unset deletion fields when restoring from cancelled', async () => {
@@ -355,7 +355,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
       const deleted = createDeletedEvent({
         eventTitle: 'Graph Fail Reservation',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         requesterEmail: requesterUser.email,
         userId: requesterUser.odataId,
         graphData: {
@@ -365,7 +365,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
         },
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: requesterUser.email },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -379,12 +379,12 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
       // Restore should succeed even though Graph failed
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body.graphPublished).toBe(false);
 
       // Verify the event was still restored in MongoDB
       const restored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(restored.status).toBe(STATUS.APPROVED);
+      expect(restored.status).toBe(STATUS.PUBLISHED);
       expect(restored.isDeleted).toBe(false);
     });
   });
@@ -398,11 +398,11 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
     const conflictStart = new Date('2026-03-15T10:00:00Z');
     const conflictEnd = new Date('2026-03-15T12:00:00Z');
 
-    describe('OR-11: Conflict when restoring deleted to approved', () => {
+    describe('OR-11: Conflict when restoring deleted to published', () => {
       it('should return 409 SchedulingConflict', async () => {
-        // Create an existing approved event occupying the room
-        const existing = createApprovedEvent({
-          eventTitle: 'Existing Approved Event',
+        // Create an existing published event occupying the room
+        const existing = createPublishedEvent({
+          eventTitle: 'Existing Published Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
@@ -411,14 +411,14 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
         // Create the deleted event that would conflict
         const deleted = createDeletedEvent({
           eventTitle: 'Conflicting Deleted Reservation',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           requesterEmail: requesterUser.email,
           userId: requesterUser.odataId,
           startDateTime: new Date('2026-03-15T11:00:00Z'),
           endDateTime: new Date('2026-03-15T13:00:00Z'),
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -434,13 +434,13 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
         expect(res.status).toBe(409);
         expect(res.body.error).toBe('SchedulingConflict');
         expect(res.body.conflicts).toHaveLength(1);
-        expect(res.body.previousStatus).toBe(STATUS.APPROVED);
+        expect(res.body.previousStatus).toBe(STATUS.PUBLISHED);
       });
     });
 
     describe('OR-12: Conflict when restoring cancelled to pending', () => {
       it('should return 409 SchedulingConflict', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -476,7 +476,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
     describe('OR-13: No conflict check when restoring to draft', () => {
       it('should restore successfully without conflict check', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -512,7 +512,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
     describe('OR-14: forceRestore ignored for owners (still 409)', () => {
       it('should still return 409 even with forceRestore: true', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -521,14 +521,14 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Owner Cannot Force',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           requesterEmail: requesterUser.email,
           userId: requesterUser.odataId,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -548,7 +548,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
     describe('OR-15: No conflict when event has no rooms', () => {
       it('should restore successfully when event has empty locations', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -557,14 +557,14 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Virtual Event',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           requesterEmail: requesterUser.email,
           userId: requesterUser.odataId,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -594,14 +594,14 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Owner Restore Blocked By Published',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           requesterEmail: requesterUser.email,
           userId: requesterUser.odataId,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -623,8 +623,8 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
 
     describe('OR-17: Conflict check runs when previousStatus is published', () => {
       it('should run conflict check when restoring an event whose previous status was published', async () => {
-        const existing = createApprovedEvent({
-          eventTitle: 'Existing Approved Event',
+        const existing = createPublishedEvent({
+          eventTitle: 'Existing Published Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
@@ -700,7 +700,7 @@ describe('Owner Restore Tests (OR-1 to OR-17)', () => {
           deletedAt: new Date(),
           deletedBy: 'admin@emanuelnyc.org',
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
           _version: 1,

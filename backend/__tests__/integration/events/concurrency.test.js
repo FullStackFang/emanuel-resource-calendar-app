@@ -14,7 +14,7 @@ const { setupTestDatabase, teardownTestDatabase, getDb } = require('../../__help
 const { conditionalUpdate } = require('../../../utils/concurrencyUtils');
 const {
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createDeletedEvent,
   createRejectedEvent,
   insertEvent,
@@ -38,28 +38,28 @@ beforeEach(async () => {
 });
 
 describe('Concurrency Integration Tests', () => {
-  describe('C-1: Two approvers race', () => {
-    it('first approver succeeds, second gets 409', async () => {
+  describe('C-1: Two publishers race', () => {
+    it('first publisher succeeds, second gets 409', async () => {
       const event = createPendingEvent({ _version: 1 });
       await insertEvent(db, event);
 
-      // First approver succeeds
+      // First publisher succeeds
       const result1 = await conditionalUpdate(
         eventsCollection,
         { _id: event._id },
-        { $set: { status: 'approved', approvedBy: 'approver1@test.com' } },
+        { $set: { status: 'published', publishedBy: 'approver1@test.com' } },
         { expectedVersion: 1, expectedStatus: 'pending', modifiedBy: 'approver1@test.com' }
       );
 
-      expect(result1.status).toBe('approved');
+      expect(result1.status).toBe('published');
       expect(result1._version).toBe(2);
 
-      // Second approver fails with 409
+      // Second publisher fails with 409
       await expect(
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { status: 'approved', approvedBy: 'approver2@test.com' } },
+          { $set: { status: 'published', publishedBy: 'approver2@test.com' } },
           { expectedVersion: 1, expectedStatus: 'pending', modifiedBy: 'approver2@test.com' }
         )
       ).rejects.toMatchObject({
@@ -67,26 +67,26 @@ describe('Concurrency Integration Tests', () => {
         details: expect.objectContaining({
           code: 'VERSION_CONFLICT',
           currentVersion: 2,
-          currentStatus: 'approved',
+          currentStatus: 'published',
         }),
       });
     });
   });
 
-  describe('C-2: Approve vs cancel race', () => {
+  describe('C-2: Publish vs cancel race', () => {
     it('one operation succeeds, the other gets 409', async () => {
       const event = createPendingEvent({ _version: 1 });
       await insertEvent(db, event);
 
-      // Approver succeeds first
+      // Publisher succeeds first
       const result = await conditionalUpdate(
         eventsCollection,
         { _id: event._id },
-        { $set: { status: 'approved', approvedBy: 'approver@test.com' } },
+        { $set: { status: 'published', publishedBy: 'approver@test.com' } },
         { expectedVersion: 1, expectedStatus: 'pending', modifiedBy: 'approver@test.com' }
       );
 
-      expect(result.status).toBe('approved');
+      expect(result.status).toBe('published');
 
       // Cancel attempt fails (status is no longer 'pending')
       await expect(
@@ -100,7 +100,7 @@ describe('Concurrency Integration Tests', () => {
         statusCode: 409,
         details: expect.objectContaining({
           code: 'VERSION_CONFLICT',
-          currentStatus: 'approved',
+          currentStatus: 'published',
         }),
       });
     });
@@ -108,7 +108,7 @@ describe('Concurrency Integration Tests', () => {
 
   describe('C-3: Two editors save simultaneously', () => {
     it('first editor succeeds, second gets 409', async () => {
-      const event = createApprovedEvent({ _version: 1 });
+      const event = createPublishedEvent({ _version: 1 });
       await insertEvent(db, event);
 
       // First editor saves
@@ -146,7 +146,7 @@ describe('Concurrency Integration Tests', () => {
 
   describe('C-4: Edit request vs admin update race', () => {
     it('one operation succeeds, the other gets 409', async () => {
-      const event = createApprovedEvent({ _version: 1 });
+      const event = createPublishedEvent({ _version: 1 });
       await insertEvent(db, event);
 
       // Admin updates the event
@@ -173,7 +173,7 @@ describe('Concurrency Integration Tests', () => {
     });
   });
 
-  describe('C-5: Delete vs approve race', () => {
+  describe('C-5: Delete vs publish race', () => {
     it('one operation succeeds, the other gets 409', async () => {
       const event = createPendingEvent({ _version: 1 });
       await insertEvent(db, event);
@@ -188,12 +188,12 @@ describe('Concurrency Integration Tests', () => {
 
       expect(result.status).toBe('deleted');
 
-      // Approve fails
+      // Publish fails
       await expect(
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { status: 'approved' } },
+          { $set: { status: 'published' } },
           { expectedVersion: 1, expectedStatus: 'pending', modifiedBy: 'approver@test.com' }
         )
       ).rejects.toMatchObject({
@@ -213,11 +213,11 @@ describe('Concurrency Integration Tests', () => {
       const result = await conditionalUpdate(
         eventsCollection,
         { _id: event._id },
-        { $set: { status: 'approved' } },
+        { $set: { status: 'published' } },
         { expectedVersion: null, modifiedBy: 'admin@test.com' }
       );
 
-      expect(result.status).toBe('approved');
+      expect(result.status).toBe('published');
       expect(result._version).toBe(6);
     });
 
@@ -239,7 +239,7 @@ describe('Concurrency Integration Tests', () => {
 
   describe('C-7: Wrong _version returns current state', () => {
     it('should include current version and status in 409 details', async () => {
-      const event = createApprovedEvent({ _version: 7 });
+      const event = createPublishedEvent({ _version: 7 });
       await insertEvent(db, event);
 
       try {
@@ -254,7 +254,7 @@ describe('Concurrency Integration Tests', () => {
         expect(err.statusCode).toBe(409);
         expect(err.details.code).toBe('VERSION_CONFLICT');
         expect(err.details.currentVersion).toBe(7);
-        expect(err.details.currentStatus).toBe('approved');
+        expect(err.details.currentStatus).toBe('published');
       }
     });
   });
@@ -295,17 +295,17 @@ describe('Concurrency Integration Tests', () => {
 
   describe('C-9: Restore respects version', () => {
     it('should succeed with correct version on restore', async () => {
-      const event = createDeletedEvent({ _version: 3, previousStatus: 'approved' });
+      const event = createDeletedEvent({ _version: 3, previousStatus: 'published' });
       await insertEvent(db, event);
 
       const result = await conditionalUpdate(
         eventsCollection,
         { _id: event._id },
-        { $set: { status: 'approved', isDeleted: false } },
+        { $set: { status: 'published', isDeleted: false } },
         { expectedVersion: 3, expectedStatus: 'deleted', modifiedBy: 'admin@test.com' }
       );
 
-      expect(result.status).toBe('approved');
+      expect(result.status).toBe('published');
       expect(result.isDeleted).toBe(false);
       expect(result._version).toBe(4);
     });
@@ -318,7 +318,7 @@ describe('Concurrency Integration Tests', () => {
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { status: 'approved', isDeleted: false } },
+          { $set: { status: 'published', isDeleted: false } },
           { expectedVersion: 1, expectedStatus: 'deleted', modifiedBy: 'admin@test.com' }
         )
       ).rejects.toMatchObject({
@@ -331,7 +331,7 @@ describe('Concurrency Integration Tests', () => {
   });
 
   describe('C-10: Status guard prevents invalid transitions', () => {
-    it('should prevent approving a rejected event', async () => {
+    it('should prevent publishing a rejected event', async () => {
       const event = createRejectedEvent({ _version: 2 });
       await insertEvent(db, event);
 
@@ -339,7 +339,7 @@ describe('Concurrency Integration Tests', () => {
         conditionalUpdate(
           eventsCollection,
           { _id: event._id },
-          { $set: { status: 'approved' } },
+          { $set: { status: 'published' } },
           { expectedVersion: 2, expectedStatus: 'pending', modifiedBy: 'admin@test.com' }
         )
       ).rejects.toMatchObject({
@@ -351,8 +351,8 @@ describe('Concurrency Integration Tests', () => {
       });
     });
 
-    it('should prevent rejecting an approved event', async () => {
-      const event = createApprovedEvent({ _version: 2 });
+    it('should prevent rejecting a published event', async () => {
+      const event = createPublishedEvent({ _version: 2 });
       await insertEvent(db, event);
 
       await expect(
@@ -365,7 +365,7 @@ describe('Concurrency Integration Tests', () => {
       ).rejects.toMatchObject({
         statusCode: 409,
         details: expect.objectContaining({
-          currentStatus: 'approved',
+          currentStatus: 'published',
         }),
       });
     });

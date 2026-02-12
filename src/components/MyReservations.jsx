@@ -84,16 +84,16 @@ export default function MyReservations({ apiToken }) {
       return allReservations.filter(r => r.status === 'pending');
     }
     if (activeTab === 'published') {
-      // Published = approved status WITHOUT a pending edit request
+      // Published = published status WITHOUT a pending edit request
       return allReservations.filter(r =>
-        r.status === 'approved' &&
+        r.status === 'published' &&
         (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
       );
     }
     if (activeTab === 'published_edit') {
-      // Published Edit = approved status WITH a pending edit request
+      // Published Edit = published status WITH a pending edit request
       return allReservations.filter(r =>
-        r.status === 'approved' &&
+        r.status === 'published' &&
         r.pendingEditRequest?.status === 'pending'
       );
     }
@@ -114,11 +114,11 @@ export default function MyReservations({ apiToken }) {
     draft: allReservations.filter(r => r.status === 'draft').length,
     pending: allReservations.filter(r => r.status === 'pending').length,
     published: allReservations.filter(r =>
-      r.status === 'approved' &&
+      r.status === 'published' &&
       (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
     ).length,
     published_edit: allReservations.filter(r =>
-      r.status === 'approved' &&
+      r.status === 'published' &&
       r.pendingEditRequest?.status === 'pending'
     ).length,
     rejected: allReservations.filter(r => r.status === 'rejected').length,
@@ -369,9 +369,9 @@ export default function MyReservations({ apiToken }) {
     });
   };
 
-  // Get display status (convert 'approved' to 'published' or 'published edit' for display)
+  // Get display status for UI
   const getDisplayStatus = (reservation) => {
-    if (reservation.status === 'approved') {
+    if (reservation.status === 'published') {
       // Check if there's a pending edit request
       if (reservation.pendingEditRequest?.status === 'pending') {
         return 'Published Edit';
@@ -384,7 +384,7 @@ export default function MyReservations({ apiToken }) {
 
   const getStatusBadgeClass = (reservation) => {
     const status = reservation.status;
-    if (status === 'approved') {
+    if (status === 'published') {
       // Check if there's a pending edit request
       if (reservation.pendingEditRequest?.status === 'pending') {
         return 'status-published-edit';
@@ -822,7 +822,7 @@ export default function MyReservations({ apiToken }) {
                   </button>
                 </>
               )}
-              {selectedReservation.status === 'approved' && !selectedReservation.pendingEditRequest?.status && (
+              {selectedReservation.status === 'published' && !selectedReservation.pendingEditRequest?.status && (
                 <button
                   className="edit-request-btn"
                   onClick={() => {
@@ -837,7 +837,7 @@ export default function MyReservations({ apiToken }) {
                   Request Edit
                 </button>
               )}
-              {selectedReservation.status === 'approved' && selectedReservation.pendingEditRequest?.status === 'pending' && (
+              {selectedReservation.status === 'published' && selectedReservation.pendingEditRequest?.status === 'pending' && (
                 <div className="pending-edit-notice">
                   Edit request pending approval
                 </div>

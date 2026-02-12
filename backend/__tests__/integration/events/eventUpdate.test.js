@@ -13,8 +13,8 @@ const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createAdmin, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
+  createPublishedEventWithGraph,
   createPublishedEvent,
-  createApprovedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -69,7 +69,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
   describe('Graph sync with calendarOwner (app-only auth)', () => {
     it('should sync to Graph when calendarOwner exists, even without graphToken', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -100,7 +100,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     });
 
     it('should sync to Graph when calendarOwner exists and graphToken also provided', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -125,7 +125,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     });
 
     it('should NOT sync to Graph when neither calendarOwner nor graphToken exists', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -154,7 +154,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     });
 
     it('should sync to Graph when calendarOwner exists (app-only auth)', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Shared Calendar Event',
@@ -182,14 +182,14 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
   describe('Graph sync skipped for non-Graph events', () => {
     it('should NOT sync when event has no iCalUId', async () => {
-      const approved = createApprovedEvent({
+      const publishedNoGraph = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'No Graph Data Event',
         calendarOwner: TEST_CALENDAR_OWNER,
         graphData: null, // No graphData means no iCalUId
       });
-      const [saved] = await insertEvents(db, [approved]);
+      const [saved] = await insertEvents(db, [publishedNoGraph]);
 
       const res = await request(app)
         .put(`/api/admin/events/${saved._id}`)
@@ -209,7 +209,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     it('should sync when event has graphData.id even without iCalUId', async () => {
       // Bug fix: sync gate now uses graphData.id instead of iCalUId,
       // so events with graphData.id but no iCalUId now sync correctly
-      const approved = createApprovedEvent({
+      const publishedWithId = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Has ID But No iCalUId',
@@ -220,7 +220,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
           // No iCalUId — previously blocked sync, now works via graphData.id
         },
       });
-      const [saved] = await insertEvents(db, [approved]);
+      const [saved] = await insertEvents(db, [publishedWithId]);
 
       const res = await request(app)
         .put(`/api/admin/events/${saved._id}`)
@@ -243,7 +243,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     });
 
     it('should NOT sync when no Graph-syncable fields changed', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         calendarOwner: TEST_CALENDAR_OWNER,
@@ -268,7 +268,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
 
   describe('Graph response sync to graphData', () => {
     it('should sync full Graph API response back to graphData', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -298,7 +298,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     });
 
     it('should NOT overwrite graphData when Graph sync is skipped', async () => {
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         calendarOwner: TEST_CALENDAR_OWNER,
@@ -327,7 +327,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
     it('should still update MongoDB when Graph sync fails', async () => {
       graphApiMock.setMockError('updateCalendarEvent', new Error('Graph API unavailable'));
 
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -352,7 +352,7 @@ describe('Event Update Tests - Graph Sync Gate', () => {
   describe('Permission checks', () => {
     it('should reject non-admin users', async () => {
       const requesterToken = await createMockToken(requesterUser);
-      const published = createPublishedEvent({
+      const published = createPublishedEventWithGraph({
         userId: requesterUser.odataId,
         calendarOwner: TEST_CALENDAR_OWNER,
       });

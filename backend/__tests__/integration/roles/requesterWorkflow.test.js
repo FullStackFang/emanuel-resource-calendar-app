@@ -2,7 +2,7 @@
  * Requester Role Workflow Tests (R-1 to R-29)
  *
  * Tests requester role capabilities including:
- * - Own event management (draft, pending, approved states)
+ * - Own event management (draft, pending, published states)
  * - Ownership enforcement (cannot access other's events)
  * - Edit request workflow
  */
@@ -22,7 +22,7 @@ const {
 const {
   createDraftEvent,
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createRejectedEvent,
   insertEvents,
   findEvent,
@@ -272,8 +272,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-7: Requester CANNOT approve own pending', () => {
-    it('should return 403 for self-approval', async () => {
+  describe('R-7: Requester CANNOT publish own pending', () => {
+    it('should return 403 for self-publish', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -281,7 +281,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
       const [savedPending] = await insertEvents(db, [pending]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(403);
 
@@ -330,14 +330,14 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
   // PUBLISHED STATE (OWN) - R-10 to R-13
   // ============================================
 
-  describe('R-10: Requester CAN view own published (approved)', () => {
-    it('should return own approved events', async () => {
-      const approved = createApprovedEvent({
+  describe('R-10: Requester CAN view own published', () => {
+    it('should return own published events', async () => {
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'My Approved Event',
+        eventTitle: 'My Published Event',
       });
-      await insertEvents(db, [approved]);
+      await insertEvents(db, [published]);
 
       const res = await request(app)
         .get('/api/reservations/my')
@@ -345,24 +345,24 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(200);
 
       expect(res.body.reservations).toHaveLength(1);
-      expect(res.body.reservations[0].status).toBe(STATUS.APPROVED);
+      expect(res.body.reservations[0].status).toBe(STATUS.PUBLISHED);
     });
   });
 
   describe('R-11: Requester CANNOT directly edit own published', () => {
     it('should return 403 for direct edit attempt', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
-      // Try to edit via draft endpoint (should not work for approved events)
+      // Try to edit via draft endpoint (should not work for published events)
       const res = await request(app)
-        .put(`/api/room-reservations/draft/${savedApproved._id}`)
+        .put(`/api/room-reservations/draft/${savedPublished._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .send({ eventTitle: 'Updated Approved' })
-        .expect(404); // Draft not found (it's approved, not draft)
+        .send({ eventTitle: 'Updated Published' })
+        .expect(404); // Draft not found (it's published, not draft)
 
       expect(res.body.error).toMatch(/not found/i);
     });
@@ -370,15 +370,15 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
   describe('R-12: Requester CAN request edit on own published', () => {
     it('should create pendingEditRequest', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           requestedChanges: { eventTitle: 'New Title' },
@@ -394,14 +394,14 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
   describe('R-13: Requester CANNOT delete own published', () => {
     it('should return 403 for delete attempt', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .delete(`/api/admin/events/${savedApproved._id}`)
+        .delete(`/api/admin/events/${savedPublished._id}`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(403);
 
@@ -415,17 +415,17 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
   describe('R-14: Requester CAN view own edit request status', () => {
     it('should see pendingEditRequest in event data', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      approved.pendingEditRequest = {
+      published.pendingEditRequest = {
         requestedAt: new Date(),
         requestedBy: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
         reason: 'Update needed',
       };
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
         .get('/api/reservations/my')
@@ -437,22 +437,22 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
     });
   });
 
-  describe('R-16: Requester CANNOT approve own edit request', () => {
-    it('should return 403 for self-approval of edit request', async () => {
-      const approved = createApprovedEvent({
+  describe('R-16: Requester CANNOT publish own edit request', () => {
+    it('should return 403 for self-publish of edit request', async () => {
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      approved.pendingEditRequest = {
+      published.pendingEditRequest = {
         requestedAt: new Date(),
         requestedBy: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
         reason: 'Update needed',
       };
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/approve-edit`)
+        .put(`/api/admin/events/${savedPublished._id}/publish-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .expect(403);
 
@@ -462,20 +462,20 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
   describe('R-17: Requester CANNOT create duplicate edit request', () => {
     it('should return 400 when edit request already exists', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      approved.pendingEditRequest = {
+      published.pendingEditRequest = {
         requestedAt: new Date(),
         requestedBy: requesterUser.email,
         requestedChanges: { eventTitle: 'First Request' },
         reason: 'First reason',
       };
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           requestedChanges: { eventTitle: 'Second Request' },
@@ -606,14 +606,14 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
 
   describe('R-25: Requester CANNOT request edit on other\'s published', () => {
     it('should return 403 when trying to request edit on other user\'s event', async () => {
-      const otherApproved = createApprovedEvent({
+      const otherPublished = createPublishedEvent({
         userId: otherRequesterUser.odataId,
         requesterEmail: otherRequesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [otherApproved]);
+      const [savedPublished] = await insertEvents(db, [otherPublished]);
 
       const res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           requestedChanges: { eventTitle: 'Hacked Title' },

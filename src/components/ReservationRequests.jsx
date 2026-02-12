@@ -49,7 +49,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   }, []);
 
   // Conflict detection state
-  const [forceApprove, setForceApprove] = useState(false);
+  const [forcePublish, setForcePublish] = useState(false);
 
   // Feature flag: Toggle between old and new review form
   // Default to UnifiedEventForm to match the draft edit form in MyReservations
@@ -78,6 +78,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Delete confirmation state (for ReviewModal - separate from card delete)
   const [isModalDeleting, setIsModalDeleting] = useState(false);
   const [isModalDeleteConfirming, setIsModalDeleteConfirming] = useState(false);
+
+  // Scheduling conflict state (from SchedulingAssistant via RoomReservationReview)
+  const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
 
   // Edit request state
   const [editRequests, setEditRequests] = useState([]);
@@ -188,7 +191,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       return allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
     }
     if (activeTab === 'published') {
-      return allReservations.filter(r => r.status === 'approved');
+      return allReservations.filter(r => r.status === 'published');
     }
     if (activeTab === 'cancelled') {
       return allReservations.filter(r => r.status === 'cancelled');
@@ -203,7 +206,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const statusCounts = useMemo(() => ({
     all: allReservations.filter(r => r.status !== 'deleted' && !r.isDeleted).length,
     pending: allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
-    published: allReservations.filter(r => r.status === 'approved').length,
+    published: allReservations.filter(r => r.status === 'published').length,
     cancelled: allReservations.filter(r => r.status === 'cancelled').length,
     deleted: allReservations.filter(r => r.status === 'deleted' || r.isDeleted).length,
   }), [allReservations]);
@@ -569,7 +572,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         eventTitle: reservation.eventTitle,
         calendarMode,
         createCalendarEvent,
-        forceApprove
+        forcePublish
       });
 
       const requestBody = {
@@ -577,14 +580,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         calendarMode: calendarMode,
         createCalendarEvent: createCalendarEvent,
         graphToken: graphToken,
-        forceApprove: forceApprove,
+        forcePublish: forcePublish,
         targetCalendar: selectedTargetCalendar || defaultCalendar,
         _version: eventVersion || reservation._version || null
       };
 
       logger.debug('Sending approval request:', requestBody);
 
-      const approveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/approve`;
+      const approveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/publish`;
 
       const response = await fetch(approveEndpoint, {
         method: 'PUT',
@@ -602,8 +605,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         // Check if it's a scheduling conflict or version conflict
         if (data.error === 'SchedulingConflict') {
           setConflicts(data.conflicts || []);
-          setError(`Cannot approve: ${data.conflicts.length} scheduling conflict(s) detected. ` +
-                  `Please review conflicts below and either modify the reservation or check "Override conflicts" to force approval.`);
+          setError(`Cannot publish: ${data.conflicts.length} scheduling conflict(s) detected. ` +
+                  `Please review conflicts below and either modify the reservation or check "Override conflicts" to force publish.`);
           return;
         }
 
@@ -616,7 +619,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         // Determine conflict type
         const expectedStatus = reservation.status;
         const conflictType = currentStatus && currentStatus !== expectedStatus
-          ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
+          ? (currentStatus === 'published' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
           : 'data_changed';
 
         setConflictDialog({
@@ -630,8 +633,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('❌ Approval request failed:', response.status, errorText);
-        throw new Error(`Failed to approve reservation: ${response.status} ${errorText}`);
+        logger.error('❌ Publish request failed:', response.status, errorText);
+        throw new Error(`Failed to publish reservation: ${response.status} ${errorText}`);
       }
 
       const result = await response.json();
@@ -646,23 +649,23 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             eventId: calendarEventResult.eventId,
             calendar: calendarEventResult.targetCalendar
           });
-          setError(`✅ Reservation approved and calendar event created in ${calendarEventResult.targetCalendar}`);
+          setError(`✅ Reservation published and calendar event created in ${calendarEventResult.targetCalendar}`);
         } else {
           logger.error('📅 Calendar event creation failed:', calendarEventResult.error);
-          setError(`⚠️ Reservation approved but calendar event creation failed: ${calendarEventResult.error}`);
+          setError(`⚠️ Reservation published but calendar event creation failed: ${calendarEventResult.error}`);
         }
       } else if (createCalendarEvent) {
         logger.warn('📅 Calendar event creation was requested but no result received');
-        setError('⚠️ Reservation approved but calendar event creation status unknown');
+        setError('⚠️ Reservation published but calendar event creation status unknown');
       } else {
-        logger.debug('✅ Reservation approved (calendar event creation disabled)');
-        setError('✅ Reservation approved successfully');
+        logger.debug('✅ Reservation published (calendar event creation disabled)');
+        setError('✅ Reservation published successfully');
       }
-      
+
       // Update local state
       setAllReservations(prev => prev.map(r =>
         r._id === reservation._id
-          ? { ...r, status: 'approved', actionDate: new Date(), calendarEventId: calendarEventResult?.eventId }
+          ? { ...r, status: 'published', actionDate: new Date(), calendarEventId: calendarEventResult?.eventId }
           : r
       ));
 
@@ -677,7 +680,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } catch (err) {
       logger.error('❌ Error in approval process:', err);
       logger.error('Error approving reservation:', err);
-      showError(err, { context: 'ReservationRequests.handleApprove', userMessage: 'Failed to approve reservation' });
+      showError(err, { context: 'ReservationRequests.handleApprove', userMessage: 'Failed to publish reservation' });
     } finally {
       setIsApproving(false);
     }
@@ -726,7 +729,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         const currentStatus = conflictDetails.currentStatus;
 
         const conflictType = currentStatus && currentStatus !== reservation.status
-          ? (currentStatus === 'approved' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
+          ? (currentStatus === 'published' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
           : 'data_changed';
 
         setConflictDialog({ isOpen: true, conflictType, details: conflictDetails, staleData: editableData });
@@ -1166,8 +1169,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               <div className="rr-detail-row">
                 <label>Status:</label>
                 <div>
-                  <span className={`status-badge status-${selectedDetailsReservation.status === 'approved' ? 'published' : selectedDetailsReservation.status}`}>
-                    {selectedDetailsReservation.status === 'approved' ? 'Published' : selectedDetailsReservation.status.charAt(0).toUpperCase() + selectedDetailsReservation.status.slice(1)}
+                  <span className={`status-badge status-${selectedDetailsReservation.status}`}>
+                    {selectedDetailsReservation.status.charAt(0).toUpperCase() + selectedDetailsReservation.status.slice(1)}
                   </span>
                 </div>
               </div>
@@ -1222,8 +1225,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 </>
               )}
 
-              {/* Approved/Published: Edit + Delete + Close */}
-              {selectedDetailsReservation.status === 'approved' && (
+              {/* Published: Edit + Delete + Close */}
+              {selectedDetailsReservation.status === 'published' && (
                 <>
                   <button
                     className="rr-btn rr-review-btn"
@@ -1343,6 +1346,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           isDeleting={isModalDeleting}
           isDeleteConfirming={isModalDeleteConfirming}
           onCancelDelete={() => setIsModalDeleteConfirming(false)}
+          hasSchedulingConflicts={hasSchedulingConflicts}
         >
           {useUnifiedForm ? (
             <UnifiedEventForm
@@ -1379,6 +1383,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               onTargetCalendarChange={setSelectedTargetCalendar}
               createCalendarEvent={createCalendarEvent}
               onCreateCalendarEventChange={setCreateCalendarEvent}
+              onSchedulingConflictsChange={setHasSchedulingConflicts}
             />
           )}
         </ReviewModal>

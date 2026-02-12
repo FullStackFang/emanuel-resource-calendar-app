@@ -11,7 +11,6 @@ const TABS = [
   { key: 'all', label: 'All', statusParam: 'all' },
   { key: 'published', label: 'Published', statusParam: 'published' },
   { key: 'pending', label: 'Pending', statusParam: 'pending' },
-  { key: 'approved', label: 'Approved', statusParam: 'approved' },
   { key: 'rejected', label: 'Rejected', statusParam: 'rejected' },
   { key: 'deleted', label: 'Deleted', statusParam: 'deleted' },
 ];
@@ -62,7 +61,7 @@ export default function EventManagement({ apiToken }) {
 
   // Data state
   const [events, setEvents] = useState([]);
-  const [counts, setCounts] = useState({ total: 0, published: 0, pending: 0, approved: 0, rejected: 0, deleted: 0, draft: 0 });
+  const [counts, setCounts] = useState({ total: 0, published: 0, pending: 0, rejected: 0, deleted: 0, draft: 0 });
   const [loading, setLoading] = useState(true);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -333,9 +332,8 @@ export default function EventManagement({ apiToken }) {
   const getTabCount = (key) => {
     switch (key) {
       case 'all': return counts.total;
-      case 'published': return counts.published;
       case 'pending': return counts.pending;
-      case 'approved': return counts.approved;
+      case 'published': return counts.published;
       case 'rejected': return counts.rejected;
       case 'deleted': return counts.deleted;
       default: return 0;

@@ -1,7 +1,7 @@
 /**
  * Edit Request Tests (A-14 to A-17)
  *
- * Tests the edit request workflow for approved events.
+ * Tests the edit request workflow for published events.
  */
 
 const request = require('supertest');
@@ -12,8 +12,8 @@ const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, insertUsers } = require('../../__helpers__/userFactory');
 const {
-  createApprovedEvent,
-  createApprovedEventWithEditRequest,
+  createPublishedEvent,
+  createPublishedEventWithEditRequest,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -70,7 +70,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
   describe('A-14: View edit requests', () => {
     it('should return events with pending edit requests', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -92,7 +92,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
   describe('A-15: Approve edit request', () => {
     it('should apply requested changes to event', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -106,7 +106,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       const [savedEvent] = await insertEvents(db, [eventWithEdit]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedEvent._id}/approve-edit`)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
@@ -117,7 +117,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should create audit log entry', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
@@ -125,7 +125,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       const [savedEvent] = await insertEvents(db, [eventWithEdit]);
 
       await request(app)
-        .put(`/api/admin/events/${savedEvent._id}/approve-edit`)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
@@ -137,14 +137,14 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should return 400 when no pending edit request exists', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/approve-edit`)
+        .put(`/api/admin/events/${savedPublished._id}/publish-edit`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(400);
 
@@ -154,7 +154,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
   describe('A-16: Reject edit request', () => {
     it('should remove edit request without applying changes', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
@@ -175,7 +175,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should require rejection reason', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
@@ -192,7 +192,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should create audit log entry', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
@@ -213,14 +213,14 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should return 400 when no pending edit request exists', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/reject-edit`)
+        .put(`/api/admin/events/${savedPublished._id}/reject-edit`)
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ reason: 'Test' })
         .expect(400);
@@ -231,7 +231,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
   describe('A-17: Edit request archived after processing', () => {
     it('should remove pendingEditRequest after approval', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
@@ -239,7 +239,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       const [savedEvent] = await insertEvents(db, [eventWithEdit]);
 
       await request(app)
-        .put(`/api/admin/events/${savedEvent._id}/approve-edit`)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
@@ -249,7 +249,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should remove pendingEditRequest after rejection', async () => {
-      const eventWithEdit = createApprovedEventWithEditRequest({
+      const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         requestedChanges: { eventTitle: 'New Title' },
@@ -270,15 +270,15 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
   describe('Edit request creation', () => {
     it('should allow requester to create edit request', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           requestedChanges: { eventTitle: 'New Title' },
@@ -293,15 +293,15 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
 
     it('should require both requestedChanges and reason', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       // Missing reason
       let res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           requestedChanges: { eventTitle: 'New Title' },
@@ -312,7 +312,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
       // Missing requestedChanges
       res = await request(app)
-        .post(`/api/events/${savedApproved._id}/request-edit`)
+        .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
           reason: 'Need to update',
@@ -322,8 +322,8 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       expect(res.body.error).toMatch(/required/i);
     });
 
-    it('should only allow edit requests on approved events', async () => {
-      const pending = createApprovedEvent({
+    it('should only allow edit requests on published events', async () => {
+      const pending = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
@@ -340,7 +340,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         })
         .expect(400);
 
-      expect(res.body.error).toMatch(/only.*approved/i);
+      expect(res.body.error).toMatch(/only.*published/i);
     });
   });
 });

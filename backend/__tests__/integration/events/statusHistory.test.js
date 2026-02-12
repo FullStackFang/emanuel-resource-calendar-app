@@ -4,10 +4,10 @@
  * Tests that all status transitions push entries to statusHistory,
  * and that restore correctly uses statusHistory to determine the previous status.
  *
- * SH-1 to SH-3: Submit, approve, reject push to statusHistory
+ * SH-1 to SH-3: Submit, publish, reject push to statusHistory
  * SH-4 to SH-6: Delete + restore uses statusHistory to restore correct status
  * SH-7 to SH-9: Cancel, resubmit push to statusHistory
- * SH-10 to SH-12: Full lifecycle tests (submit → approve → delete → restore)
+ * SH-10 to SH-12: Full lifecycle tests (submit → publish → delete → restore)
  */
 
 const request = require('supertest');
@@ -20,7 +20,7 @@ const { createRequester, createAdmin, createApprover, insertUsers } = require('.
 const {
   createDraftEvent,
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createRejectedEvent,
   createDeletedEvent,
   insertEvents,
@@ -111,12 +111,12 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
     });
   });
 
-  describe('SH-2: Approve pushes to statusHistory', () => {
-    it('should record approved entry in statusHistory when event is approved', async () => {
+  describe('SH-2: Publish pushes to statusHistory', () => {
+    it('should record published entry in statusHistory when event is published', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Pending to Approve',
+        eventTitle: 'Pending to Publish',
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date(), changedBy: requesterUser.odataId, changedByEmail: requesterUser.email, reason: 'Submitted for review' },
         ],
@@ -124,17 +124,17 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
       const [saved] = await insertEvents(db, [pending]);
 
       const res = await request(app)
-        .put(ENDPOINTS.APPROVE_EVENT(saved._id))
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ _version: saved._version })
         .expect(200);
 
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
 
-      // Verify statusHistory has 2 entries (pending + approved)
+      // Verify statusHistory has 2 entries (pending + published)
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(event.statusHistory).toHaveLength(2);
-      expect(event.statusHistory[1].status).toBe(STATUS.APPROVED);
+      expect(event.statusHistory[1].status).toBe(STATUS.PUBLISHED);
       expect(event.statusHistory[1].changedByEmail).toBe(approverUser.email);
     });
   });
@@ -201,15 +201,15 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
     });
   });
 
-  describe('SH-5: Approved event restores to approved', () => {
-    it('should restore to approved when event was approved then deleted', async () => {
+  describe('SH-5: Published event restores to published', () => {
+    it('should restore to published when event was published then deleted', async () => {
       const deleted = createDeletedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Was Approved Before Delete',
+        eventTitle: 'Was Published Before Delete',
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedBy: requesterUser.odataId, changedByEmail: requesterUser.email, reason: 'Submitted for review' },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedBy: approverUser.odataId, changedByEmail: approverUser.email, reason: 'Approved' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedBy: approverUser.odataId, changedByEmail: approverUser.email, reason: 'Published' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedBy: adminUser.odataId, changedByEmail: adminUser.email, reason: 'Deleted by admin' },
         ],
       });
@@ -221,7 +221,7 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
         .send({ _version: saved._version })
         .expect(200);
 
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
     });
   });
 
@@ -308,13 +308,13 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
     });
   });
 
-  describe('SH-8: Full lifecycle: submit → approve → delete → restore returns to approved', () => {
-    it('should restore a submitted-approved-deleted event back to approved', async () => {
+  describe('SH-8: Full lifecycle: submit → publish → delete → restore returns to published', () => {
+    it('should restore a submitted-published-deleted event back to published', async () => {
       // Step 1: Create draft and submit
       const draft = createDraftEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Lifecycle Approve Test',
+        eventTitle: 'Lifecycle Publish Test',
       });
       const [savedDraft] = await insertEvents(db, [draft]);
 
@@ -325,16 +325,16 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
 
       let event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedDraft._id });
 
-      // Step 2: Approve
+      // Step 2: Publish
       await request(app)
-        .put(ENDPOINTS.APPROVE_EVENT(savedDraft._id))
+        .put(ENDPOINTS.PUBLISH_EVENT(savedDraft._id))
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ _version: event._version })
         .expect(200);
 
       event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedDraft._id });
-      expect(event.status).toBe(STATUS.APPROVED);
-      expect(event.statusHistory).toHaveLength(3); // draft + pending + approved
+      expect(event.status).toBe(STATUS.PUBLISHED);
+      expect(event.statusHistory).toHaveLength(3); // draft + pending + published
 
       // Step 3: Delete
       await request(app)
@@ -353,11 +353,11 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
         .send({ _version: event._version })
         .expect(200);
 
-      expect(restoreRes.body.status).toBe(STATUS.APPROVED);
+      expect(restoreRes.body.status).toBe(STATUS.PUBLISHED);
 
       event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedDraft._id });
-      expect(event.status).toBe(STATUS.APPROVED);
-      expect(event.statusHistory).toHaveLength(5); // draft + pending + approved + deleted + restored
+      expect(event.status).toBe(STATUS.PUBLISHED);
+      expect(event.statusHistory).toHaveLength(5); // draft + pending + published + deleted + restored
     });
   });
 
@@ -441,7 +441,7 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
 
   describe('SH-11: Multiple statusHistory entries accumulate correctly', () => {
     it('should accumulate all status changes in order', async () => {
-      // Create draft, submit, approve, delete, restore — 4 statusHistory entries
+      // Create draft, submit, publish, delete, restore — 4 statusHistory entries
       const draft = createDraftEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -457,9 +457,9 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
 
       let event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
 
-      // Approve
+      // Publish
       await request(app)
-        .put(ENDPOINTS.APPROVE_EVENT(saved._id))
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ _version: event._version })
         .expect(200);
@@ -482,15 +482,15 @@ describe('StatusHistory Tracking Tests (SH-1 to SH-12)', () => {
         .send({ _version: event._version })
         .expect(200);
 
-      // Verify full history (draft + pending + approved + deleted + restored)
+      // Verify full history (draft + pending + published + deleted + restored)
       event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       expect(event.statusHistory).toHaveLength(5);
       expect(event.statusHistory.map(e => e.status)).toEqual([
         STATUS.DRAFT,     // Initial from factory
         STATUS.PENDING,
-        STATUS.APPROVED,
+        STATUS.PUBLISHED,
         STATUS.DELETED,
-        STATUS.APPROVED,  // Restored to approved
+        STATUS.PUBLISHED,  // Restored to published
       ]);
     });
   });

@@ -363,6 +363,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Navigation state for reviewModal
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
+    const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
 
     // Recurring event scope dialog state
     const [recurringScopeDialog, setRecurringScopeDialog] = useState({
@@ -374,7 +375,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const reviewModal = useReviewModal({
       apiToken,
       graphToken,
-      selectedCalendarId, // Pass current calendar so approved events go to correct calendar
+      selectedCalendarId, // Pass current calendar so published events go to correct calendar
       onSuccess: () => {
         // Reload events after successful approval/rejection
         loadEvents(true);
@@ -458,8 +459,8 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [pendingSaveConfirmation, eventReviewModal.event, rooms]);
 
     /**
-     * Generate approve confirmation button text with event summary and target calendar
-     * Format: ⚠️ Approve "Event Name" to [Calendar Name]?
+     * Generate publish confirmation button text with event summary and target calendar
+     * Format: ⚠️ Publish "Event Name" to [Calendar Name]?
      */
     const getApproveConfirmationText = useCallback(() => {
       if (!reviewModal.pendingApproveConfirmation || !reviewModal.currentItem) return null;
@@ -471,7 +472,7 @@ import ConflictDialog from './shared/ConflictDialog';
       const targetCalendar = availableCalendars?.find(c => c.id === selectedCalendarId);
       const calendarName = targetCalendar?.name || selectedCalendarId || 'Default Calendar';
 
-      return `⚠️ Approve "${title}" to ${calendarName}?`;
+      return `⚠️ Publish "${title}" to ${calendarName}?`;
     }, [reviewModal.pendingApproveConfirmation, reviewModal.currentItem, availableCalendars, selectedCalendarId]);
 
     /**
@@ -4931,7 +4932,7 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [eventReviewModal.mode, eventReviewModal.hasChanges, draftId]);
 
     /**
-     * Handle enabling edit request mode for approved events
+     * Handle enabling edit request mode for published events
      * This allows requesters to edit the form inline and submit changes for approval
      */
     const handleRequestEdit = useCallback(() => {
@@ -5043,11 +5044,11 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [apiToken]);
 
     /**
-     * Effect to check for existing edit requests when modal opens with approved event
+     * Effect to check for existing edit requests when modal opens with published event
      */
     useEffect(() => {
       const checkForEditRequest = async () => {
-        if (reviewModal.isOpen && reviewModal.currentItem?.status === 'approved') {
+        if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
           // Pass the entire event object to check embedded pendingEditRequest first
           const editRequest = await fetchExistingEditRequest(reviewModal.currentItem);
           setExistingEditRequest(editRequest);
@@ -6760,7 +6761,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
           isRequesterOnly={!canEditEvents && !canApproveReservations}
-          itemStatus={reviewModal.currentItem?.status || 'approved'}
+          itemStatus={reviewModal.currentItem?.status || 'published'}
           eventVersion={reviewModal.eventVersion}
           deleteButtonText={
             reviewModal.pendingDeleteConfirmation
@@ -6827,6 +6828,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
           onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
+          hasSchedulingConflicts={hasSchedulingConflicts}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -6841,6 +6843,7 @@ import ConflictDialog from './shared/ConflictDialog';
               onFormValidChange={reviewModal.setIsFormValid}
               readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft}
               editScope={reviewModal.editScope}
+              onSchedulingConflictsChange={setHasSchedulingConflicts}
             />
           )}
         </ReviewModal>

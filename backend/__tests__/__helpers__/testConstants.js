@@ -8,20 +8,19 @@
 const STATUS = {
   DRAFT: 'draft',
   PENDING: 'pending',
-  APPROVED: 'approved',
+  PUBLISHED: 'published',
   REJECTED: 'rejected',
   DELETED: 'deleted',
-  PUBLISHED: 'published',
 };
 
 // Spec terminology mapping (for documentation clarity)
-// PUBLISHED = approved event without pendingEditRequest
-// PUBLISHED_EDIT = approved event WITH pendingEditRequest
+// PUBLISHED = published event without pendingEditRequest
+// PUBLISHED_EDIT = published event WITH pendingEditRequest
 const SPEC_STATUS = {
   DRAFT: 'draft',
   PENDING: 'pending',
-  PUBLISHED: 'approved',      // No pendingEditRequest
-  PUBLISHED_EDIT: 'approved', // Has pendingEditRequest field
+  PUBLISHED: 'published',      // No pendingEditRequest
+  PUBLISHED_EDIT: 'published', // Has pendingEditRequest field
   REJECTED: 'rejected',
   DELETED: 'deleted',
 };
@@ -65,17 +64,18 @@ const ENDPOINTS = {
   GET_EVENT: (id) => `/api/admin/events/${id}`,
   UPDATE_EVENT: (id) => `/api/admin/events/${id}`,
   DELETE_EVENT: (id) => `/api/admin/events/${id}`,
-  APPROVE_EVENT: (id) => `/api/admin/events/${id}/approve`,
+  PUBLISH_EVENT: (id) => `/api/admin/events/${id}/publish`,
   REJECT_EVENT: (id) => `/api/admin/events/${id}/reject`,
   RESTORE_EVENT: (id) => `/api/admin/events/${id}/restore`,
 
   // Edit request endpoints
   REQUEST_EDIT: (id) => `/api/events/${id}/request-edit`,
-  APPROVE_EDIT: (id) => `/api/admin/events/${id}/approve-edit`,
+  PUBLISH_EDIT: (id) => `/api/admin/events/${id}/publish-edit`,
   REJECT_EDIT: (id) => `/api/admin/events/${id}/reject-edit`,
 
   // Room reservation endpoints
   OWNER_RESTORE_RESERVATION: (id) => `/api/room-reservations/${id}/restore`,
+  EDIT_RESERVATION: (id) => `/api/room-reservations/${id}/edit`,
   RESUBMIT_RESERVATION: (id) => `/api/room-reservations/${id}/resubmit`,
 
   // Calendar load endpoint

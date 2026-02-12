@@ -9,12 +9,12 @@ import './ReviewModal.css';
  * ReviewModal - Reusable modal wrapper for reviewing/editing events and reservations
  *
  * Provides a full-screen modal with:
- * - Sticky action bar at top with approve/reject/save/delete/cancel buttons
+ * - Sticky action bar at top with publish/reject/save/delete/cancel buttons
  * - Tabbed interface for organizing content
  * - Scrollable content area
  * - ESC key and overlay click to close
  * - Feature toggle between legacy and unified forms
- * - Support for both 'review' mode (approve/reject pending items) and 'edit' mode (edit any event)
+ * - Support for both 'review' mode (publish/reject pending items) and 'edit' mode (edit any event)
  */
 export default function ReviewModal({
   isOpen,
@@ -52,7 +52,7 @@ export default function ReviewModal({
   saveButtonText = null,
   deleteButtonText = null,
   approveButtonText = null,
-  // Requester-only mode (can view but not edit/approve)
+  // Requester-only mode (can view but not edit/publish)
   isRequesterOnly = false,
   // Current item status for status badge display
   itemStatus = null,
@@ -82,7 +82,7 @@ export default function ReviewModal({
   onDraftDialogDiscard = null,
   onDraftDialogCancel = null,
   canSaveDraft = true,
-  // Edit request props (for requesters to request changes to approved events)
+  // Edit request props (for requesters to request changes to published events)
   onRequestEdit = null,
   canRequestEdit = false,
   // Existing edit request props (for viewing pending edit requests)
@@ -124,9 +124,11 @@ export default function ReviewModal({
   showDiscardDialog = false,
   onDiscardDialogDiscard = null,
   onDiscardDialogCancel = null,
-  // Edit request modal props (scale-80 modal for requesting edits on approved events)
+  // Edit request modal props (scale-80 modal for requesting edits on published events)
   onSubmitEditRequestModal = null,
-  submittingEditRequestModal = false
+  submittingEditRequestModal = false,
+  // Scheduling conflict state (from SchedulingAssistant)
+  hasSchedulingConflicts = false
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -135,7 +137,6 @@ export default function ReviewModal({
   const getStatusClass = (status) => {
     switch (status) {
       case 'pending': return 'status-pending';
-      case 'approved': return 'status-approved';
       case 'published': return 'status-published';
       case 'rejected': return 'status-rejected';
       case 'cancelled': return 'status-cancelled';
@@ -237,7 +238,7 @@ export default function ReviewModal({
                   <div className="confirm-button-group">
                     <button
                       type="button"
-                      className={`action-btn approve-btn ${isEditRequestConfirming ? 'confirming' : ''}`}
+                      className={`action-btn publish-btn ${isEditRequestConfirming ? 'confirming' : ''}`}
                       onClick={onSubmitEditRequest}
                       disabled={isSubmittingEditRequest || !hasChanges}
                       title={!hasChanges ? 'Make changes to submit' : 'Submit edit request for admin review'}
@@ -247,7 +248,7 @@ export default function ReviewModal({
                     {isEditRequestConfirming && onCancelEditRequestConfirm && (
                       <button
                         type="button"
-                        className="confirm-cancel-x approve-cancel-x"
+                        className="confirm-cancel-x publish-cancel-x"
                         onClick={onCancelEditRequestConfirm}
                         title="Cancel submit"
                       >
@@ -285,7 +286,7 @@ export default function ReviewModal({
                         <div className="confirm-button-group">
                           <button
                             type="button"
-                            className={`action-btn approve-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
+                            className={`action-btn publish-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
                             onClick={onApproveEditRequest}
                             disabled={isApprovingEditRequest}
                           >
@@ -294,7 +295,7 @@ export default function ReviewModal({
                           {isEditRequestApproveConfirming && onCancelEditRequestApprove && (
                             <button
                               type="button"
-                              className="confirm-cancel-x approve-cancel-x"
+                              className="confirm-cancel-x publish-cancel-x"
                               onClick={onCancelEditRequestApprove}
                               title="Cancel approve"
                             >
@@ -370,7 +371,7 @@ export default function ReviewModal({
                   )}
 
                   {/* View Edit Request button - when a pending edit request exists */}
-                  {existingEditRequest && !isViewingEditRequest && !isEditRequestMode && itemStatus === 'approved' && onViewEditRequest && (
+                  {existingEditRequest && !isViewingEditRequest && !isEditRequestMode && itemStatus === 'published' && onViewEditRequest && (
                     <button
                       type="button"
                       className="action-btn view-edit-request-btn"
@@ -383,35 +384,36 @@ export default function ReviewModal({
                   )}
 
                   {/* Request Edit button - only shown when NO existing edit request */}
-                  {canRequestEdit && !existingEditRequest && itemStatus === 'approved' && onRequestEdit && !isEditRequestMode && !isViewingEditRequest && (
+                  {canRequestEdit && !existingEditRequest && itemStatus === 'published' && onRequestEdit && !isEditRequestMode && !isViewingEditRequest && (
                     <button
                       type="button"
                       className="action-btn request-edit-btn"
                       onClick={onRequestEdit}
                       disabled={loadingEditRequest}
-                      title="Request changes to this approved event"
+                      title="Request changes to this published event"
                     >
                       {loadingEditRequest ? 'Checking...' : 'Request Edit'}
                     </button>
                   )}
 
-              {/* Approve button - only in review mode for pending items (not for requesters) */}
+              {/* Publish button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onApprove && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
-                    className={`action-btn approve-btn ${isApproveConfirming ? 'confirming' : ''}`}
+                    className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
                     onClick={onApprove}
-                    disabled={isApproving}
+                    disabled={isApproving || hasSchedulingConflicts}
+                    title={hasSchedulingConflicts ? 'Resolve scheduling conflicts before publishing' : undefined}
                   >
-                    {isApproving ? 'Approving...' : (isApproveConfirming ? (approveButtonText || 'Confirm Approve?') : 'Approve')}
+                    {isApproving ? 'Publishing...' : (isApproveConfirming ? (approveButtonText || 'Confirm Publish?') : 'Publish')}
                   </button>
                   {isApproveConfirming && onCancelApprove && (
                     <button
                       type="button"
-                      className="confirm-cancel-x approve-cancel-x"
+                      className="confirm-cancel-x publish-cancel-x"
                       onClick={onCancelApprove}
-                      title="Cancel approve"
+                      title="Cancel publish"
                     >
                       ✕
                     </button>
@@ -514,7 +516,7 @@ export default function ReviewModal({
               {isDraft && onSubmitDraft && (
                 <button
                   type="button"
-                  className="action-btn approve-btn"
+                  className="action-btn publish-btn"
                   onClick={onSubmitDraft}
                   disabled={isSaving || savingDraft || !isFormValid}
                   title={!isFormValid ? 'Please fill all required fields' : undefined}
@@ -527,7 +529,7 @@ export default function ReviewModal({
               {onSavePendingEdit && (
                 <button
                   type="button"
-                  className="action-btn approve-btn"
+                  className="action-btn publish-btn"
                   onClick={onSavePendingEdit}
                   disabled={!hasChanges || !isFormValid || savingPendingEdit}
                   title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : 'Save changes to this pending reservation')}
@@ -540,7 +542,7 @@ export default function ReviewModal({
               {onSubmitEditRequestModal && (
                 <button
                   type="button"
-                  className="action-btn approve-btn"
+                  className="action-btn publish-btn"
                   onClick={onSubmitEditRequestModal}
                   disabled={!hasChanges || !isFormValid || submittingEditRequestModal}
                   title={!hasChanges ? 'Make changes to submit an edit request' : (!isFormValid ? 'Please fill all required fields' : 'Submit changes for admin approval')}
@@ -554,7 +556,7 @@ export default function ReviewModal({
                 <div className="confirm-button-group">
                   <button
                     type="button"
-                    className={`action-btn approve-btn ${isSaveConfirming ? 'confirming' : ''}`}
+                    className={`action-btn publish-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
                     disabled={!hasChanges || !isFormValid || isSaving}
                     title={!hasChanges ? 'Fill out the form to submit' : (!isFormValid ? 'Please fill all required fields' : '')}
@@ -582,8 +584,8 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving}
-                    title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : '')}
+                    disabled={!hasChanges || !isFormValid || isSaving || hasSchedulingConflicts}
+                    title={hasSchedulingConflicts ? 'Resolve scheduling conflicts before saving' : (!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : ''))}
                   >
                     {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonText || 'Save'))}
                   </button>
@@ -624,6 +626,12 @@ export default function ReviewModal({
                     </button>
                   )}
                 </div>
+              )}
+
+              {hasSchedulingConflicts && (
+                <span className="scheduling-conflict-warning" title="Scheduling conflicts detected">
+                  ⚠ Conflicts
+                </span>
               )}
 
               <button

@@ -440,17 +440,17 @@
   background-color: var(--color-error-50);
 }
 
-.approve-btn {
+.publish-btn {
   background-color: var(--color-success-500);
   border: none;
   color: var(--text-inverse);
 }
 
-.approve-btn:hover:not(:disabled) {
+.publish-btn:hover:not(:disabled) {
   background-color: var(--color-success-600);
 }
 
-.approve-btn:disabled {
+.publish-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

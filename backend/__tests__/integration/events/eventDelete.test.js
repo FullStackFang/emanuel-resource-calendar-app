@@ -13,7 +13,7 @@ const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createRejectedEvent,
   createDeletedEvent,
   insertEvents,
@@ -72,45 +72,45 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
     adminToken = await createMockToken(adminUser);
   });
 
-  describe('A-13: Delete approved (published) event', () => {
-    it('should soft delete an approved event', async () => {
-      const approved = createApprovedEvent({
+  describe('A-13: Delete published event', () => {
+    it('should soft delete a published event', async () => {
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Event to Delete',
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .delete(`/api/admin/events/${savedApproved._id}`)
+        .delete(`/api/admin/events/${savedPublished._id}`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
       expect(res.body.success).toBe(true);
 
       // Verify in database
-      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedApproved._id });
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedPublished._id });
       expect(event.isDeleted).toBe(true);
       expect(event.status).toBe(STATUS.DELETED);
-      expect(event.previousStatus).toBe(STATUS.APPROVED);
+      expect(event.previousStatus).toBe(STATUS.PUBLISHED);
       expect(event.deletedAt).toBeDefined();
       expect(event.deletedBy).toBe(approverUser.odataId);
     });
 
     it('should create audit log entry', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       await request(app)
-        .delete(`/api/admin/events/${savedApproved._id}`)
+        .delete(`/api/admin/events/${savedPublished._id}`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
       await assertAuditEntry(db, {
-        eventId: savedApproved.eventId,
+        eventId: savedPublished.eventId,
         action: 'deleted',
         performedBy: approverUser.odataId,
       });
@@ -159,7 +159,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
     });
 
     it('should exclude deleted events by default', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         eventTitle: 'Active Event',
       });
@@ -167,7 +167,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         userId: requesterUser.odataId,
         eventTitle: 'Deleted Event',
       });
-      await insertEvents(db, [approved, deleted]);
+      await insertEvents(db, [published, deleted]);
 
       const res = await request(app)
         .get('/api/admin/events?isDeleted=false')
@@ -185,7 +185,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Restore Me',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
       });
       const [savedDeleted] = await insertEvents(db, [deleted]);
 
@@ -196,20 +196,20 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
     });
 
     it('should return 404 when event is not deleted', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/restore`)
+        .put(`/api/admin/events/${savedPublished._id}/restore`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ _version: savedApproved._version })
+        .send({ _version: savedPublished._version })
         .expect(404);
 
       expect(res.body.error).toMatch(/not found/i);
@@ -238,10 +238,10 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
   });
 
   describe('A-23: Restored event preserves previous status', () => {
-    it('should restore to approved status', async () => {
+    it('should restore to published status', async () => {
       const deleted = createDeletedEvent({
         userId: requesterUser.odataId,
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
       });
       const [savedDeleted] = await insertEvents(db, [deleted]);
 
@@ -251,7 +251,7 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .send({ _version: savedDeleted._version })
         .expect(200);
 
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
     });
 
     it('should restore to pending status', async () => {

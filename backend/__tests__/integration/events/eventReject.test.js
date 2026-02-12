@@ -14,7 +14,7 @@ const { createApprover, createRequester, insertUsers } = require('../../__helper
 const {
   createPendingEvent,
   createDraftEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -138,15 +138,15 @@ describe('Event Rejection Tests (A-8, A-9)', () => {
       expect(res.body.error).toMatch(/cannot reject/i);
     });
 
-    it('should return 400 when trying to reject already approved event', async () => {
-      const approved = createApprovedEvent({
+    it('should return 400 when trying to reject already published event', async () => {
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/reject`)
+        .put(`/api/admin/events/${savedPublished._id}/reject`)
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ reason: 'Test rejection' })
         .expect(400);

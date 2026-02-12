@@ -79,7 +79,8 @@ export default function RoomReservationFormBase({
   // Edit request mode props (Option C: inline diff style)
   isEditRequestMode = false,    // When true, show inline diffs and allow editing
   isViewingEditRequest = false, // When true, show inline diffs but keep form read-only
-  originalData = null           // Original form data for comparison (shows strikethrough when changed)
+  originalData = null,          // Original form data for comparison (shows strikethrough when changed)
+  onConflictChange = null       // Callback when scheduling conflicts change: (hasConflicts, totalConflicts) => void
 }) {
   // Form state
   const [formData, setFormData] = useState({
@@ -980,7 +981,7 @@ export default function RoomReservationFormBase({
   // Determine if fields should be disabled
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
   // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
-  // Admins and users with canEditEvents permission can edit approved/rejected events
+  // Admins and users with canEditEvents permission can edit published/rejected events
   const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft');
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
@@ -1072,7 +1073,7 @@ export default function RoomReservationFormBase({
               <div className="edit-request-mode-banner">
                 <span className="edit-request-mode-banner-icon">✏️</span>
                 <span className="edit-request-mode-banner-text">
-                  You are requesting changes to this approved event. Modified fields will show the original value with strikethrough.
+                  You are requesting changes to this published event. Modified fields will show the original value with strikethrough.
                 </span>
               </div>
             )}
@@ -1832,6 +1833,7 @@ export default function RoomReservationFormBase({
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}
                     disabled={fieldsDisabled}
+                    onConflictChange={onConflictChange}
                   />
                 </div>
               )}

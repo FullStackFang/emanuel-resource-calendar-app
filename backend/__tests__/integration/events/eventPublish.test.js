@@ -1,7 +1,7 @@
 /**
- * Event Approval Tests (A-7)
+ * Event Publishing Tests (A-7)
  *
- * Tests the approval workflow for pending events by approvers.
+ * Tests the publishing workflow for pending events by approvers.
  */
 
 const request = require('supertest');
@@ -14,7 +14,7 @@ const { createApprover, createRequester, insertUsers } = require('../../__helper
 const {
   createPendingEvent,
   createDraftEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -22,7 +22,7 @@ const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 const { assertAuditEntry } = require('../../__helpers__/dbHelpers');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Event Approval Tests (A-7)', () => {
+describe('Event Publishing Tests (A-7)', () => {
   let mongoServer;
   let mongoClient;
   let db;
@@ -73,27 +73,27 @@ describe('Event Approval Tests (A-7)', () => {
     approverToken = await createMockToken(approverUser);
   });
 
-  describe('A-7: Approve pending event', () => {
-    it('should transition pending event to approved', async () => {
+  describe('A-7: Publish pending event', () => {
+    it('should transition pending event to published', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
-        eventTitle: 'Event to Approve',
+        eventTitle: 'Event to Publish',
       });
       const [savedPending] = await insertEvents(db, [pending]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.event.approvedAt).toBeDefined();
-      expect(res.body.event.approvedBy).toBe(approverUser.email);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.event.publishedAt).toBeDefined();
+      expect(res.body.event.publishedBy).toBe(approverUser.email);
     });
 
-    it('should create Graph API event on approval', async () => {
+    it('should create Graph API event on publishing', async () => {
       const pending = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -102,7 +102,7 @@ describe('Event Approval Tests (A-7)', () => {
       const [savedPending] = await insertEvents(db, [pending]);
 
       await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
@@ -120,7 +120,7 @@ describe('Event Approval Tests (A-7)', () => {
       const [savedPending] = await insertEvents(db, [pending]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
@@ -139,27 +139,27 @@ describe('Event Approval Tests (A-7)', () => {
       const [savedPending] = await insertEvents(db, [pending]);
 
       await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(200);
 
       await assertAuditEntry(db, {
         eventId: savedPending.eventId,
-        action: 'approved',
+        action: 'published',
         performedBy: approverUser.odataId,
       });
     });
 
     it('should return 404 for non-existent event', async () => {
       const res = await request(app)
-        .put('/api/admin/events/507f1f77bcf86cd799439011/approve')
+        .put('/api/admin/events/507f1f77bcf86cd799439011/publish')
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(404);
 
       expect(res.body.error).toMatch(/not found/i);
     });
 
-    it('should return 400 when trying to approve draft', async () => {
+    it('should return 400 when trying to publish draft', async () => {
       const draft = createDraftEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -167,26 +167,26 @@ describe('Event Approval Tests (A-7)', () => {
       const [savedDraft] = await insertEvents(db, [draft]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedDraft._id}/approve`)
+        .put(`/api/admin/events/${savedDraft._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot approve/i);
+      expect(res.body.error).toMatch(/cannot publish/i);
     });
 
-    it('should return 400 when trying to approve already approved event', async () => {
-      const approved = createApprovedEvent({
+    it('should return 400 when trying to publish already published event', async () => {
+      const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
-      const [savedApproved] = await insertEvents(db, [approved]);
+      const [savedPublished] = await insertEvents(db, [published]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedApproved._id}/approve`)
+        .put(`/api/admin/events/${savedPublished._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(400);
 
-      expect(res.body.error).toMatch(/cannot approve/i);
+      expect(res.body.error).toMatch(/cannot publish/i);
     });
 
     it('should handle Graph API failure gracefully', async () => {
@@ -200,7 +200,7 @@ describe('Event Approval Tests (A-7)', () => {
       const [savedPending] = await insertEvents(db, [pending]);
 
       const res = await request(app)
-        .put(`/api/admin/events/${savedPending._id}/approve`)
+        .put(`/api/admin/events/${savedPending._id}/publish`)
         .set('Authorization', `Bearer ${approverToken}`)
         .expect(500);
 

@@ -232,7 +232,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           });
           return { success: false, error: 'VERSION_CONFLICT' };
         }
-        // Legacy 409 (e.g., scheduling conflict)
+        if (data.error === 'SchedulingConflict') {
+          const msg = `Cannot save: ${data.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`;
+          if (onError) onError(msg, data.conflicts);
+          return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts };
+        }
+        // Legacy 409
         const message = data.error || 'Conflict detected. Please refresh and try again.';
         if (onError) onError(message);
         return { success: false, error: message };
@@ -340,6 +345,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
               });
               return { success: false, error: 'VERSION_CONFLICT' };
             }
+            if (saveData.error === 'SchedulingConflict') {
+              const msg = `Cannot publish: ${saveData.conflicts?.length || 0} scheduling conflict(s) detected.`;
+              if (onError) onError(msg, saveData.conflicts);
+              setIsApproving(false);
+              return { success: false, error: 'SchedulingConflict', conflicts: saveData.conflicts };
+            }
           }
 
           if (!saveResponse.ok) {
@@ -363,7 +374,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       // Step 2: Call approve endpoint which will create the Graph event from the saved data
       // The approve endpoint uses event.graphData which was just updated by the save
-      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/approve`;
+      const endpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${currentItem._id}/publish`;
       logger.log('[handleApprove] Step 2: Calling approve endpoint');
 
       const response = await fetch(endpoint, {
@@ -377,7 +388,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           notes: safeApprovalData.notes || '',
           calendarMode: safeApprovalData.calendarMode || 'production',
           createCalendarEvent: true, // Let the backend create the Graph event from the saved data
-          forceApprove: safeApprovalData.forceApprove || false,
+          forcePublish: safeApprovalData.forcePublish || false,
           targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
           _version: latestVersion
         })
@@ -389,7 +400,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           // Determine conflict type based on current status
           const currentStatus = data.details?.currentStatus;
           let conflictType = 'data_changed';
-          if (currentStatus === 'approved' || currentStatus === 'rejected') {
+          if (currentStatus === 'published' || currentStatus === 'rejected') {
             conflictType = 'already_actioned';
           } else if (currentStatus && currentStatus !== 'pending') {
             conflictType = 'status_changed';
@@ -403,14 +414,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           return { success: false, error: 'VERSION_CONFLICT' };
         }
         if (data.error === 'SchedulingConflict') {
-          const message = `Cannot approve: ${data.conflicts?.length || 0} scheduling conflict(s) detected.`;
+          const message = `Cannot publish: ${data.conflicts?.length || 0} scheduling conflict(s) detected.`;
           if (onError) onError(message, data.conflicts);
           return { success: false, error: message, conflicts: data.conflicts };
         }
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to approve: ${response.status}`);
+        throw new Error(`Failed to publish: ${response.status}`);
       }
 
       const result = await response.json();
@@ -472,7 +483,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         if (data.details?.code === 'VERSION_CONFLICT') {
           const currentStatus = data.details?.currentStatus;
           let conflictType = 'data_changed';
-          if (currentStatus === 'approved' || currentStatus === 'rejected') {
+          if (currentStatus === 'published' || currentStatus === 'rejected') {
             conflictType = 'already_actioned';
           } else if (currentStatus && currentStatus !== 'pending') {
             conflictType = 'status_changed';

@@ -133,7 +133,7 @@ function App() {
   const [pendingEditVersion, setPendingEditVersion] = useState(null);
   const [showPendingEditDiscardDialog, setShowPendingEditDiscardDialog] = useState(false);
 
-  // Edit request modal state (for requesting edits on approved/published events)
+  // Edit request modal state (for requesting edits on published events)
   const [showEditRequestModal, setShowEditRequestModal] = useState(false);
   const [editRequestPrefillData, setEditRequestPrefillData] = useState(null);
   const [editRequestFormData, setEditRequestFormData] = useState(null);
@@ -414,7 +414,7 @@ function App() {
     }
   }, [showPendingEditModal, pendingEditPrefillData]);
 
-  // Listen for edit request modal event (from MyReservations — approved/published events)
+  // Listen for edit request modal event (from MyReservations -- published events)
   useEffect(() => {
     const handleOpenEditRequestModal = (event) => {
       const { event: approvedEvent } = event.detail;
@@ -916,7 +916,7 @@ function App() {
                       logger.log('Draft submitted:', result);
 
                       // Role-aware success feedback
-                      if (result.autoApproved) {
+                      if (result.autoPublished) {
                         showSuccess('Event created and published to calendar');
                       } else {
                         showSuccess('Request submitted for review');
@@ -1172,6 +1172,16 @@ function App() {
                         }
                       );
 
+                      if (response.status === 409) {
+                        const errorData = await response.json();
+                        if (errorData.error === 'SchedulingConflict') {
+                          showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+                          setPendingEditIsSaving(false);
+                          return;
+                        }
+                        throw new Error(errorData.error || 'Conflict detected');
+                      }
+
                       if (!response.ok) {
                         const errorData = await response.json();
                         throw new Error(errorData.error || 'Failed to save changes');
@@ -1263,12 +1273,12 @@ function App() {
                 </ReviewModal>
               </div>
 
-              {/* Edit Request Modal - for requesting edits on approved/published events from MyReservations */}
+              {/* Edit Request Modal - for requesting edits on published events from MyReservations */}
               <div className="scale-80">
                 <ReviewModal
                   isOpen={showEditRequestModal}
                   title={editRequestPrefillData?.eventTitle ? `Request Edit: ${editRequestPrefillData.eventTitle}` : 'Request Edit'}
-                  itemStatus="approved"
+                  itemStatus="published"
                   mode="create"
                   onClose={() => {
                     if (editRequestHasChanges) {

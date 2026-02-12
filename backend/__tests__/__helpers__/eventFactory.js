@@ -164,26 +164,26 @@ function createPendingEvent(options = {}) {
 }
 
 /**
- * Create an approved event (published)
+ * Create a published event
  * @param {Object} options - Event options
- * @returns {Object} Approved event
+ * @returns {Object} Published event
  */
-function createApprovedEvent(options = {}) {
+function createPublishedEvent(options = {}) {
   return createBaseEvent({
-    status: STATUS.APPROVED,
-    approvedAt: options.approvedAt || new Date(),
-    approvedBy: options.approvedBy || 'approver@emanuelnyc.org',
+    status: STATUS.PUBLISHED,
+    publishedAt: options.publishedAt || new Date(),
+    publishedBy: options.publishedBy || 'approver@emanuelnyc.org',
     ...options,
   });
 }
 
 /**
- * Create an approved event with pending edit request (PUBLISHED_EDIT state)
+ * Create a published event with pending edit request (PUBLISHED_EDIT state)
  * @param {Object} options - Event options
- * @returns {Object} Approved event with pending edit
+ * @returns {Object} Published event with pending edit
  */
-function createApprovedEventWithEditRequest(options = {}) {
-  const event = createApprovedEvent(options);
+function createPublishedEventWithEditRequest(options = {}) {
+  const event = createPublishedEvent(options);
   event.pendingEditRequest = options.pendingEditRequest || {
     requestedAt: new Date(),
     requestedBy: options.requesterEmail || 'requester@external.com',
@@ -218,7 +218,7 @@ function createRejectedEvent(options = {}) {
  */
 function createDeletedEvent(options = {}) {
   // Store the previous status before deletion
-  const previousStatus = options.previousStatus || STATUS.APPROVED;
+  const previousStatus = options.previousStatus || STATUS.PUBLISHED;
   const now = new Date();
   // Generate realistic 2-entry statusHistory (previousStatus + deleted) unless explicitly provided
   const defaultStatusHistory = [
@@ -253,9 +253,9 @@ function createDeletedEvent(options = {}) {
  * @param {Object} options - Event options
  * @returns {Object} Published event with Graph sync
  */
-function createPublishedEvent(options = {}) {
+function createPublishedEventWithGraph(options = {}) {
   const graphId = options.graphId || `AAMkAGraph${generateEventId()}`;
-  return createApprovedEvent({
+  return createPublishedEvent({
     graphData: {
       id: graphId,
       iCalUId: options.iCalUId || `ical-${graphId}`,
@@ -309,10 +309,10 @@ async function createEventSetForUser(db, user) {
 
   const draft = createDraftEvent({ ...baseOptions, eventTitle: 'Draft Event' });
   const pending = createPendingEvent({ ...baseOptions, eventTitle: 'Pending Event' });
-  const approved = createApprovedEvent({ ...baseOptions, eventTitle: 'Approved Event' });
-  const approvedWithEdit = createApprovedEventWithEditRequest({
+  const published = createPublishedEvent({ ...baseOptions, eventTitle: 'Published Event' });
+  const publishedWithEdit = createPublishedEventWithEditRequest({
     ...baseOptions,
-    eventTitle: 'Approved With Edit',
+    eventTitle: 'Published With Edit',
   });
   const rejected = createRejectedEvent({ ...baseOptions, eventTitle: 'Rejected Event' });
   const deleted = createDeletedEvent({ ...baseOptions, eventTitle: 'Deleted Event' });
@@ -320,8 +320,8 @@ async function createEventSetForUser(db, user) {
   const events = await insertEvents(db, [
     draft,
     pending,
-    approved,
-    approvedWithEdit,
+    published,
+    publishedWithEdit,
     rejected,
     deleted,
   ]);
@@ -329,8 +329,8 @@ async function createEventSetForUser(db, user) {
   return {
     draft: events[0],
     pending: events[1],
-    approved: events[2],
-    approvedWithEdit: events[3],
+    published: events[2],
+    publishedWithEdit: events[3],
     rejected: events[4],
     deleted: events[5],
   };
@@ -368,11 +368,11 @@ module.exports = {
   createBaseEvent,
   createDraftEvent,
   createPendingEvent,
-  createApprovedEvent,
-  createApprovedEventWithEditRequest,
+  createPublishedEvent,
+  createPublishedEventWithEditRequest,
+  createPublishedEventWithGraph,
   createRejectedEvent,
   createDeletedEvent,
-  createPublishedEvent,
   insertEvent,
   insertEvents,
   createEventSetForUser,

@@ -19,7 +19,7 @@ const {
 const {
   createPendingEvent,
   createDraftEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createRejectedEvent,
   createDeletedEvent,
   insertEvents,
@@ -145,15 +145,15 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
     });
   });
 
-  describe('PE-4: Cannot edit an approved event', () => {
+  describe('PE-4: Cannot edit a published event', () => {
     it('should return 400', async () => {
-      const approvedEvent = createApprovedEvent({ requesterUser });
-      await insertEvents(db, [approvedEvent]);
+      const publishedEvent = createPublishedEvent({ requesterUser });
+      await insertEvents(db, [publishedEvent]);
 
       const res = await request(app)
-        .put(`/api/room-reservations/${approvedEvent._id}/edit`)
+        .put(`/api/room-reservations/${publishedEvent._id}/edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
-        .send({ ...editPayload, _version: approvedEvent._version });
+        .send({ ...editPayload, _version: publishedEvent._version });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Only pending');

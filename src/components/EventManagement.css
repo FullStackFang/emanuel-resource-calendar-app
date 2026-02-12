@@ -365,7 +365,7 @@
   border-left-color: var(--color-warning-500);
 }
 
-.em-event-card.status-approved {
+.em-event-card.status-published {
   border-left-color: var(--color-success-500);
 }
 

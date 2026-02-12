@@ -133,9 +133,9 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
   const startTimeStr = toLocalISOString(startTime);
   const endTimeStr = toLocalISOString(endTime);
 
-  // Find overlapping pending/approved/published events in the same rooms
+  // Find overlapping pending/published events in the same rooms
   const query = {
-    status: { $in: ['pending', 'approved', 'published'] },
+    status: { $in: ['pending', 'published'] },
     _id: { $ne: excludeId },
     $or: [
       { 'calendarData.locations': { $in: roomIds } },
@@ -474,16 +474,16 @@ function createTestApp(options = {}) {
       }
 
       const now = new Date();
-      let canAutoApprove = isApproverOrAdmin;
+      let canAutoPublish = isApproverOrAdmin;
 
-      // Respect role simulation: if simulating a non-approver role, skip auto-approve
+      // Respect role simulation: if simulating a non-approver role, skip auto-publish
       const simulatedRole = req.headers['x-simulated-role'];
       if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
-        canAutoApprove = false;
+        canAutoPublish = false;
       }
 
-      if (canAutoApprove) {
-        // Auto-approve path for admins/approvers
+      if (canAutoPublish) {
+        // Auto-publish path for admins/approvers
         const graphResult = await graphApiMock.createCalendarEvent(
           TEST_CALENDAR_OWNER,
           null,
@@ -497,9 +497,9 @@ function createTestApp(options = {}) {
 
         await testCollections.events.updateOne(query, {
           $set: {
-            status: 'approved',
-            approvedAt: now,
-            approvedBy: userEmail,
+            status: 'published',
+            publishedAt: now,
+            publishedBy: userEmail,
             reviewedAt: now,
             reviewedBy: userEmail,
             submittedAt: now,
@@ -514,31 +514,31 @@ function createTestApp(options = {}) {
           $unset: { draftCreatedAt: "" },
           $push: {
             statusHistory: {
-              status: 'approved',
+              status: 'published',
               changedAt: now,
               changedBy: userId,
               changedByEmail: userEmail,
-              reason: 'Auto-approved on creation',
+              reason: 'Auto-published on creation',
             },
           },
         });
 
-        const approvedEvent = await testCollections.events.findOne(query);
+        const publishedEvent = await testCollections.events.findOne(query);
 
         await createAuditLog({
           eventId: draft.eventId,
-          action: 'auto-approved',
+          action: 'auto-published',
           performedBy: userId,
           performedByEmail: userEmail,
           previousState: draft,
-          newState: approvedEvent,
-          changes: { status: { from: 'draft', to: 'approved' } },
+          newState: publishedEvent,
+          changes: { status: { from: 'draft', to: 'published' } },
         });
 
         res.json({
           success: true,
-          event: approvedEvent,
-          autoApproved: true,
+          event: publishedEvent,
+          autoPublished: true,
           graphEventId: graphResult.id,
         });
       } else {
@@ -733,9 +733,9 @@ function createTestApp(options = {}) {
   });
 
   /**
-   * PUT /api/admin/events/:id/approve - Approve a pending event
+   * PUT /api/admin/events/:id/publish - Publish a pending event
    */
-  app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
+  app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
     try {
       const userId = req.user.userId;
       const userEmail = req.user.email;
@@ -762,7 +762,24 @@ function createTestApp(options = {}) {
       }
 
       if (event.status !== 'pending') {
-        return res.status(400).json({ error: `Cannot approve event with status: ${event.status}` });
+        return res.status(400).json({ error: `Cannot publish event with status: ${event.status}` });
+      }
+
+      // Check for scheduling conflicts (unless forcePublish)
+      const { forcePublish } = req.body;
+      if (!forcePublish) {
+        const roomIds = event.calendarData?.locations || event.locations || [];
+        if (roomIds.length > 0) {
+          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
+          if (conflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              message: `Cannot publish: ${conflicts.length} scheduling conflict(s) detected`,
+              conflicts,
+              _version: event._version,
+            });
+          }
+        }
       }
 
       // Mock Graph API call
@@ -781,9 +798,9 @@ function createTestApp(options = {}) {
       const now = new Date();
       await testCollections.events.updateOne(query, {
         $set: {
-          status: 'approved',
-          approvedAt: now,
-          approvedBy: userEmail,
+          status: 'published',
+          publishedAt: now,
+          publishedBy: userEmail,
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
           graphData: {
@@ -794,34 +811,34 @@ function createTestApp(options = {}) {
         },
         $push: {
           statusHistory: {
-            status: 'approved',
+            status: 'published',
             changedAt: now,
             changedBy: userId,
             changedByEmail: userEmail,
-            reason: 'Approved by admin',
+            reason: 'Published by admin',
           },
         },
       });
 
-      const approvedEvent = await testCollections.events.findOne(query);
+      const publishedEvent = await testCollections.events.findOne(query);
 
       // Create audit log
       await createAuditLog({
         eventId: event.eventId,
-        action: 'approved',
+        action: 'published',
         performedBy: userId,
         performedByEmail: userEmail,
         previousState: event,
-        newState: approvedEvent,
-        changes: { status: { from: 'pending', to: 'approved' } },
+        newState: publishedEvent,
+        changes: { status: { from: 'pending', to: 'published' } },
       });
 
       res.json({
         success: true,
-        event: approvedEvent,
+        event: publishedEvent,
       });
     } catch (error) {
-      console.error('Error approving event:', error);
+      console.error('Error publishing event:', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -1049,7 +1066,7 @@ function createTestApp(options = {}) {
       }
 
       // Check for scheduling conflicts before restoring
-      if (!forceRestore && ['pending', 'approved', 'published'].includes(previousStatus)) {
+      if (!forceRestore && ['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
           const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
@@ -1203,7 +1220,7 @@ function createTestApp(options = {}) {
       }
 
       // Check for scheduling conflicts before restoring (no forceRestore for owners)
-      if (['pending', 'approved', 'published'].includes(previousStatus)) {
+      if (['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
           const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
@@ -1475,6 +1492,33 @@ function createTestApp(options = {}) {
         ? req.body.endDateTime.replace(/Z$/, '')
         : `${endDate}T${endTime}:00`;
 
+      // Check for scheduling conflicts (owners cannot force override)
+      const rawEditedRoomIds = req.body.requestedRooms || event.calendarData?.locations || [];
+      // Ensure room IDs are ObjectIds (request body sends strings via JSON)
+      const editedRoomIds = rawEditedRoomIds.map(r => (r instanceof ObjectId ? r : (ObjectId.isValid(r) ? new ObjectId(r) : r)));
+      if (editedRoomIds.length > 0) {
+        const conflictEvent = {
+          ...event,
+          startDateTime: computedStartDateTime,
+          endDateTime: computedEndDateTime,
+          calendarData: {
+            ...event.calendarData,
+            startDateTime: computedStartDateTime,
+            endDateTime: computedEndDateTime,
+            locations: editedRoomIds,
+          },
+        };
+        const conflicts = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
+            conflicts,
+            _version: event._version,
+          });
+        }
+      }
+
       updateFields['calendarData.startDateTime'] = computedStartDateTime;
       updateFields['calendarData.endDateTime'] = computedEndDateTime;
 
@@ -1633,7 +1677,7 @@ function createTestApp(options = {}) {
   // ============================================
 
   /**
-   * POST /api/events/:id/request-edit - Request edit on approved event
+   * POST /api/events/:id/request-edit - Request edit on published event
    */
   app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     try {
@@ -1665,8 +1709,8 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'Permission denied. You can only request edits on your own events.' });
       }
 
-      if (event.status !== 'approved') {
-        return res.status(400).json({ error: 'Can only request edits on approved events' });
+      if (event.status !== 'published') {
+        return res.status(400).json({ error: 'Can only request edits on published events' });
       }
 
       if (event.pendingEditRequest) {
@@ -1712,9 +1756,9 @@ function createTestApp(options = {}) {
   });
 
   /**
-   * PUT /api/admin/events/:id/approve-edit - Approve edit request
+   * PUT /api/admin/events/:id/publish-edit - Approve edit request
    */
-  app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
+  app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     try {
       const userId = req.user.userId;
       const userEmail = req.user.email;
@@ -1901,6 +1945,43 @@ function createTestApp(options = {}) {
         updates.eventDescription !== undefined
       );
 
+      // Check for scheduling conflicts when time/room fields change on active events
+      const timeOrRoomChanged = updates.startDateTime !== undefined ||
+        updates.endDateTime !== undefined ||
+        updates.locations !== undefined ||
+        updates.requestedRooms !== undefined;
+      const activeStatuses = ['pending', 'published'];
+      if (timeOrRoomChanged && activeStatuses.includes(event.status) && !updates.forceUpdate) {
+        const cd = event.calendarData || {};
+        const rawRoomIds = updates.locations || updates.requestedRooms || cd.locations || [];
+        // Ensure room IDs are ObjectIds (request body sends strings via JSON)
+        const roomIds = rawRoomIds.map(r => (r instanceof ObjectId ? r : (ObjectId.isValid(r) ? new ObjectId(r) : r)));
+        if (roomIds.length > 0) {
+          const newStart = updates.startDateTime || cd.startDateTime;
+          const newEnd = updates.endDateTime || cd.endDateTime;
+          const conflictEvent = {
+            ...event,
+            startDateTime: newStart,
+            endDateTime: newEnd,
+            calendarData: {
+              ...cd,
+              startDateTime: newStart,
+              endDateTime: newEnd,
+              locations: roomIds,
+            },
+          };
+          const conflicts = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+          if (conflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
+              conflicts,
+              _version: event._version,
+            });
+          }
+        }
+      }
+
       // Graph sync gate - uses graphData.id + calendarOwner (app-only auth via graphApiService)
       let graphSynced = false;
       let graphSyncResult = null;
@@ -2015,8 +2096,8 @@ function createTestApp(options = {}) {
           query.status = 'draft';
         } else if (status === 'pending') {
           query.status = { $in: ['pending', 'room-reservation-request'] };
-        } else if (status === 'approved' || status === 'published') {
-          query.status = 'approved';
+        } else if (status === 'published') {
+          query.status = 'published';
         } else if (status && status !== 'all') {
           query.status = status;
         } else {
@@ -2086,10 +2167,10 @@ function createTestApp(options = {}) {
           'calendarData.requesterEmail': userEmail,
         };
 
-        const [all, pending, approved, rejected, cancelled, draft, deleted] = await Promise.all([
+        const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
           testCollections.events.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-          testCollections.events.countDocuments({ ...baseQuery, status: 'approved' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'cancelled' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
@@ -2100,22 +2181,22 @@ function createTestApp(options = {}) {
           }),
         ]);
 
-        res.json({ all, pending, approved, rejected, cancelled, draft, deleted });
+        res.json({ all, pending, published, rejected, cancelled, draft, deleted });
       } else if (view === 'approval-queue') {
         const baseQuery = {
           isDeleted: { $ne: true },
           roomReservationData: { $exists: true, $ne: null },
         };
 
-        const [all, pending, approved, rejected, deleted] = await Promise.all([
+        const [all, pending, published, rejected, deleted] = await Promise.all([
           testCollections.events.countDocuments(baseQuery),
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-          testCollections.events.countDocuments({ ...baseQuery, status: 'approved' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
           testCollections.events.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] }),
         ]);
 
-        res.json({ all, pending, approved, rejected, deleted });
+        res.json({ all, pending, published, rejected, deleted });
       }
     } catch (error) {
       console.error('Error in GET /api/events/list/counts:', error);

@@ -264,7 +264,7 @@ const DayView = memo(({
                 };
 
                 return (
-                  <div className="event-container" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div className="event-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {sortedEvents.map((event) => {
                       const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                       // Determine which times to use (registration vs actual event times)
@@ -357,23 +357,20 @@ const DayView = memo(({
                           style={{
                             position: 'relative',
                             backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
-                            borderLeft: `3px ${isDraft ? 'dotted' : isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                            borderLeft: `3px solid ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                             padding: '8px 10px',
                             margin: 0,
                             cursor: 'pointer',
                             borderRadius: '8px',
                             color: '#333',
-                            opacity: isDraft ? 0.75 : isPending ? 0.85 : 1,
+                            opacity: isDraft ? 0.8 : isPending ? 0.9 : 1,
                             ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
-                              border: `1px dashed ${eventColor}`,
-                              borderLeftWidth: '3px',
-                              borderLeftStyle: 'solid'
+                              borderRight: `1px dashed ${eventColor}`,
+                              borderBottom: `1px dashed ${eventColor}`,
                             }),
                             ...(hasPendingEditRequest && {
-                              border: `1px dashed #a78bfa`,
-                              borderLeftWidth: '3px',
-                              borderLeftStyle: 'dashed',
-                              borderLeftColor: '#8b5cf6'
+                              borderRight: `1px dashed #a78bfa`,
+                              borderBottom: `1px dashed #a78bfa`,
                             })
                           }}
                           onClick={(e) => handleEventClick(event, e)}
@@ -444,32 +441,14 @@ const DayView = memo(({
                             </div>
                           )}
                           {isPending && (
-                            <div style={{
-                              fontSize: '9px',
-                              fontWeight: '600',
-                              color: '#b45309',
-                              backgroundColor: '#fef3c7',
-                              padding: '2px 6px',
-                              borderRadius: '3px',
-                              marginTop: '3px',
-                              display: 'inline-block'
-                            }}>
+                            <span className="event-status-badge badge-pending" style={{ fontSize: '9px', padding: '2px 6px' }}>
                               PENDING
-                            </div>
+                            </span>
                           )}
                           {isDraft && (
-                            <div style={{
-                              fontSize: '9px',
-                              fontWeight: '600',
-                              color: '#6b7280',
-                              backgroundColor: '#f3f4f6',
-                              padding: '2px 6px',
-                              borderRadius: '3px',
-                              marginTop: '3px',
-                              display: 'inline-block'
-                            }}>
+                            <span className="event-status-badge badge-draft" style={{ fontSize: '9px', padding: '2px 6px' }}>
                               DRAFT
-                            </div>
+                            </span>
                           )}
                           {/* Pending Edit Request indicator */}
                           {hasPendingEditRequest && (

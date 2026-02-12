@@ -33,7 +33,7 @@ const {
 } = require('../../__helpers__/userFactory');
 const {
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createDraftEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
@@ -107,7 +107,7 @@ describe('Calendar Load Tests', () => {
   // ==========================================
 
   describe('Pending Events on Calendar', () => {
-    let requesterPending, otherPending, approvedEvent;
+    let requesterPending, otherPending, publishedEvent;
 
     beforeEach(async () => {
       // Create a pending event owned by requester
@@ -126,15 +126,15 @@ describe('Calendar Load Tests', () => {
         createdByEmail: otherRequesterUser.email,
       });
 
-      // Create an approved event (visible to all)
-      approvedEvent = createApprovedEvent({
-        eventTitle: 'Approved Event',
+      // Create a published event (visible to all)
+      publishedEvent = createPublishedEvent({
+        eventTitle: 'Published Event',
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         createdByEmail: requesterUser.email,
       });
 
-      await insertEvents(db, [requesterPending, otherPending, approvedEvent]);
+      await insertEvents(db, [requesterPending, otherPending, publishedEvent]);
     });
 
     test('PL-1: Admin sees all pending events on calendar', async () => {
@@ -146,7 +146,7 @@ describe('Calendar Load Tests', () => {
 
       expect(eventTitles).toContain('Requester Pending Event');
       expect(eventTitles).toContain('Other Pending Event');
-      expect(eventTitles).toContain('Approved Event');
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('PL-2: Approver sees all pending events on calendar', async () => {
@@ -158,7 +158,7 @@ describe('Calendar Load Tests', () => {
 
       expect(eventTitles).toContain('Requester Pending Event');
       expect(eventTitles).toContain('Other Pending Event');
-      expect(eventTitles).toContain('Approved Event');
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('PL-3: Requester sees only their own pending events', async () => {
@@ -169,7 +169,7 @@ describe('Calendar Load Tests', () => {
       const eventTitles = events.map(e => e.eventTitle || e.calendarData?.eventTitle || e.subject);
 
       expect(eventTitles).toContain('Requester Pending Event');
-      expect(eventTitles).toContain('Approved Event');
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('PL-4: Requester does NOT see others\' pending events', async () => {
@@ -190,9 +190,9 @@ describe('Calendar Load Tests', () => {
       const pendingEvents = events.filter(e => e.status === 'pending');
 
       expect(pendingEvents).toHaveLength(0);
-      // But approved event should still be visible
+      // But published event should still be visible
       const eventTitles = events.map(e => e.eventTitle || e.calendarData?.eventTitle || e.subject);
-      expect(eventTitles).toContain('Approved Event');
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('PL-6: room-reservation-request status shows for admins', async () => {
@@ -221,7 +221,7 @@ describe('Calendar Load Tests', () => {
   // ==========================================
 
   describe('Draft Events on Calendar', () => {
-    let requesterDraft, adminDraft, approvedEvent;
+    let requesterDraft, adminDraft, publishedEvent;
 
     beforeEach(async () => {
       // Create a draft with dates owned by requester
@@ -240,15 +240,15 @@ describe('Calendar Load Tests', () => {
         createdByEmail: adminUser.email,
       });
 
-      // Create an approved event
-      approvedEvent = createApprovedEvent({
-        eventTitle: 'Approved Event',
+      // Create a published event
+      publishedEvent = createPublishedEvent({
+        eventTitle: 'Published Event',
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         createdByEmail: requesterUser.email,
       });
 
-      await insertEvents(db, [requesterDraft, adminDraft, approvedEvent]);
+      await insertEvents(db, [requesterDraft, adminDraft, publishedEvent]);
     });
 
     test('DL-1: Creator sees their own draft on calendar', async () => {
@@ -259,7 +259,7 @@ describe('Calendar Load Tests', () => {
       const eventTitles = events.map(e => e.eventTitle || e.calendarData?.eventTitle || e.subject);
 
       expect(eventTitles).toContain('Requester Draft');
-      expect(eventTitles).toContain('Approved Event');
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('DL-2: Admin does NOT see others\' drafts on calendar', async () => {
@@ -273,8 +273,8 @@ describe('Calendar Load Tests', () => {
       expect(eventTitles).toContain('Admin Draft');
       // Admin does NOT see requester's draft
       expect(eventTitles).not.toContain('Requester Draft');
-      // But approved events are visible
-      expect(eventTitles).toContain('Approved Event');
+      // But published events are visible
+      expect(eventTitles).toContain('Published Event');
     });
 
     test('DL-3: Incomplete drafts (no dates) are excluded', async () => {

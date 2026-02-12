@@ -23,7 +23,8 @@ export default function SchedulingAssistant({
   defaultCalendar = '', // Calendar name to display in header
   organizerName = '', // Organizer name for user events
   organizerEmail = '', // Organizer email for user events
-  disabled = false // Read-only mode - disables all interactions
+  disabled = false, // Read-only mode - disables all interactions
+  onConflictChange // Callback: (hasConflicts: boolean, totalConflicts: number) => void
 }) {
   const [eventBlocks, setEventBlocks] = useState([]);
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
@@ -347,6 +348,14 @@ export default function SchedulingAssistant({
     setEventBlocks(blocks);
     setRoomStats(stats);
   }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
+
+  // Propagate conflict state to parent
+  useEffect(() => {
+    if (onConflictChange) {
+      const total = Object.values(roomStats).reduce((sum, s) => sum + (s.conflictCount || 0), 0);
+      onConflictChange(total > 0, total);
+    }
+  }, [roomStats, onConflictChange]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {

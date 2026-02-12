@@ -2,7 +2,7 @@
  * Viewer Role Access Tests (V-1 to V-11)
  *
  * Tests that viewers have minimal permissions and cannot perform
- * privileged actions like creating drafts, approving events, etc.
+ * privileged actions like creating drafts, publishing events, etc.
  */
 
 const request = require('supertest');
@@ -15,7 +15,7 @@ const { createViewer, createRequester, insertUsers } = require('../../__helpers_
 const {
   createDraftEvent,
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createDeletedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
@@ -88,10 +88,10 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
       requesterEmail: requesterUser.email,
       eventTitle: 'Test Pending Event',
     });
-    const approved = createApprovedEvent({
+    const published = createPublishedEvent({
       userId: requesterUser.odataId,
       requesterEmail: requesterUser.email,
-      eventTitle: 'Test Approved Event',
+      eventTitle: 'Test Published Event',
     });
     const deleted = createDeletedEvent({
       userId: requesterUser.odataId,
@@ -99,7 +99,7 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
       eventTitle: 'Test Deleted Event',
     });
 
-    testEvents = await insertEvents(db, [draft, pending, approved, deleted]);
+    testEvents = await insertEvents(db, [draft, pending, published, deleted]);
   });
 
   describe('V-1: Viewer CAN view calendar', () => {
@@ -183,11 +183,11 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
       expect(res.body.error).toMatch(/permission denied/i);
     });
 
-    it('should return 403 when viewer tries to delete an approved event', async () => {
-      const approved = testEvents[2];
+    it('should return 403 when viewer tries to delete a published event', async () => {
+      const published = testEvents[2];
 
       const res = await request(app)
-        .delete(`/api/admin/events/${approved._id}`)
+        .delete(`/api/admin/events/${published._id}`)
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
 
@@ -196,12 +196,12 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
     });
   });
 
-  describe('V-6: Viewer CANNOT approve requests', () => {
-    it('should return 403 when viewer tries to approve a pending event', async () => {
+  describe('V-6: Viewer CANNOT publish requests', () => {
+    it('should return 403 when viewer tries to publish a pending event', async () => {
       const pending = testEvents[1];
 
       const res = await request(app)
-        .put(`/api/admin/events/${pending._id}/approve`)
+        .put(`/api/admin/events/${pending._id}/publish`)
         .set('Authorization', `Bearer ${viewerToken}`)
         .expect(403);
 

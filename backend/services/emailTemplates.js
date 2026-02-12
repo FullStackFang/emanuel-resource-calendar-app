@@ -153,10 +153,10 @@ const DEFAULT_TEMPLATES = {
     id: TEMPLATE_IDS.APPROVAL,
     name: 'Approval Notification',
     description: 'Sent to requester when their reservation is approved',
-    subject: 'Reservation Approved: {{eventTitle}}',
+    subject: 'Reservation Published: {{eventTitle}}',
     body: `<h2 style="margin: 0 0 20px 0; color: #276749;">
-  <span style="background-color: #c6f6d5; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">APPROVED</span>
-  Your Reservation Has Been Approved
+  <span style="background-color: #c6f6d5; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">PUBLISHED</span>
+  Your Reservation Has Been Published
 </h2>
 
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
@@ -164,7 +164,7 @@ const DEFAULT_TEMPLATES = {
 </p>
 
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  Great news! Your reservation request has been approved. The event has been added to the calendar.
+  Great news! Your reservation request has been published. The event has been added to the calendar.
 </p>
 
 <div style="background-color: #f0fff4; border-left: 4px solid #48bb78; padding: 15px 20px; margin: 20px 0;">
@@ -396,7 +396,7 @@ const DEFAULT_TEMPLATES = {
 </h2>
 
 <p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
-  An edit request has been submitted for an existing approved event and requires your review.
+  An edit request has been submitted for an existing published event and requires your review.
 </p>
 
 <div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
@@ -883,11 +883,11 @@ function wrapEmailTemplate(content) {
  * Extract variables from reservation data
  * Handles unified events with different data sources based on status:
  * - Pending requests: use roomReservationData (requester's original submission)
- * - Approved/other: use top-level fields (application's working data)
+ * - Published/other: use top-level fields (application's working data)
  */
 function extractVariables(reservation, extras = {}) {
   // Determine data source based on status
-  // Pending requests use roomReservationData, approved events use top-level
+  // Pending requests use roomReservationData, published events use top-level
   const isPending = reservation.status === 'pending';
   const reqData = reservation.roomReservationData || {};
 
@@ -898,7 +898,7 @@ function extractVariables(reservation, extras = {}) {
 
   // Get requester info
   // For pending: use roomReservationData.createdBy* fields
-  // For approved: use top-level fields, fall back to roomReservationData
+  // For published: use top-level fields, fall back to roomReservationData
   const requesterName = isPending
     ? (reqData.createdByName || reqData.requesterName || reqData.contactName || 'Guest')
     : (reservation.requesterName || reservation.contactName || reqData.createdByName || 'Guest');
@@ -932,7 +932,7 @@ function extractVariables(reservation, extras = {}) {
       locationsStr = reqData.location;
     }
   } else {
-    // For approved, prefer top-level
+    // For published, prefer top-level
     if (reservation.locationDisplayNames) {
       locationsStr = Array.isArray(reservation.locationDisplayNames)
         ? reservation.locationDisplayNames.join(', ')

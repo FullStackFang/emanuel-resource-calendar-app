@@ -15,7 +15,7 @@ const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createAdmin, createViewer, insertUsers } = require('../../__helpers__/userFactory');
 const {
   createDeletedEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   createPendingEvent,
   createBaseEvent,
   insertEvents,
@@ -71,13 +71,13 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
   });
 
   describe('AR-1: Admin can restore deleted event to previous status', () => {
-    it('should restore a deleted event to its previous approved status', async () => {
+    it('should restore a deleted event to its previous published status', async () => {
       const deleted = createDeletedEvent({
-        eventTitle: 'Previously Approved Event',
-        previousStatus: STATUS.APPROVED,
+        eventTitle: 'Previously Published Event',
+        previousStatus: STATUS.PUBLISHED,
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: 'requester@test.com' },
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-02'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -90,7 +90,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
       expect(res.body._version).toBe((saved._version || 0) + 1);
     });
   });
@@ -167,7 +167,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Event to check history',
         statusHistory: [
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -180,7 +180,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
       const restored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
       const lastEntry = restored.statusHistory[restored.statusHistory.length - 1];
-      expect(lastEntry.status).toBe(STATUS.APPROVED);
+      expect(lastEntry.status).toBe(STATUS.PUBLISHED);
       expect(lastEntry.reason).toBe('Restored by admin');
       expect(lastEntry.changedByEmail).toBe(adminUser.email);
     });
@@ -236,10 +236,10 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
   describe('AR-9: Non-deleted event returns 404', () => {
     it('should return 404 when trying to restore a non-deleted event', async () => {
-      const approved = createApprovedEvent({
+      const published = createPublishedEvent({
         eventTitle: 'Active event',
       });
-      const [saved] = await insertEvents(db, [approved]);
+      const [saved] = await insertEvents(db, [published]);
 
       const res = await request(app)
         .put(`/api/admin/events/${saved._id}/restore`)
@@ -272,13 +272,13 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
   // AR-11 to AR-14: Graph API Republishing Tests
   // ============================================
 
-  describe('AR-11: Restore approved event republishes to Graph', () => {
+  describe('AR-11: Restore published event republishes to Graph', () => {
     it('should call createCalendarEvent and store new graphData', async () => {
       const deleted = createDeletedEvent({
-        eventTitle: 'Approved then deleted',
-        previousStatus: STATUS.APPROVED,
+        eventTitle: 'Published then deleted',
+        previousStatus: STATUS.PUBLISHED,
         statusHistory: [
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
         ],
         graphData: {
@@ -299,7 +299,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
       // Verify Graph API was called
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
       expect(graphCalls).toHaveLength(1);
-      expect(graphCalls[0].eventData.subject).toBe('Approved then deleted');
+      expect(graphCalls[0].eventData.subject).toBe('Published then deleted');
 
       // Verify MongoDB has new graphData
       const restored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
@@ -308,7 +308,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
     });
   });
 
-  describe('AR-12: Restore non-approved event does NOT call Graph', () => {
+  describe('AR-12: Restore non-published event does NOT call Graph', () => {
     it('should skip Graph republishing for pending events', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Pending then deleted',
@@ -341,9 +341,9 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
       const deleted = createDeletedEvent({
         eventTitle: 'Graph will fail',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         statusHistory: [
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
         ],
       });
@@ -357,22 +357,22 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.graphPublished).toBe(false);
-      expect(res.body.status).toBe(STATUS.APPROVED);
+      expect(res.body.status).toBe(STATUS.PUBLISHED);
 
       // Verify MongoDB status is still restored
       const restored = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
-      expect(restored.status).toBe(STATUS.APPROVED);
+      expect(restored.status).toBe(STATUS.PUBLISHED);
       expect(restored.isDeleted).toBe(false);
     });
   });
 
   describe('AR-15: Restore published event (with graphData.id) recreates Graph event', () => {
     it('should call createCalendarEvent for events with graphData.id regardless of previous status', async () => {
-      // Simulate a unified-form event that was published (status=approved) with graphData
-      // but whose statusHistory never recorded "approved" (e.g., created directly as published)
+      // Simulate a unified-form event that was published with graphData
+      // but whose statusHistory never recorded "published" (e.g., created directly as published)
       const deleted = createDeletedEvent({
         eventTitle: 'Published via unified form',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         statusHistory: [
           { status: STATUS.PENDING, changedAt: new Date('2026-01-01'), changedByEmail: 'requester@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-03'), changedByEmail: 'admin@test.com' },
@@ -408,9 +408,9 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
     it('should replace old graphData with new Graph event IDs', async () => {
       const deleted = createDeletedEvent({
         eventTitle: 'Replace graphData',
-        previousStatus: STATUS.APPROVED,
+        previousStatus: STATUS.PUBLISHED,
         statusHistory: [
-          { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+          { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
           { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
         ],
         graphData: {
@@ -447,11 +447,11 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
     const conflictStart = new Date('2026-03-15T10:00:00Z');
     const conflictEnd = new Date('2026-03-15T12:00:00Z');
 
-    describe('AR-16: Conflict when restoring to approved (overlapping approved event in same room)', () => {
+    describe('AR-16: Conflict when restoring to published (overlapping published event in same room)', () => {
       it('should return 409 SchedulingConflict', async () => {
-        // Create an existing approved event occupying the room
-        const existing = createApprovedEvent({
-          eventTitle: 'Existing Approved Event',
+        // Create an existing published event occupying the room
+        const existing = createPublishedEvent({
+          eventTitle: 'Existing Published Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
@@ -460,12 +460,12 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
         // Create the deleted event that would conflict
         const deleted = createDeletedEvent({
           eventTitle: 'Deleted Event To Restore',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           startDateTime: new Date('2026-03-15T11:00:00Z'),
           endDateTime: new Date('2026-03-15T13:00:00Z'),
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -481,7 +481,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
         expect(res.status).toBe(409);
         expect(res.body.error).toBe('SchedulingConflict');
         expect(res.body.conflicts).toHaveLength(1);
-        expect(res.body.previousStatus).toBe(STATUS.APPROVED);
+        expect(res.body.previousStatus).toBe(STATUS.PUBLISHED);
       });
     });
 
@@ -521,7 +521,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-18: No conflict check when restoring to draft', () => {
       it('should restore successfully without conflict check', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -555,7 +555,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-19: No conflict check when restoring to rejected', () => {
       it('should restore successfully without conflict check', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -589,7 +589,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-20: forceRestore overrides conflicts', () => {
       it('should restore successfully with forceRestore: true despite conflicts', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -598,12 +598,12 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Force Restored Event',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -618,13 +618,13 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
-        expect(res.body.status).toBe(STATUS.APPROVED);
+        expect(res.body.status).toBe(STATUS.PUBLISHED);
       });
     });
 
     describe('AR-21: No conflict when event has no rooms', () => {
       it('should restore successfully when event has empty locations', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Existing Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -633,12 +633,12 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Virtual Event (no rooms)',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [], // No rooms
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -658,7 +658,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-22: Conflict response includes correct details', () => {
       it('should include conflicts array with event details', async () => {
-        const existing = createApprovedEvent({
+        const existing = createPublishedEvent({
           eventTitle: 'Blocking Event Alpha',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
@@ -667,12 +667,12 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Conflicting Restore',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           startDateTime: new Date('2026-03-15T11:00:00Z'),
           endDateTime: new Date('2026-03-15T13:00:00Z'),
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -692,7 +692,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
         const conflict = res.body.conflicts[0];
         expect(conflict.id).toBe(existingSaved._id.toString());
         expect(conflict.eventTitle).toBe('Blocking Event Alpha');
-        expect(conflict.status).toBe(STATUS.APPROVED);
+        expect(conflict.status).toBe(STATUS.PUBLISHED);
         expect(res.body._version).toBe(saved._version);
       });
     });
@@ -709,12 +709,12 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
         const deleted = createDeletedEvent({
           eventTitle: 'Restore Blocked By Published',
-          previousStatus: STATUS.APPROVED,
+          previousStatus: STATUS.PUBLISHED,
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
         });
@@ -736,8 +736,8 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-24: Conflict check runs when previousStatus is published', () => {
       it('should run conflict check when restoring an event whose previous status was published', async () => {
-        const existing = createApprovedEvent({
-          eventTitle: 'Existing Approved Event',
+        const existing = createPublishedEvent({
+          eventTitle: 'Existing Published Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],
@@ -812,7 +812,7 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
           deletedAt: new Date(),
           deletedBy: 'admin@emanuelnyc.org',
           statusHistory: [
-            { status: STATUS.APPROVED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
+            { status: STATUS.PUBLISHED, changedAt: new Date('2026-01-01'), changedByEmail: 'approver@test.com' },
             { status: STATUS.DELETED, changedAt: new Date('2026-01-02'), changedByEmail: 'admin@test.com' },
           ],
           _version: 1,

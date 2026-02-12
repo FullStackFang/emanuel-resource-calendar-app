@@ -1410,7 +1410,7 @@ async function logReservationAudit({
   reservationId,
   userId,
   userEmail,
-  changeType, // 'create', 'update', 'approve', 'reject', 'cancel', 'resubmit'
+  changeType, // 'create', 'update', 'publish', 'reject', 'cancel', 'resubmit'
   source = 'Unknown',
   changes = null,
   changeSet = null,
@@ -1657,7 +1657,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const roomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
     const query = {
       $and: [
-        { status: { $in: ['pending', 'approved', 'published'] } }, // Only check against pending, approved, and published
+        { status: { $in: ['pending', 'published'] } }, // Only check against pending and published
         {
           // Check calendarData.locations (source of truth)
           'calendarData.locations': { $in: roomIds }
@@ -1979,9 +1979,9 @@ const verifyToken = async (req, res, next) => {
 // ============================================
 
 /**
- * Create a calendar event from an approved room reservation
+ * Create a calendar event from a published room reservation
  * Uses the user's Graph token from the frontend
- * @param {Object} reservation - The approved reservation object
+ * @param {Object} reservation - The published reservation object
  * @param {string} calendarMode - 'sandbox' or 'production'
  * @param {string} userGraphToken - User's Graph API token from frontend
  * @returns {Object} Result object with success status and event details
@@ -2201,7 +2201,7 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
     }
 
-    // Get events from Graph API (approved/published events)
+    // Get events from Graph API (published events)
     const graphEvents = await graphApiService.getCalendarEvents(
       userId,
       calendarId || null,
@@ -2238,7 +2238,7 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
       roleInfo
     );
 
-    // Filter to only include pending/draft events from MongoDB (Graph events handle approved)
+    // Filter to only include pending/draft events from MongoDB (Graph events handle published)
     const pendingOnlyEvents = pendingEvents.filter(e =>
       ['pending', 'draft', 'room-reservation-request'].includes(e.status)
     );
@@ -4318,7 +4318,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     };
 
     // Role-aware status filtering for pending events
-    // - viewer: exclude all pending (can only see approved/published events)
+    // - viewer: exclude all pending (can only see published events)
     // - requester: include pending events they created
     // - approver/admin: include all pending events
     const role = roleInfo?.role || 'viewer';
@@ -4342,9 +4342,9 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
         }] : [])
       ];
     } else if (role === 'requester' && userEmail) {
-      // Requesters can see approved events + their own pending events + their own drafts
+      // Requesters can see published events + their own pending events + their own drafts
       query.$or = [
-        // Approved/published events (visible to everyone)
+        // Published events (visible to everyone)
         { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
         // Pending events created by this user
         {
@@ -4358,7 +4358,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
         }
       ];
     } else {
-      // Viewers can only see approved/published events + their own drafts
+      // Viewers can only see published events + their own drafts
       query.$or = [
         { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
         ...(ownerEmailConditions.length > 0 ? [{
@@ -5288,7 +5288,7 @@ app.get('/api/events/series/:eventSeriesId', verifyToken, async (req, res) => {
  *
  * Query params:
  *   - view (required): my-events | approval-queue | admin-browse
- *   - status: Filter by status (pending, approved, rejected, draft, deleted, all)
+ *   - status: Filter by status (pending, published, rejected, draft, deleted, all)
  *   - search: Text search (regex on eventTitle, eventDescription, locationDisplayName)
  *   - startDate / endDate: Date range filter
  *   - categories: Comma-separated category filter
@@ -5357,8 +5357,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         query.status = 'draft';
       } else if (status === 'pending') {
         query.status = { $in: ['pending', 'room-reservation-request'] };
-      } else if (status === 'approved' || status === 'published') {
-        query.status = 'approved';
+      } else if (status === 'published') {
+        query.status = 'published';
       } else if (status && status !== 'all') {
         query.status = status;
       } else {
@@ -5420,9 +5420,9 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       } else if (status === 'pending') {
         query.isDeleted = { $ne: true };
         query.status = 'pending';
-      } else if (status === 'approved') {
+      } else if (status === 'published') {
         query.isDeleted = { $ne: true };
-        query.status = 'approved';
+        query.status = 'published';
       } else if (status === 'rejected') {
         query.isDeleted = { $ne: true };
         query.status = 'rejected';
@@ -5615,10 +5615,10 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         'calendarData.requesterEmail': userEmail,
       };
 
-      const [all, pending, approved, rejected, cancelled, draft, deleted] = await Promise.all([
+      const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'cancelled' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft' }),
@@ -5629,7 +5629,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         })
       ]);
 
-      res.json({ all, pending, approved, rejected, cancelled, draft, deleted });
+      res.json({ all, pending, published, rejected, cancelled, draft, deleted });
 
     } else if (view === 'approval-queue') {
       const baseQuery = {
@@ -5637,28 +5637,28 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         roomReservationData: { $exists: true, $ne: null }
       };
 
-      const [all, pending, approved, rejected, deleted] = await Promise.all([
+      const [all, pending, published, rejected, deleted] = await Promise.all([
         unifiedEventsCollection.countDocuments(baseQuery),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
         unifiedEventsCollection.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] })
       ]);
 
-      res.json({ all, pending, approved, rejected, deleted });
+      res.json({ all, pending, published, rejected, deleted });
 
     } else if (view === 'admin-browse') {
-      const [total, pending, approved, rejected, deleted, draft] = await Promise.all([
+      const [total, pending, publishedCount, rejected, deleted, draft] = await Promise.all([
         unifiedEventsCollection.countDocuments({}),
         unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'pending' }),
-        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'approved' }),
+        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'published' }),
         unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'rejected' }),
         unifiedEventsCollection.countDocuments({ isDeleted: true }),
         unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
       ]);
 
-      const published = total - deleted;
-      res.json({ total, published, pending, approved, rejected, deleted, draft });
+      const published = publishedCount;
+      res.json({ total, published, pending, rejected, deleted, draft });
     }
 
   } catch (error) {
@@ -12146,13 +12146,13 @@ app.get('/api/rooms/availability', async (req, res) => {
       })));
     }
 
-    // Separate events into reservations (have status field with pending/approved) and calendar events
+    // Separate events into reservations (have status field with pending/published) and calendar events
     // Room reservations created via the reservation system have a 'status' field
     const allReservations = allEvents.filter(e =>
-      e.status && ['pending', 'approved'].includes(e.status)
+      e.status && ['pending', 'published'].includes(e.status)
     );
     const allCalendarEvents = allEvents.filter(e =>
-      !e.status || !['pending', 'approved'].includes(e.status)
+      !e.status || !['pending', 'published'].includes(e.status)
     );
 
     logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
@@ -12686,22 +12686,22 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       return res.status(404).json({ error: 'Draft not found' });
     }
 
-    // Look up user and check role for auto-approve
+    // Look up user and check role for auto-publish
     const user = await usersCollection.findOne({
       $or: [{ odataId: userId }, { email: userEmail }]
     });
-    let canAutoApprove = canApproveReservations(user, userEmail);
+    let canAutoPublish = canApproveReservations(user, userEmail);
 
-    // Respect role simulation: if simulating a non-approver role, skip auto-approve
-    // This is safe — it can only make behavior MORE restrictive (force pending instead of auto-approve)
+    // Respect role simulation: if simulating a non-approver role, skip auto-publish
+    // This is safe — it can only make behavior MORE restrictive (force pending instead of auto-publish)
     const simulatedRole = req.headers['x-simulated-role'];
     if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
-      canAutoApprove = false;
+      canAutoPublish = false;
     }
 
     // Validate ownership — approvers/admins can submit any draft
     const isOwner = draft.roomReservationData?.requestedBy?.userId === userId;
-    if (!isOwner && !canAutoApprove) {
+    if (!isOwner && !canAutoPublish) {
       return res.status(403).json({ error: 'You can only submit your own drafts' });
     }
 
@@ -12760,8 +12760,8 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
 
     const calendarOwner = draft.calendarOwner || getDefaultCalendarOwner();
 
-    if (canAutoApprove) {
-      // --- Auto-approve path for admins/approvers ---
+    if (canAutoPublish) {
+      // --- Auto-publish path for admins/approvers ---
       // Create Graph calendar event
       const locationDisplayNames = cd.locationDisplayNames || draft.graphData?.location?.displayName || '';
       const graphEventData = {
@@ -12795,10 +12795,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         { _id: new ObjectId(draftId) },
         {
           $set: {
-            status: 'approved',
+            status: 'published',
             calendarOwner,
-            approvedAt: now,
-            approvedBy: userEmail,
+            publishedAt: now,
+            publishedBy: userEmail,
             reviewedAt: now,
             reviewedBy: userEmail,
             'roomReservationData.submittedAt': now,
@@ -12810,26 +12810,26 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           $unset: { draftCreatedAt: "" },
           $push: {
             statusHistory: {
-              status: 'approved',
+              status: 'published',
               changedAt: now,
               changedBy: userId,
               changedByEmail: userEmail,
-              reason: 'Auto-approved on creation'
+              reason: 'Auto-published on creation'
             }
           }
         }
       );
 
-      const approvedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      const publishedReservation = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
 
-      logger.log('Draft auto-approved:', {
+      logger.log('Draft auto-published:', {
         draftId,
-        approvedBy: userEmail,
+        publishedBy: userEmail,
         graphEventId: createdEvent.id,
         eventTitle: cd.eventTitle
       });
 
-      res.json({ ...approvedReservation, autoApproved: true });
+      res.json({ ...publishedReservation, autoPublished: true });
     } else {
       // --- Standard requester path: draft → pending ---
       const updateData = {
@@ -13027,7 +13027,7 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     }
 
     // Check for scheduling conflicts before restoring (only for statuses that occupy rooms)
-    if (['pending', 'approved', 'published'].includes(previousStatus)) {
+    if (['pending', 'published'].includes(previousStatus)) {
       const roomIds = reservation.calendarData?.locations || reservation.locations || [];
       if (roomIds.length > 0) {
         const conflicts = await checkRoomConflicts(reservation, reservationId);
@@ -13221,7 +13221,7 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
     }
 
     // Check for scheduling conflicts before restoring (only for statuses that occupy rooms)
-    if (!forceRestore && ['pending', 'approved', 'published'].includes(previousStatus)) {
+    if (!forceRestore && ['pending', 'published'].includes(previousStatus)) {
       const roomIds = event.calendarData?.locations || event.locations || [];
       if (roomIds.length > 0) {
         const conflicts = await checkRoomConflicts(event, eventId);
@@ -13553,7 +13553,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
 
       assignedTo: null,
       reviewNotes: '',
-      approvedBy: null,
+      publishedBy: null,
       actionDate: null,
       rejectionReason: '',
       createdEventIds: [],
@@ -13592,7 +13592,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         eventNotes: eventNotes || '',
         // Locations - use requestedRooms as ObjectId array
         locations: requestedRooms,
-        locationDisplayNames: '', // Will be populated when approved
+        locationDisplayNames: '', // Will be populated when published
         // Requester info
         requesterName: requesterName,
         requesterEmail: requesterEmail,
@@ -14097,6 +14097,29 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
     const computedEndDateTime = endDateTime
       ? endDateTime.replace(/Z$/, '')
       : `${endDate}T${endTime}:00`;
+
+    // Check for scheduling conflicts (owners cannot force override)
+    const editedRoomIds = requestedRooms || event.calendarData?.locations || [];
+    if (editedRoomIds.length > 0) {
+      const reservationForConflict = {
+        startDateTime: computedStartDateTime,
+        endDateTime: computedEndDateTime,
+        setupTimeMinutes: setupTimeMinutes || event.calendarData?.setupTimeMinutes || 0,
+        teardownTimeMinutes: teardownTimeMinutes || event.calendarData?.teardownTimeMinutes || 0,
+        calendarData: { locations: editedRoomIds },
+        isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+        categories: categories || event.calendarData?.categories || []
+      };
+      const conflicts = await checkRoomConflicts(reservationForConflict, reservationId);
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
+          conflicts,
+          _version: event._version
+        });
+      }
+    }
 
     const updateDoc = {
       $set: {
@@ -15292,7 +15315,7 @@ app.delete('/api/admin/rooms/:id', verifyToken, async (req, res) => {
         { 'calendarData.locations': { $in: [id, new ObjectId(id)] } },
         { 'roomReservationData.requestedRooms': { $in: [id, new ObjectId(id)] } }
       ],
-      status: { $in: ['pending', 'approved'] },
+      status: { $in: ['pending', 'published'] },
       'calendarData.endDateTime': { $gte: new Date().toISOString() }
     });
     
@@ -16850,12 +16873,12 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
 });
 
 /**
- * Approve a room reservation request (Admin only)
- * PUT /api/admin/events/:id/approve
- * Changes status from 'room-reservation-request' to 'approved'
+ * Publish a room reservation request (Admin only)
+ * PUT /api/admin/events/:id/publish
+ * Changes status from 'room-reservation-request' to 'published'
  * Optionally creates Graph calendar event
  */
-app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
+app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
@@ -16870,7 +16893,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
 
     const id = req.params.id;
     // Note: graphToken is no longer needed - using app-only auth via graphApiService
-    const { notes, calendarMode, createCalendarEvent, forceApprove, targetCalendar, _version } = req.body;
+    const { notes, calendarMode, createCalendarEvent, forcePublish, targetCalendar, _version } = req.body;
 
     // Get event by _id (needed for processing before atomic update)
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
@@ -16886,10 +16909,29 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       });
     }
 
-    // Check for scheduling conflicts (unless forceApprove)
-    if (!forceApprove && event.roomReservationData?.requestedRooms) {
-      // TODO: Implement conflict detection
-      // For now, skip conflict checking
+    // Check for scheduling conflicts (unless forcePublish)
+    if (!forcePublish) {
+      const roomIds = event.calendarData?.locations || event.locations || [];
+      if (roomIds.length > 0) {
+        const reservationForConflict = {
+          startDateTime: event.calendarData?.startDateTime || event.startDateTime,
+          endDateTime: event.calendarData?.endDateTime || event.endDateTime,
+          setupTimeMinutes: event.calendarData?.setupTimeMinutes || 0,
+          teardownTimeMinutes: event.calendarData?.teardownTimeMinutes || 0,
+          calendarData: { locations: roomIds },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: event.calendarData?.categories || []
+        };
+        const conflicts = await checkRoomConflicts(reservationForConflict, id);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            message: `Cannot publish: ${conflicts.length} scheduling conflict(s) detected`,
+            conflicts,
+            _version: event._version
+          });
+        }
+      }
     }
 
     // Create Graph calendar event (if requested)
@@ -16944,7 +16986,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
             offsiteLat,
             offsiteLon
           );
-          logger.info('Approve endpoint: Using offsite location for Graph event', {
+          logger.info('Publish endpoint: Using offsite location for Graph event', {
             offsiteName,
             offsiteAddress,
             offsiteLat,
@@ -17009,25 +17051,25 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
 
     // If calendar event creation was requested but failed, fail the approval
     if (createCalendarEvent && !graphEventId) {
-      logger.error('Graph event creation failed, blocking approval:', calendarEventResult?.error);
+      logger.error('Graph event creation failed, blocking publish:', calendarEventResult?.error);
       return res.status(500).json({
         error: 'CalendarEventCreationFailed',
         details: calendarEventResult?.error || 'Unknown error - Graph event was not created',
-        message: 'Approval failed: Could not create calendar event. Please check permissions and try again.'
+        message: 'Publish failed: Could not create calendar event. Please check permissions and try again.'
       });
     }
 
     // Update event status
     const newChangeKey = generateChangeKey({
       ...event,
-      status: 'approved',
+      status: 'published',
       reviewedAt: new Date()
     });
 
-    // Step 1: Atomically approve with version guard (BEFORE creating Graph event)
-    const approveUpdate = {
+    // Step 1: Atomically publish with version guard (BEFORE creating Graph event)
+    const publishUpdate = {
       $set: {
-        status: 'approved',
+        status: 'published',
         'roomReservationData.reviewedBy': {
           userId,
           name: user?.displayName || userEmail,
@@ -17041,21 +17083,21 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       },
       $push: {
         statusHistory: {
-          status: 'approved',
+          status: 'published',
           changedAt: new Date(),
           changedBy: userId,
           changedByEmail: userEmail,
-          reason: notes ? `Approved: ${notes}` : 'Approved by admin'
+          reason: notes ? `Published: ${notes}` : 'Published by admin'
         }
       }
     };
 
-    let approvedEvent;
+    let publishedEvent;
     try {
-      approvedEvent = await conditionalUpdate(
+      publishedEvent = await conditionalUpdate(
         unifiedEventsCollection,
         { _id: new ObjectId(id) },
-        approveUpdate,
+        publishUpdate,
         {
           expectedVersion: _version || null,
           expectedStatus: event.status, // 'pending' or 'room-reservation-request'
@@ -17070,7 +17112,7 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
       throw err;
     }
 
-    // Step 2: Add Graph event data if Graph event was created (separate update, safe because already approved)
+    // Step 2: Add Graph event data if Graph event was created (separate update, safe because already published)
     if (graphEventId) {
       const graphUpdate = {
         $set: {
@@ -17094,25 +17136,25 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     await eventAuditHistoryCollection.insertOne({
       eventId: event.eventId,
       reservationId: event._id,
-      action: 'approved',
+      action: 'published',
       performedBy: userId,
       performedByEmail: userEmail,
       timestamp: new Date(),
       changes: [
-        { field: 'status', oldValue: 'room-reservation-request', newValue: 'approved' },
+        { field: 'status', oldValue: 'room-reservation-request', newValue: 'published' },
         { field: 'reviewNotes', oldValue: '', newValue: notes || '' }
       ],
       revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
     });
 
-    logger.info('Room reservation approved:', {
+    logger.info('Room reservation published:', {
       eventId: event.eventId,
       mongoId: id,
-      approvedBy: userEmail,
+      publishedBy: userEmail,
       graphEventCreated: !!graphEventId
     });
 
-    // Send approval notification email (non-blocking)
+    // Send publish notification email (non-blocking)
     try {
       const cd = event.calendarData || {};
       const reservationForEmail = {
@@ -17126,8 +17168,8 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         locationDisplayNames: cd.locationDisplayNames ? [cd.locationDisplayNames] : []
       };
 
-      const emailResult = await emailService.sendApprovalNotification(reservationForEmail, notes || '');
-      logger.info('Approval notification email sent', {
+      const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '');
+      logger.info('Publish notification email sent', {
         eventId: event.eventId,
         correlationId: emailResult.correlationId,
         skipped: emailResult.skipped
@@ -17138,12 +17180,12 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
         unifiedEventsCollection,
         event._id,
         emailResult,
-        'approval_notification',
+        'publish_notification',
         [reservationForEmail.requesterEmail],
-        `Reservation Approved: ${reservationForEmail.eventTitle}`
+        `Reservation Published: ${reservationForEmail.eventTitle}`
       );
     } catch (emailError) {
-      logger.error('Approval email notification failed:', {
+      logger.error('Publish email notification failed:', {
         eventId: event.eventId,
         error: emailError.message
       });
@@ -17152,14 +17194,14 @@ app.put('/api/admin/events/:id/approve', verifyToken, async (req, res) => {
     res.json({
       success: true,
       changeKey: newChangeKey,
-      _version: approvedEvent._version,
+      _version: publishedEvent._version,
       calendarEvent: calendarEventResult,
-      message: 'Reservation approved successfully'
+      message: 'Reservation published successfully'
     });
 
   } catch (error) {
-    logger.error('Error approving room reservation:', error);
-    res.status(500).json({ error: 'Failed to approve reservation' });
+    logger.error('Error publishing room reservation:', error);
+    res.status(500).json({ error: 'Failed to publish reservation' });
   }
 });
 
@@ -17326,12 +17368,12 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
 
 // ============================================================================
 // EDIT REQUEST ENDPOINTS
-// These endpoints handle edit requests for approved events
+// These endpoints handle edit requests for published events
 // Users can request edits, admins can approve/reject, and changes are applied
 // ============================================================================
 
 /**
- * Create an edit request for an approved event (Authenticated - Event Owner Only)
+ * Create an edit request for a published event (Authenticated - Event Owner Only)
  * POST /api/events/:id/request-edit
  *
  * EMBEDDED MODEL: Stores the edit request directly on the original event document
@@ -17393,15 +17435,15 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Original event not found' });
     }
 
-    // Check if the event is approved/published (can only request edits on approved events)
+    // Check if the event is published (can only request edits on published events)
     // Unified events from Graph don't have a status field - they're implicitly "published"
     // Room reservations have an explicit status field
     const hasExplicitStatus = originalEvent.status !== undefined;
-    const isApproved = hasExplicitStatus ? originalEvent.status === 'approved' : true; // No status = published
+    const isPublished = hasExplicitStatus ? originalEvent.status === 'published' : true; // No status = published
 
-    if (!isApproved) {
+    if (!isPublished) {
       return res.status(400).json({
-        error: 'Edit requests can only be submitted for approved events',
+        error: 'Edit requests can only be submitted for published events',
         currentStatus: originalEvent.status
       });
     }
@@ -17899,13 +17941,13 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
 });
 
 /**
- * Approve an edit request (Admin only)
- * PUT /api/admin/events/:id/approve-edit
+ * Publish an edit request (Admin only)
+ * PUT /api/admin/events/:id/publish-edit
  *
  * EMBEDDED MODEL: The :id parameter is the event _id (not a separate edit request document).
  * Applies proposedChanges from pendingEditRequest to the main event fields.
  */
-app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
+app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
@@ -18028,9 +18070,9 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
     updateFields['pendingEditRequest.reviewNotes'] = notes || '';
 
     // Apply changes atomically with version guard
-    let approvedEditEvent;
+    let publishedEditEvent;
     try {
-      approvedEditEvent = await conditionalUpdate(
+      publishedEditEvent = await conditionalUpdate(
         unifiedEventsCollection,
         { _id: event._id },
         { $set: updateFields },
@@ -18137,14 +18179,14 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
       }
     });
 
-    logger.info('Edit request approved and changes applied (embedded model):', {
+    logger.info('Edit request published and changes applied (embedded model):', {
       eventId: event.eventId,
       editRequestId: pendingEditRequest.id,
-      approvedBy: userEmail,
+      publishedBy: userEmail,
       changesApplied: Object.keys(proposedChanges).length
     });
 
-    // Send approval notification email (non-blocking)
+    // Send edit request published notification email (non-blocking)
     try {
       const cd = event.calendarData || {};
       const editRequestForEmail = {
@@ -18164,22 +18206,22 @@ app.put('/api/admin/events/:id/approve-edit', verifyToken, async (req, res) => {
         editRequestForEmail,
         notes || ''
       );
-      logger.info('Edit request approval email sent', { correlationId: emailResult.correlationId });
+      logger.info('Edit request publish email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {
-      logger.error('Edit request approval email failed:', emailError.message);
+      logger.error('Edit request publish email failed:', emailError.message);
     }
 
     res.json({
       success: true,
-      message: 'Edit request approved and changes applied',
+      message: 'Edit request published and changes applied',
       eventId: event.eventId,
-      _version: approvedEditEvent._version,
+      _version: publishedEditEvent._version,
       changesApplied: proposedChanges
     });
 
   } catch (error) {
-    logger.error('Error approving edit request:', error);
-    res.status(500).json({ error: 'Failed to approve edit request' });
+    logger.error('Error publishing edit request:', error);
+    res.status(500).json({ error: 'Failed to publish edit request' });
   }
 });
 
@@ -18660,7 +18702,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       'isRequestedRoomsEmptyArray': Array.isArray(updates.requestedRooms) && updates.requestedRooms.length === 0
     });
 
-    // Use graphData.id as the sync gate — it's always stored by the approve endpoint
+    // Use graphData.id as the sync gate — it's always stored by the publish endpoint
     const storedGraphEventId = event.graphData?.id;
 
     // Helper to check if a value has actually changed
@@ -18711,6 +18753,33 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     };
 
     const hasGraphSyncableChanges = Object.values(graphChanges).some(changed => changed);
+
+    // Check for scheduling conflicts when time/room fields change on active events
+    const timeOrRoomChanged = graphChanges.startDateTime || graphChanges.endDateTime || graphChanges.locations;
+    const activeStatuses = ['pending', 'published'];
+    if (timeOrRoomChanged && activeStatuses.includes(event.status) && !updates.forceUpdate) {
+      const roomIds = updates.locations || updates.requestedRooms || cd.locations || [];
+      if (roomIds.length > 0) {
+        const reservationForConflict = {
+          startDateTime: updates.startDateTime || cd.startDateTime,
+          endDateTime: updates.endDateTime || cd.endDateTime,
+          setupTimeMinutes: updates.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+          teardownTimeMinutes: updates.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+          calendarData: { locations: roomIds },
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: updates.categories || cd.categories || []
+        };
+        const conflicts = await checkRoomConflicts(reservationForConflict, id);
+        if (conflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
+            conflicts,
+            _version: event._version
+          });
+        }
+      }
+    }
 
     // DEBUG: Always log Graph sync decision
     logger.info('=== GRAPH SYNC DECISION ===', {
@@ -19051,7 +19120,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // graphData is only updated when:
     // 1. Initial sync from Outlook (stores raw Graph API response)
     // 2. Graph API response comes back after updating an event (sync response to local)
-    // The approve endpoint now reads from calendarData to create Graph events.
+    // The publish endpoint now reads from calendarData to create Graph events.
 
     // Handle requestedRooms -> locations array conversion and display name generation
     // If requestedRooms exists but locations doesn't, use requestedRooms (for backward compatibility)

@@ -308,7 +308,7 @@ async function getAdminEmails(db) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendSubmissionConfirmation(reservation) {
-  // Pending requests use roomReservationData, approved events use top-level
+  // Pending requests use roomReservationData, published events use top-level
   const isPending = reservation.status === 'pending';
   const reqData = reservation.roomReservationData || {};
   const recipientEmail = isPending
@@ -353,18 +353,18 @@ async function sendAdminNewRequestAlert(reservation, adminEmails, adminPanelUrl 
 }
 
 /**
- * Send approval notification to requester
+ * Send publish notification to requester
  * @param {Object} reservation - Reservation data
  * @param {string} adminNotes - Optional notes from admin
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendApprovalNotification(reservation, adminNotes = '') {
-  // Approval emails go to approved events - use top-level, fall back to roomReservationData
+async function sendPublishNotification(reservation, adminNotes = '') {
+  // Publish emails go to published events - use top-level, fall back to roomReservationData
   const reqData = reservation.roomReservationData || {};
   const recipientEmail = reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail;
 
   if (!recipientEmail) {
-    logger.warn('No requester email for approval notification', {
+    logger.warn('No requester email for publish notification', {
       reservationId: reservation._id
     });
     return { success: false, error: 'No recipient email' };
@@ -674,7 +674,7 @@ module.exports = {
   getAdminEmails,
   sendSubmissionConfirmation,
   sendAdminNewRequestAlert,
-  sendApprovalNotification,
+  sendPublishNotification,
   sendRejectionNotification,
   sendResubmissionConfirmation,
   sendReviewStartedNotification,

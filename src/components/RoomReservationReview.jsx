@@ -50,7 +50,8 @@ export default function RoomReservationReview({
   readOnly = false, // Read-only mode for viewers
   isEditRequestMode = false, // Edit request mode - allows editing even when normally readOnly
   isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
-  originalData = null // Original form data for comparison in edit request mode (Option C inline diff)
+  originalData = null, // Original form data for comparison in edit request mode (Option C inline diff)
+  onSchedulingConflictsChange = null // Callback when scheduling conflicts change: (hasConflicts) => void
 }) {
   const { showError, showWarning } = useNotification();
   const { isAdmin } = usePermissions();
@@ -66,6 +67,11 @@ export default function RoomReservationReview({
 
   // Conflict dialog state
   const [conflictDialog, setConflictDialog] = useState({ isOpen: false, conflictType: 'data_changed', details: {} });
+  const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
+  const handleConflictChange = useCallback((hasConflicts) => {
+    setHasSchedulingConflicts(hasConflicts);
+    if (onSchedulingConflictsChange) onSchedulingConflictsChange(hasConflicts);
+  }, [onSchedulingConflictsChange]);
 
   // Refs to access base component's state
   const formDataRef = useRef(null);
@@ -257,7 +263,7 @@ export default function RoomReservationReview({
     }
   }, [onSaveFunctionReady, handleSaveChanges]);
 
-  // Function to get processed form data (used by approve flow and draft save)
+  // Function to get processed form data (used by publish flow and draft save)
   // skipValidation: true for draft saves where dates/times are optional
   const getProcessedFormData = useCallback(({ skipValidation = false } = {}) => {
     const formData = formDataRef.current ? formDataRef.current() : {};
@@ -332,7 +338,7 @@ export default function RoomReservationReview({
 
     // Validate times before approval
     if (!validateTimes()) {
-      logger.warn('Cannot approve - time validation errors exist');
+      logger.warn('Cannot publish - time validation errors exist');
       return;
     }
 
@@ -410,6 +416,7 @@ export default function RoomReservationReview({
           isEditRequestMode={isEditRequestMode}
           isViewingEditRequest={isViewingEditRequest}
           originalData={originalData}
+          onConflictChange={handleConflictChange}
           renderAdditionalContent={() => (
             <>
               {/* Tab: Attachments */}

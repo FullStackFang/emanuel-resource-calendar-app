@@ -1285,12 +1285,12 @@
   white-space: nowrap;
 }
 
-.action-btn.approve-btn {
+.action-btn.publish-btn {
   background: var(--color-success-500);
   color: var(--text-inverse);
 }
 
-.action-btn.approve-btn:hover:not(:disabled) {
+.action-btn.publish-btn:hover:not(:disabled) {
   background: var(--color-success-600);
   transform: translateY(-1px);
   box-shadow: 0 4px 8px var(--color-success-100);

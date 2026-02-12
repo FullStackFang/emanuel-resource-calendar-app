@@ -3,7 +3,7 @@
  *
  * Tests the draft submission workflow including:
  * - Requester submit → pending
- * - Admin/Approver submit → auto-approved with Graph event
+ * - Admin/Approver submit → auto-published with Graph event
  * - Cross-user permissions
  * - Validation
  */
@@ -96,7 +96,7 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
   }
 
   describe('DS-1: Requester submits own draft', () => {
-    it('should transition draft to pending with no graphData or autoApproved', async () => {
+    it('should transition draft to pending with no graphData or autoPublished', async () => {
       const draft = createCompleteDraft({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -111,13 +111,13 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.status).toBe(STATUS.PENDING);
-      expect(res.body.autoApproved).toBeUndefined();
+      expect(res.body.autoPublished).toBeUndefined();
       expect(res.body.event.graphData).toBeNull();
     });
   });
 
   describe('DS-2: Approver submits own draft', () => {
-    it('should auto-approve with graphData and autoApproved flag', async () => {
+    it('should auto-publish with graphData and autoPublished flag', async () => {
       const draft = createCompleteDraft({
         userId: approverUser.odataId,
         requesterEmail: approverUser.email,
@@ -131,8 +131,8 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.autoApproved).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
       expect(res.body.graphEventId).toBeDefined();
       expect(res.body.event.graphData).toBeDefined();
       expect(res.body.event.graphData.id).toBeDefined();
@@ -140,7 +140,7 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
   });
 
   describe('DS-3: Admin submits own draft', () => {
-    it('should auto-approve with graphData and autoApproved flag', async () => {
+    it('should auto-publish with graphData and autoPublished flag', async () => {
       const draft = createCompleteDraft({
         userId: adminUser.odataId,
         requesterEmail: adminUser.email,
@@ -154,14 +154,14 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.autoApproved).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
       expect(res.body.graphEventId).toBeDefined();
     });
   });
 
   describe('DS-4: Approver submits another user\'s draft', () => {
-    it('should auto-approve (approvers can submit any draft)', async () => {
+    it('should auto-publish (approvers can submit any draft)', async () => {
       const draft = createCompleteDraft({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -175,8 +175,8 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.autoApproved).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
     });
   });
 
@@ -216,8 +216,8 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
     });
   });
 
-  describe('DS-7: Auto-approve statusHistory entry', () => {
-    it('should have statusHistory entry with approved status and Auto-approved reason', async () => {
+  describe('DS-7: Auto-publish statusHistory entry', () => {
+    it('should have statusHistory entry with published status and Auto-published reason', async () => {
       const draft = createCompleteDraft({
         userId: approverUser.odataId,
         requesterEmail: approverUser.email,
@@ -232,13 +232,13 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
 
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedDraft._id });
       const lastHistory = event.statusHistory[event.statusHistory.length - 1];
-      expect(lastHistory.status).toBe('approved');
-      expect(lastHistory.reason).toMatch(/Auto-approved/i);
+      expect(lastHistory.status).toBe('published');
+      expect(lastHistory.reason).toMatch(/Auto-published/i);
       expect(lastHistory.changedByEmail).toBe(approverUser.email);
     });
   });
 
-  describe('DS-8: Auto-approve stores graphData on event', () => {
+  describe('DS-8: Auto-publish stores graphData on event', () => {
     it('should have graphData.id set on the event document', async () => {
       const draft = createCompleteDraft({
         userId: adminUser.odataId,
@@ -287,8 +287,8 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
     });
   });
 
-  describe('DS-10a: Admin simulating requester role skips auto-approve', () => {
-    it('should transition to pending (not approved) when X-Simulated-Role is requester', async () => {
+  describe('DS-10a: Admin simulating requester role skips auto-publish', () => {
+    it('should transition to pending (not published) when X-Simulated-Role is requester', async () => {
       const draft = createCompleteDraft({
         userId: adminUser.odataId,
         requesterEmail: adminUser.email,
@@ -304,14 +304,14 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.status).toBe(STATUS.PENDING);
-      expect(res.body.autoApproved).toBeUndefined();
+      expect(res.body.autoPublished).toBeUndefined();
       // Graph API should NOT have been called
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
       expect(graphCalls).toHaveLength(0);
     });
   });
 
-  describe('DS-10b: Approver simulating viewer role skips auto-approve', () => {
+  describe('DS-10b: Approver simulating viewer role skips auto-publish', () => {
     it('should transition to pending when X-Simulated-Role is viewer', async () => {
       const draft = createCompleteDraft({
         userId: approverUser.odataId,
@@ -328,12 +328,12 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.status).toBe(STATUS.PENDING);
-      expect(res.body.autoApproved).toBeUndefined();
+      expect(res.body.autoPublished).toBeUndefined();
     });
   });
 
-  describe('DS-10c: Simulating admin role still auto-approves', () => {
-    it('should auto-approve when X-Simulated-Role is admin', async () => {
+  describe('DS-10c: Simulating admin role still auto-publishes', () => {
+    it('should auto-publish when X-Simulated-Role is admin', async () => {
       const draft = createCompleteDraft({
         userId: adminUser.odataId,
         requesterEmail: adminUser.email,
@@ -348,8 +348,8 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.event.status).toBe(STATUS.APPROVED);
-      expect(res.body.autoApproved).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
     });
   });
 

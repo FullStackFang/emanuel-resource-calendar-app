@@ -284,9 +284,9 @@ const DayEventPanel = memo(({
                     </div>
                   )}
 
-                  {/* Request Edit button for approved events - visible to requesters and above */}
+                  {/* Request Edit button for published events - visible to requesters and above */}
                   {/* Hide if there's already a pending edit request */}
-                  {event.status === 'approved' && canSubmitReservation && onRequestEdit && !hasPendingEditRequest && (
+                  {event.status === 'published' && canSubmitReservation && onRequestEdit && !hasPendingEditRequest && (
                     <button
                       className="request-edit-btn"
                       onClick={(e) => {

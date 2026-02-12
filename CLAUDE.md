@@ -27,7 +27,7 @@ cd backend
 npm test                           # Run all tests (173 tests)
 npm run test:unit                  # Run unit tests only
 npm run test:integration           # Run integration tests only
-npm test -- eventApprove.test.js   # Run specific test file
+npm test -- eventPublish.test.js   # Run specific test file
 npm test -- --testNamePattern="Approver"  # Run tests matching pattern
 ```
 
@@ -226,7 +226,7 @@ const event = await graphApiService.createCalendarEvent(
 ```
 
 **Endpoints using app-only auth:**
-- `PUT /api/admin/events/:id/approve` - Creates Graph events on approval
+- `PUT /api/admin/events/:id/publish` - Creates Graph events on publish
 - `PUT /api/admin/events/:id` - Syncs changes to Graph
 - `GET /api/graph/*` - All Graph API proxy endpoints
 - Delta sync operations
@@ -311,7 +311,7 @@ This ensures changes are verifiable and reduces back-and-forth debugging.
 ### UI Patterns
 
 #### Button Action Standard (ALL Significant Actions)
-**ALL significant button actions** (delete, restore, cancel, approve, reject, etc.) MUST follow this **in-button confirmation** pattern. This provides consistent UX across the entire application. **NO browser dialogs like `window.confirm()`**.
+**ALL significant button actions** (delete, restore, cancel, publish, reject, etc.) MUST follow this **in-button confirmation** pattern. This provides consistent UX across the entire application. **NO browser dialogs like `window.confirm()`**.
 
 1. **First click** - Button text changes to "Confirm?" with visual emphasis (colored background, pulse animation)
 2. **Second click** - Performs the action, button shows "[Action]ing..." (e.g., "Deleting...", "Restoring...")
@@ -322,7 +322,7 @@ This ensures changes are verifiable and reduces back-and-forth debugging.
 
 **Color by action type:**
 - Destructive (delete, cancel): `var(--color-error-500)` (red)
-- Constructive (restore, approve): `var(--color-success-500)` (green)
+- Constructive (restore, publish): `var(--color-success-500)` (green)
 - Neutral (reject, update): `var(--color-warning-500)` or `var(--color-info-500)`
 
 ```javascript
@@ -390,7 +390,7 @@ The following action types MUST use the in-button confirmation pattern above:
 - **Delete** / **Remove** - Destructive, uses red confirm state
 - **Restore** - Constructive, uses green confirm state
 - **Cancel** - Destructive, uses red confirm state
-- **Approve** / **Reject** - Significant state change, uses appropriate color
+- **Publish** / **Reject** - Significant state change, uses appropriate color
 - **Submit** - When submitting for review/approval
 
 #### Actions That DON'T Require Confirmation
@@ -536,7 +536,7 @@ cd backend && npm test  # 173 tests should pass
 
 **Event State Machine:**
 ```
-CREATE DRAFT → DRAFT → SUBMIT → PENDING → APPROVE → APPROVED
+CREATE DRAFT → DRAFT → SUBMIT → PENDING → PUBLISH → PUBLISHED
                  │                  │                   │
                  │                  └─→ REJECT → REJECTED │
                  │                                        │
@@ -545,7 +545,7 @@ CREATE DRAFT → DRAFT → SUBMIT → PENDING → APPROVE → APPROVED
                             DELETED → RESTORE → Previous State
 ```
 
-**Statuses**: `draft` | `pending` | `approved` | `rejected` | `deleted`
+**Statuses**: `draft` | `pending` | `published` | `rejected` | `deleted`
 
 **Test Categories (93 planned tests):**
 | Category | Test IDs | Count |
@@ -579,7 +579,7 @@ backend/__tests__/integration/
 │   ├── viewerAccess.test.js      # V-1 to V-11 (17 tests)
 │   └── requesterWorkflow.test.js # R-1 to R-29 (27 tests)
 └── events/
-    ├── eventApprove.test.js      # A-7 (8 tests)
+    ├── eventPublish.test.js      # A-7 (8 tests)
     ├── eventReject.test.js       # A-8, A-9 (8 tests)
     ├── eventDelete.test.js       # A-13, A-19-A-23 (14 tests)
     └── editRequest.test.js       # A-14 to A-17 (12 tests)
@@ -590,14 +590,14 @@ backend/__tests__/integration/
 cd backend && npm test                                  # All tests (173 passing)
 cd backend && npm run test:unit                         # Unit only
 cd backend && npm run test:integration                  # Integration only
-cd backend && npm test -- eventApprove.test.js          # Specific file
+cd backend && npm test -- eventPublish.test.js          # Specific file
 ```
 
 **Completed Tests (173 passing):**
 - **Permission Unit Tests**: 44 tests for permissionUtils (role hierarchy, permissions, department fields)
 - **Viewer Access Tests (V-1 to V-11)**: 17 tests verifying viewers cannot perform privileged actions
 - **Requester Workflow Tests (R-1 to R-29)**: 27 tests for ownership and state transitions
-- **Event Approval Tests (A-7)**: 8 tests for pending→approved workflow with Graph API mock
+- **Event Publish Tests (A-7)**: 8 tests for pending→published workflow with Graph API mock
 - **Event Rejection Tests (A-8, A-9)**: 8 tests for pending→rejected workflow with reason validation
 - **Event Delete/Restore Tests (A-13, A-19-A-23)**: 14 tests for soft delete and restore
 - **Edit Request Tests (A-14 to A-17)**: 12 tests for edit request workflow

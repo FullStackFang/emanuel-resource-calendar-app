@@ -12,12 +12,12 @@
  * RS-6:  Clears reviewedAt/reviewedBy
  * RS-7:  Increments _version
  * RS-8:  Cannot resubmit pending reservation (400)
- * RS-9:  Cannot resubmit approved reservation (400)
+ * RS-9:  Cannot resubmit published reservation (400)
  * RS-10: Cannot resubmit another user's reservation (403)
  * RS-11: Cannot resubmit when resubmissionAllowed=false (400)
  * RS-12: 409 on _version mismatch
  * RS-13: Null _version skips check
- * RS-14: Full lifecycle: submit → reject → resubmit → approve
+ * RS-14: Full lifecycle: submit → reject → resubmit → publish
  */
 
 const request = require('supertest');
@@ -30,7 +30,7 @@ const { createRequester, createApprover, createAdmin, insertUsers } = require('.
 const {
   createRejectedEvent,
   createPendingEvent,
-  createApprovedEvent,
+  createPublishedEvent,
   insertEvent,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
@@ -282,9 +282,9 @@ describe('Resubmit Integration Tests (RS-1 to RS-14)', () => {
     });
   });
 
-  describe('RS-9: Cannot resubmit approved reservation', () => {
+  describe('RS-9: Cannot resubmit published reservation', () => {
     it('returns 400', async () => {
-      const event = createApprovedEvent({
+      const event = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         roomReservationData: {
@@ -375,7 +375,7 @@ describe('Resubmit Integration Tests (RS-1 to RS-14)', () => {
     });
   });
 
-  describe('RS-14: Full lifecycle: submit → reject → resubmit → approve', () => {
+  describe('RS-14: Full lifecycle: submit → reject → resubmit → publish', () => {
     it('completes the full workflow', async () => {
       // Step 1: Create a draft and submit it
       const draftRes = await request(app)
@@ -425,23 +425,23 @@ describe('Resubmit Integration Tests (RS-1 to RS-14)', () => {
       const resubmittedEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: new ObjectId(eventId) });
       expect(resubmittedEvent.status).toBe('pending');
 
-      // Step 4: Approve
-      const approveRes = await request(app)
-        .put(ENDPOINTS.APPROVE_EVENT(eventId))
+      // Step 4: Publish
+      const publishRes = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(eventId))
         .set('Authorization', `Bearer ${approverToken}`)
         .send({ _version: resubmittedEvent._version });
-      expect(approveRes.status).toBe(200);
+      expect(publishRes.status).toBe(200);
 
       const finalEvent = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: new ObjectId(eventId) });
-      expect(finalEvent.status).toBe('approved');
+      expect(finalEvent.status).toBe('published');
 
       // Verify full statusHistory
       expect(finalEvent.statusHistory.length).toBeGreaterThanOrEqual(4);
       const statuses = finalEvent.statusHistory.map(h => h.status);
-      // Should include: draft (creation), pending (submit), rejected, pending (resubmit), approved
+      // Should include: draft (creation), pending (submit), rejected, pending (resubmit), published
       expect(statuses).toContain('pending');
       expect(statuses).toContain('rejected');
-      expect(statuses).toContain('approved');
+      expect(statuses).toContain('published');
     });
   });
 });
