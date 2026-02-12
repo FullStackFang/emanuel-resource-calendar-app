@@ -1286,6 +1286,146 @@ function createTestApp(options = {}) {
     }
   });
 
+  /**
+   * PUT /api/room-reservations/:id/edit - Edit a pending reservation (owner only)
+   */
+  app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const reservationId = req.params.id;
+
+      const query = ObjectId.isValid(reservationId)
+        ? { _id: new ObjectId(reservationId) }
+        : { eventId: reservationId };
+
+      const event = await testCollections.events.findOne(query);
+
+      if (!event) {
+        return res.status(404).json({ error: 'Reservation not found' });
+      }
+
+      // Ownership check
+      const isOwner =
+        event.userId === userId ||
+        event.roomReservationData?.requestedBy?.userId === userId ||
+        event.roomReservationData?.requesterEmail === userEmail;
+
+      if (!isOwner) {
+        return res.status(403).json({ error: 'You can only edit your own reservation requests' });
+      }
+
+      // Status guard: only pending events can be edited
+      if (event.status !== 'pending') {
+        return res.status(400).json({ error: 'Only pending reservations can be edited' });
+      }
+
+      const { _version, eventTitle, startDate, startTime, endDate, endTime } = req.body;
+
+      // Validation
+      if (!eventTitle || !eventTitle.trim()) {
+        return res.status(400).json({ error: 'Event title is required' });
+      }
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'Start date and end date are required' });
+      }
+      if (!startTime || !endTime) {
+        return res.status(400).json({ error: 'Start time and end time are required' });
+      }
+
+      // Version conflict check
+      if (_version && event._version && _version !== event._version) {
+        return res.status(409).json({
+          error: 'VERSION_CONFLICT',
+          message: 'This event has been modified by another user',
+          conflictType: 'data_changed',
+          currentVersion: event._version,
+        });
+      }
+
+      const now = new Date();
+      const newVersion = (event._version || 0) + 1;
+
+      // Build update fields from calendarData
+      const updateFields = {};
+      const calendarDataFields = [
+        'eventTitle', 'eventDescription',
+        'startDate', 'startTime', 'endDate', 'endTime',
+        'attendeeCount', 'specialRequirements',
+        'categories', 'services',
+      ];
+
+      for (const field of calendarDataFields) {
+        if (req.body[field] !== undefined) {
+          updateFields[`calendarData.${field}`] = req.body[field];
+        }
+      }
+
+      // Handle datetime computation
+      const computedStartDateTime = req.body.startDateTime
+        ? req.body.startDateTime.replace(/Z$/, '')
+        : `${startDate}T${startTime}:00`;
+      const computedEndDateTime = req.body.endDateTime
+        ? req.body.endDateTime.replace(/Z$/, '')
+        : `${endDate}T${endTime}:00`;
+
+      updateFields['calendarData.startDateTime'] = computedStartDateTime;
+      updateFields['calendarData.endDateTime'] = computedEndDateTime;
+
+      // Handle rooms
+      if (req.body.requestedRooms !== undefined) {
+        updateFields['calendarData.locations'] = req.body.requestedRooms;
+      }
+
+      // roomReservationData fields
+      if (req.body.department !== undefined) {
+        updateFields['roomReservationData.department'] = req.body.department;
+      }
+      if (req.body.phone !== undefined) {
+        updateFields['roomReservationData.phone'] = req.body.phone;
+      }
+
+      updateFields.lastModified = now;
+      updateFields.lastModifiedBy = userEmail;
+      updateFields._version = newVersion;
+
+      await testCollections.events.updateOne(query, {
+        $set: updateFields,
+        $push: {
+          statusHistory: {
+            status: 'pending',
+            changedAt: now,
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: 'Edited by requester',
+          },
+        },
+      });
+
+      const updatedEvent = await testCollections.events.findOne(query);
+
+      // Create audit log
+      await createAuditLog({
+        eventId: event.eventId,
+        action: 'edited',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        previousState: event,
+        newState: updatedEvent,
+        changes: updateFields,
+      });
+
+      res.json({
+        message: 'Reservation updated successfully',
+        reservation: updatedEvent,
+        _version: newVersion,
+      });
+    } catch (error) {
+      console.error('Error editing reservation:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================
   // USER RESERVATION ENDPOINTS
   // ============================================

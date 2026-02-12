@@ -13916,6 +13916,204 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
 });
 
 /**
+ * Edit a pending room reservation (requester can update their own pending events)
+ * Updates calendarData fields and pushes statusHistory entry
+ */
+app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
+  try {
+    const reservationId = req.params.id;
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Find the event from unified collection
+    const event = await unifiedEventsCollection.findOne({
+      _id: new ObjectId(reservationId),
+      roomReservationData: { $exists: true, $ne: null }
+    });
+
+    if (!event) {
+      return res.status(404).json({ error: 'Reservation not found' });
+    }
+
+    // Ownership check
+    if (event.roomReservationData?.requestedBy?.userId !== userId) {
+      return res.status(403).json({ error: 'You can only edit your own reservation requests' });
+    }
+
+    // Status guard: only pending events can be edited this way
+    if (event.status !== 'pending') {
+      return res.status(400).json({ error: 'Only pending reservations can be edited' });
+    }
+
+    const {
+      _version,
+      eventTitle,
+      eventDescription,
+      startDateTime,
+      endDateTime,
+      startDate,
+      startTime,
+      endDate,
+      endTime,
+      attendeeCount,
+      requestedRooms,
+      requiredFeatures,
+      specialRequirements,
+      department,
+      phone,
+      setupTimeMinutes,
+      teardownTimeMinutes,
+      setupTime,
+      teardownTime,
+      doorOpenTime,
+      doorCloseTime,
+      setupNotes,
+      doorNotes,
+      eventNotes,
+      isOnBehalfOf,
+      contactName,
+      contactEmail,
+      categories,
+      mecCategories,
+      services,
+      recurrence,
+      virtualMeetingUrl,
+      isOffsite,
+      offsiteName,
+      offsiteAddress,
+      offsiteLat,
+      offsiteLon
+    } = req.body;
+
+    // Validation
+    if (!eventTitle || !eventTitle.trim()) {
+      return res.status(400).json({ error: 'Event title is required' });
+    }
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+    if (!startTime || !endTime) {
+      return res.status(400).json({ error: 'Start time and end time are required' });
+    }
+
+    const now = new Date();
+
+    // Compute datetime strings (local time, no Z suffix)
+    const computedStartDateTime = startDateTime
+      ? startDateTime.replace(/Z$/, '')
+      : `${startDate}T${startTime}:00`;
+    const computedEndDateTime = endDateTime
+      ? endDateTime.replace(/Z$/, '')
+      : `${endDate}T${endTime}:00`;
+
+    const updateDoc = {
+      $set: {
+        // calendarData fields (source of truth)
+        'calendarData.eventTitle': eventTitle.trim(),
+        'calendarData.eventDescription': eventDescription || '',
+        'calendarData.startDateTime': computedStartDateTime,
+        'calendarData.endDateTime': computedEndDateTime,
+        'calendarData.startDate': startDate || null,
+        'calendarData.startTime': startTime || null,
+        'calendarData.endDate': endDate || null,
+        'calendarData.endTime': endTime || null,
+        'calendarData.attendeeCount': attendeeCount || 0,
+        'calendarData.locations': requestedRooms || [],
+        'calendarData.isOffsite': isOffsite || false,
+        'calendarData.offsiteName': offsiteName || '',
+        'calendarData.offsiteAddress': offsiteAddress || '',
+        'calendarData.offsiteLat': offsiteLat || null,
+        'calendarData.offsiteLon': offsiteLon || null,
+        'calendarData.setupTimeMinutes': setupTimeMinutes || 0,
+        'calendarData.teardownTimeMinutes': teardownTimeMinutes || 0,
+        'calendarData.setupTime': setupTime || null,
+        'calendarData.teardownTime': teardownTime || null,
+        'calendarData.doorOpenTime': doorOpenTime || null,
+        'calendarData.doorCloseTime': doorCloseTime || null,
+        'calendarData.setupNotes': setupNotes || '',
+        'calendarData.doorNotes': doorNotes || '',
+        'calendarData.eventNotes': eventNotes || '',
+        'calendarData.specialRequirements': specialRequirements || '',
+        'calendarData.categories': categories || mecCategories || [],
+        'calendarData.services': services || {},
+        'calendarData.recurrence': recurrence || null,
+        'calendarData.virtualMeetingUrl': virtualMeetingUrl || null,
+        'calendarData.requiredFeatures': requiredFeatures || [],
+        'calendarData.isOnBehalfOf': isOnBehalfOf || false,
+        'calendarData.contactName': isOnBehalfOf ? contactName : '',
+        'calendarData.contactEmail': isOnBehalfOf ? contactEmail : '',
+        // roomReservationData fields
+        'roomReservationData.contactPerson': isOnBehalfOf ? {
+          name: contactName || '',
+          email: contactEmail || '',
+          isOnBehalfOf: true
+        } : null,
+        'roomReservationData.department': department || '',
+        'roomReservationData.phone': phone || '',
+        // Metadata
+        lastModified: now,
+        lastModifiedBy: userEmail
+      },
+      $push: {
+        statusHistory: {
+          status: 'pending',
+          changedAt: now,
+          changedBy: userId,
+          changedByEmail: userEmail,
+          reason: 'Edited by requester'
+        }
+      }
+    };
+
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: new ObjectId(reservationId) },
+        updateDoc,
+        {
+          expectedVersion: _version || null,
+          expectedStatus: 'pending',
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+        }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.toJSON());
+      }
+      throw err;
+    }
+
+    // Log audit entry
+    await logReservationAudit({
+      reservationId: new ObjectId(reservationId),
+      userId: userId,
+      userEmail: userEmail,
+      changeType: 'edit',
+      source: 'My Reservations',
+      changeSet: [{ field: 'event_data', from: 'previous', to: 'updated' }],
+      metadata: { editedFields: Object.keys(req.body).filter(k => k !== '_version') }
+    });
+
+    logger.info('Room reservation edited by requester:', {
+      reservationId,
+      editedBy: userEmail
+    });
+
+    res.json({
+      message: 'Reservation updated successfully',
+      reservation: updatedEvent,
+      _version: updatedEvent._version
+    });
+
+  } catch (error) {
+    logger.error('Error editing room reservation:', error);
+    res.status(500).json({ error: 'Failed to edit reservation' });
+  }
+});
+
+/**
  * Generate a reservation token for guest access (authenticated users only)
  * Rate limited to 10 requests per 15 minutes (sensitive operation)
  */

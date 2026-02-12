@@ -754,9 +754,9 @@
   border-top: 1px solid var(--border-default);
 }
 
-/* When cancel-confirm-group is present, let it expand and push Close to the right */
+/* Keep all buttons right-aligned even when cancel-confirm-group is present */
 .my-reservations .modal-actions:has(.cancel-confirm-group) {
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 /* Close button shouldn't shrink */

@@ -165,7 +165,8 @@ export function transformEventToFlatStructure(event) {
                            graphLocation.displayName !== 'Unspecified';
   const internalLocations = getField(event, 'locations', []);
   const hasInternalRooms = (internalLocations && internalLocations.length > 0) ||
-                          (event.roomReservationData?.requestedRooms && event.roomReservationData.requestedRooms.length > 0);
+                          (event.roomReservationData?.requestedRooms && event.roomReservationData.requestedRooms.length > 0) ||
+                          (event.requestedRooms && event.requestedRooms.length > 0);
   const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
 
   // Extract timing data - can come from multiple sources
@@ -223,7 +224,10 @@ export function transformEventToFlatStructure(event) {
     endTime,
 
     // Room reservation data - can come from roomReservationData, calendarData, or direct properties
-    requestedRooms: getField(event, 'locations', []) || event.roomReservationData?.requestedRooms || [],
+    requestedRooms: (() => {
+      const locs = getField(event, 'locations', []);
+      return locs.length > 0 ? locs : (event.roomReservationData?.requestedRooms || event.requestedRooms || []);
+    })(),
     requesterName: event.roomReservationData?.requestedBy?.name || getField(event, 'requesterName', ''),
     requesterEmail: event.roomReservationData?.requestedBy?.email || getField(event, 'requesterEmail', ''),
     department: event.roomReservationData?.requestedBy?.department || getField(event, 'department', ''),

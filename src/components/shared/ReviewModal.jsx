@@ -117,7 +117,16 @@ export default function ReviewModal({
   onCancelPendingEditRequest = null,
   isCancelingEditRequest = false,
   isCancelEditRequestConfirming = false,
-  onCancelCancelEditRequest = null
+  onCancelCancelEditRequest = null,
+  // Pending edit props (for editing pending events directly)
+  onSavePendingEdit = null,
+  savingPendingEdit = false,
+  showDiscardDialog = false,
+  onDiscardDialogDiscard = null,
+  onDiscardDialogCancel = null,
+  // Edit request modal props (scale-80 modal for requesting edits on approved events)
+  onSubmitEditRequestModal = null,
+  submittingEditRequestModal = false
 }) {
   // Get admin status from permissions hook
   const { isAdmin } = usePermissions();
@@ -514,6 +523,32 @@ export default function ReviewModal({
                 </button>
               )}
 
+              {/* Save Pending Edit button - for editing pending events */}
+              {onSavePendingEdit && (
+                <button
+                  type="button"
+                  className="action-btn approve-btn"
+                  onClick={onSavePendingEdit}
+                  disabled={!hasChanges || !isFormValid || savingPendingEdit}
+                  title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : 'Save changes to this pending reservation')}
+                >
+                  {savingPendingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              )}
+
+              {/* Submit Edit Request button - for requesting edits on approved events (scale-80 modal) */}
+              {onSubmitEditRequestModal && (
+                <button
+                  type="button"
+                  className="action-btn approve-btn"
+                  onClick={onSubmitEditRequestModal}
+                  disabled={!hasChanges || !isFormValid || submittingEditRequestModal}
+                  title={!hasChanges ? 'Make changes to submit an edit request' : (!isFormValid ? 'Please fill all required fields' : 'Submit changes for admin approval')}
+                >
+                  {submittingEditRequestModal ? 'Submitting...' : 'Submit Edit Request'}
+                </button>
+              )}
+
               {/* Submit button - only in create mode (for requesters submitting reservation requests) */}
               {mode === 'create' && onSave && !isDraft && (
                 <div className="confirm-button-group">
@@ -677,6 +712,32 @@ export default function ReviewModal({
             canSaveDraft={canSaveDraft}
             saving={savingDraft}
           />
+        )}
+
+        {/* Discard Dialog - shown when closing pending edit with unsaved changes */}
+        {showDiscardDialog && (
+          <div className="draft-save-dialog-overlay">
+            <div className="draft-save-dialog">
+              <h3>Unsaved Changes</h3>
+              <p>You have unsaved changes. Are you sure you want to discard them?</p>
+              <div className="draft-save-dialog-actions">
+                <button
+                  type="button"
+                  className="action-btn reject-btn"
+                  onClick={onDiscardDialogDiscard}
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  className="action-btn"
+                  onClick={onDiscardDialogCancel}
+                >
+                  Keep Editing
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

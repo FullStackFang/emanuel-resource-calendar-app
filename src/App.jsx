@@ -86,7 +86,7 @@ const EventManagement = lazy(() => import('./components/EventManagement'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 function App() {
-  const { showError, showWarning } = useNotification();
+  const { showError, showWarning, showSuccess } = useNotification();
   const { apiToken, setApiToken } = useAuth();
   const [graphToken, setGraphToken] = useState(null);
   const [signedOut, setSignedOut] = useState(false);
@@ -120,6 +120,30 @@ function App() {
   const [draftId, setDraftId] = useState(null);
   const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
   const [savingDraftInProgress, setSavingDraftInProgress] = useState(false);
+
+  // Pending edit modal state
+  const [showPendingEditModal, setShowPendingEditModal] = useState(false);
+  const [pendingEditPrefillData, setPendingEditPrefillData] = useState(null);
+  const [pendingEditFormData, setPendingEditFormData] = useState(null);
+  const [pendingEditHasChanges, setPendingEditHasChanges] = useState(false);
+  const pendingEditInitializedRef = useRef(false);
+  const [pendingEditIsFormValid, setPendingEditIsFormValid] = useState(false);
+  const [pendingEditIsSaving, setPendingEditIsSaving] = useState(false);
+  const [pendingEditEventId, setPendingEditEventId] = useState(null);
+  const [pendingEditVersion, setPendingEditVersion] = useState(null);
+  const [showPendingEditDiscardDialog, setShowPendingEditDiscardDialog] = useState(false);
+
+  // Edit request modal state (for requesting edits on approved/published events)
+  const [showEditRequestModal, setShowEditRequestModal] = useState(false);
+  const [editRequestPrefillData, setEditRequestPrefillData] = useState(null);
+  const [editRequestFormData, setEditRequestFormData] = useState(null);
+  const [editRequestHasChanges, setEditRequestHasChanges] = useState(false);
+  const editRequestInitializedRef = useRef(false);
+  const [editRequestIsFormValid, setEditRequestIsFormValid] = useState(false);
+  const [editRequestIsSaving, setEditRequestIsSaving] = useState(false);
+  const [editRequestEventId, setEditRequestEventId] = useState(null);
+  const [editRequestVersion, setEditRequestVersion] = useState(null);
+  const [showEditRequestDiscardDialog, setShowEditRequestDiscardDialog] = useState(false);
 
   // Error reporting modal state
   const [pendingError, setPendingError] = useState(null);
@@ -304,6 +328,175 @@ function App() {
       draftInitializedRef.current = false;
     }
   }, [showDraftModal, draftPrefillData]);
+
+  // Listen for pending edit modal event (from MyReservations)
+  useEffect(() => {
+    const handleOpenPendingEditModal = (event) => {
+      const { event: pendingEvent } = event.detail;
+      if (!pendingEvent) return;
+
+      logger.debug('Opening pending edit modal with data:', pendingEvent);
+
+      // Transform event data for the form (same parseDateTime helper as draft modal)
+      const parseDateTime = (dateTimeStr) => {
+        if (!dateTimeStr) return { date: '', time: '' };
+        if (dateTimeStr.includes('Z')) {
+          const d = new Date(dateTimeStr);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          return { date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+        }
+        return {
+          date: dateTimeStr.split('T')[0] || '',
+          time: dateTimeStr.split('T')[1]?.slice(0, 5) || ''
+        };
+      };
+
+      const startParsed = parseDateTime(pendingEvent.startDateTime);
+      const endParsed = parseDateTime(pendingEvent.endDateTime);
+
+      const prefillData = {
+        eventTitle: pendingEvent.eventTitle || '',
+        eventDescription: pendingEvent.eventDescription || '',
+        startDate: pendingEvent.startDate || startParsed.date,
+        endDate: pendingEvent.endDate || endParsed.date,
+        startTime: pendingEvent.startTime || startParsed.time,
+        endTime: pendingEvent.endTime || endParsed.time,
+        requestedRooms: pendingEvent.requestedRooms || pendingEvent.locations || [],
+        locations: pendingEvent.requestedRooms || pendingEvent.locations || [],
+        attendeeCount: pendingEvent.attendeeCount || '',
+        setupTime: pendingEvent.setupTime || '',
+        teardownTime: pendingEvent.teardownTime || '',
+        doorOpenTime: pendingEvent.doorOpenTime || '',
+        doorCloseTime: pendingEvent.doorCloseTime || '',
+        categories: pendingEvent.categories || pendingEvent.mecCategories || [],
+        services: pendingEvent.services || {},
+        specialRequirements: pendingEvent.specialRequirements || '',
+        virtualMeetingUrl: pendingEvent.virtualMeetingUrl || '',
+        isOffsite: pendingEvent.isOffsite || false,
+        offsiteName: pendingEvent.offsiteName || '',
+        offsiteAddress: pendingEvent.offsiteAddress || '',
+        offsiteLat: pendingEvent.offsiteLat || null,
+        offsiteLon: pendingEvent.offsiteLon || null,
+        department: pendingEvent.roomReservationData?.department || pendingEvent.department || '',
+        phone: pendingEvent.roomReservationData?.phone || pendingEvent.phone || '',
+        _id: pendingEvent._id
+      };
+
+      setPendingEditEventId(pendingEvent._id);
+      setPendingEditVersion(pendingEvent._version);
+      setPendingEditPrefillData(prefillData);
+      setPendingEditFormData(null);
+      setPendingEditHasChanges(false);
+      setShowPendingEditModal(true);
+    };
+
+    window.addEventListener('open-edit-pending-modal', handleOpenPendingEditModal);
+    return () => window.removeEventListener('open-edit-pending-modal', handleOpenPendingEditModal);
+  }, []);
+
+  // Reset hasChanges after pending edit modal form initializes
+  useEffect(() => {
+    if (showPendingEditModal && pendingEditPrefillData && !pendingEditInitializedRef.current) {
+      const timer = setTimeout(() => {
+        if (!pendingEditInitializedRef.current) {
+          setPendingEditHasChanges(false);
+          pendingEditInitializedRef.current = true;
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    if (!showPendingEditModal) {
+      pendingEditInitializedRef.current = false;
+    }
+  }, [showPendingEditModal, pendingEditPrefillData]);
+
+  // Listen for edit request modal event (from MyReservations — approved/published events)
+  useEffect(() => {
+    const handleOpenEditRequestModal = (event) => {
+      const { event: approvedEvent } = event.detail;
+      if (!approvedEvent) return;
+
+      logger.debug('Opening edit request modal with data:', approvedEvent);
+
+      const parseDateTime = (dateTimeStr) => {
+        if (!dateTimeStr) return { date: '', time: '' };
+        if (dateTimeStr.includes('Z')) {
+          const d = new Date(dateTimeStr);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          return { date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+        }
+        return {
+          date: dateTimeStr.split('T')[0] || '',
+          time: dateTimeStr.split('T')[1]?.slice(0, 5) || ''
+        };
+      };
+
+      const startParsed = parseDateTime(approvedEvent.startDateTime);
+      const endParsed = parseDateTime(approvedEvent.endDateTime);
+
+      const prefillData = {
+        eventTitle: approvedEvent.eventTitle || '',
+        eventDescription: approvedEvent.eventDescription || '',
+        startDate: approvedEvent.startDate || startParsed.date,
+        endDate: approvedEvent.endDate || endParsed.date,
+        startTime: approvedEvent.startTime || startParsed.time,
+        endTime: approvedEvent.endTime || endParsed.time,
+        requestedRooms: approvedEvent.requestedRooms || approvedEvent.locations || [],
+        locations: approvedEvent.requestedRooms || approvedEvent.locations || [],
+        attendeeCount: approvedEvent.attendeeCount || '',
+        setupTime: approvedEvent.setupTime || '',
+        teardownTime: approvedEvent.teardownTime || '',
+        doorOpenTime: approvedEvent.doorOpenTime || '',
+        doorCloseTime: approvedEvent.doorCloseTime || '',
+        categories: approvedEvent.categories || approvedEvent.mecCategories || [],
+        services: approvedEvent.services || {},
+        specialRequirements: approvedEvent.specialRequirements || '',
+        virtualMeetingUrl: approvedEvent.virtualMeetingUrl || '',
+        isOffsite: approvedEvent.isOffsite || false,
+        offsiteName: approvedEvent.offsiteName || '',
+        offsiteAddress: approvedEvent.offsiteAddress || '',
+        offsiteLat: approvedEvent.offsiteLat || null,
+        offsiteLon: approvedEvent.offsiteLon || null,
+        department: approvedEvent.roomReservationData?.department || approvedEvent.department || '',
+        phone: approvedEvent.roomReservationData?.phone || approvedEvent.phone || '',
+        _id: approvedEvent._id
+      };
+
+      setEditRequestEventId(approvedEvent._id);
+      setEditRequestVersion(approvedEvent._version);
+      setEditRequestPrefillData(prefillData);
+      setEditRequestFormData(null);
+      setEditRequestHasChanges(false);
+      setShowEditRequestModal(true);
+    };
+
+    window.addEventListener('open-edit-request-modal', handleOpenEditRequestModal);
+    return () => window.removeEventListener('open-edit-request-modal', handleOpenEditRequestModal);
+  }, []);
+
+  // Reset hasChanges after edit request modal form initializes
+  useEffect(() => {
+    if (showEditRequestModal && editRequestPrefillData && !editRequestInitializedRef.current) {
+      const timer = setTimeout(() => {
+        if (!editRequestInitializedRef.current) {
+          setEditRequestHasChanges(false);
+          editRequestInitializedRef.current = true;
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    if (!showEditRequestModal) {
+      editRequestInitializedRef.current = false;
+    }
+  }, [showEditRequestModal, editRequestPrefillData]);
 
   // Memoized token acquisition function
   // Note: Graph token is no longer required - backend uses app-only authentication
@@ -877,6 +1070,345 @@ function App() {
                       setDraftId(null);
                       draftInitializedRef.current = false;
                       // Refresh my reservations
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    }}
+                  />
+                </ReviewModal>
+              </div>
+
+              {/* Pending Edit Modal - for editing pending events from MyReservations */}
+              <div className="scale-80">
+                <ReviewModal
+                  isOpen={showPendingEditModal}
+                  title={pendingEditPrefillData?.eventTitle ? `Edit Pending: ${pendingEditPrefillData.eventTitle}` : 'Edit Pending Reservation'}
+                  itemStatus="pending"
+                  mode="create"
+                  onClose={() => {
+                    if (pendingEditHasChanges) {
+                      setShowPendingEditDiscardDialog(true);
+                      return;
+                    }
+                    setShowPendingEditModal(false);
+                    setPendingEditPrefillData(null);
+                    setPendingEditFormData(null);
+                    setPendingEditHasChanges(false);
+                    setPendingEditIsFormValid(false);
+                    setPendingEditEventId(null);
+                    setPendingEditVersion(null);
+                    pendingEditInitializedRef.current = false;
+                  }}
+                  isDraft={false}
+                  onSavePendingEdit={async () => {
+                    const formData = { ...pendingEditPrefillData, ...pendingEditFormData };
+                    if (!formData || !formData.eventTitle?.trim()) {
+                      showWarning('Event title is required');
+                      return;
+                    }
+                    if (!formData.startDate || !formData.endDate) {
+                      showWarning('Start date and end date are required');
+                      return;
+                    }
+                    if (!formData.startTime || !formData.endTime) {
+                      showWarning('Start time and end time are required');
+                      return;
+                    }
+
+                    setPendingEditIsSaving(true);
+                    try {
+                      const payload = {
+                        _version: pendingEditVersion,
+                        eventTitle: formData.eventTitle || '',
+                        eventDescription: formData.eventDescription || '',
+                        startDateTime: formData.startDate && formData.startTime
+                          ? `${formData.startDate}T${formData.startTime}`
+                          : null,
+                        endDateTime: formData.endDate && formData.endTime
+                          ? `${formData.endDate}T${formData.endTime}`
+                          : null,
+                        startDate: formData.startDate || null,
+                        startTime: formData.startTime || null,
+                        endDate: formData.endDate || null,
+                        endTime: formData.endTime || null,
+                        attendeeCount: parseInt(formData.attendeeCount) || 0,
+                        requestedRooms: formData.requestedRooms || formData.locations || [],
+                        specialRequirements: formData.specialRequirements || '',
+                        department: formData.department || '',
+                        phone: formData.phone || '',
+                        setupTime: formData.setupTime || null,
+                        teardownTime: formData.teardownTime || null,
+                        doorOpenTime: formData.doorOpenTime || null,
+                        doorCloseTime: formData.doorCloseTime || null,
+                        categories: formData.categories || formData.mecCategories || [],
+                        services: formData.services || {},
+                        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+                        isOffsite: formData.isOffsite || false,
+                        offsiteName: formData.offsiteName || '',
+                        offsiteAddress: formData.offsiteAddress || '',
+                      };
+
+                      const response = await fetch(
+                        `${APP_CONFIG.API_BASE_URL}/room-reservations/${pendingEditEventId}/edit`,
+                        {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(payload)
+                        }
+                      );
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to save changes');
+                      }
+
+                      const result = await response.json();
+                      setPendingEditVersion(result._version);
+
+                      // Close modal and reset state
+                      setShowPendingEditModal(false);
+                      setPendingEditPrefillData(null);
+                      setPendingEditFormData(null);
+                      setPendingEditHasChanges(false);
+                      setPendingEditIsFormValid(false);
+                      setPendingEditEventId(null);
+                      setPendingEditVersion(null);
+                      pendingEditInitializedRef.current = false;
+
+                      showSuccess('Reservation updated successfully');
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    } catch (error) {
+                      logger.error('Error saving pending edit:', error);
+                      showError(error, { context: 'App.onSavePendingEdit', userMessage: 'Failed to save changes' });
+                    } finally {
+                      setPendingEditIsSaving(false);
+                    }
+                  }}
+                  savingPendingEdit={pendingEditIsSaving}
+                  showDiscardDialog={showPendingEditDiscardDialog}
+                  onDiscardDialogDiscard={() => {
+                    setShowPendingEditDiscardDialog(false);
+                    setShowPendingEditModal(false);
+                    setPendingEditPrefillData(null);
+                    setPendingEditFormData(null);
+                    setPendingEditHasChanges(false);
+                    setPendingEditIsFormValid(false);
+                    setPendingEditEventId(null);
+                    setPendingEditVersion(null);
+                    pendingEditInitializedRef.current = false;
+                  }}
+                  onDiscardDialogCancel={() => {
+                    setShowPendingEditDiscardDialog(false);
+                  }}
+                  hasChanges={pendingEditHasChanges}
+                  isFormValid={pendingEditIsFormValid}
+                  isSaving={pendingEditIsSaving}
+                  showTabs={true}
+                >
+                  <UnifiedEventForm
+                    key={pendingEditEventId || 'pending-edit'}
+                    mode="create"
+                    apiToken={apiToken}
+                    prefillData={pendingEditPrefillData}
+                    hideActionBar={true}
+                    onHasChangesChange={setPendingEditHasChanges}
+                    onFormValidChange={setPendingEditIsFormValid}
+                    onDataChange={(updatedData) => {
+                      setPendingEditFormData(prev => ({
+                        ...(prev || pendingEditPrefillData || {}),
+                        ...updatedData
+                      }));
+                    }}
+                    onCancel={() => {
+                      if (pendingEditHasChanges) {
+                        setShowPendingEditDiscardDialog(true);
+                        return;
+                      }
+                      setShowPendingEditModal(false);
+                      setPendingEditPrefillData(null);
+                      setPendingEditFormData(null);
+                      setPendingEditHasChanges(false);
+                      setPendingEditIsFormValid(false);
+                      setPendingEditEventId(null);
+                      setPendingEditVersion(null);
+                      pendingEditInitializedRef.current = false;
+                    }}
+                    onSuccess={() => {
+                      setShowPendingEditModal(false);
+                      setPendingEditPrefillData(null);
+                      setPendingEditFormData(null);
+                      setPendingEditHasChanges(false);
+                      setPendingEditIsFormValid(false);
+                      setPendingEditEventId(null);
+                      setPendingEditVersion(null);
+                      pendingEditInitializedRef.current = false;
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    }}
+                  />
+                </ReviewModal>
+              </div>
+
+              {/* Edit Request Modal - for requesting edits on approved/published events from MyReservations */}
+              <div className="scale-80">
+                <ReviewModal
+                  isOpen={showEditRequestModal}
+                  title={editRequestPrefillData?.eventTitle ? `Request Edit: ${editRequestPrefillData.eventTitle}` : 'Request Edit'}
+                  itemStatus="approved"
+                  mode="create"
+                  onClose={() => {
+                    if (editRequestHasChanges) {
+                      setShowEditRequestDiscardDialog(true);
+                      return;
+                    }
+                    setShowEditRequestModal(false);
+                    setEditRequestPrefillData(null);
+                    setEditRequestFormData(null);
+                    setEditRequestHasChanges(false);
+                    setEditRequestIsFormValid(false);
+                    setEditRequestEventId(null);
+                    setEditRequestVersion(null);
+                    editRequestInitializedRef.current = false;
+                  }}
+                  isDraft={false}
+                  onSubmitEditRequestModal={async () => {
+                    const formData = { ...editRequestPrefillData, ...editRequestFormData };
+                    if (!formData || !formData.eventTitle?.trim()) {
+                      showWarning('Event title is required');
+                      return;
+                    }
+                    if (!formData.startDate || !formData.endDate) {
+                      showWarning('Start date and end date are required');
+                      return;
+                    }
+                    if (!formData.startTime || !formData.endTime) {
+                      showWarning('Start time and end time are required');
+                      return;
+                    }
+
+                    setEditRequestIsSaving(true);
+                    try {
+                      const payload = {
+                        _version: editRequestVersion,
+                        eventTitle: formData.eventTitle || '',
+                        eventDescription: formData.eventDescription || '',
+                        startDateTime: formData.startDate && formData.startTime
+                          ? `${formData.startDate}T${formData.startTime}`
+                          : null,
+                        endDateTime: formData.endDate && formData.endTime
+                          ? `${formData.endDate}T${formData.endTime}`
+                          : null,
+                        attendeeCount: parseInt(formData.attendeeCount) || 0,
+                        requestedRooms: formData.requestedRooms || formData.locations || [],
+                        specialRequirements: formData.specialRequirements || '',
+                        department: formData.department || '',
+                        phone: formData.phone || '',
+                        setupTime: formData.setupTime || null,
+                        teardownTime: formData.teardownTime || null,
+                        doorOpenTime: formData.doorOpenTime || null,
+                        doorCloseTime: formData.doorCloseTime || null,
+                        categories: formData.categories || formData.mecCategories || [],
+                        services: formData.services || {},
+                        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+                        isOffsite: formData.isOffsite || false,
+                        offsiteName: formData.offsiteName || '',
+                        offsiteAddress: formData.offsiteAddress || '',
+                      };
+
+                      const response = await fetch(
+                        `${APP_CONFIG.API_BASE_URL}/events/${editRequestEventId}/request-edit`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(payload)
+                        }
+                      );
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to submit edit request');
+                      }
+
+                      // Close modal and reset state
+                      setShowEditRequestModal(false);
+                      setEditRequestPrefillData(null);
+                      setEditRequestFormData(null);
+                      setEditRequestHasChanges(false);
+                      setEditRequestIsFormValid(false);
+                      setEditRequestEventId(null);
+                      setEditRequestVersion(null);
+                      editRequestInitializedRef.current = false;
+
+                      showSuccess('Edit request submitted');
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    } catch (error) {
+                      logger.error('Error submitting edit request:', error);
+                      showError(error, { context: 'App.onSubmitEditRequest', userMessage: 'Failed to submit edit request' });
+                    } finally {
+                      setEditRequestIsSaving(false);
+                    }
+                  }}
+                  submittingEditRequestModal={editRequestIsSaving}
+                  showDiscardDialog={showEditRequestDiscardDialog}
+                  onDiscardDialogDiscard={() => {
+                    setShowEditRequestDiscardDialog(false);
+                    setShowEditRequestModal(false);
+                    setEditRequestPrefillData(null);
+                    setEditRequestFormData(null);
+                    setEditRequestHasChanges(false);
+                    setEditRequestIsFormValid(false);
+                    setEditRequestEventId(null);
+                    setEditRequestVersion(null);
+                    editRequestInitializedRef.current = false;
+                  }}
+                  onDiscardDialogCancel={() => {
+                    setShowEditRequestDiscardDialog(false);
+                  }}
+                  hasChanges={editRequestHasChanges}
+                  isFormValid={editRequestIsFormValid}
+                  isSaving={editRequestIsSaving}
+                  showTabs={true}
+                >
+                  <UnifiedEventForm
+                    key={editRequestEventId || 'edit-request'}
+                    mode="create"
+                    apiToken={apiToken}
+                    prefillData={editRequestPrefillData}
+                    hideActionBar={true}
+                    onHasChangesChange={setEditRequestHasChanges}
+                    onFormValidChange={setEditRequestIsFormValid}
+                    onDataChange={(updatedData) => {
+                      setEditRequestFormData(prev => ({
+                        ...(prev || editRequestPrefillData || {}),
+                        ...updatedData
+                      }));
+                    }}
+                    onCancel={() => {
+                      if (editRequestHasChanges) {
+                        setShowEditRequestDiscardDialog(true);
+                        return;
+                      }
+                      setShowEditRequestModal(false);
+                      setEditRequestPrefillData(null);
+                      setEditRequestFormData(null);
+                      setEditRequestHasChanges(false);
+                      setEditRequestIsFormValid(false);
+                      setEditRequestEventId(null);
+                      setEditRequestVersion(null);
+                      editRequestInitializedRef.current = false;
+                    }}
+                    onSuccess={() => {
+                      setShowEditRequestModal(false);
+                      setEditRequestPrefillData(null);
+                      setEditRequestFormData(null);
+                      setEditRequestHasChanges(false);
+                      setEditRequestIsFormValid(false);
+                      setEditRequestEventId(null);
+                      setEditRequestVersion(null);
+                      editRequestInitializedRef.current = false;
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     }}
                   />

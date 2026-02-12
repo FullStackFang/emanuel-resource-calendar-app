@@ -8,7 +8,6 @@ import { usePermissions } from '../hooks/usePermissions';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import CommunicationHistory from './CommunicationHistory';
-import EditRequestForm from './EditRequestForm';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
@@ -28,10 +27,6 @@ export default function MyReservations({ apiToken }) {
   const [restoringId, setRestoringId] = useState(null);
   const [confirmRestoreId, setConfirmRestoreId] = useState(null);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
-
-  // Edit request state
-  const [editRequestReservation, setEditRequestReservation] = useState(null);
-  const [showEditRequestForm, setShowEditRequestForm] = useState(false);
 
   // Resubmit state (in-button confirmation pattern)
   const [resubmittingId, setResubmittingId] = useState(null);
@@ -353,26 +348,6 @@ export default function MyReservations({ apiToken }) {
     }
   };
 
-  // Open edit request form for approved reservations
-  const handleRequestEdit = (reservation) => {
-    setEditRequestReservation(reservation);
-    setShowEditRequestForm(true);
-    setSelectedReservation(null); // Close the details modal
-  };
-
-  // Handle edit request form close
-  const handleEditRequestClose = () => {
-    setShowEditRequestForm(false);
-    setEditRequestReservation(null);
-  };
-
-  // Handle edit request submission success
-  const handleEditRequestSuccess = () => {
-    setShowEditRequestForm(false);
-    setEditRequestReservation(null);
-    loadMyReservations(); // Refresh the list
-  };
-
   // Calculate days until draft auto-deletes
   const getDaysUntilDelete = (draftCreatedAt) => {
     if (!draftCreatedAt) return null;
@@ -549,35 +524,12 @@ export default function MyReservations({ apiToken }) {
                   )}
                 </div>
                 <div className="mr-card-actions">
-                  {isDraft ? (
-                    <>
-                      <button
-                        className="mr-btn mr-btn-primary"
-                        onClick={() => handleEditDraft(reservation)}
-                        disabled={deletingDraftId === reservation._id}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className={`mr-btn mr-btn-danger ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
-                        onClick={() => handleDeleteClick(reservation)}
-                        disabled={deletingDraftId === reservation._id}
-                      >
-                        {deletingDraftId === reservation._id
-                          ? 'Deleting...'
-                          : confirmDeleteId === reservation._id
-                            ? 'Confirm?'
-                            : 'Delete'}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="mr-btn mr-btn-primary"
-                      onClick={() => setSelectedReservation(reservation)}
-                    >
-                      View Details
-                    </button>
-                  )}
+                  <button
+                    className="mr-btn mr-btn-primary"
+                    onClick={() => setSelectedReservation(reservation)}
+                  >
+                    View Details
+                  </button>
                 </div>
               </div>
 
@@ -711,9 +663,7 @@ export default function MyReservations({ apiToken }) {
       {selectedReservation && (
         <div className="details-modal-overlay">
           <div className="details-modal">
-            <h2>
-              {selectedReservation.status === 'pending' ? 'Cancel Reservation Request' : 'Reservation Details'}
-            </h2>
+            <h2>Reservation Details</h2>
             
             <div className="reservation-details">
               <div className="detail-row">
@@ -795,45 +745,93 @@ export default function MyReservations({ apiToken }) {
             )}
 
             <div className="modal-actions">
-              {selectedReservation.status === 'pending' && (
-                <div className="cancel-confirm-group">
-                  {isCancelConfirming && (
-                    <input
-                      type="text"
-                      className="cancel-reason-input"
-                      placeholder="Cancellation reason (required)"
-                      value={cancelReason}
-                      onChange={(e) => setCancelReason(e.target.value)}
-                      disabled={cancelling}
-                      autoFocus
-                    />
-                  )}
+              {/* Draft actions: Edit + Delete */}
+              {selectedReservation.status === 'draft' && (
+                <>
                   <button
-                    className={`confirm-cancel-btn ${isCancelConfirming ? 'confirming' : ''}`}
-                    onClick={() => handleCancelClick(selectedReservation)}
-                    disabled={cancelling || (isCancelConfirming && !cancelReason.trim())}
+                    className="edit-request-btn"
+                    onClick={() => {
+                      setSelectedReservation(null);
+                      handleEditDraft(selectedReservation);
+                    }}
+                    title="Edit this draft"
                   >
-                    {cancelling ? 'Cancelling...' : (isCancelConfirming ? 'Confirm Cancel?' : 'Cancel Request')}
+                    Edit
                   </button>
-                  {isCancelConfirming && (
+                  <button
+                    className={`mr-btn mr-btn-danger ${confirmDeleteId === selectedReservation._id ? 'confirm' : ''}`}
+                    onClick={() => handleDeleteClick(selectedReservation)}
+                    disabled={deletingDraftId === selectedReservation._id}
+                  >
+                    {deletingDraftId === selectedReservation._id
+                      ? 'Deleting...'
+                      : confirmDeleteId === selectedReservation._id
+                        ? 'Confirm?'
+                        : 'Delete'}
+                  </button>
+                </>
+              )}
+              {/* Pending actions: Cancel Request + Edit */}
+              {selectedReservation.status === 'pending' && (
+                <>
+                  <div className="cancel-confirm-group">
+                    {isCancelConfirming && (
+                      <input
+                        type="text"
+                        className="cancel-reason-input"
+                        placeholder="Cancellation reason (required)"
+                        value={cancelReason}
+                        onChange={(e) => setCancelReason(e.target.value)}
+                        disabled={cancelling}
+                        autoFocus
+                      />
+                    )}
                     <button
-                      type="button"
-                      className="cancel-confirm-x"
-                      onClick={() => {
-                        setIsCancelConfirming(false);
-                        setCancelReason('');
-                      }}
-                      title="Cancel"
+                      className={`confirm-cancel-btn ${isCancelConfirming ? 'confirming' : ''}`}
+                      onClick={() => handleCancelClick(selectedReservation)}
+                      disabled={cancelling || (isCancelConfirming && !cancelReason.trim())}
                     >
-                      ✕
+                      {cancelling ? 'Cancelling...' : (isCancelConfirming ? 'Confirm Cancel?' : 'Cancel Request')}
                     </button>
-                  )}
-                </div>
+                    {isCancelConfirming && (
+                      <button
+                        type="button"
+                        className="cancel-confirm-x"
+                        onClick={() => {
+                          setIsCancelConfirming(false);
+                          setCancelReason('');
+                        }}
+                        title="Cancel"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    className="edit-request-btn"
+                    onClick={() => {
+                      const reservation = selectedReservation;
+                      setSelectedReservation(null);
+                      window.dispatchEvent(new CustomEvent('open-edit-pending-modal', {
+                        detail: { event: reservation }
+                      }));
+                    }}
+                    title="Edit this pending reservation"
+                  >
+                    Edit
+                  </button>
+                </>
               )}
               {selectedReservation.status === 'approved' && !selectedReservation.pendingEditRequest?.status && (
                 <button
                   className="edit-request-btn"
-                  onClick={() => handleRequestEdit(selectedReservation)}
+                  onClick={() => {
+                    const reservation = selectedReservation;
+                    setSelectedReservation(null);
+                    window.dispatchEvent(new CustomEvent('open-edit-request-modal', {
+                      detail: { event: reservation }
+                    }));
+                  }}
                   title="Request changes to this published reservation"
                 >
                   Request Edit
@@ -935,16 +933,6 @@ export default function MyReservations({ apiToken }) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Edit Request Form Modal */}
-      {showEditRequestForm && editRequestReservation && (
-        <EditRequestForm
-          reservation={editRequestReservation}
-          apiToken={apiToken}
-          onClose={handleEditRequestClose}
-          onSuccess={handleEditRequestSuccess}
-        />
       )}
 
     </div>

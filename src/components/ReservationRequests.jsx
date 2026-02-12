@@ -55,6 +55,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Default to UnifiedEventForm to match the draft edit form in MyReservations
   const [useUnifiedForm, setUseUnifiedForm] = useState(true);
 
+  // Details modal state (lightweight info modal before full review)
+  const [selectedDetailsReservation, setSelectedDetailsReservation] = useState(null);
+
   // Review modal state
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState(null);
@@ -885,7 +888,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           : r
       ));
 
-      // Close the review modal
+      // Close modals
+      setSelectedDetailsReservation(null);
       setShowReviewModal(false);
       setSelectedReservation(null);
       setActionNotes('');
@@ -998,23 +1002,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <div className="rr-card-actions">
                   <button
                     className="rr-btn rr-btn-primary"
-                    onClick={() => openReviewModal(reservation)}
+                    onClick={() => setSelectedDetailsReservation(reservation)}
                   >
-                    {reservation.status === 'pending' ? 'Review' : 'View Details'}
-                  </button>
-                  <button
-                    className={`rr-btn rr-btn-danger ${confirmDeleteId === reservation._id ? 'confirm' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteClick(reservation);
-                    }}
-                    disabled={deletingId === reservation._id}
-                  >
-                    {deletingId === reservation._id
-                      ? 'Deleting...'
-                      : confirmDeleteId === reservation._id
-                        ? 'Confirm?'
-                        : 'Delete'}
+                    View Details
                   </button>
                 </div>
               </div>
@@ -1120,6 +1110,185 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           >
             Next
           </button>
+        </div>
+      )}
+
+      {/* Details Modal (lightweight info modal) */}
+      {selectedDetailsReservation && (
+        <div className="rr-details-modal-overlay" onClick={() => setSelectedDetailsReservation(null)}>
+          <div className="rr-details-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Reservation Details</h2>
+            <div className="rr-reservation-details">
+              <div className="rr-detail-row">
+                <label>Event:</label>
+                <div>{selectedDetailsReservation.eventTitle}</div>
+              </div>
+
+              <div className="rr-detail-row">
+                <label>Requested By:</label>
+                <div>
+                  {selectedDetailsReservation.roomReservationData?.requestedBy?.name || selectedDetailsReservation.requesterName}
+                  {(selectedDetailsReservation.roomReservationData?.requestedBy?.department || selectedDetailsReservation.department) && (
+                    <span className="rr-details-dept"> ({selectedDetailsReservation.roomReservationData?.requestedBy?.department || selectedDetailsReservation.department})</span>
+                  )}
+                  {(selectedDetailsReservation.roomReservationData?.contactPerson?.isOnBehalfOf || selectedDetailsReservation.isOnBehalfOf) &&
+                    (selectedDetailsReservation.roomReservationData?.contactPerson?.name || selectedDetailsReservation.contactName) && (
+                    <div className="rr-details-on-behalf">
+                      on behalf of {selectedDetailsReservation.roomReservationData?.contactPerson?.name || selectedDetailsReservation.contactName}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rr-detail-row">
+                <label>Date & Time:</label>
+                <div>
+                  {new Date(selectedDetailsReservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  {', '}
+                  {new Date(selectedDetailsReservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {' - '}
+                  {new Date(selectedDetailsReservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </div>
+              </div>
+
+              <div className="rr-detail-row">
+                <label>Rooms:</label>
+                <div>
+                  {selectedDetailsReservation.requestedRooms.map(roomId => {
+                    const roomDetails = getRoomDetails(roomId);
+                    return roomDetails.location
+                      ? `${roomDetails.name} (${roomDetails.location})`
+                      : roomDetails.name;
+                  }).join(', ')}
+                </div>
+              </div>
+
+              <div className="rr-detail-row">
+                <label>Status:</label>
+                <div>
+                  <span className={`status-badge status-${selectedDetailsReservation.status === 'approved' ? 'published' : selectedDetailsReservation.status}`}>
+                    {selectedDetailsReservation.status === 'approved' ? 'Published' : selectedDetailsReservation.status.charAt(0).toUpperCase() + selectedDetailsReservation.status.slice(1)}
+                  </span>
+                </div>
+              </div>
+
+              {selectedDetailsReservation.eventDescription && (
+                <div className="rr-detail-row">
+                  <label>Description:</label>
+                  <div>{selectedDetailsReservation.eventDescription}</div>
+                </div>
+              )}
+
+              {selectedDetailsReservation.specialRequirements && (
+                <div className="rr-detail-row">
+                  <label>Special Requirements:</label>
+                  <div>{selectedDetailsReservation.specialRequirements}</div>
+                </div>
+              )}
+
+              {selectedDetailsReservation.rejectionReason && (
+                <div className="rr-detail-row">
+                  <label>Rejection Reason:</label>
+                  <div className="rr-details-rejection">{selectedDetailsReservation.rejectionReason}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="rr-modal-actions">
+              {/* Pending: Review + Delete + Close */}
+              {selectedDetailsReservation.status === 'pending' && (
+                <>
+                  <button
+                    className="rr-btn rr-review-btn"
+                    onClick={() => {
+                      const reservation = selectedDetailsReservation;
+                      setSelectedDetailsReservation(null);
+                      openReviewModal(reservation);
+                    }}
+                  >
+                    Review
+                  </button>
+                  <button
+                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
+                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                    disabled={deletingId === selectedDetailsReservation._id}
+                  >
+                    {deletingId === selectedDetailsReservation._id
+                      ? 'Deleting...'
+                      : confirmDeleteId === selectedDetailsReservation._id
+                        ? 'Confirm?'
+                        : 'Delete'}
+                  </button>
+                </>
+              )}
+
+              {/* Approved/Published: Edit + Delete + Close */}
+              {selectedDetailsReservation.status === 'approved' && (
+                <>
+                  <button
+                    className="rr-btn rr-review-btn"
+                    onClick={() => {
+                      const reservation = selectedDetailsReservation;
+                      setSelectedDetailsReservation(null);
+                      openReviewModal(reservation);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
+                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                    disabled={deletingId === selectedDetailsReservation._id}
+                  >
+                    {deletingId === selectedDetailsReservation._id
+                      ? 'Deleting...'
+                      : confirmDeleteId === selectedDetailsReservation._id
+                        ? 'Confirm?'
+                        : 'Delete'}
+                  </button>
+                </>
+              )}
+
+              {/* Rejected: Delete + Close */}
+              {selectedDetailsReservation.status === 'rejected' && (
+                <button
+                  className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
+                  onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                  disabled={deletingId === selectedDetailsReservation._id}
+                >
+                  {deletingId === selectedDetailsReservation._id
+                    ? 'Deleting...'
+                    : confirmDeleteId === selectedDetailsReservation._id
+                      ? 'Confirm?'
+                      : 'Delete'}
+                </button>
+              )}
+
+              {/* Cancelled: Delete + Close */}
+              {selectedDetailsReservation.status === 'cancelled' && (
+                <button
+                  className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
+                  onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                  disabled={deletingId === selectedDetailsReservation._id}
+                >
+                  {deletingId === selectedDetailsReservation._id
+                    ? 'Deleting...'
+                    : confirmDeleteId === selectedDetailsReservation._id
+                      ? 'Confirm?'
+                      : 'Delete'}
+                </button>
+              )}
+
+              {/* Deleted: Close only (no actions) */}
+
+              <button
+                className="rr-btn rr-close-btn"
+                onClick={() => setSelectedDetailsReservation(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
