@@ -61,7 +61,7 @@ describe('ReviewModal', () => {
     onClose: vi.fn(),
   };
 
-  describe('Submit for Approval button (draft mode)', () => {
+  describe('Submit Request button (draft mode)', () => {
     it('should be disabled when isFormValid is false', () => {
       render(
         <ReviewModal
@@ -74,7 +74,7 @@ describe('ReviewModal', () => {
         </ReviewModal>
       );
 
-      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
       expect(submitButton).toBeDisabled();
     });
 
@@ -90,7 +90,7 @@ describe('ReviewModal', () => {
         </ReviewModal>
       );
 
-      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
       expect(submitButton).not.toBeDisabled();
     });
 
@@ -124,7 +124,7 @@ describe('ReviewModal', () => {
         </ReviewModal>
       );
 
-      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
       expect(submitButton).toBeDisabled();
     });
 
@@ -140,7 +140,7 @@ describe('ReviewModal', () => {
         </ReviewModal>
       );
 
-      const submitButton = screen.getByRole('button', { name: /submit for approval/i });
+      const submitButton = screen.getByRole('button', { name: /submit request/i });
       expect(submitButton).toHaveAttribute('title', expect.stringContaining('required'));
     });
   });

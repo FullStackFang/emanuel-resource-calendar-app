@@ -6816,6 +6816,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isCancelEditRequestConfirming={isCancelEditRequestConfirming}
           onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
           // Draft-related props - wire up when viewing an existing draft
+          isDraft={reviewModal.isDraft}
           onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
           savingDraft={reviewModal.savingDraft}
           isDraftConfirming={reviewModal.pendingDraftConfirmation}

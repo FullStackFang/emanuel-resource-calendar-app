@@ -510,7 +510,7 @@ export default function ReviewModal({
                   disabled={isSaving || savingDraft || !isFormValid}
                   title={!isFormValid ? 'Please fill all required fields' : undefined}
                 >
-                  {isSaving ? 'Submitting...' : 'Submit for Approval'}
+                  {isSaving ? 'Submitting...' : 'Submit Request'}
                 </button>
               )}
 
