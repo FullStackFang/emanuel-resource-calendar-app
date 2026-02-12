@@ -6750,7 +6750,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onClose={reviewModal.closeModal}
           onApprove={reviewModal.handleApprove}
           onReject={reviewModal.handleReject}
-          onSave={reviewModal.isDraft ? null : reviewModal.handleSave}
+          onSave={reviewModal.isDraft || reviewModal.currentItem?.status === 'pending' ? null : reviewModal.handleSave}
           onDelete={reviewModal.handleDelete}
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}

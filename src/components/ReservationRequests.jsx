@@ -342,7 +342,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setActionNotes('');
     setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
     setCreateCalendarEvent(true);
-    setForceApprove(false);
+    setForcePublish(false);
     // Reset confirmation states
     setIsApproveConfirming(false);
     setIsRejectConfirming(false);
@@ -1318,7 +1318,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           onClose={closeReviewModal}
           onApprove={() => handleApproveClick(selectedReservation)}
           onReject={() => handleRejectClick(selectedReservation)}
-          onSave={handleSaveChanges}
           onDelete={() => handleModalDeleteClick(selectedReservation)}
           isPending={selectedReservation?.status === 'pending'}
           itemStatus={selectedReservation?.status}
