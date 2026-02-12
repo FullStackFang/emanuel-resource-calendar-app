@@ -5348,22 +5348,11 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
 
     if (view === 'my-events') {
       query.roomReservationData = { $exists: true, $ne: null };
-      // Ownership filter
-      if (!canViewAll) {
-        query['calendarData.requesterEmail'] = userEmail;
-      }
+      // Always scope to user's own events - admins use admin-browse for all events
+      query['calendarData.requesterEmail'] = userEmail;
       // Status filtering
       if (status === 'deleted') {
-        // Show deleted events (status field or isDeleted flag)
-        delete query.roomReservationData; // deleted may include non-reservations
         query.$or = [{ status: 'deleted' }, { isDeleted: true }];
-        // Re-scope to user if not admin
-        if (!canViewAll) {
-          query['calendarData.requesterEmail'] = userEmail;
-          query.roomReservationData = { $exists: true, $ne: null };
-          delete query.$or;
-          query.$or = [{ status: 'deleted' }, { isDeleted: true }];
-        }
       } else if (status === 'draft') {
         query.status = 'draft';
       } else if (status === 'pending') {
@@ -5620,11 +5609,11 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     }
 
     if (view === 'my-events') {
-      // Counts for user's own reservations
-      const baseQuery = { roomReservationData: { $exists: true, $ne: null } };
-      if (!canViewAll) {
-        baseQuery['calendarData.requesterEmail'] = userEmail;
-      }
+      // Counts for user's own reservations - always scoped to logged-in user
+      const baseQuery = {
+        roomReservationData: { $exists: true, $ne: null },
+        'calendarData.requesterEmail': userEmail,
+      };
 
       const [all, pending, approved, rejected, cancelled, draft, deleted] = await Promise.all([
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
@@ -5634,7 +5623,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'cancelled' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft' }),
         unifiedEventsCollection.countDocuments({
-          ...(canViewAll ? {} : { 'calendarData.requesterEmail': userEmail }),
+          'calendarData.requesterEmail': userEmail,
           roomReservationData: { $exists: true, $ne: null },
           $or: [{ status: 'deleted' }, { isDeleted: true }]
         })

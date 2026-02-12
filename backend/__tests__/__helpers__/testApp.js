@@ -1723,6 +1723,161 @@ function createTestApp(options = {}) {
   });
 
   // ============================================
+  // LIST EVENTS ENDPOINTS (my-events view)
+  // ============================================
+
+  /**
+   * GET /api/events/list - List events with view-based filtering
+   * Mirrors the production endpoint in api-server.js
+   * For view=my-events: always scopes to logged-in user's own events
+   */
+  app.get('/api/events/list', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const { view = 'my-events', status, page = '1', limit = '20', includeDeleted } = req.query;
+
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+
+      const canViewAll = canViewAllReservations(userDoc, userEmail);
+      const adminUser = isAdmin(userDoc, userEmail);
+
+      if (view === 'approval-queue' && !canViewAll) {
+        return res.status(403).json({ error: 'Approver or Admin access required' });
+      }
+      if (view === 'admin-browse' && !adminUser) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const pageNum = Math.max(1, parseInt(page) || 1);
+      const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(100, Math.max(1, parseInt(limit) || 20));
+      const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
+      const shouldIncludeDeleted = includeDeleted === 'true';
+
+      let query = {};
+
+      if (view === 'my-events') {
+        query.roomReservationData = { $exists: true, $ne: null };
+        // Always scope to user's own events - admins use admin-browse for all events
+        query['calendarData.requesterEmail'] = userEmail;
+
+        if (status === 'deleted') {
+          query.$or = [{ status: 'deleted' }, { isDeleted: true }];
+        } else if (status === 'draft') {
+          query.status = 'draft';
+        } else if (status === 'pending') {
+          query.status = { $in: ['pending', 'room-reservation-request'] };
+        } else if (status === 'approved' || status === 'published') {
+          query.status = 'approved';
+        } else if (status && status !== 'all') {
+          query.status = status;
+        } else {
+          if (!shouldIncludeDeleted) {
+            query.status = { $nin: ['deleted'] };
+          }
+        }
+      } else if (view === 'approval-queue') {
+        if (status === 'deleted') {
+          query = { $or: [{ status: 'deleted' }, { isDeleted: true }] };
+        } else {
+          query.isDeleted = { $ne: true };
+          query.roomReservationData = { $exists: true, $ne: null };
+          if (status === 'pending') {
+            query.status = { $in: ['pending', 'room-reservation-request'] };
+          } else if (status && status !== 'all') {
+            query.status = status;
+          }
+        }
+      }
+
+      let cursor = testCollections.events.find(query).sort({ lastModifiedDateTime: -1 });
+      const total = await testCollections.events.countDocuments(query);
+
+      if (limitNum > 0) {
+        cursor = cursor.skip(skip).limit(limitNum);
+      }
+
+      const events = await cursor.toArray();
+
+      res.json({ events, total, page: pageNum, limit: limitNum });
+    } catch (error) {
+      console.error('Error in GET /api/events/list:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/events/list/counts - Get event counts with view-based filtering
+   * Mirrors the production endpoint in api-server.js
+   * For view=my-events: always scopes to logged-in user's own events
+   */
+  app.get('/api/events/list/counts', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const { view = 'my-events' } = req.query;
+
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+
+      const canViewAll = canViewAllReservations(userDoc, userEmail);
+      const adminUser = isAdmin(userDoc, userEmail);
+
+      if (view === 'approval-queue' && !canViewAll) {
+        return res.status(403).json({ error: 'Approver or Admin access required' });
+      }
+      if (view === 'admin-browse' && !adminUser) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      if (view === 'my-events') {
+        // Always scoped to logged-in user
+        const baseQuery = {
+          roomReservationData: { $exists: true, $ne: null },
+          'calendarData.requesterEmail': userEmail,
+        };
+
+        const [all, pending, approved, rejected, cancelled, draft, deleted] = await Promise.all([
+          testCollections.events.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
+          testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'approved' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'cancelled' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
+          testCollections.events.countDocuments({
+            'calendarData.requesterEmail': userEmail,
+            roomReservationData: { $exists: true, $ne: null },
+            $or: [{ status: 'deleted' }, { isDeleted: true }],
+          }),
+        ]);
+
+        res.json({ all, pending, approved, rejected, cancelled, draft, deleted });
+      } else if (view === 'approval-queue') {
+        const baseQuery = {
+          isDeleted: { $ne: true },
+          roomReservationData: { $exists: true, $ne: null },
+        };
+
+        const [all, pending, approved, rejected, deleted] = await Promise.all([
+          testCollections.events.countDocuments(baseQuery),
+          testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'approved' }),
+          testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
+          testCollections.events.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] }),
+        ]);
+
+        res.json({ all, pending, approved, rejected, deleted });
+      }
+    } catch (error) {
+      console.error('Error in GET /api/events/list/counts:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
   // CALENDAR LOAD ENDPOINT (simplified getUnifiedEvents for testing)
   // ============================================
 

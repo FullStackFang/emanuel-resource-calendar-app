@@ -81,6 +81,10 @@ const ENDPOINTS = {
   // Calendar load endpoint
   LOAD_EVENTS: '/api/events/calendar-load',
 
+  // List endpoints (my-events view)
+  LIST_EVENTS: '/api/events/list',
+  LIST_EVENTS_COUNTS: '/api/events/list/counts',
+
   // User endpoints
   GET_USER: '/api/users/me',
   GET_RESERVATIONS: '/api/reservations/my',
