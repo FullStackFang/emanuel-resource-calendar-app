@@ -75,6 +75,8 @@ export default function ReviewModal({
   onSaveDraft = null,
   onSubmitDraft = null,
   savingDraft = false,
+  isDraftConfirming = false,
+  onCancelDraft = null,
   showDraftDialog = false,
   onDraftDialogSave = null,
   onDraftDialogDiscard = null,
@@ -476,15 +478,27 @@ export default function ReviewModal({
 
               {/* Save Draft button - for new drafts or updating existing drafts */}
               {onSaveDraft && (
-                <button
-                  type="button"
-                  className="action-btn draft-btn"
-                  onClick={onSaveDraft}
-                  disabled={savingDraft || isSaving || !canSaveDraft}
-                  title={!canSaveDraft ? (!hasChanges ? 'No changes to save' : 'Event title is required to save as draft') : 'Save your progress as a draft'}
-                >
-                  {savingDraft ? 'Saving...' : 'Save Draft'}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn draft-btn ${isDraftConfirming ? 'confirming' : ''}`}
+                    onClick={onSaveDraft}
+                    disabled={savingDraft || isSaving || !canSaveDraft}
+                    title={!canSaveDraft ? (!hasChanges ? 'No changes to save' : 'Event title is required to save as draft') : 'Save your progress as a draft'}
+                  >
+                    {savingDraft ? 'Drafting...' : (isDraftConfirming ? 'Confirm Draft?' : 'Save Draft')}
+                  </button>
+                  {isDraftConfirming && onCancelDraft && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x draft-cancel-x"
+                      onClick={onCancelDraft}
+                      title="Cancel draft"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Submit Draft button - when editing an existing draft */}

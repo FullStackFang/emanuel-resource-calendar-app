@@ -103,6 +103,7 @@ function createBaseEvent(options = {}) {
     // Metadata
     createdAt: options.createdAt || now,
     createdBy: options.createdBy || options.userId || 'test-user',
+    createdByEmail: options.createdByEmail || options.requesterEmail || 'requester@external.com',
     lastModifiedDateTime: options.lastModifiedDateTime || now,
     lastModifiedBy: options.lastModifiedBy || options.userId || 'test-user',
 
@@ -110,6 +111,7 @@ function createBaseEvent(options = {}) {
     // Production stores startDateTime/endDateTime as local-time ISO strings (no ms, no Z)
     // Must use local-time getters to avoid UTC shift on non-UTC machines
     calendarData: options.calendarData || {
+      eventTitle: options.eventTitle || `Test Event ${eventId}`,
       startDateTime: toLocalISOString(startDateTime),
       endDateTime: toLocalISOString(endDateTime),
       locations: options.locations || [],

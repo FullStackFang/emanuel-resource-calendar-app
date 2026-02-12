@@ -78,6 +78,9 @@ const ENDPOINTS = {
   OWNER_RESTORE_RESERVATION: (id) => `/api/room-reservations/${id}/restore`,
   RESUBMIT_RESERVATION: (id) => `/api/room-reservations/${id}/resubmit`,
 
+  // Calendar load endpoint
+  LOAD_EVENTS: '/api/events/calendar-load',
+
   // User endpoints
   GET_USER: '/api/users/me',
   GET_RESERVATIONS: '/api/reservations/my',

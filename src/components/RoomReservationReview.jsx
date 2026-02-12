@@ -257,19 +257,23 @@ export default function RoomReservationReview({
     }
   }, [onSaveFunctionReady, handleSaveChanges]);
 
-  // Function to get processed form data (used by approve flow)
-  const getProcessedFormData = useCallback(() => {
+  // Function to get processed form data (used by approve flow and draft save)
+  // skipValidation: true for draft saves where dates/times are optional
+  const getProcessedFormData = useCallback(({ skipValidation = false } = {}) => {
     const formData = formDataRef.current ? formDataRef.current() : {};
-    const validateTimes = validateRef.current ? validateRef.current() : (() => true);
 
-    // Validate times
-    if (!validateTimes()) {
-      logger.warn('Cannot get form data - time validation errors exist');
-      return null;
+    if (!skipValidation) {
+      const validateTimes = validateRef.current ? validateRef.current() : (() => true);
+      if (!validateTimes()) {
+        logger.warn('Cannot get form data - time validation errors exist');
+        return null;
+      }
     }
 
-    const startDateTime = `${formData.startDate}T${formData.startTime}`;
-    const endDateTime = `${formData.endDate}T${formData.endTime}`;
+    const startDateTime = formData.startDate && formData.startTime
+      ? `${formData.startDate}T${formData.startTime}` : null;
+    const endDateTime = formData.endDate && formData.endTime
+      ? `${formData.endDate}T${formData.endTime}` : null;
 
     // Calculate setup/teardown minutes
     let setupTimeMinutes = formData.setupTimeMinutes || 0;
@@ -293,11 +297,13 @@ export default function RoomReservationReview({
       _version: eventVersion
     };
 
-    // Remove separate date/time fields
-    delete processedData.startDate;
-    delete processedData.startTime;
-    delete processedData.endDate;
-    delete processedData.endTime;
+    // Only remove separate date/time fields for submission flow (not draft saves)
+    if (!skipValidation) {
+      delete processedData.startDate;
+      delete processedData.startTime;
+      delete processedData.endDate;
+      delete processedData.endTime;
+    }
     delete processedData.requestedRooms;
 
     return processedData;
@@ -310,9 +316,9 @@ export default function RoomReservationReview({
   useEffect(() => {
     if (onFormDataReady) {
       // Pass a stable wrapper that uses the ref to always get the latest function
-      onFormDataReady(() => {
+      onFormDataReady((options) => {
         if (getProcessedFormDataRef.current) {
-          return getProcessedFormDataRef.current();
+          return getProcessedFormDataRef.current(options);
         }
         return null;
       });

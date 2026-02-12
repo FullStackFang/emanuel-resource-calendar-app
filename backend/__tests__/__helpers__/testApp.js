@@ -334,22 +334,29 @@ function createTestApp(options = {}) {
       }
 
       const updateFields = {};
-      const allowedFields = [
+      // All calendar fields go inside calendarData (source of truth)
+      const calendarDataFields = [
         'eventTitle',
         'eventDescription',
         'startDateTime',
         'endDateTime',
+        'startDate',
+        'startTime',
+        'endDate',
+        'endTime',
         'locations',
         'categories',
         'services',
       ];
 
-      for (const field of allowedFields) {
+      for (const field of calendarDataFields) {
         if (req.body[field] !== undefined) {
           if (field === 'startDateTime' || field === 'endDateTime') {
-            updateFields[field] = new Date(req.body[field]);
+            // Store as local-time strings (strip Z suffix), not BSON Dates
+            const val = req.body[field];
+            updateFields[`calendarData.${field}`] = typeof val === 'string' ? val.replace(/Z$/, '') : val;
           } else {
-            updateFields[field] = req.body[field];
+            updateFields[`calendarData.${field}`] = req.body[field];
           }
         }
       }
@@ -1711,6 +1718,108 @@ function createTestApp(options = {}) {
       });
     } catch (error) {
       console.error('Error updating event:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // CALENDAR LOAD ENDPOINT (simplified getUnifiedEvents for testing)
+  // ============================================
+
+  /**
+   * POST /api/events/calendar-load - Load events for calendar view with role-based filtering
+   * Mirrors the getUnifiedEvents() logic in api-server.js
+   */
+  app.post('/api/events/calendar-load', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+
+      const { calendarOwner, startDate, endDate } = req.body;
+
+      // Get user role
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+
+      const permissions = getPermissions(userDoc, userEmail);
+      const role = permissions.role || 'viewer';
+
+      // Build query matching getUnifiedEvents() logic
+      const query = {
+        isDeleted: { $ne: true },
+        calendarOwner: (calendarOwner || TEST_CALENDAR_OWNER).toLowerCase()
+      };
+
+      // Email-match conditions for ownership checks
+      const ownerEmailConditions = userEmail ? [
+        { createdByEmail: userEmail },
+        { 'roomReservationData.requestedBy.email': userEmail },
+        { 'calendarData.requesterEmail': userEmail }
+      ] : [];
+
+      if (role === 'approver' || role === 'admin') {
+        query.$or = [
+          { status: { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] } },
+          ...(ownerEmailConditions.length > 0 ? [{
+            status: 'draft',
+            $or: ownerEmailConditions
+          }] : [])
+        ];
+      } else if (role === 'requester' && userEmail) {
+        query.$or = [
+          { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+          {
+            status: { $in: ['pending', 'room-reservation-request'] },
+            $or: ownerEmailConditions
+          },
+          {
+            status: 'draft',
+            $or: ownerEmailConditions
+          }
+        ];
+      } else {
+        query.$or = [
+          { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+          ...(ownerEmailConditions.length > 0 ? [{
+            status: 'draft',
+            $or: ownerEmailConditions
+          }] : [])
+        ];
+      }
+
+      // Date range filter
+      if (startDate && endDate) {
+        query['calendarData.startDateTime'] = { $lt: endDate };
+        query['calendarData.endDateTime'] = { $gt: startDate };
+      }
+
+      const events = (await testCollections.events.find(query).toArray())
+        .filter(event => {
+          // Exclude incomplete drafts (no dates)
+          if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
+            return false;
+          }
+          return true;
+        });
+
+      // Normalize events (populate start/end from calendarData for frontend compatibility)
+      const normalizedEvents = events.map(event => {
+        if (!event.start?.dateTime && event.calendarData?.startDateTime) {
+          event.start = { dateTime: event.calendarData.startDateTime, timeZone: 'America/New_York' };
+        }
+        if (!event.end?.dateTime && event.calendarData?.endDateTime) {
+          event.end = { dateTime: event.calendarData.endDateTime, timeZone: 'America/New_York' };
+        }
+        if (!event.subject && event.calendarData?.eventTitle) {
+          event.subject = event.calendarData.eventTitle;
+        }
+        return event;
+      });
+
+      res.json({ events: normalizedEvents, role });
+    } catch (error) {
+      console.error('Error loading calendar events:', error);
       res.status(500).json({ error: error.message });
     }
   });

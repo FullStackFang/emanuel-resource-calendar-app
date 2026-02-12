@@ -29,6 +29,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   const [showDraftDialog, setShowDraftDialog] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftId, setDraftId] = useState(null);
+  const [isDraftConfirming, setIsDraftConfirming] = useState(false);
 
   // Listen for custom event from MyReservations
   useEffect(() => {
@@ -54,6 +55,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setShowDraftDialog(false);
     setSavingDraft(false);
     setDraftId(null);
+    setIsDraftConfirming(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -195,14 +197,23 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setIsConfirming(false);
   }, [isConfirming, saveFunction]);
 
-  // Save draft
+  // Save draft (two-click confirmation, same pattern as handleAdminPublish)
   const handleSaveDraft = useCallback(async () => {
     if (!formData || !formData.eventTitle?.trim()) {
       showWarning('Event title is required to save as draft');
       return;
     }
 
+    // First click - show confirmation
+    if (!isDraftConfirming) {
+      setIsDraftConfirming(true);
+      setIsConfirming(false); // Clear other confirmations
+      return;
+    }
+
+    // Second click - execute save
     setSavingDraft(true);
+    setIsDraftConfirming(false);
     try {
       const payload = buildDraftPayload(formData);
       const endpoint = draftId
@@ -223,19 +234,15 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       }
 
       const result = await response.json();
-      if (!draftId) {
-        setDraftId(result._id || result.draft?._id);
-      }
-      setHasChanges(false);
       showSuccess('Draft saved');
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      handleSuccess();
     } catch (error) {
       logger.error('Error saving draft:', error);
       showError(error, { context: 'NewReservationModal.handleSaveDraft' });
     } finally {
       setSavingDraft(false);
     }
-  }, [formData, draftId, apiToken, buildDraftPayload, showSuccess, showError, showWarning]);
+  }, [formData, draftId, isDraftConfirming, apiToken, buildDraftPayload, showSuccess, showError, showWarning, handleSuccess]);
 
   // Draft dialog handlers
   const handleDraftDialogSave = useCallback(async () => {
@@ -246,13 +253,14 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     }
 
     setSavingDraft(true);
+    let savedSuccessfully = false;
     try {
       const payload = buildDraftPayload(formData);
       const endpoint = draftId
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
 
-      await fetch(endpoint, {
+      const response = await fetch(endpoint, {
         method: draftId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,16 +269,21 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         body: JSON.stringify(payload)
       });
 
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      if (!response.ok) throw new Error('Failed to save draft');
+      savedSuccessfully = true;
     } catch (error) {
       logger.error('Error saving draft before close:', error);
+      showError(error, { context: 'NewReservationModal.handleDraftDialogSave' });
     } finally {
       setSavingDraft(false);
     }
 
     setShowDraftDialog(false);
     resetState();
-  }, [formData, draftId, apiToken, buildDraftPayload, resetState]);
+    if (savedSuccessfully) {
+      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+    }
+  }, [formData, draftId, apiToken, buildDraftPayload, resetState, showError]);
 
   const handleDraftDialogDiscard = useCallback(() => {
     setShowDraftDialog(false);
@@ -292,6 +305,8 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         onSave={canCreateEvents ? handleAdminPublish : handleRequesterSubmit}
         onSaveDraft={handleSaveDraft}
         savingDraft={savingDraft}
+        isDraftConfirming={isDraftConfirming}
+        onCancelDraft={() => setIsDraftConfirming(false)}
         showDraftDialog={showDraftDialog}
         onDraftDialogSave={handleDraftDialogSave}
         onDraftDialogDiscard={handleDraftDialogDiscard}
@@ -307,6 +322,10 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         <UnifiedEventForm
           mode="create"
           apiToken={apiToken}
+          prefillData={{
+            calendarId: selectedCalendarId,
+            calendarOwner: availableCalendars?.find(cal => cal.id === selectedCalendarId)?.owner?.address?.toLowerCase()
+          }}
           hideActionBar={true}
           onHasChangesChange={setHasChanges}
           onFormValidChange={setIsFormValid}

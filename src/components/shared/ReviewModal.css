@@ -311,6 +311,21 @@
   background: var(--color-info-600);
 }
 
+.draft-btn.confirming {
+  background: var(--color-info-600);
+  color: var(--text-inverse);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.draft-cancel-x {
+  background: var(--color-info-600) !important;
+  color: var(--text-inverse) !important;
+}
+
+.draft-cancel-x:hover {
+  background: var(--color-info-700) !important;
+}
+
 /* Request Edit Button */
 .review-actions .request-edit-btn {
   background: var(--bg-tertiary) !important;

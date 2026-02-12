@@ -1,5 +1,5 @@
 // src/components/MyReservations.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -40,30 +40,11 @@ export default function MyReservations({ apiToken }) {
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
   
-  // Load all user's reservations once on mount
-  useEffect(() => {
-    if (apiToken) {
-      loadMyReservations();
-    }
-  }, [apiToken]);
-
-  // Listen for refresh event (triggered after draft submission)
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (apiToken) {
-        loadMyReservations();
-      }
-    };
-
-    window.addEventListener('refresh-my-reservations', handleRefresh);
-    return () => window.removeEventListener('refresh-my-reservations', handleRefresh);
-  }, [apiToken]);
-
-  const loadMyReservations = async () => {
+  const loadMyReservations = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      
+
       // Load all user's reservations including deleted (API automatically filters by user)
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
         headers: {
@@ -83,7 +64,21 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiToken]);
+
+  // Load all user's reservations once on mount
+  useEffect(() => {
+    if (apiToken) {
+      loadMyReservations();
+    }
+  }, [loadMyReservations]);
+
+  // Listen for refresh event (triggered after draft submission)
+  useEffect(() => {
+    const handleRefresh = () => loadMyReservations();
+    window.addEventListener('refresh-my-reservations', handleRefresh);
+    return () => window.removeEventListener('refresh-my-reservations', handleRefresh);
+  }, [loadMyReservations]);
 
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {

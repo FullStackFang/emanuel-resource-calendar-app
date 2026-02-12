@@ -45,8 +45,8 @@ const APP_CONFIG = {
 
   // Calendar configuration for room reservations
   CALENDAR_CONFIG: {
-    SANDBOX_CALENDAR: 'templesandbox@emanuelnyc.org',
-    PRODUCTION_CALENDAR: 'temple@emanuelnyc.org',
+    SANDBOX_CALENDAR: 'templeeventssandbox@emanuelnyc.org',
+    PRODUCTION_CALENDAR: 'templeevents@emanuelnyc.org',
     DEFAULT_MODE: 'sandbox'
   }
 };

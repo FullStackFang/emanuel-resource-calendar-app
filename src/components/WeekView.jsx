@@ -272,7 +272,7 @@ const WeekView = memo(({
                           const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
                           const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
                           const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
-                          
+
                           // Format total duration - simplified to prevent overflow
                           const hours = Math.floor(duration / 60);
                           const minutes = duration % 60;
@@ -284,9 +284,9 @@ const WeekView = memo(({
                             // Show minutes for short events
                             durationStr = `${minutes}m`;
                           }
-                          
+
                           timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
-                          
+
                           // Add indicator if showing registration times
                           if (showRegistrationTimes && event.hasRegistrationEvent) {
                             timeDisplay = `⏱️ ${timeDisplay}`;
@@ -312,9 +312,11 @@ const WeekView = memo(({
                         const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
                         // Check if event is pending approval
                         const isPending = event.status === 'pending';
+                        // Check if event is a draft
+                        const isDraft = event.status === 'draft';
                         // Check for pending edit request
                         const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
-                        const bgAlpha = isPending ? 0.12 : (isShowingRegistrationTime ? 0.1 : 0.15);
+                        const bgAlpha = isDraft ? 0.08 : isPending ? 0.12 : (isShowingRegistrationTime ? 0.1 : 0.15);
                         const transparentColor = hasPendingEditRequest
                           ? 'rgba(139, 92, 246, 0.12)' // Purple tint for pending edits
                           : hexToRgba(eventColor, bgAlpha);
@@ -322,18 +324,18 @@ const WeekView = memo(({
                         return (
                           <div
                             key={event.eventId}
-                            className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
+                            className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
                             style={{
                               position: 'relative',
                               backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.12) : transparentColor,
-                              borderLeft: `2px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                              borderLeft: `2px ${isDraft ? 'dotted' : isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                               padding: viewType === 'month' ? '4px 6px' : '6px 8px',
                               margin: '1px 0',
                               cursor: 'pointer',
                               borderRadius: viewType === 'month' ? '6px' : '7px',
                               color: '#333',
-                              opacity: isPending ? 0.85 : 1,
-                              ...(isShowingRegistrationTime && !isPending && !hasPendingEditRequest && {
+                              opacity: isDraft ? 0.75 : isPending ? 0.85 : 1,
+                              ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
                                 border: `1px dashed ${eventColor}`,
                                 borderLeftWidth: '2px',
                                 borderLeftStyle: 'solid'
@@ -440,6 +442,20 @@ const WeekView = memo(({
                                 display: 'inline-block'
                               }}>
                                 PENDING
+                              </div>
+                            )}
+                            {isDraft && (
+                              <div style={{
+                                fontSize: '7px',
+                                fontWeight: '600',
+                                color: '#6b7280',
+                                backgroundColor: '#f3f4f6',
+                                padding: '1px 4px',
+                                borderRadius: '3px',
+                                marginTop: '2px',
+                                display: 'inline-block'
+                              }}>
+                                DRAFT
                               </div>
                             )}
                             {/* Pending Edit Request indicator */}

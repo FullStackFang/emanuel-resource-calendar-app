@@ -138,6 +138,18 @@ export function transformEventToFlatStructure(event) {
     }
   }
 
+  // For MongoDB documents, prefer explicit startTime/endTime from calendarData
+  // over values parsed from startDateTime. These fields represent user intent:
+  // null = "no time specified", '09:00' = "user entered 9am"
+  if (event.calendarData) {
+    if ('startTime' in event.calendarData) {
+      startTime = event.calendarData.startTime || '';
+    }
+    if ('endTime' in event.calendarData) {
+      endTime = event.calendarData.endTime || '';
+    }
+  }
+
   // Process eventDescription - strip HTML if present
   // Prioritize calendarData/top-level eventDescription (authoritative) over graphData.bodyPreview (may be stale)
   const rawDescription = isCalendarEvent

@@ -330,6 +330,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const [draftId, setDraftId] = useState(null);
     const [savingDraft, setSavingDraft] = useState(false);
     const [showDraftSaveDialog, setShowDraftSaveDialog] = useState(false);
+    const [pendingDraftSaveConfirmation, setPendingDraftSaveConfirmation] = useState(false);
 
     // Edit request mode state (for inline editing to create edit requests)
     const [isEditRequestMode, setIsEditRequestMode] = useState(false);
@@ -2802,6 +2803,11 @@ import ConflictDialog from './shared/ConflictDialog';
     }, []);
 
     /**
+     * Check if event is a draft
+     */
+    const isDraftEvent = useCallback((event) => event.status === 'draft', []);
+
+    /**
      * Check if current user owns this event (is the requester)
      * Based on sample event data fields:
      * - roomReservationData.requestedBy.email
@@ -2839,6 +2845,11 @@ import ConflictDialog from './shared/ConflictDialog';
             return false;
           }
           // Approver/Admin: See all pending (no filter needed)
+        }
+
+        // === DRAFT EVENTS: Only show to creator (defense in depth, backend already filters) ===
+        if (isDraftEvent(event) && !isEventOwner(event)) {
+          return false;
         }
 
         // UNIFIED FILTERING FOR ALL VIEWS - Use same logic for month, week, and day
@@ -2968,6 +2979,7 @@ import ConflictDialog from './shared/ConflictDialog';
       isSimulating,
       simulatedRole,
       isPendingEvent,
+      isDraftEvent,
       isEventOwner
     ]);
 
@@ -5523,12 +5535,16 @@ import ConflictDialog from './shared/ConflictDialog';
         offsiteName: eventData.offsiteName || '',
         offsiteAddress: eventData.offsiteAddress || '',
         offsiteLat: eventData.offsiteLat || null,
-        offsiteLon: eventData.offsiteLon || null
+        offsiteLon: eventData.offsiteLon || null,
+        startDate: eventData.startDate || null,
+        endDate: eventData.endDate || null,
+        startTime: eventData.startTime || null,
+        endTime: eventData.endTime || null
       };
     }, []);
 
     /**
-     * Save current form as draft
+     * Save current form as draft (two-click confirmation, same pattern as create event)
      */
     const handleSaveDraft = useCallback(async () => {
       const eventData = eventReviewModal.event;
@@ -5537,12 +5553,26 @@ import ConflictDialog from './shared/ConflictDialog';
         return;
       }
 
-      // Minimal validation - only eventTitle required
+      // Minimal validation - eventTitle and dates required
       if (!eventData.eventTitle?.trim()) {
         showNotification('Event title is required to save as draft', 'error');
         return;
       }
+      if (!eventData.startDate || !eventData.endDate) {
+        showNotification('Start date and end date are required to save as draft', 'error');
+        return;
+      }
 
+      // First click - show confirmation
+      if (!pendingDraftSaveConfirmation) {
+        setPendingDraftSaveConfirmation(true);
+        setPendingSaveConfirmation(false); // Clear other confirmations
+        setPendingEventDeleteConfirmation(false);
+        return;
+      }
+
+      // Second click - execute save
+      setPendingDraftSaveConfirmation(false);
       setSavingDraft(true);
 
       try {
@@ -5571,13 +5601,9 @@ import ConflictDialog from './shared/ConflictDialog';
         const result = await response.json();
         logger.log('Draft saved:', result);
 
-        // Update draft ID if this was a new draft
-        if (!draftId) {
-          setDraftId(result._id);
-        }
-
-        setEventReviewModal(prev => ({ ...prev, hasChanges: false }));
         showNotification('Draft saved successfully', 'success');
+        handleEventReviewModalClose(true);
+        loadEvents(true);
 
       } catch (error) {
         logger.error('Error saving draft:', error);
@@ -5585,7 +5611,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setSavingDraft(false);
       }
-    }, [eventReviewModal.event, draftId, apiToken, buildDraftPayload, showNotification]);
+    }, [eventReviewModal.event, draftId, pendingDraftSaveConfirmation, apiToken, buildDraftPayload, showNotification, handleEventReviewModalClose, loadEvents]);
 
     /**
      * Handle draft dialog save
@@ -6789,6 +6815,17 @@ import ConflictDialog from './shared/ConflictDialog';
           isCancelingEditRequest={isCancelingEditRequest}
           isCancelEditRequestConfirming={isCancelEditRequestConfirming}
           onCancelCancelEditRequest={cancelCancelEditRequestConfirmation}
+          // Draft-related props - wire up when viewing an existing draft
+          onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
+          savingDraft={reviewModal.savingDraft}
+          isDraftConfirming={reviewModal.pendingDraftConfirmation}
+          onCancelDraft={reviewModal.cancelDraftConfirmation}
+          canSaveDraft={reviewModal.canSaveDraft}
+          showDraftDialog={reviewModal.showDraftDialog}
+          onDraftDialogSave={reviewModal.handleDraftDialogSave}
+          onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
+          onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
+          onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -6866,6 +6903,8 @@ import ConflictDialog from './shared/ConflictDialog';
           // Draft-related props - show for new event creation (not editing existing events)
           onSaveDraft={!(eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleSaveDraft : null}
           savingDraft={savingDraft}
+          isDraftConfirming={pendingDraftSaveConfirmation}
+          onCancelDraft={() => setPendingDraftSaveConfirmation(false)}
           showDraftDialog={showDraftSaveDialog}
           onDraftDialogSave={handleDraftDialogSave}
           onDraftDialogDiscard={handleDraftDialogDiscard}

@@ -59,6 +59,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [draftId, setDraftId] = useState(null);
   const [showDraftDialog, setShowDraftDialog] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [pendingDraftConfirmation, setPendingDraftConfirmation] = useState(false);
 
   // Ref to hold form data getter function (set by child form component)
   const formDataGetterRef = useRef(null);
@@ -142,6 +143,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setConflictInfo(null);
     setHasChanges(false);
     setPendingDeleteConfirmation(false); // Reset delete confirmation
+    setPendingDraftConfirmation(false); // Reset draft confirmation
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
     setIsDraft(false); // Reset draft state
@@ -670,28 +672,48 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       offsiteName: formData.offsiteName || '',
       offsiteAddress: formData.offsiteAddress || '',
       offsiteLat: formData.offsiteLat || null,
-      offsiteLon: formData.offsiteLon || null
+      offsiteLon: formData.offsiteLon || null,
+      startDate: formData.startDate || null,
+      endDate: formData.endDate || null,
+      startTime: formData.startTime || null,
+      endTime: formData.endTime || null
     };
   }, []);
 
   /**
-   * Save form data as a draft
+   * Save form data as a draft (two-click confirmation pattern)
    */
   const handleSaveDraft = useCallback(async () => {
-    // Get form data from the form component
-    const formData = formDataGetterRef.current?.();
+    // Get form data from the form component — skip time validation for drafts
+    const formData = formDataGetterRef.current?.({ skipValidation: true });
     if (!formData) {
       logger.error('handleSaveDraft: No form data getter available');
       if (onError) onError('Unable to get form data');
       return { success: false, error: 'No form data' };
     }
 
-    // Minimal validation - only eventTitle required
+    // Minimal validation - eventTitle and dates required
     if (!formData.eventTitle?.trim()) {
       if (onError) onError('Event title is required to save as draft');
       return { success: false, error: 'Event title required' };
     }
+    if (!formData.startDate || !formData.endDate) {
+      if (onError) onError('Start date and end date are required to save as draft');
+      return { success: false, error: 'Dates required' };
+    }
 
+    // First click - show confirmation
+    if (!pendingDraftConfirmation) {
+      setPendingDraftConfirmation(true);
+      setPendingApproveConfirmation(false);
+      setPendingRejectConfirmation(false);
+      setPendingDeleteConfirmation(false);
+      setPendingSaveConfirmation(false);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Second click - execute save
+    setPendingDraftConfirmation(false);
     setSavingDraft(true);
 
     try {
@@ -720,15 +742,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const result = await response.json();
       logger.log('Draft saved:', result);
 
-      // Update draft state
-      if (!draftId) {
-        setDraftId(result._id);
-      }
-      setIsDraft(true);
       setHasChanges(false);
       setShowDraftDialog(false);
 
       if (onSuccess) onSuccess({ ...result, savedAsDraft: true });
+      await closeModal(true);
       return { success: true, data: result };
 
     } catch (error) {
@@ -738,7 +756,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setSavingDraft(false);
     }
-  }, [apiToken, draftId, buildDraftPayload, onSuccess, onError]);
+  }, [apiToken, draftId, pendingDraftConfirmation, buildDraftPayload, closeModal, onSuccess, onError]);
 
   /**
    * Submit an existing draft for approval
@@ -821,6 +839,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setShowDraftDialog(false);
   }, []);
 
+  const cancelDraftConfirmation = useCallback(() => {
+    setPendingDraftConfirmation(false);
+  }, []);
+
   /**
    * Check if draft can be saved (needs eventTitle)
    */
@@ -858,6 +880,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     draftId,
     showDraftDialog,
     savingDraft,
+    pendingDraftConfirmation,
 
     // Actions
     openModal,
@@ -881,6 +904,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleDraftDialogSave,
     handleDraftDialogDiscard,
     handleDraftDialogCancel,
+    cancelDraftConfirmation,
     canSaveDraft
   };
 }

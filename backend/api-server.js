@@ -151,10 +151,23 @@ const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302
 
 // Calendar configuration for room reservations
 const CALENDAR_CONFIG = {
-  SANDBOX_CALENDAR: 'templesandbox@emanuelnyc.org',
-  PRODUCTION_CALENDAR: 'temple@emanuelnyc.org',
+  SANDBOX_CALENDAR: 'templeeventssandbox@emanuelnyc.org',
+  PRODUCTION_CALENDAR: 'templeevents@emanuelnyc.org',
   DEFAULT_MODE: process.env.CALENDAR_MODE || 'sandbox' // Default to sandbox for safety
 };
+
+/**
+ * Get the default calendar owner email based on CALENDAR_CONFIG mode.
+ * Used as a fallback when calendarOwner is not provided by the frontend.
+ * @returns {string} Calendar owner email (lowercase)
+ */
+function getDefaultCalendarOwner() {
+  const mode = CALENDAR_CONFIG.DEFAULT_MODE;
+  return (mode === 'production'
+    ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
+    : CALENDAR_CONFIG.SANDBOX_CALENDAR
+  ).toLowerCase();
+}
 
 
 // Middleware
@@ -2202,10 +2215,13 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
     const simulatedRole = req.headers['x-simulated-role'];
 
     // Get user from database to determine actual role
+    // Check by odataId (legacy), userId, or email for maximum compatibility
     const user = await usersCollection.findOne({
       $or: [
         { odataId: req.user.userId },
-        { odataId: `https://graph.microsoft.com/v1.0/users('${req.user.userId}')` }
+        { odataId: `https://graph.microsoft.com/v1.0/users('${req.user.userId}')` },
+        { userId: req.user.userId },
+        ...(userEmail ? [{ email: userEmail }] : [])
       ]
     });
 
@@ -4308,27 +4324,48 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     const role = roleInfo?.role || 'viewer';
     const userEmail = roleInfo?.userEmail?.toLowerCase();
 
+    // Email-match conditions for ownership checks (reused across roles)
+    const ownerEmailConditions = userEmail ? [
+      { createdByEmail: userEmail },
+      { 'roomReservationData.requestedBy.email': userEmail },
+      { 'calendarData.requesterEmail': userEmail }
+    ] : [];
+
     if (role === 'approver' || role === 'admin') {
-      // Approvers and admins can see all pending events
-      query.status = { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] };
+      // Approvers and admins can see all pending events + their own drafts
+      query.$or = [
+        { status: { $nin: ['cancelled', 'rejected', 'deleted', 'draft'] } },
+        // Include user's own drafts
+        ...(ownerEmailConditions.length > 0 ? [{
+          status: 'draft',
+          $or: ownerEmailConditions
+        }] : [])
+      ];
     } else if (role === 'requester' && userEmail) {
-      // Requesters can see approved events + their own pending events
+      // Requesters can see approved events + their own pending events + their own drafts
       query.$or = [
         // Approved/published events (visible to everyone)
         { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
         // Pending events created by this user
         {
           status: { $in: ['pending', 'room-reservation-request'] },
-          $or: [
-            { createdByEmail: userEmail },
-            { 'roomReservationData.requestedBy.email': userEmail },
-            { 'calendarData.requesterEmail': userEmail }
-          ]
+          $or: ownerEmailConditions
+        },
+        // Draft events created by this user
+        {
+          status: 'draft',
+          $or: ownerEmailConditions
         }
       ];
     } else {
-      // Viewers can only see approved/published events
-      query.status = { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] };
+      // Viewers can only see approved/published events + their own drafts
+      query.$or = [
+        { status: { $nin: ['cancelled', 'rejected', 'pending', 'deleted', 'draft', 'room-reservation-request'] } },
+        ...(ownerEmailConditions.length > 0 ? [{
+          status: 'draft',
+          $or: ownerEmailConditions
+        }] : [])
+      ];
     }
 
     // Date range filter using calendarData.startDateTime/endDateTime
@@ -4339,7 +4376,14 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
 
     logger.debug('Calendar events query:', JSON.stringify(query));
 
-    const events = await unifiedEventsCollection.find(query).toArray();
+    const events = (await unifiedEventsCollection.find(query).toArray())
+      .filter(event => {
+        // Exclude incomplete drafts that can't be rendered on calendar (no dates)
+        if (event.status === 'draft' && (!event.calendarData?.startDateTime || !event.calendarData?.endDateTime)) {
+          return false;
+        }
+        return true;
+      });
     logger.debug(`Found ${events.length} displayable events for ${calendarOwner || userId}`);
 
     // Normalize events to ensure start/end are populated from calendarData
@@ -4417,10 +4461,13 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     let effectiveRole = 'viewer'; // Default to most restrictive
 
     // Get user from database to determine actual role
+    // Check by odataId (legacy), userId, or email for maximum compatibility
     const user = await usersCollection.findOne({
       $or: [
         { odataId: userId },
-        { odataId: `https://graph.microsoft.com/v1.0/users('${userId}')` }
+        { odataId: `https://graph.microsoft.com/v1.0/users('${userId}')` },
+        { userId: userId },
+        ...(userEmail ? [{ email: userEmail }] : [])
       ]
     });
 
@@ -4888,41 +4935,8 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       }
     }
 
-    /// STEP 2: Add pending room reservations for admins (they have calendarOwner: null so aren't fetched above)
-    // Note: userEmail and user are already defined earlier in this function for role detection
-    const isAdminUser = canViewAllReservations(user, userEmail);
-
-    logger.log(`[PENDING] Check - userEmail: ${userEmail}, isAdminUser: ${isAdminUser}, hasStartTime: ${!!startTime}, hasEndTime: ${!!endTime}`);
-
-    if (isAdminUser) {
-      const pendingQuery = {
-        isDeleted: { $ne: true },
-        status: 'pending'
-      };
-
-      // Add date filter if provided
-      if (startTime && endTime) {
-        const startDateStr = new Date(startTime).toISOString().split('T')[0];
-        const endDateStr = new Date(endTime).toISOString().split('T')[0];
-        pendingQuery.startDate = { $lte: endDateStr };
-        pendingQuery.endDate = { $gte: startDateStr };
-      }
-
-      logger.log(`[PENDING] Admin ${userEmail} - querying pending events:`, JSON.stringify(pendingQuery));
-      const pendingReservations = await unifiedEventsCollection.find(pendingQuery).toArray();
-      logger.log(`[PENDING] Found ${pendingReservations.length} pending reservations for admin ${userEmail}`);
-
-      // Merge with unified events (avoid duplicates)
-      const existingIds = new Set(unifiedEvents.map(e => e.eventId));
-      const newPendingEvents = pendingReservations.filter(r => !existingIds.has(r.eventId));
-      logger.log(`[PENDING] After dedup: ${newPendingEvents.length} new pending events to add`);
-      if (newPendingEvents.length > 0) {
-        logger.log(`[PENDING] Adding ${newPendingEvents.length} pending reservations to calendar view`);
-        unifiedEvents = unifiedEvents.concat(newPendingEvents);
-      }
-    } else {
-      logger.log(`[PENDING] Skipping pending events - user is not admin`);
-    }
+    // STEP 2 (removed): Pending room reservations for admins are now included by
+    // getUnifiedEvents() because all creation paths set calendarOwner correctly.
 
     // STEP 3: Return events directly from MongoDB (source of truth)
     // Add start/end wrapper fields for frontend compatibility (frontend expects event.start.dateTime)
@@ -7285,7 +7299,7 @@ app.get('/api/admin/calendar-settings', verifyToken, async (req, res) => {
     if (!settings) {
       settings = {
         _id: 'calendar-settings',
-        defaultCalendar: 'templesandbox@emanuelnyc.org',
+        defaultCalendar: 'templeeventssandbox@emanuelnyc.org',
         lastModifiedBy: 'system',
         lastModifiedAt: new Date()
       };
@@ -12355,10 +12369,15 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       allowedConcurrentCategories = []
     } = req.body;
 
-    // Minimal validation for draft - only eventTitle required
+    // Validation for draft - eventTitle and dates required
     if (!eventTitle || !eventTitle.trim()) {
       return res.status(400).json({
         error: 'Event title is required to save as draft'
+      });
+    }
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: 'Start date and end date are required to save as draft'
       });
     }
 
@@ -12396,6 +12415,12 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       draftCreatedAt: new Date(),
       lastDraftSaved: new Date(),
 
+      // Calendar owner for calendar view filtering
+      calendarOwner: getDefaultCalendarOwner(),
+
+      // Creator email for draft ownership queries
+      createdByEmail: userEmail,
+
       // Standard fields
       createdAt: new Date(),
       lastModified: new Date(),
@@ -12406,8 +12431,13 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         eventTitle: eventTitle.trim(),
         eventDescription: eventDescription || '',
         // Store datetime as ISO strings (local time)
-        startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : null,
-        endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : null,
+        // Default times to 00:00/23:59 if dates are present but times are missing
+        startDateTime: startDateTime
+          ? startDateTime.replace(/Z$/, '')
+          : (startDate ? `${startDate}T00:00:00` : null),
+        endDateTime: endDateTime
+          ? endDateTime.replace(/Z$/, '')
+          : (endDate ? `${endDate}T23:59:00` : null),
         // Date and time components for partial draft support
         startDate: startDate || null,
         startTime: startTime || null,
@@ -12552,51 +12582,63 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       allowedConcurrentCategories
     } = req.body;
 
-    // Minimal validation - only eventTitle required
+    // Validation - eventTitle and dates required
     if (!eventTitle || !eventTitle.trim()) {
       return res.status(400).json({
         error: 'Event title is required to save as draft'
       });
     }
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        error: 'Start date and end date are required to save as draft'
+      });
+    }
 
-    // Update draft
+    // Update draft — all calendar fields go inside calendarData (source of truth)
+    // Default times to 00:00/23:59 if dates are present but times are missing
+    const computedStartDateTime = startDateTime
+      ? startDateTime.replace(/Z$/, '')
+      : (startDate ? `${startDate}T00:00:00` : null);
+    const computedEndDateTime = endDateTime
+      ? endDateTime.replace(/Z$/, '')
+      : (endDate ? `${endDate}T23:59:00` : null);
+
     const updateData = {
-      eventTitle: eventTitle.trim(),
-      eventDescription: eventDescription || '',
-      startDateTime: startDateTime ? new Date(startDateTime) : null,
-      endDateTime: endDateTime ? new Date(endDateTime) : null,
-      // Separate date/time fields for partial draft support
-      startDate: startDate || null,
-      startTime: startTime || null,
-      endDate: endDate || null,
-      endTime: endTime || null,
-      attendeeCount: attendeeCount || 0,
-      locations: requestedRooms || [],
-      isOffsite: isOffsite || false,
-      offsiteName: offsiteName || '',
-      offsiteAddress: offsiteAddress || '',
-      offsiteLat: offsiteLat || null,
-      offsiteLon: offsiteLon || null,
-      setupTimeMinutes: setupTimeMinutes || 0,
-      teardownTimeMinutes: teardownTimeMinutes || 0,
-      setupTime: setupTime || null,
-      teardownTime: teardownTime || null,
-      doorOpenTime: doorOpenTime || null,
-      doorCloseTime: doorCloseTime || null,
-      setupNotes: setupNotes || '',
-      doorNotes: doorNotes || '',
-      eventNotes: eventNotes || '',
-      specialRequirements: specialRequirements || '',
-      categories: categories || mecCategories || [],  // categories is correct field, mecCategories is deprecated
-      services: services || {},
-      recurrence: recurrence || null,
-      virtualMeetingUrl: virtualMeetingUrl || null,
-      requiredFeatures: requiredFeatures || [],
-      // Concurrent scheduling settings
-      isAllowedConcurrent: isAllowedConcurrent || false,
-      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
-        try { return new ObjectId(id); } catch { return id; }
-      }),
+      // calendarData fields (source of truth for calendar queries)
+      'calendarData.eventTitle': eventTitle.trim(),
+      'calendarData.eventDescription': eventDescription || '',
+      'calendarData.startDateTime': computedStartDateTime,
+      'calendarData.endDateTime': computedEndDateTime,
+      'calendarData.startDate': startDate || null,
+      'calendarData.startTime': startTime || null,
+      'calendarData.endDate': endDate || null,
+      'calendarData.endTime': endTime || null,
+      'calendarData.attendeeCount': attendeeCount || 0,
+      'calendarData.locations': requestedRooms || [],
+      'calendarData.isOffsite': isOffsite || false,
+      'calendarData.offsiteName': offsiteName || '',
+      'calendarData.offsiteAddress': offsiteAddress || '',
+      'calendarData.offsiteLat': offsiteLat || null,
+      'calendarData.offsiteLon': offsiteLon || null,
+      'calendarData.setupTimeMinutes': setupTimeMinutes || 0,
+      'calendarData.teardownTimeMinutes': teardownTimeMinutes || 0,
+      'calendarData.setupTime': setupTime || null,
+      'calendarData.teardownTime': teardownTime || null,
+      'calendarData.doorOpenTime': doorOpenTime || null,
+      'calendarData.doorCloseTime': doorCloseTime || null,
+      'calendarData.setupNotes': setupNotes || '',
+      'calendarData.doorNotes': doorNotes || '',
+      'calendarData.eventNotes': eventNotes || '',
+      'calendarData.specialRequirements': specialRequirements || '',
+      'calendarData.categories': categories || mecCategories || [],
+      'calendarData.services': services || {},
+      'calendarData.recurrence': recurrence || null,
+      'calendarData.virtualMeetingUrl': virtualMeetingUrl || null,
+      'calendarData.requiredFeatures': requiredFeatures || [],
+      'calendarData.isOnBehalfOf': isOnBehalfOf || false,
+      'calendarData.contactName': isOnBehalfOf ? contactName : '',
+      'calendarData.contactEmail': isOnBehalfOf ? contactEmail : '',
+      // Top-level fields that are NOT in calendarData
       'roomReservationData.contactPerson': isOnBehalfOf ? {
         name: contactName || '',
         email: contactEmail || '',
@@ -12604,6 +12646,12 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       } : null,
       'roomReservationData.department': department || '',
       'roomReservationData.phone': phone || '',
+      // Concurrent scheduling settings (top-level for indexing)
+      isAllowedConcurrent: isAllowedConcurrent || false,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      }),
+      // Metadata
       lastDraftSaved: new Date(),
       lastModified: new Date()
     };
@@ -12706,6 +12754,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     // Update draft to pending status
     const updateData = {
       status: 'pending',
+      calendarOwner: draft.calendarOwner || getDefaultCalendarOwner(),
       'roomReservationData.submittedAt': new Date(),
       lastModified: new Date()
     };
@@ -13403,6 +13452,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       // Identity and status fields (top-level)
       requesterId: `guest-${tokenDoc._id}`,
       status: 'pending',
+      calendarOwner: getDefaultCalendarOwner(),
       effectiveStart: effectiveStart, // Used for room blocking (includes setup)
       effectiveEnd: effectiveEnd, // Used for room blocking (includes teardown)
 
@@ -16401,7 +16451,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
       lastSyncedAt: new Date(),
       // Use provided calendarId and calendarOwner so event shows in user's calendar view
       calendarId: calendarId || null,
-      calendarOwner: calendarOwner || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null), // Email of calendar owner for filtering
+      calendarOwner: (calendarOwner || (calendarId ? getCalendarOwnerFromConfig(calendarId) : null) || getDefaultCalendarOwner()).toLowerCase(), // Email of calendar owner for filtering
       sourceCalendars: calendarId ? [calendarId] : [],
       sourceMetadata: {},
       syncStatus: 'pending',

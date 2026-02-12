@@ -189,8 +189,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(200);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.draft.eventTitle).toBe('Updated Title');
-      expect(res.body.draft.eventDescription).toBe('New description');
+      expect(res.body.draft.calendarData.eventTitle).toBe('Updated Title');
+      expect(res.body.draft.calendarData.eventDescription).toBe('New description');
     });
   });
 

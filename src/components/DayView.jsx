@@ -283,7 +283,7 @@ const DayView = memo(({
                         const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
                         const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
                         const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
-                        
+
                         // Format total duration - simplified to prevent overflow
                         const hours = Math.floor(duration / 60);
                         const minutes = duration % 60;
@@ -295,9 +295,9 @@ const DayView = memo(({
                           // Show minutes for short events
                           durationStr = `${minutes}m`;
                         }
-                        
+
                         timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
-                        
+
                         // Add indicator if showing registration times
                         if (showRegistrationTimes && event.hasRegistrationEvent) {
                           timeDisplay = `⏱️ ${timeDisplay}`;
@@ -323,9 +323,11 @@ const DayView = memo(({
                       const isShowingRegistrationTime = showRegistrationTimes && event.hasRegistrationEvent;
                       // Check if event is pending approval
                       const isPending = event.status === 'pending';
+                      // Check if event is a draft
+                      const isDraft = event.status === 'draft';
                       // Check for pending edit request
                       const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
-                      const bgAlpha = isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
+                      const bgAlpha = isDraft ? 0.1 : isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
 
                       const transparentColor = hasPendingEditRequest
                         ? 'rgba(139, 92, 246, 0.15)' // Purple tint for pending edits
@@ -334,18 +336,18 @@ const DayView = memo(({
                       return (
                         <div
                           key={event.eventId}
-                          className={`event-item ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
+                          className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
                           style={{
                             position: 'relative',
                             backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
-                            borderLeft: `3px ${isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
+                            borderLeft: `3px ${isDraft ? 'dotted' : isPending || hasPendingEditRequest ? 'dashed' : 'solid'} ${isParentEvent ? '#4aba6d' : (hasPendingEditRequest ? '#8b5cf6' : eventColor)}`,
                             padding: '8px 10px',
                             margin: '2px 0',
                             cursor: 'pointer',
                             borderRadius: '8px',
                             color: '#333',
-                            opacity: isPending ? 0.85 : 1,
-                            ...(isShowingRegistrationTime && !isPending && !hasPendingEditRequest && {
+                            opacity: isDraft ? 0.75 : isPending ? 0.85 : 1,
+                            ...(isShowingRegistrationTime && !isPending && !isDraft && !hasPendingEditRequest && {
                               border: `1px dashed ${eventColor}`,
                               borderLeftWidth: '3px',
                               borderLeftStyle: 'solid'
@@ -436,6 +438,20 @@ const DayView = memo(({
                               display: 'inline-block'
                             }}>
                               PENDING
+                            </div>
+                          )}
+                          {isDraft && (
+                            <div style={{
+                              fontSize: '9px',
+                              fontWeight: '600',
+                              color: '#6b7280',
+                              backgroundColor: '#f3f4f6',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              marginTop: '3px',
+                              display: 'inline-block'
+                            }}>
+                              DRAFT
                             </div>
                           )}
                           {/* Pending Edit Request indicator */}
