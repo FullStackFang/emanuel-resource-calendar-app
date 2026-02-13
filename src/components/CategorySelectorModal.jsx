@@ -1,6 +1,7 @@
 // src/components/CategorySelectorModal.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import APP_CONFIG from '../config/config';
+import useScrollLock from '../hooks/useScrollLock';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './CategorySelectorModal.css';
 
@@ -57,6 +58,9 @@ export default function CategorySelectorModal({
     }
   };
 
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Handle ESC key to close
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -67,11 +71,9 @@ export default function CategorySelectorModal({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 

@@ -24,6 +24,8 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* Reserve scrollbar gutter so content doesn't shift when modals hide overflow */
+  scrollbar-gutter: stable;
 }
 
 body {

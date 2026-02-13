@@ -1,0 +1,167 @@
+/* ============================================================================
+   DISCARD CHANGES DIALOG - Emanuel Modern Design System
+   ============================================================================
+   Compact confirmation dialog for discarding unsaved edits.
+   Renders as a centered overlay above the parent ReviewModal.
+   ============================================================================ */
+
+/* ==========================================================================
+   OVERLAY — sits above the ReviewModal (z-modal + 10)
+   ========================================================================== */
+
+.discard-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: calc(var(--z-modal) + 10);
+  padding: var(--space-4);
+  animation: discard-fade-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes discard-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ==========================================================================
+   DIALOG CARD
+   ========================================================================== */
+
+.discard-dialog {
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.14),
+    0 1px 4px rgba(0, 0, 0, 0.08);
+  max-width: 360px;
+  width: 100%;
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  text-align: center;
+  animation: discard-slide-up var(--duration-normal) var(--ease-out);
+}
+
+@keyframes discard-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
+   ICON
+   ========================================================================== */
+
+.discard-dialog-icon-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+}
+
+.discard-dialog-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--color-warning-50, #fff8e1);
+  color: var(--color-warning-600, #e65100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   TEXT
+   ========================================================================== */
+
+.discard-dialog-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.discard-dialog-message {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* ==========================================================================
+   ACTIONS
+   ========================================================================== */
+
+.discard-dialog-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+}
+
+.discard-dialog-btn {
+  flex: 1;
+  padding: var(--space-2-5, 10px) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: var(--transition-all);
+  line-height: 1.4;
+}
+
+/* Secondary — Keep Editing */
+.discard-dialog-btn-secondary {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.discard-dialog-btn-secondary:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+/* Danger — Discard */
+.discard-dialog-btn-danger {
+  background: var(--color-error-500);
+  border: 1px solid var(--color-error-500);
+  color: #fff;
+}
+
+.discard-dialog-btn-danger:hover {
+  background: var(--color-error-600, #c62828);
+  border-color: var(--color-error-600, #c62828);
+}
+
+/* ==========================================================================
+   FOCUS STATES
+   ========================================================================== */
+
+.discard-dialog-btn:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   RESPONSIVE
+   ========================================================================== */
+
+@media (max-width: 400px) {
+  .discard-dialog {
+    max-width: 100%;
+    padding: var(--space-5) var(--space-4) var(--space-4);
+  }
+
+  .discard-dialog-actions {
+    flex-direction: column-reverse;
+  }
+}

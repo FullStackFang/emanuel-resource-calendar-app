@@ -2,8 +2,10 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { usePermissions } from '../../hooks/usePermissions';
+import useScrollLock from '../../hooks/useScrollLock';
 import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
+import DiscardChangesDialog from './DiscardChangesDialog';
 import './ReviewModal.css';
 
 /**
@@ -134,6 +136,9 @@ export default function ReviewModal({
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
 
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Helper to get status class for badge
   const getStatusClass = (status) => {
     switch (status) {
@@ -164,13 +169,10 @@ export default function ReviewModal({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleEscKey);
-      // Prevent body scroll when modal is open
-      document.body.style.overflow = 'hidden';
     }
 
     return () => {
       document.removeEventListener('keydown', handleEscKey);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleEscKey]);
 
@@ -728,30 +730,11 @@ export default function ReviewModal({
         )}
 
         {/* Discard Dialog - shown when closing pending edit with unsaved changes */}
-        {showDiscardDialog && (
-          <div className="draft-save-dialog-overlay">
-            <div className="draft-save-dialog">
-              <h3>Unsaved Changes</h3>
-              <p>You have unsaved changes. Are you sure you want to discard them?</p>
-              <div className="draft-save-dialog-actions">
-                <button
-                  type="button"
-                  className="action-btn reject-btn"
-                  onClick={onDiscardDialogDiscard}
-                >
-                  Discard
-                </button>
-                <button
-                  type="button"
-                  className="action-btn"
-                  onClick={onDiscardDialogCancel}
-                >
-                  Keep Editing
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <DiscardChangesDialog
+          isOpen={showDiscardDialog}
+          onDiscard={onDiscardDialogDiscard}
+          onKeepEditing={onDiscardDialogCancel}
+        />
       </div>
     </div>
   );

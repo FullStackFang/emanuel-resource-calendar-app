@@ -1,6 +1,7 @@
 // src/components/shared/ConflictDialog.jsx
 import React, { useEffect, useCallback } from 'react';
 import { computeConflictDiff } from '../../utils/conflictDiffUtils';
+import useScrollLock from '../../hooks/useScrollLock';
 import './ConflictDialog.css';
 
 /**
@@ -33,6 +34,9 @@ export default function ConflictDialog({
   details = {},
   staleData = null
 }) {
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Handle ESC key to close
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -43,11 +47,9 @@ export default function ConflictDialog({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 

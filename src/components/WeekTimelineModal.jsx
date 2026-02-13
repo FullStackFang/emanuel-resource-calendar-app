@@ -1,5 +1,6 @@
 // src/components/WeekTimelineModal.jsx
 import React, { useState, useEffect, useMemo } from 'react';
+import useScrollLock from '../hooks/useScrollLock';
 import './WeekTimelineModal.css';
 
 /**
@@ -23,6 +24,9 @@ export default function WeekTimelineModal({
   events = [],
   calendarName = ''
 }) {
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Close modal on ESC key
   useEffect(() => {
     const handleEsc = (e) => {
@@ -37,18 +41,6 @@ export default function WeekTimelineModal({
     }
   }, [isOpen, onClose]);
 
-  // Prevent background scrolling when modal is open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
 
   // State for all-day event list modal
   const [showAllDayList, setShowAllDayList] = useState(null); // { date: 'dateKey', events: [] }

@@ -1,5 +1,6 @@
 // src/components/ServicesSelectorModal.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import useScrollLock from '../hooks/useScrollLock';
 import './ServicesSelectorModal.css';
 
 /**
@@ -158,6 +159,9 @@ export default function ServicesSelectorModal({
     }
   }, [isOpen, initialServices]);
 
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Handle ESC key to close
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -168,11 +172,9 @@ export default function ServicesSelectorModal({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 

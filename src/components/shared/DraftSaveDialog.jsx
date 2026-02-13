@@ -1,5 +1,6 @@
 // src/components/shared/DraftSaveDialog.jsx
 import React, { useEffect, useCallback } from 'react';
+import useScrollLock from '../../hooks/useScrollLock';
 import './DraftSaveDialog.css';
 
 /**
@@ -32,14 +33,15 @@ export default function DraftSaveDialog({
     }
   }, [isOpen, onCancel, saving]);
 
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 

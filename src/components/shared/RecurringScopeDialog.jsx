@@ -1,5 +1,6 @@
 // src/components/shared/RecurringScopeDialog.jsx
 import React, { useState, useEffect, useCallback } from 'react';
+import useScrollLock from '../../hooks/useScrollLock';
 import './RecurringScopeDialog.css';
 
 /**
@@ -31,6 +32,9 @@ export default function RecurringScopeDialog({
     }
   }, [isOpen]);
 
+  // Lock body scroll when modal is open (runs before paint to prevent jitter)
+  useScrollLock(isOpen);
+
   // Handle ESC key to close
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && isOpen) {
@@ -41,11 +45,9 @@ export default function RecurringScopeDialog({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 
