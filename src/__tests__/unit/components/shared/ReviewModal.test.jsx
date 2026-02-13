@@ -128,7 +128,7 @@ describe('ReviewModal', () => {
       expect(submitButton).toBeDisabled();
     });
 
-    it('should show helpful title when disabled due to invalid form', () => {
+    it('should be disabled when form is invalid', () => {
       render(
         <ReviewModal
           {...defaultProps}
@@ -141,7 +141,7 @@ describe('ReviewModal', () => {
       );
 
       const submitButton = screen.getByRole('button', { name: /submit request/i });
-      expect(submitButton).toHaveAttribute('title', expect.stringContaining('required'));
+      expect(submitButton).toBeDisabled();
     });
   });
 });

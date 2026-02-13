@@ -426,7 +426,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       if (onSuccess) onSuccess(result);
-      await closeModal();
+      await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error approving:', error);
@@ -505,7 +505,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const result = await response.json();
       setRejectionReason(''); // Clear the reason after successful rejection
       if (onSuccess) onSuccess(result);
-      await closeModal();
+      await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error rejecting:', error);
@@ -587,7 +587,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       const result = await response.json();
       if (onSuccess) onSuccess({ ...result, deleted: true });
-      await closeModal();
+      await closeModal(true);
       return { success: true, data: result };
     } catch (error) {
       logger.error('Error deleting:', error);

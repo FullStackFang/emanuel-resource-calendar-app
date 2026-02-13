@@ -296,7 +296,17 @@
 }
 
 .publish-btn:hover:not(:disabled) {
+  background: var(--color-success-400);
+}
+
+.publish-btn.confirming {
   background: var(--color-success-600);
+  color: var(--text-inverse);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.publish-btn.confirming:hover:not(:disabled) {
+  background: var(--color-success-400);
 }
 
 /* Reject Button */
@@ -306,7 +316,17 @@
 }
 
 .reject-btn:hover:not(:disabled) {
+  background: var(--color-error-400);
+}
+
+.reject-btn.confirming {
   background: var(--color-error-600);
+  color: var(--text-inverse);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.reject-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
 }
 
 /* Save Button */
@@ -316,7 +336,17 @@
 }
 
 .save-btn:hover:not(:disabled) {
+  background: var(--color-primary-400);
+}
+
+.save-btn.confirming {
   background: var(--color-primary-600);
+  color: var(--text-inverse);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.save-btn.confirming:hover:not(:disabled) {
+  background: var(--color-primary-400);
 }
 
 /* Delete Button */
@@ -328,7 +358,19 @@
 
 .delete-btn:hover:not(:disabled) {
   background: var(--color-error-100) !important;
+  border-color: var(--color-error-300) !important;
+}
+
+.delete-btn.confirming {
+  background: var(--color-error-500) !important;
+  color: var(--text-inverse) !important;
   border-color: var(--color-error-500) !important;
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.delete-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400) !important;
+  border-color: var(--color-error-400) !important;
 }
 
 /* Draft Button */
@@ -338,13 +380,22 @@
 }
 
 .draft-btn:hover:not(:disabled) {
-  background: var(--color-info-600);
+  background: var(--color-info-400);
 }
 
 .draft-btn.confirming {
   background: var(--color-info-600);
   color: var(--text-inverse);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.draft-btn.confirming:hover:not(:disabled) {
+  background: var(--color-info-400);
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
 }
 
 .draft-cancel-x {
@@ -365,7 +416,7 @@
 }
 
 .review-actions .request-edit-btn:hover:not(:disabled) {
-  background: var(--color-info-600) !important;
+  background: var(--color-info-400) !important;
 }
 
 /* Cancel/Close Button — solid fill like other action buttons */
@@ -377,7 +428,8 @@
 }
 
 .review-actions .cancel-btn:hover {
-  background: var(--color-neutral-500) !important;
+  background: var(--color-neutral-300) !important;
+  color: var(--text-primary) !important;
 }
 
 /* ==========================================================================
@@ -413,7 +465,7 @@
 }
 
 .delete-cancel-x:hover {
-  background: var(--color-warning-700) !important;
+  background: var(--color-warning-400) !important;
 }
 
 .publish-cancel-x {
@@ -422,7 +474,7 @@
 }
 
 .publish-cancel-x:hover {
-  background: var(--color-success-700) !important;
+  background: var(--color-success-400) !important;
 }
 
 .reject-cancel-x {
@@ -431,7 +483,7 @@
 }
 
 .reject-cancel-x:hover {
-  background: var(--color-error-600) !important;
+  background: var(--color-error-400) !important;
 }
 
 .save-cancel-x {
@@ -440,7 +492,7 @@
 }
 
 .save-cancel-x:hover {
-  background: var(--color-primary-500) !important;
+  background: var(--color-primary-400) !important;
 }
 
 .submit-cancel-x {
@@ -449,7 +501,7 @@
 }
 
 .submit-cancel-x:hover {
-  background: var(--color-success-700) !important;
+  background: var(--color-success-400) !important;
 }
 
 .action-btn.confirming {
@@ -553,7 +605,7 @@
 }
 
 .review-actions .view-edit-request-btn:hover:not(:disabled) {
-  background: var(--color-warning-600) !important;
+  background: var(--color-warning-400) !important;
 }
 
 /* Toggle View Button */
@@ -564,7 +616,7 @@
 }
 
 .review-actions .toggle-view-btn:hover:not(:disabled) {
-  background: var(--color-info-600) !important;
+  background: var(--color-info-400) !important;
 }
 
 /* ==========================================================================

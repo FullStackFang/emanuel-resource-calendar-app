@@ -476,17 +476,53 @@
   border-color: var(--color-error-300);
 }
 
-.rr-btn-danger.confirm {
+.rr-btn-danger.confirming {
   background: var(--color-error-500);
   color: var(--text-inverse);
   border-color: var(--color-error-500);
   animation: pulse-confirm 1s ease-in-out infinite;
 }
 
+.rr-btn-danger.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
+}
+
 .rr-btn-danger:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   animation: none;
+}
+
+/* Confirm button group with ✕ cancel */
+.rr-details-actions .confirm-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rr-details-actions .cancel-confirm-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-error-300);
+  border-radius: 6px;
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.rr-details-actions .cancel-confirm-x:hover {
+  background: var(--color-error-400);
+  color: white;
+  border-color: var(--color-error-400);
 }
 
 /* Card Body - Info Grid - Full width usage */
@@ -1065,16 +1101,16 @@
   transform: scale(0.98);
 }
 
-.delete-btn.confirm {
+.delete-btn.confirming {
   background: var(--color-error-500);
   border-color: var(--color-error-600);
   color: var(--text-inverse);
   animation: pulse-confirm 1s ease-in-out infinite;
 }
 
-.delete-btn.confirm:hover {
-  background: var(--color-error-600);
-  border-color: var(--color-error-700);
+.delete-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
 }
 
 @keyframes pulse-confirm {

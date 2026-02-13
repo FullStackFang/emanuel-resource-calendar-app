@@ -556,10 +556,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } else {
       // First click - enter confirm state
       setIsApproveConfirming(true);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setIsApproveConfirming(false);
-      }, 3000);
     }
   };
 
@@ -698,11 +694,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } else {
       // First click - enter confirm state (shows reason input)
       setIsRejectConfirming(true);
-      // Auto-reset after 10 seconds if not confirmed (longer for typing reason)
-      setTimeout(() => {
-        setIsRejectConfirming(false);
-        setRejectionReason('');
-      }, 10000);
     }
   };
 
@@ -764,10 +755,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } else {
       // First click - enter confirm state
       setIsModalDeleteConfirming(true);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setIsModalDeleteConfirming(false);
-      }, 3000);
     }
   };
 
@@ -839,10 +826,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     } else {
       // First click - enter confirm state
       setConfirmDeleteId(reservation._id);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setConfirmDeleteId(prev => prev === reservation._id ? null : prev);
-      }, 3000);
     }
   };
 
@@ -1211,17 +1194,27 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   >
                     Review
                   </button>
-                  <button
-                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
-                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                    disabled={deletingId === selectedDetailsReservation._id}
-                  >
-                    {deletingId === selectedDetailsReservation._id
-                      ? 'Deleting...'
-                      : confirmDeleteId === selectedDetailsReservation._id
-                        ? 'Confirm?'
-                        : 'Delete'}
-                  </button>
+                  <div className="confirm-button-group">
+                    <button
+                      className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
+                      onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                      disabled={deletingId === selectedDetailsReservation._id}
+                    >
+                      {deletingId === selectedDetailsReservation._id
+                        ? 'Deleting...'
+                        : confirmDeleteId === selectedDetailsReservation._id
+                          ? 'Confirm?'
+                          : 'Delete'}
+                    </button>
+                    {confirmDeleteId === selectedDetailsReservation._id && (
+                      <button
+                        className="cancel-confirm-x"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -1238,8 +1231,35 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   >
                     Edit
                   </button>
+                  <div className="confirm-button-group">
+                    <button
+                      className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
+                      onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                      disabled={deletingId === selectedDetailsReservation._id}
+                    >
+                      {deletingId === selectedDetailsReservation._id
+                        ? 'Deleting...'
+                        : confirmDeleteId === selectedDetailsReservation._id
+                          ? 'Confirm?'
+                          : 'Delete'}
+                    </button>
+                    {confirmDeleteId === selectedDetailsReservation._id && (
+                      <button
+                        className="cancel-confirm-x"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Rejected: Delete + Close */}
+              {selectedDetailsReservation.status === 'rejected' && (
+                <div className="confirm-button-group">
                   <button
-                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
+                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
                     onClick={() => handleDeleteClick(selectedDetailsReservation)}
                     disabled={deletingId === selectedDetailsReservation._id}
                   >
@@ -1249,37 +1269,40 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                         ? 'Confirm?'
                         : 'Delete'}
                   </button>
-                </>
-              )}
-
-              {/* Rejected: Delete + Close */}
-              {selectedDetailsReservation.status === 'rejected' && (
-                <button
-                  className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
-                  onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                  disabled={deletingId === selectedDetailsReservation._id}
-                >
-                  {deletingId === selectedDetailsReservation._id
-                    ? 'Deleting...'
-                    : confirmDeleteId === selectedDetailsReservation._id
-                      ? 'Confirm?'
-                      : 'Delete'}
-                </button>
+                  {confirmDeleteId === selectedDetailsReservation._id && (
+                    <button
+                      className="cancel-confirm-x"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Cancelled: Delete + Close */}
               {selectedDetailsReservation.status === 'cancelled' && (
-                <button
-                  className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirm' : ''}`}
-                  onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                  disabled={deletingId === selectedDetailsReservation._id}
-                >
-                  {deletingId === selectedDetailsReservation._id
-                    ? 'Deleting...'
-                    : confirmDeleteId === selectedDetailsReservation._id
-                      ? 'Confirm?'
-                      : 'Delete'}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
+                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
+                    disabled={deletingId === selectedDetailsReservation._id}
+                  >
+                    {deletingId === selectedDetailsReservation._id
+                      ? 'Deleting...'
+                      : confirmDeleteId === selectedDetailsReservation._id
+                        ? 'Confirm?'
+                        : 'Delete'}
+                  </button>
+                  {confirmDeleteId === selectedDetailsReservation._id && (
+                    <button
+                      className="cancel-confirm-x"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Deleted: Close only (no actions) */}

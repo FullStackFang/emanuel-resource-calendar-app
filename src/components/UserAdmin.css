@@ -591,11 +591,47 @@
   border-color: var(--color-error-300);
 }
 
-.user-admin .delete-btn.confirm {
+.user-admin .delete-btn.confirming {
   background: var(--color-error-500);
   color: white;
   border-color: var(--color-error-500);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.user-admin .delete-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
+}
+
+/* Confirm button group with ✕ cancel */
+.user-admin .confirm-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.user-admin .cancel-confirm-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-error-300);
+  border-radius: 6px;
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.user-admin .cancel-confirm-x:hover {
+  background: var(--color-error-400);
+  color: white;
+  border-color: var(--color-error-400);
 }
 
 .user-admin .delete-btn:disabled {

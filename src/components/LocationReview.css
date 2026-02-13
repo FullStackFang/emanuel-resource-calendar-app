@@ -687,9 +687,31 @@
   border-color: var(--color-error-200);
 }
 
-.delete-location-btn:hover {
+.delete-location-btn:hover:not(:disabled) {
   background: var(--color-error-100);
   border-color: var(--color-error-300);
+}
+
+.delete-location-btn.confirming {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  border-color: var(--color-error-500);
+  animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.delete-location-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
+}
+
+.delete-location-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes pulse-confirm {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
 }
 
 .merged-info {

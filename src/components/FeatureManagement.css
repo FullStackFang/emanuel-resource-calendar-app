@@ -458,16 +458,46 @@
   border: 1px solid var(--color-error-200);
 }
 
-.feature-management .action-btn.delete-btn:hover {
+.feature-management .action-btn.delete-btn:hover:not(:disabled) {
   background: var(--color-error-100);
   border-color: var(--color-error-300);
 }
 
-.feature-management .action-btn.delete-btn.confirm {
+.feature-management .action-btn.delete-btn.confirming {
   background: var(--color-error-500);
-  border-color: var(--color-error-600);
+  border-color: var(--color-error-500);
   color: var(--text-inverse);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.feature-management .action-btn.delete-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
+}
+
+.feature-management .confirm-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.feature-management .confirm-cancel-x {
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-error-600);
+  color: var(--text-inverse);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feature-management .confirm-cancel-x:hover {
+  background: var(--color-error-400);
 }
 
 @keyframes pulse-confirm {

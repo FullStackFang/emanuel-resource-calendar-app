@@ -215,9 +215,6 @@ export default function EventManagement({ apiToken }) {
       handleDelete(event);
     } else {
       setConfirmDeleteId(String(event._id));
-      setTimeout(() => {
-        setConfirmDeleteId(prev => prev === String(event._id) ? null : prev);
-      }, 3000);
     }
   };
 
@@ -267,9 +264,6 @@ export default function EventManagement({ apiToken }) {
       handleRestore(event);
     } else {
       setConfirmRestoreId(String(event._id));
-      setTimeout(() => {
-        setConfirmRestoreId(prev => prev === String(event._id) ? null : prev);
-      }, 3000);
     }
   };
 
@@ -703,45 +697,65 @@ export default function EventManagement({ apiToken }) {
               {/* Modal Actions */}
               <div className="em-modal-actions">
                 {isDeleted ? (
-                  <button
-                    className={`em-restore-btn ${confirmRestoreId === eventId ? 'confirm' : ''}`}
-                    onClick={() => handleRestoreClick(event)}
-                    disabled={restoringId === eventId}
-                  >
-                    {restoringId === eventId ? (
-                      'Restoring...'
-                    ) : confirmRestoreId === eventId ? (
-                      'Confirm?'
-                    ) : (
-                      <>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="1 4 1 10 7 10" />
-                          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                        </svg>
-                        Restore
-                      </>
+                  <div className="confirm-button-group">
+                    <button
+                      className={`em-restore-btn ${confirmRestoreId === eventId ? 'confirming' : ''}`}
+                      onClick={() => handleRestoreClick(event)}
+                      disabled={restoringId === eventId}
+                    >
+                      {restoringId === eventId ? (
+                        'Restoring...'
+                      ) : confirmRestoreId === eventId ? (
+                        'Confirm?'
+                      ) : (
+                        <>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="1 4 1 10 7 10" />
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                          </svg>
+                          Restore
+                        </>
+                      )}
+                    </button>
+                    {confirmRestoreId === eventId && (
+                      <button
+                        className="cancel-confirm-x restore-cancel-x"
+                        onClick={(e) => { e.stopPropagation(); setConfirmRestoreId(null); }}
+                      >
+                        ✕
+                      </button>
                     )}
-                  </button>
+                  </div>
                 ) : (
-                  <button
-                    className={`em-delete-btn ${confirmDeleteId === eventId ? 'confirm' : ''}`}
-                    onClick={() => handleDeleteClick(event)}
-                    disabled={deletingId === eventId}
-                  >
-                    {deletingId === eventId ? (
-                      'Deleting...'
-                    ) : confirmDeleteId === eventId ? (
-                      'Confirm?'
-                    ) : (
-                      <>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                        Delete
-                      </>
+                  <div className="confirm-button-group">
+                    <button
+                      className={`em-delete-btn ${confirmDeleteId === eventId ? 'confirming' : ''}`}
+                      onClick={() => handleDeleteClick(event)}
+                      disabled={deletingId === eventId}
+                    >
+                      {deletingId === eventId ? (
+                        'Deleting...'
+                      ) : confirmDeleteId === eventId ? (
+                        'Confirm?'
+                      ) : (
+                        <>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          Delete
+                        </>
+                      )}
+                    </button>
+                    {confirmDeleteId === eventId && (
+                      <button
+                        className="cancel-confirm-x"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                      >
+                        ✕
+                      </button>
                     )}
-                  </button>
+                  </div>
                 )}
                 <button className="em-close-btn" onClick={() => setSelectedEvent(null)}>
                   Close

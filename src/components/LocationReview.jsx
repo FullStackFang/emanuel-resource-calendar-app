@@ -22,6 +22,9 @@ export default function LocationReview({ apiToken }) {
   const [deletionProgress, setDeletionProgress] = useState(null);
   const [showDeletionModal, setShowDeletionModal] = useState(false);
 
+  // In-button delete confirmation state
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
   // Location modal state
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
@@ -187,6 +190,17 @@ export default function LocationReview({ apiToken }) {
     }
   };
 
+  const handleDeleteLocationClick = (location) => {
+    if (confirmDeleteId === location._id) {
+      // Second click - proceed with delete
+      setConfirmDeleteId(null);
+      handleDeleteLocation(location);
+    } else {
+      // First click - show confirmation
+      setConfirmDeleteId(location._id);
+    }
+  };
+
   const handleDeleteLocation = async (location) => {
     try {
       const countResponse = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations/${location._id}/event-count`, {
@@ -200,14 +214,6 @@ export default function LocationReview({ apiToken }) {
       if (countResponse.ok) {
         const countData = await countResponse.json();
         eventCount = countData.eventCount || 0;
-      }
-
-      const confirmMessage = eventCount > 0
-        ? `Delete "${location.name}"?\n\nThis will remove it from ${eventCount} event${eventCount === 1 ? '' : 's'}.`
-        : `Delete "${location.name}"?\n\nNo events are currently using this location.`;
-
-      if (!confirm(confirmMessage)) {
-        return;
       }
 
       setDeletionProgress({
@@ -485,17 +491,31 @@ export default function LocationReview({ apiToken }) {
                         <button
                           onClick={() => handleEditLocation(location)}
                           className="edit-location-btn"
-                          title="Edit location details"
                         >
                           Edit
                         </button>
-                        <button
-                          onClick={() => handleDeleteLocation(location)}
-                          className="delete-location-btn"
-                          title="Delete this location"
-                        >
-                          Delete
-                        </button>
+                        <div className="confirm-button-group" style={{ display: 'inline-flex' }}>
+                          <button
+                            onClick={() => handleDeleteLocationClick(location)}
+                            className={`delete-location-btn ${confirmDeleteId === location._id ? 'confirming' : ''}`}
+                            disabled={deletionProgress?.locationId === location._id}
+                          >
+                            {deletionProgress?.locationId === location._id
+                              ? 'Deleting...'
+                              : confirmDeleteId === location._id
+                                ? 'Confirm?'
+                                : 'Delete'}
+                          </button>
+                          {confirmDeleteId === location._id && (
+                            <button
+                              className="confirm-cancel-x delete-cancel-x"
+                              onClick={() => setConfirmDeleteId(null)}
+                              style={{ padding: '0 8px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <span className="no-actions">—</span>

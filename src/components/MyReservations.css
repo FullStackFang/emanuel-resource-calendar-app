@@ -348,11 +348,16 @@
 }
 
 /* In-button confirmation state for destructive actions */
-.mr-btn-danger.confirm {
+.mr-btn-danger.confirming {
   background: var(--color-error-500);
   color: var(--text-inverse);
-  border-color: var(--color-error-600);
+  border-color: var(--color-error-500);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.mr-btn-danger.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+  border-color: var(--color-error-400);
 }
 
 @keyframes pulse-confirm {
@@ -841,25 +846,58 @@
   animation: pulse-confirm 1s ease-in-out infinite;
 }
 
+.my-reservations .confirm-cancel-btn.confirming:hover:not(:disabled) {
+  background: var(--color-error-400);
+}
+
+/* Shared confirm-button-group layout */
+.my-reservations .confirm-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ✕ cancel buttons for all confirm groups */
 .my-reservations .cancel-confirm-x {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
+  padding: 0 var(--space-2);
+  height: 34px;
   border: none;
-  border-radius: var(--radius-full);
-  background: var(--color-neutral-200);
-  color: var(--text-secondary);
+  border-radius: var(--radius-lg);
   font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
   cursor: pointer;
   transition: var(--transition-all);
+  color: var(--text-inverse);
+}
+
+/* Default ✕ color (error/destructive) */
+.my-reservations .cancel-confirm-x {
+  background: var(--color-error-600);
 }
 
 .my-reservations .cancel-confirm-x:hover {
-  background: var(--color-neutral-300);
-  color: var(--text-primary);
+  background: var(--color-error-400);
+}
+
+/* Resubmit ✕ (green/success) */
+.my-reservations .resubmit-cancel-x {
+  background: var(--color-success-600);
+}
+
+.my-reservations .resubmit-cancel-x:hover {
+  background: var(--color-success-400);
+}
+
+/* Restore ✕ (green/success) */
+.my-reservations .restore-cancel-x {
+  background: var(--color-success-600);
+}
+
+.my-reservations .restore-cancel-x:hover {
+  background: var(--color-success-400);
 }
 
 .my-reservations .close-btn {
@@ -879,7 +917,7 @@
 }
 
 .my-reservations .edit-request-btn:hover {
-  background: var(--color-info-600);
+  background: var(--color-info-400);
 }
 
 .my-reservations .restore-btn {
@@ -896,12 +934,16 @@
 }
 
 .my-reservations .restore-btn:hover:not(:disabled) {
-  background: var(--color-success-600);
+  background: var(--color-success-400);
 }
 
-.my-reservations .restore-btn.confirm {
+.my-reservations .restore-btn.confirming {
   background: var(--color-success-600);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.my-reservations .restore-btn.confirming:hover:not(:disabled) {
+  background: var(--color-success-400);
 }
 
 .my-reservations .restore-btn:disabled {
@@ -923,12 +965,16 @@
 }
 
 .my-reservations .resubmit-btn:hover:not(:disabled) {
-  background: var(--color-success-600);
+  background: var(--color-success-400);
 }
 
-.my-reservations .resubmit-btn.confirm {
+.my-reservations .resubmit-btn.confirming {
   background: var(--color-success-600);
   animation: pulse-confirm 1s ease-in-out infinite;
+}
+
+.my-reservations .resubmit-btn.confirming:hover:not(:disabled) {
+  background: var(--color-success-400);
 }
 
 .my-reservations .resubmit-btn:disabled {

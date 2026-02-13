@@ -150,15 +150,6 @@ export default function MyReservations({ apiToken }) {
     } else {
       // First click - enter confirm state (shows reason input)
       setIsCancelConfirming(true);
-      // Auto-reset after 15 seconds if not confirmed (longer for typing reason)
-      setTimeout(() => {
-        setIsCancelConfirming(prev => {
-          if (prev) {
-            setCancelReason('');
-          }
-          return false;
-        });
-      }, 15000);
     }
   };
 
@@ -204,10 +195,6 @@ export default function MyReservations({ apiToken }) {
     } else {
       // First click - enter confirm state
       setConfirmResubmitId(reservation._id);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setConfirmResubmitId(prev => prev === reservation._id ? null : prev);
-      }, 3000);
     }
   };
 
@@ -257,10 +244,6 @@ export default function MyReservations({ apiToken }) {
     } else {
       // First click - enter confirm state
       setConfirmDeleteId(draft._id);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setConfirmDeleteId(prev => prev === draft._id ? null : prev);
-      }, 3000);
     }
   };
 
@@ -300,10 +283,6 @@ export default function MyReservations({ apiToken }) {
     } else {
       // First click - enter confirm state
       setConfirmRestoreId(reservation._id);
-      // Auto-reset after 3 seconds if not confirmed
-      setTimeout(() => {
-        setConfirmRestoreId(prev => prev === reservation._id ? null : prev);
-      }, 3000);
     }
   };
 
@@ -754,21 +733,31 @@ export default function MyReservations({ apiToken }) {
                       setSelectedReservation(null);
                       handleEditDraft(selectedReservation);
                     }}
-                    title="Edit this draft"
                   >
                     Edit
                   </button>
-                  <button
-                    className={`mr-btn mr-btn-danger ${confirmDeleteId === selectedReservation._id ? 'confirm' : ''}`}
-                    onClick={() => handleDeleteClick(selectedReservation)}
-                    disabled={deletingDraftId === selectedReservation._id}
-                  >
-                    {deletingDraftId === selectedReservation._id
-                      ? 'Deleting...'
-                      : confirmDeleteId === selectedReservation._id
-                        ? 'Confirm?'
-                        : 'Delete'}
-                  </button>
+                  <div className="confirm-button-group">
+                    <button
+                      className={`mr-btn mr-btn-danger ${confirmDeleteId === selectedReservation._id ? 'confirming' : ''}`}
+                      onClick={() => handleDeleteClick(selectedReservation)}
+                      disabled={deletingDraftId === selectedReservation._id}
+                    >
+                      {deletingDraftId === selectedReservation._id
+                        ? 'Deleting...'
+                        : confirmDeleteId === selectedReservation._id
+                          ? 'Confirm?'
+                          : 'Delete'}
+                    </button>
+                    {confirmDeleteId === selectedReservation._id && (
+                      <button
+                        type="button"
+                        className="cancel-confirm-x"
+                        onClick={() => setConfirmDeleteId(null)}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
               {/* Pending actions: Cancel Request + Edit */}
@@ -801,7 +790,6 @@ export default function MyReservations({ apiToken }) {
                           setIsCancelConfirming(false);
                           setCancelReason('');
                         }}
-                        title="Cancel"
                       >
                         ✕
                       </button>
@@ -816,7 +804,6 @@ export default function MyReservations({ apiToken }) {
                         detail: { event: reservation }
                       }));
                     }}
-                    title="Edit this pending reservation"
                   >
                     Edit
                   </button>
@@ -832,7 +819,6 @@ export default function MyReservations({ apiToken }) {
                       detail: { event: reservation }
                     }));
                   }}
-                  title="Edit this published reservation"
                 >
                   Edit
                 </button>
@@ -847,7 +833,6 @@ export default function MyReservations({ apiToken }) {
                       detail: { event: reservation }
                     }));
                   }}
-                  title="Request changes to this published reservation"
                 >
                   Request Edit
                 </button>
@@ -858,46 +843,76 @@ export default function MyReservations({ apiToken }) {
                 </div>
               )}
               {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
-                <button
-                  className={`resubmit-btn ${confirmResubmitId === selectedReservation._id ? 'confirm' : ''}`}
-                  onClick={() => handleResubmitClick(selectedReservation)}
-                  disabled={resubmittingId === selectedReservation._id}
-                  title="Resubmit this reservation for review"
-                >
-                  {resubmittingId === selectedReservation._id
-                    ? 'Resubmitting...'
-                    : confirmResubmitId === selectedReservation._id
-                      ? 'Confirm?'
-                      : 'Resubmit'}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    className={`resubmit-btn ${confirmResubmitId === selectedReservation._id ? 'confirming' : ''}`}
+                    onClick={() => handleResubmitClick(selectedReservation)}
+                    disabled={resubmittingId === selectedReservation._id}
+                  >
+                    {resubmittingId === selectedReservation._id
+                      ? 'Resubmitting...'
+                      : confirmResubmitId === selectedReservation._id
+                        ? 'Confirm?'
+                        : 'Resubmit'}
+                  </button>
+                  {confirmResubmitId === selectedReservation._id && (
+                    <button
+                      type="button"
+                      className="cancel-confirm-x resubmit-cancel-x"
+                      onClick={() => setConfirmResubmitId(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
               {selectedReservation.status === 'cancelled' && (
-                <button
-                  className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirm' : ''}`}
-                  onClick={() => handleRestoreClick(selectedReservation)}
-                  disabled={restoringId === selectedReservation._id}
-                  title="Restore this reservation to its previous status"
-                >
-                  {restoringId === selectedReservation._id
-                    ? 'Restoring...'
-                    : confirmRestoreId === selectedReservation._id
-                      ? 'Confirm?'
-                      : 'Restore'}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirming' : ''}`}
+                    onClick={() => handleRestoreClick(selectedReservation)}
+                    disabled={restoringId === selectedReservation._id}
+                  >
+                    {restoringId === selectedReservation._id
+                      ? 'Restoring...'
+                      : confirmRestoreId === selectedReservation._id
+                        ? 'Confirm?'
+                        : 'Restore'}
+                  </button>
+                  {confirmRestoreId === selectedReservation._id && (
+                    <button
+                      type="button"
+                      className="cancel-confirm-x restore-cancel-x"
+                      onClick={() => setConfirmRestoreId(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
               {selectedReservation.status === 'deleted' && (
-                <button
-                  className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirm' : ''}`}
-                  onClick={() => handleRestoreClick(selectedReservation)}
-                  disabled={restoringId === selectedReservation._id}
-                  title="Restore this reservation to its previous status"
-                >
-                  {restoringId === selectedReservation._id
-                    ? 'Restoring...'
-                    : confirmRestoreId === selectedReservation._id
-                      ? 'Confirm?'
-                      : 'Restore'}
-                </button>
+                <div className="confirm-button-group">
+                  <button
+                    className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirming' : ''}`}
+                    onClick={() => handleRestoreClick(selectedReservation)}
+                    disabled={restoringId === selectedReservation._id}
+                  >
+                    {restoringId === selectedReservation._id
+                      ? 'Restoring...'
+                      : confirmRestoreId === selectedReservation._id
+                        ? 'Confirm?'
+                        : 'Restore'}
+                  </button>
+                  {confirmRestoreId === selectedReservation._id && (
+                    <button
+                      type="button"
+                      className="cancel-confirm-x restore-cancel-x"
+                      onClick={() => setConfirmRestoreId(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               )}
               <button
                 className="close-btn"

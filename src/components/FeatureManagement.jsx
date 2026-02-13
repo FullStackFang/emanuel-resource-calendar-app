@@ -16,8 +16,9 @@ export default function FeatureManagement({ apiToken }) {
   const [addType, setAddType] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState(null);
+  // In-button delete confirmation state: tracks { id, type } of item being confirmed
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   
   // Form state for adding new items
   const [formData, setFormData] = useState({
@@ -101,21 +102,27 @@ export default function FeatureManagement({ apiToken }) {
     });
   };
 
-  const handleDelete = (item, type) => {
-    setItemToDelete({ item, type });
-    setShowDeleteConfirm(true);
+
+  const handleDeleteClick = (item, type) => {
+    if (confirmDeleteId === item._id) {
+      // Second click - proceed with delete
+      setConfirmDeleteId(null);
+      confirmDelete(item, type);
+    } else {
+      // First click - show confirmation
+      setConfirmDeleteId(item._id);
+    }
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (item, type) => {
     try {
       setError('');
-      
+      setDeletingId(item._id);
+
       if (!apiToken) {
         throw new Error('Authentication required');
       }
 
-      const { item, type } = itemToDelete;
-      
       switch (type) {
         case 'category':
           await featureConfigService.deleteCategory(item._id, apiToken);
@@ -131,16 +138,14 @@ export default function FeatureManagement({ apiToken }) {
       }
 
       logger.info('Feature deleted successfully:', { type, id: item._id, key: item.key });
-      
+
       // Reload the configuration
       await loadFeatureConfig();
-      
-      // Close confirmation dialog
-      setShowDeleteConfirm(false);
-      setItemToDelete(null);
     } catch (err) {
       logger.error('Error deleting feature:', err);
       setError(err.message || 'Failed to delete feature');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -294,17 +299,21 @@ export default function FeatureManagement({ apiToken }) {
                           <button
                             className="action-btn edit-btn"
                             onClick={() => handleEdit(capability, 'capability')}
-                            title="Edit capability"
                           >
                             Edit
                           </button>
-                          <button
-                            className="action-btn delete-btn"
-                            onClick={() => handleDelete(capability, 'capability')}
-                            title="Delete capability"
-                          >
-                            Delete
-                          </button>
+                          <div className="confirm-button-group">
+                            <button
+                              className={`action-btn delete-btn ${confirmDeleteId === capability._id ? 'confirming' : ''}`}
+                              onClick={() => handleDeleteClick(capability, 'capability')}
+                              disabled={deletingId === capability._id}
+                            >
+                              {deletingId === capability._id ? 'Deleting...' : (confirmDeleteId === capability._id ? 'Confirm?' : 'Delete')}
+                            </button>
+                            {confirmDeleteId === capability._id && (
+                              <button className="confirm-cancel-x" onClick={() => setConfirmDeleteId(null)}>✕</button>
+                            )}
+                          </div>
                         </div>
                         <div className="feature-icon">{capability.icon}</div>
                         <div className="feature-content">
@@ -352,17 +361,21 @@ export default function FeatureManagement({ apiToken }) {
                           <button
                             className="action-btn edit-btn"
                             onClick={() => handleEdit(service, 'service')}
-                            title="Edit service"
                           >
                             Edit
                           </button>
-                          <button
-                            className="action-btn delete-btn"
-                            onClick={() => handleDelete(service, 'service')}
-                            title="Delete service"
-                          >
-                            Delete
-                          </button>
+                          <div className="confirm-button-group">
+                            <button
+                              className={`action-btn delete-btn ${confirmDeleteId === service._id ? 'confirming' : ''}`}
+                              onClick={() => handleDeleteClick(service, 'service')}
+                              disabled={deletingId === service._id}
+                            >
+                              {deletingId === service._id ? 'Deleting...' : (confirmDeleteId === service._id ? 'Confirm?' : 'Delete')}
+                            </button>
+                            {confirmDeleteId === service._id && (
+                              <button className="confirm-cancel-x" onClick={() => setConfirmDeleteId(null)}>✕</button>
+                            )}
+                          </div>
                         </div>
                         <div className="feature-icon">{service.icon}</div>
                         <div className="feature-content">
@@ -423,17 +436,21 @@ export default function FeatureManagement({ apiToken }) {
                       <button
                         className="action-btn edit-btn"
                         onClick={() => handleEdit(category, 'category')}
-                        title="Edit category"
                       >
                         Edit
                       </button>
-                      <button
-                        className="action-btn delete-btn"
-                        onClick={() => handleDelete(category, 'category')}
-                        title="Delete category"
-                      >
-                        Delete
-                      </button>
+                      <div className="confirm-button-group">
+                        <button
+                          className={`action-btn delete-btn ${confirmDeleteId === category._id ? 'confirming' : ''}`}
+                          onClick={() => handleDeleteClick(category, 'category')}
+                          disabled={deletingId === category._id}
+                        >
+                          {deletingId === category._id ? 'Deleting...' : (confirmDeleteId === category._id ? 'Confirm?' : 'Delete')}
+                        </button>
+                        {confirmDeleteId === category._id && (
+                          <button className="confirm-cancel-x" onClick={() => setConfirmDeleteId(null)}>✕</button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -601,37 +618,6 @@ export default function FeatureManagement({ apiToken }) {
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
-      {showDeleteConfirm && itemToDelete && (
-        <div className="confirmation-overlay" onClick={() => setShowDeleteConfirm(false)}>
-          <div className="confirmation-dialog" onClick={(e) => e.stopPropagation()}>
-            <h4>Confirm Deletion</h4>
-            <p>
-              Are you sure you want to delete the {itemToDelete.type} "{itemToDelete.item.name}"?
-              {itemToDelete.type === 'category' && (
-                <span>
-                  <br /><br />
-                  <strong>Warning:</strong> This will only work if no capabilities or services are using this category.
-                </span>
-              )}
-            </p>
-            <div className="confirmation-actions">
-              <button 
-                className="cancel-btn" 
-                onClick={() => setShowDeleteConfirm(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="confirm-delete-btn" 
-                onClick={confirmDelete}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
