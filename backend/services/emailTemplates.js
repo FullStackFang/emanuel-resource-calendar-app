@@ -896,16 +896,13 @@ function extractVariables(reservation, extras = {}) {
     ? (reqData.eventTitle || reservation.subject || 'Untitled Event')
     : (reservation.subject || reservation.eventTitle || reqData.eventTitle || 'Untitled Event');
 
-  // Get requester info
-  // For pending: use roomReservationData.createdBy* fields
-  // For published: use top-level fields, fall back to roomReservationData
-  const requesterName = isPending
-    ? (reqData.createdByName || reqData.requesterName || reqData.contactName || 'Guest')
-    : (reservation.requesterName || reservation.contactName || reqData.createdByName || 'Guest');
+  // Get requester info from roomReservationData.requestedBy (single source)
+  const requestedBy = reqData.requestedBy || {};
+  const requesterName = requestedBy.name
+    || reqData.createdByName || reservation.createdByName || 'Guest';
 
-  const requesterEmail = isPending
-    ? (reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail || '')
-    : (reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail || '');
+  const requesterEmail = requestedBy.email
+    || reqData.createdByEmail || reservation.createdByEmail || '';
 
   // Get date/time info
   const startDateTime = isPending

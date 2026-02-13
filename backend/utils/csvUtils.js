@@ -265,52 +265,19 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
     calendarId: targetCalendarId || 'csv_import_calendar',
     eventId: eventId,
     
-    // Store original data in graphData format (mimicking Microsoft Graph structure)
-    graphData: {
-      id: eventId,
-      subject: subject,
-      start: {
-        dateTime: startISO,
-        timeZone: 'UTC'
-      },
-      end: {
-        dateTime: endISO,
-        timeZone: 'UTC'
-      },
-      location: {
-        displayName: location
-      },
+    // graphData is null — CSV imports are not Graph events
+    graphData: null,
+
+    // Enrichment data in calendarData
+    calendarData: {
       categories: categories,
-      bodyPreview: description.substring(0, 255),
-      body: {
-        contentType: 'text',
-        content: description
-      },
-      isAllDay: isAllDay,
-      importance: 'normal',
-      showAs: 'busy',
-      organizer: {
-        emailAddress: {
-          name: 'CSV Import',
-          address: 'csv-import@system'
-        }
-      },
-      attendees: [],
-      createdDateTime: new Date().toISOString(),
-      lastModifiedDateTime: new Date().toISOString(),
-      type: 'singleInstance'
-    },
-    
-    // Internal data for enrichment (consistent with UI pattern)
-    internalData: {
-      mecCategories: categories,
-      setupMinutes: setupMinutes,
-      teardownMinutes: teardownMinutes,
+      setupTimeMinutes: setupMinutes,
+      teardownTimeMinutes: teardownMinutes,
       createRegistrationEvent: createRegistrationEvent,
-      registrationNotes: description, // Use description as registration notes
-      assignedTo: '', // Empty by default, can be filled later
+      registrationNotes: description,
+      assignedTo: '',
       isCSVImport: true,
-      rsId: rsId, // Store rsId as integer (or null if invalid/empty)
+      rsId: rsId,
       importedAt: new Date().toISOString()
     },
 
@@ -359,7 +326,7 @@ function csvRowToUnifiedEvent(csvRow, userId, targetCalendarId = null) {
   };
   
   // DEBUG: Log final unified event
-  logger.debug('Final unified event rsId:', unifiedEvent.internalData.rsId, '(type:', typeof unifiedEvent.internalData.rsId, ')');
+  logger.debug('Final unified event rsId:', unifiedEvent.calendarData.rsId, '(type:', typeof unifiedEvent.calendarData.rsId, ')');
   logger.debug('=== END CSV ROW DEBUG ===\n');
   
   return unifiedEvent;

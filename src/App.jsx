@@ -886,6 +886,55 @@ function App() {
 
                     setDraftIsSaving(true);
                     try {
+                      // Save the draft first to ensure DB has latest form data
+                      // (submit endpoint reads from DB, not request body)
+                      const formData = { ...draftPrefillData, ...draftFormData };
+                      const savePayload = {
+                        eventTitle: formData.eventTitle || '',
+                        eventDescription: formData.eventDescription || '',
+                        startDateTime: formData.startDate && formData.startTime
+                          ? `${formData.startDate}T${formData.startTime}`
+                          : null,
+                        endDateTime: formData.endDate && formData.endTime
+                          ? `${formData.endDate}T${formData.endTime}`
+                          : null,
+                        startDate: formData.startDate || null,
+                        startTime: formData.startTime || null,
+                        endDate: formData.endDate || null,
+                        endTime: formData.endTime || null,
+                        attendeeCount: parseInt(formData.attendeeCount) || 0,
+                        requestedRooms: formData.requestedRooms || formData.locations || [],
+                        specialRequirements: formData.specialRequirements || '',
+                        department: formData.department || '',
+                        phone: formData.phone || '',
+                        setupTime: formData.setupTime || null,
+                        teardownTime: formData.teardownTime || null,
+                        doorOpenTime: formData.doorOpenTime || null,
+                        doorCloseTime: formData.doorCloseTime || null,
+                        categories: formData.categories || formData.mecCategories || [],
+                        services: formData.services || {},
+                        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+                        isOffsite: formData.isOffsite || false,
+                        offsiteName: formData.offsiteName || '',
+                        offsiteAddress: formData.offsiteAddress || ''
+                      };
+
+                      const saveResponse = await fetch(
+                        `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`,
+                        {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(savePayload)
+                        }
+                      );
+
+                      if (!saveResponse.ok) {
+                        throw new Error('Failed to save draft before submitting');
+                      }
+
                       const submitHeaders = {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${apiToken}`

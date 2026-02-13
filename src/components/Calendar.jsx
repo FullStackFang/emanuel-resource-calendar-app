@@ -2821,7 +2821,6 @@ import ConflictDialog from './shared/ConflictDialog';
 
       const requesterEmail = (
         event.roomReservationData?.requestedBy?.email ||
-        event.calendarData?.requesterEmail ||
         event.createdByEmail ||
         ''
       ).toLowerCase();
@@ -5745,16 +5744,16 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         const enrichmentMap = await response.json();
-        const internalData = enrichmentMap[eventId];
+        const enrichmentData = enrichmentMap[eventId];
 
-        if (!internalData || !internalData.registrationEventId) {
+        if (!enrichmentData || !enrichmentData.registrationEventId) {
           logger.debug('No linked registration event found for event:', eventId);
           return;
         }
 
         // Delete the registration event using legacy method (via backend)
-        const registrationEventId = internalData.registrationEventId;
-        const registrationCalendarId = internalData.registrationCalendarId;
+        const registrationEventId = enrichmentData.registrationEventId;
+        const registrationCalendarId = enrichmentData.registrationCalendarId;
 
         if (registrationCalendarId && registrationEventId) {
           const params = new URLSearchParams({
@@ -6781,7 +6780,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}
-          canRequestEdit={effectivePermissions.submitReservation && !isEditRequestMode && !isViewingEditRequest}
+          canRequestEdit={effectivePermissions.submitReservation && !effectivePermissions.editEvents && !isEditRequestMode && !isViewingEditRequest}
           // Existing edit request props (for viewing pending edit requests)
           existingEditRequest={existingEditRequest}
           isViewingEditRequest={isViewingEditRequest}

@@ -948,20 +948,8 @@ class MCPToolExecutor {
         }
       },
 
-      // Internal data (for internal tracking)
-      internalData: {
-        mecCategories: [],
-        setupMinutes: 0,
-        teardownMinutes: 0,
-        registrationNotes: '',
-        assignedTo: '',
-        staffAssignments: [],
-        internalNotes: '',
-        setupStatus: 'pending',
-        estimatedCost: null,
-        actualCost: null,
-        customFields: {}
-      },
+      // Enrichment data (stored in calendarData)
+      // calendarData is built separately below
 
       // Room reservation metadata ONLY (not event details!)
       roomReservationData: {

@@ -182,9 +182,7 @@ export default function EventManagement({ apiToken }) {
 
   // Get requester display
   const getRequester = (event) => {
-    return event.calendarData?.requesterName
-      || event.roomReservationData?.requesterName
-      || event.roomReservationData?.requestedBy?.name
+    return event.roomReservationData?.requestedBy?.name
       || event.createdBy
       || '—';
   };
@@ -561,9 +559,9 @@ export default function EventManagement({ apiToken }) {
         const eventId = String(event._id);
         const status = event.status || 'draft';
         const isDeleted = event.isDeleted || status === 'deleted';
-        const requesterEmail = event.calendarData?.requesterEmail || event.roomReservationData?.requesterEmail || event.roomReservationData?.requestedBy?.email || '';
-        const department = event.calendarData?.department || event.roomReservationData?.department || event.roomReservationData?.requestedBy?.department || '';
-        const phone = event.calendarData?.phone || event.roomReservationData?.phone || event.roomReservationData?.requestedBy?.phone || '';
+        const requesterEmail = event.roomReservationData?.requestedBy?.email || '';
+        const department = event.roomReservationData?.requestedBy?.department || event.roomReservationData?.department || '';
+        const phone = event.roomReservationData?.requestedBy?.phone || event.roomReservationData?.phone || '';
         const description = event.calendarData?.eventDescription || event.eventDescription || '';
         const categories = event.calendarData?.categories || event.categories || [];
         const setupTime = event.calendarData?.setupTime || event.setupTime || '';

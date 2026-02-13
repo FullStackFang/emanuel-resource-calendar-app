@@ -343,7 +343,7 @@ function createTestApp(options = {}) {
       // Check ownership or admin permission
       const isOwner =
         draft.userId === userId ||
-        draft.roomReservationData?.requesterEmail === userEmail;
+        draft.roomReservationData?.requestedBy?.email === userEmail;
       const isApproverOrAdmin = hasRole(userDoc, userEmail, 'approver');
 
       if (!isOwner && !isApproverOrAdmin) {
@@ -446,7 +446,7 @@ function createTestApp(options = {}) {
       // Check ownership or admin permission
       const isOwner =
         draft.userId === userId ||
-        draft.roomReservationData?.requesterEmail === userEmail;
+        draft.roomReservationData?.requestedBy?.email === userEmail;
       const isApproverOrAdmin = hasRole(userDoc, userEmail, 'approver');
 
       if (!isOwner && !isApproverOrAdmin) {
@@ -617,7 +617,7 @@ function createTestApp(options = {}) {
       // Check ownership or admin permission
       const isOwner =
         draft.userId === userId ||
-        draft.roomReservationData?.requesterEmail === userEmail;
+        draft.roomReservationData?.requestedBy?.email === userEmail;
       const isApproverOrAdmin = hasRole(userDoc, userEmail, 'approver');
 
       if (!isOwner && !isApproverOrAdmin) {
@@ -1191,7 +1191,7 @@ function createTestApp(options = {}) {
       // Ownership check
       const isOwner =
         event.userId === userId ||
-        event.roomReservationData?.requesterEmail === userEmail;
+        event.roomReservationData?.requestedBy?.email === userEmail;
 
       if (!isOwner) {
         return res.status(403).json({ error: 'You can only restore your own reservations' });
@@ -1336,7 +1336,7 @@ function createTestApp(options = {}) {
       const isOwner =
         event.userId === userId ||
         event.roomReservationData?.requestedBy?.userId === userId ||
-        event.roomReservationData?.requesterEmail === userEmail;
+        event.roomReservationData?.requestedBy?.email === userEmail;
 
       if (!isOwner) {
         return res.status(403).json({ error: 'You can only resubmit your own reservation requests' });
@@ -1432,7 +1432,7 @@ function createTestApp(options = {}) {
       const isOwner =
         event.userId === userId ||
         event.roomReservationData?.requestedBy?.userId === userId ||
-        event.roomReservationData?.requesterEmail === userEmail;
+        event.roomReservationData?.requestedBy?.email === userEmail;
 
       if (!isOwner) {
         return res.status(403).json({ error: 'You can only edit your own reservation requests' });
@@ -1592,7 +1592,7 @@ function createTestApp(options = {}) {
         .find({
           $or: [
             { userId },
-            { 'roomReservationData.requesterEmail': userEmail },
+            { 'roomReservationData.requestedBy.email': userEmail },
           ],
           isDeleted: { $ne: true },
         })
@@ -1703,7 +1703,7 @@ function createTestApp(options = {}) {
       // Check if user owns this event
       const isOwner =
         event.userId === userId ||
-        event.roomReservationData?.requesterEmail === userEmail;
+        event.roomReservationData?.requestedBy?.email === userEmail;
 
       if (!isOwner) {
         return res.status(403).json({ error: 'Permission denied. You can only request edits on your own events.' });
@@ -2088,7 +2088,7 @@ function createTestApp(options = {}) {
       if (view === 'my-events') {
         query.roomReservationData = { $exists: true, $ne: null };
         // Always scope to user's own events - admins use admin-browse for all events
-        query['calendarData.requesterEmail'] = userEmail;
+        query['roomReservationData.requestedBy.email'] = userEmail;
 
         if (status === 'deleted') {
           query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -2164,7 +2164,7 @@ function createTestApp(options = {}) {
         // Always scoped to logged-in user
         const baseQuery = {
           roomReservationData: { $exists: true, $ne: null },
-          'calendarData.requesterEmail': userEmail,
+          'roomReservationData.requestedBy.email': userEmail,
         };
 
         const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
@@ -2175,7 +2175,7 @@ function createTestApp(options = {}) {
           testCollections.events.countDocuments({ ...baseQuery, status: 'cancelled' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'draft' }),
           testCollections.events.countDocuments({
-            'calendarData.requesterEmail': userEmail,
+            'roomReservationData.requestedBy.email': userEmail,
             roomReservationData: { $exists: true, $ne: null },
             $or: [{ status: 'deleted' }, { isDeleted: true }],
           }),
@@ -2236,8 +2236,7 @@ function createTestApp(options = {}) {
       // Email-match conditions for ownership checks
       const ownerEmailConditions = userEmail ? [
         { createdByEmail: userEmail },
-        { 'roomReservationData.requestedBy.email': userEmail },
-        { 'calendarData.requesterEmail': userEmail }
+        { 'roomReservationData.requestedBy.email': userEmail }
       ] : [];
 
       if (role === 'approver' || role === 'admin') {

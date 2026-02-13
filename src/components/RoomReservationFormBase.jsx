@@ -148,7 +148,7 @@ export default function RoomReservationFormBase({
   // Category state - check categories first (correct field), mecCategories is deprecated
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(
-    initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || []
+    initialData?.categories || initialData?.mecCategories || []
   );
 
   // Refs to track latest values (prevents stale closure issues in callbacks)
@@ -185,9 +185,9 @@ export default function RoomReservationFormBase({
 
   // Sync selectedCategories when initialData changes (e.g., when loading an existing event)
   // Use JSON.stringify for more reliable dependency tracking
-  const categoriesKey = JSON.stringify(initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || []);
+  const categoriesKey = JSON.stringify(initialData?.categories || initialData?.mecCategories || []);
   useEffect(() => {
-    const newCategories = initialData?.categories || initialData?.mecCategories || initialData?.internalData?.categories || initialData?.internalData?.mecCategories || [];
+    const newCategories = initialData?.categories || initialData?.mecCategories || [];
     if (newCategories.length > 0) {
       setSelectedCategories(newCategories);
       selectedCategoriesRef.current = newCategories;

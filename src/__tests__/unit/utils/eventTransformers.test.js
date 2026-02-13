@@ -249,9 +249,10 @@ describe('transformEventToFlatStructure', () => {
 
       const result = transformEventToFlatStructure(event);
 
-      // setupTime and doorOpenTime should match startTime
-      expect(result.setupTime).toBe(result.startTime);
-      expect(result.doorOpenTime).toBe(result.startTime);
+      // setupTime and doorOpenTime should be empty when not explicitly set
+      // (no auto-fill from startTime — empty indicates user hasn't set them yet)
+      expect(result.setupTime).toBe('');
+      expect(result.doorOpenTime).toBe('');
     });
   });
 

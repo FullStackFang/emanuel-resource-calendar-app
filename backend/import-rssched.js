@@ -840,47 +840,18 @@ async function importRsSched() {
           importedAt: new Date()
         },
 
-        // Graph-compatible structure for UI compatibility
-        graphData: {
-          subject: row.Subject || '',
-          start: {
-            dateTime: startDateTimeLocal,
-            timeZone: 'America/New_York'
-          },
-          end: {
-            dateTime: endDateTimeLocal,
-            timeZone: 'America/New_York'
-          },
-          location: row.Location ? {
-            displayName: row.Location,
-            locationType: 'default'
-          } : undefined,
-          categories: row.Categories ? [row.Categories] : [],
-          bodyPreview: row.Description || '',
-          isAllDay: row.AllDayEvent === '1' || row.AllDayEvent === 1,
-          importance: 'normal',
-          showAs: 'busy',
-          sensitivity: 'normal',
-          organizer: {
-            emailAddress: {
-              name: row.RequesterName || 'Resource Scheduler Import',
-              address: row.RequesterEmail || 'import@rssched.local'
-            }
-          },
-          attendees: [],
-          extensions: [],
-          singleValueExtendedProperties: []
-        },
+        // graphData is null — RS imports are not Graph events
+        graphData: null,
 
-        // Internal enrichment data
-        internalData: {
-          mecCategories: [],
-          setupMinutes: 0,
-          teardownMinutes: 0,
+        // Enrichment data in calendarData
+        calendarData: {
+          categories: [],
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
           registrationNotes: '',
           assignedTo: '',
           staffAssignments: [],
-          internalNotes: '',
+          eventNotes: '',
           setupStatus: 'pending',
           estimatedCost: null,
           actualCost: null,

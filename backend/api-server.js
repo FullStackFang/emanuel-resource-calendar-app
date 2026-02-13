@@ -2849,8 +2849,12 @@ app.post('/api/internal-events/enrich', verifyToken, async (req, res) => {
     const enrichmentMap = {};
     
     internalEvents.forEach(event => {
+      // Return calendarData fields (authoritative) with internalData fallback for unmigrated docs
+      const calData = event.calendarData || {};
+      const legacyData = event.internalData || {};
       enrichmentMap[event.eventId] = {
-        ...event.internalData,
+        ...legacyData,
+        ...calData,
         _lastSyncedAt: event.lastSyncedAt,
         _internalId: event._id
       };
@@ -2893,7 +2897,7 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
     
     allowedFields.forEach(field => {
       if (field in updates) {
-        updateData[`internalData.${field}`] = updates[field];
+        updateData[`calendarData.${field}`] = updates[field];
       }
     });
     
@@ -2927,13 +2931,13 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
           lastModifiedDateTime: new Date().toISOString(),
           createdDateTime: new Date().toISOString()
         },
-        internalData: {
-          mecCategories: [],
-          setupMinutes: 0,
-          teardownMinutes: 0,
+        calendarData: {
+          categories: [],
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
           registrationNotes: '',
           assignedTo: '',
-          internalNotes: '',
+          eventNotes: '',
           setupStatus: 'pending',
           estimatedCost: null,
           actualCost: null,
@@ -2967,14 +2971,17 @@ app.patch('/api/internal-events/:graphEventId', verifyToken, async (req, res) =>
 // Get available MEC categories
 app.get('/api/internal-events/mec-categories', verifyToken, async (req, res) => {
   try {
-    // Get distinct MEC categories from all events
-    const categories = await unifiedEventsCollection.distinct('internalData.mecCategories');
-    
-    // Filter out null/empty values and sort
-    const cleanCategories = categories
+    // Get distinct categories from calendarData (authoritative) and top-level
+    const [calCats, topCats] = await Promise.all([
+      unifiedEventsCollection.distinct('calendarData.categories'),
+      unifiedEventsCollection.distinct('categories')
+    ]);
+
+    const allCategories = [...new Set([...calCats, ...topCats])];
+    const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();
-    
+
     res.status(200).json(cleanCategories);
   } catch (error) {
     logger.error('Error fetching MEC categories:', error);
@@ -3171,27 +3178,8 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
         singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || []
       },
       
-      // Internal enrichments - preserve all existing fields
-      internalData: {
-        mecCategories: internalData.mecCategories || [],
-        setupMinutes: internalData.setupMinutes || 0,
-        teardownMinutes: internalData.teardownMinutes || 0,
-        registrationNotes: internalData.registrationNotes || '',
-        assignedTo: internalData.assignedTo || '',
-        staffAssignments: internalData.staffAssignments || [],
-        internalNotes: internalData.internalNotes || '',
-        setupStatus: internalData.setupStatus || 'pending',
-        estimatedCost: internalData.estimatedCost,
-        actualCost: internalData.actualCost,
-        customFields: internalData.customFields || {},
-        // Preserve CSV import specific fields
-        rsId: internalData.rsId || null,
-        createRegistrationEvent: internalData.createRegistrationEvent,
-        isCSVImport: internalData.isCSVImport || false,
-        isRegistrationEvent: internalData.isRegistrationEvent || false,
-        linkedMainEventId: internalData.linkedMainEventId,
-        importedAt: internalData.importedAt
-      },
+      // Enrichment fields (stored in calendarData alongside calendar fields)
+      // calendarData will be fully built below after top-level fields are set
       
       // Change tracking
       etag: graphEvent['@odata.etag'] || null,
@@ -3362,7 +3350,7 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     unifiedEvent.seriesMasterId = graphEvent.seriesMasterId || null;
     unifiedEvent.recurrence = graphEvent.recurrence || null;
 
-    // Timing fields from internalData
+    // Timing fields from enrichment data
     unifiedEvent.setupTime = internalData.setupTime || '';
     unifiedEvent.teardownTime = internalData.teardownTime || '';
     unifiedEvent.doorOpenTime = internalData.doorOpenTime || '';
@@ -3370,21 +3358,58 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     unifiedEvent.setupTimeMinutes = internalData.setupMinutes || 0;
     unifiedEvent.teardownTimeMinutes = internalData.teardownMinutes || 0;
 
-    // Notes fields from internalData
+    // Notes fields from enrichment data
     unifiedEvent.setupNotes = internalData.setupNotes || '';
     unifiedEvent.doorNotes = internalData.doorNotes || '';
     unifiedEvent.eventNotes = internalData.eventNotes || internalData.internalNotes || '';
 
     // Category/assignment fields
-    unifiedEvent.mecCategories = internalData.mecCategories || [];
+    unifiedEvent.categories = internalData.mecCategories || graphEvent.categories || [];
     unifiedEvent.assignedTo = internalData.assignedTo || '';
 
+    // Build calendarData with all authoritative fields + enrichment-only fields
+    unifiedEvent.calendarData = {
+      eventTitle: unifiedEvent.eventTitle,
+      eventDescription: unifiedEvent.eventDescription,
+      startDateTime: unifiedEvent.startDateTime,
+      endDateTime: unifiedEvent.endDateTime,
+      startDate: unifiedEvent.startDate,
+      startTime: unifiedEvent.startTime,
+      endDate: unifiedEvent.endDate,
+      endTime: unifiedEvent.endTime,
+      locations: unifiedEvent.locations,
+      locationDisplayNames: unifiedEvent.locationDisplayNames,
+      categories: unifiedEvent.categories,
+      isAllDayEvent: unifiedEvent.isAllDayEvent,
+      setupTime: unifiedEvent.setupTime,
+      teardownTime: unifiedEvent.teardownTime,
+      doorOpenTime: unifiedEvent.doorOpenTime,
+      doorCloseTime: unifiedEvent.doorCloseTime,
+      setupTimeMinutes: unifiedEvent.setupTimeMinutes,
+      teardownTimeMinutes: unifiedEvent.teardownTimeMinutes,
+      setupNotes: unifiedEvent.setupNotes,
+      doorNotes: unifiedEvent.doorNotes,
+      eventNotes: unifiedEvent.eventNotes,
+      assignedTo: unifiedEvent.assignedTo,
+      // Enrichment-only fields (formerly in internalData)
+      registrationNotes: internalData.registrationNotes || '',
+      staffAssignments: internalData.staffAssignments || [],
+      setupStatus: internalData.setupStatus || 'pending',
+      estimatedCost: internalData.estimatedCost,
+      actualCost: internalData.actualCost,
+      customFields: internalData.customFields || {},
+      // CSV import specific fields
+      rsId: internalData.rsId || null,
+      createRegistrationEvent: internalData.createRegistrationEvent,
+      isCSVImport: internalData.isCSVImport || false,
+      isRegistrationEvent: internalData.isRegistrationEvent || false,
+      linkedMainEventId: internalData.linkedMainEventId,
+      importedAt: internalData.importedAt,
+    };
+
     // Preserve original user-defined recurrence pattern if it exists
-    // Graph API may adjust the recurrence (e.g., change start date to match day of week)
-    // We want to keep the user's original pattern in internalData for reference
-    // Note: existingEvent was already queried at line 2312
-    if (existingEvent?.internalData?.recurrence) {
-      unifiedEvent.internalData.recurrence = existingEvent.internalData.recurrence;
+    if (existingEvent?.calendarData?.recurrence || existingEvent?.internalData?.recurrence) {
+      unifiedEvent.calendarData.recurrence = existingEvent.calendarData?.recurrence || existingEvent.internalData.recurrence;
     }
 
     // Use upsert to handle updates while preserving internal data
@@ -3577,7 +3602,6 @@ async function bulkUpsertEvents(userId, events) {
         calendarId: event.calendarId,
         eventId: eventId,
         graphData: event.graphData,
-        internalData: event.internalData || {},
         sourceCalendars: event.sourceCalendars || [],
         locations: locations,
         locationDisplayNames: locationDisplayNames,
@@ -4136,18 +4160,18 @@ async function mergeEventFromMultipleCalendars(userId, eventId, newGraphEvent, n
       sc.calendarId.toLowerCase().includes('templeregistration')
     );
 
-    // Merge internal data from TempleRegistration calendar
-    let enhancedInternalData = { ...existingEvent.internalData };
-    
+    // Merge enrichment data from TempleRegistration calendar
+    // Read from calendarData (authoritative) with internalData fallback for unmigrated docs
+    let enhancedEnrichmentData = { ...(existingEvent.calendarData || existingEvent.internalData || {}) };
+
     if (isNewCalendarTempleRegistration) {
       // New event is from TempleRegistration - extract setup/teardown info
       const setupInfo = extractSetupTeardownInfo(newGraphEvent);
-      enhancedInternalData = {
-        ...enhancedInternalData,
+      enhancedEnrichmentData = {
+        ...enhancedEnrichmentData,
         ...setupInfo,
-        registrationNotes: newGraphEvent.body?.content || enhancedInternalData.registrationNotes,
-        // Preserve existing internal notes and combine with new ones
-        internalNotes: combineNotes(enhancedInternalData.internalNotes, newGraphEvent.body?.content)
+        registrationNotes: newGraphEvent.body?.content || enhancedEnrichmentData.registrationNotes,
+        eventNotes: combineNotes(enhancedEnrichmentData.eventNotes, newGraphEvent.body?.content)
       };
     }
 
@@ -4171,7 +4195,7 @@ async function mergeEventFromMultipleCalendars(userId, eventId, newGraphEvent, n
       userId,
       newCalendarId,
       primaryGraphEvent,
-      enhancedInternalData,
+      enhancedEnrichmentData,
       updatedSourceCalendars
     );
 
@@ -4327,8 +4351,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     // Email-match conditions for ownership checks (reused across roles)
     const ownerEmailConditions = userEmail ? [
       { createdByEmail: userEmail },
-      { 'roomReservationData.requestedBy.email': userEmail },
-      { 'calendarData.requesterEmail': userEmail }
+      { 'roomReservationData.requestedBy.email': userEmail }
     ] : [];
 
     if (role === 'approver' || role === 'admin') {
@@ -4766,19 +4789,6 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
                   singleValueExtendedProperties: graphEvent.singleValueExtendedProperties || [],
                   onlineMeetingUrl: graphEvent.onlineMeetingUrl || graphEvent.onlineMeeting?.joinUrl || null
                 },
-                internalData: {
-                  mecCategories: [],
-                  setupMinutes: 0,
-                  teardownMinutes: 0,
-                  registrationNotes: '',
-                  assignedTo: '',
-                  staffAssignments: [],
-                  internalNotes: '',
-                  setupStatus: 'pending',
-                  estimatedCost: null,
-                  actualCost: null,
-                  customFields: {}
-                },
                 // TOP-LEVEL APPLICATION FIELDS (for forms/UI) - no Z suffix
                 eventTitle: graphEvent.subject || 'Untitled Event',
                 eventDescription: extractTextFromHtml(graphEvent.body?.content) || graphEvent.bodyPreview || '',
@@ -4906,7 +4916,7 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
               userId,
               event.calendarId,
               event.graphData,
-              event.internalData,
+              event.calendarData || {},
               event.sourceCalendars
             ).catch(innerErr => {
               logger.warn(`Failed to cache event ${event.eventId}:`, innerErr.message);
@@ -5169,29 +5179,24 @@ app.get('/api/events', verifyToken, async (req, res) => {
 
     // Transform events to frontend format
     const transformedApiEvents = allEvents.map(event => {
-      const internalData = event.internalData || {};
       const graphData = event.graphData || {};
+      const cd = event.calendarData || {};
 
       // Normalize category field - frontend expects a single string
-      // Read from calendarData (source of truth)
-      const cd = event.calendarData || {};
       let category = '';
-      if (internalData.mecCategories && internalData.mecCategories.length > 0) {
-        // CSV imports use mecCategories
-        category = internalData.mecCategories[0];
-      } else if (graphData.categories && graphData.categories.length > 0) {
-        // Graph events use categories
-        category = graphData.categories[0];
-      } else if (cd.categories && cd.categories.length > 0) {
-        // Room reservations store categories in calendarData
+      if (cd.categories && cd.categories.length > 0) {
         category = cd.categories[0];
+      } else if (event.categories && event.categories.length > 0) {
+        category = event.categories[0];
+      } else if (graphData.categories && graphData.categories.length > 0) {
+        category = graphData.categories[0];
       }
 
       return {
         // Use Graph data as base
         ...graphData,
-        // Add internal enrichments
-        ...internalData,
+        // Add calendarData enrichments (authoritative)
+        ...cd,
         // Explicitly include ID fields (ensures they're not overwritten)
         eventId: event.eventId,                          // Internal unique ID (UUID)
         id: graphData?.id || event.eventId,             // Graph ID or fallback to eventId
@@ -5201,14 +5206,10 @@ app.get('/api/events', verifyToken, async (req, res) => {
         // Add metadata
         calendarId: event.calendarId,
         sourceCalendars: event.sourceCalendars,
-        _hasInternalData: Object.keys(internalData).some(key =>
-          internalData[key] &&
-          (Array.isArray(internalData[key]) ? internalData[key].length > 0 : true)
-        ),
         _lastSyncedAt: event.lastSyncedAt,
         _cached: true,
-        // Include top-level services field (stored outside graphData/internalData)
-        services: event.services || {},
+        // Include top-level services field
+        services: event.services || cd.services || {},
         // Include status for pending reservations (so frontend can style them)
         status: event.status || null,
         // Include source to identify room reservations
@@ -5349,7 +5350,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     if (view === 'my-events') {
       query.roomReservationData = { $exists: true, $ne: null };
       // Always scope to user's own events - admins use admin-browse for all events
-      query['calendarData.requesterEmail'] = userEmail;
+      query['roomReservationData.requestedBy.email'] = userEmail;
       // Status filtering
       if (status === 'deleted') {
         query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -5413,9 +5414,9 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       } else if (status === 'enriched') {
         query.isDeleted = { $ne: true };
         query.$or = [
-          { "internalData.mecCategories.0": { $exists: true } },
-          { "internalData.setupMinutes": { $gt: 0 } },
-          { "internalData.teardownMinutes": { $gt: 0 } }
+          { "calendarData.categories.0": { $exists: true } },
+          { "calendarData.setupTimeMinutes": { $gt: 0 } },
+          { "calendarData.teardownTimeMinutes": { $gt: 0 } }
         ];
       } else if (status === 'pending') {
         query.isDeleted = { $ne: true };
@@ -5462,7 +5463,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
           categoryConditions.push({
             $and: [
               { 'graphData.categories': { $exists: false } },
-              { 'internalData.mecCategories': { $exists: false } }
+              { 'calendarData.categories': { $exists: false } }
             ]
           });
         }
@@ -5470,8 +5471,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
         if (actualCategories.length > 0) {
           categoryConditions.push({ categories: { $in: actualCategories } });
+          categoryConditions.push({ 'calendarData.categories': { $in: actualCategories } });
           categoryConditions.push({ 'graphData.categories': { $in: actualCategories } });
-          categoryConditions.push({ 'internalData.mecCategories': { $in: actualCategories } });
         }
 
         if (categoryConditions.length > 0) {
@@ -5522,7 +5523,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       calendarId: 1, calendarOwner: 1, calendarName: 1,
       calendarData: 1,
       roomReservationData: 1,
-      internalData: 1, sourceCalendars: 1, lastSyncedAt: 1,
+      sourceCalendars: 1, lastSyncedAt: 1,
       pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
       createdAt: 1, createdBy: 1, createdByEmail: 1,
       _version: 1,
@@ -5612,7 +5613,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       // Counts for user's own reservations - always scoped to logged-in user
       const baseQuery = {
         roomReservationData: { $exists: true, $ne: null },
-        'calendarData.requesterEmail': userEmail,
+        'roomReservationData.requestedBy.email': userEmail,
       };
 
       const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
@@ -5623,7 +5624,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'cancelled' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft' }),
         unifiedEventsCollection.countDocuments({
-          'calendarData.requesterEmail': userEmail,
+          'roomReservationData.requestedBy.email': userEmail,
           roomReservationData: { $exists: true, $ne: null },
           $or: [{ status: 'deleted' }, { isDeleted: true }]
         })
@@ -5668,19 +5669,20 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
 });
 
 /**
- * Update internal data for an event
+ * Update enrichment data for an event (stored in calendarData)
+ * Accepts { internalData: {...} } in body for backward compatibility
  */
 app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
   try {
     const { eventId } = req.params;
-    const { internalData } = req.body;
+    const enrichmentData = req.body.internalData || req.body.calendarData;
     const userId = req.user.userId;
 
-    if (!internalData) {
-      return res.status(400).json({ error: 'internalData required' });
+    if (!enrichmentData) {
+      return res.status(400).json({ error: 'calendarData or internalData required' });
     }
 
-    logger.debug(`Updating internal data for event ${eventId}`, { userId, internalData });
+    logger.debug(`Updating enrichment data for event ${eventId}`, { userId, enrichmentData });
 
     // Fetch current event data before updating for change detection
     const currentEvent = await unifiedEventsCollection.findOne({
@@ -5692,44 +5694,30 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Detect changes between old and new internal data
-    const oldInternalData = currentEvent.internalData || {};
+    // Detect changes between old and new data
+    const oldData = currentEvent.calendarData || {};
     const changeSet = [];
 
-    // Compare each field in the new internal data
-    for (const [field, newValue] of Object.entries(internalData)) {
-      const oldValue = oldInternalData[field];
-
-      // Skip if values are the same (deep comparison for arrays/objects)
+    for (const [field, newValue] of Object.entries(enrichmentData)) {
+      const oldValue = oldData[field];
       if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
         changeSet.push({
-          field: `internalData.${field}`,
+          field: `calendarData.${field}`,
           oldValue: oldValue,
           newValue: newValue
         });
       }
     }
 
-    // Check for removed fields (fields that existed in old but not in new)
-    for (const [field, oldValue] of Object.entries(oldInternalData)) {
-      if (!(field in internalData)) {
-        changeSet.push({
-          field: `internalData.${field}`,
-          oldValue: oldValue,
-          newValue: undefined
-        });
-      }
+    // Build $set for calendarData fields
+    const setOps = { lastAccessedAt: new Date() };
+    for (const [field, value] of Object.entries(enrichmentData)) {
+      setOps[`calendarData.${field}`] = value;
     }
 
-    // Update only internal data, preserve everything else
     const result = await unifiedEventsCollection.updateOne(
       { userId: userId, eventId: eventId },
-      {
-        $set: {
-          'internalData': internalData,
-          lastAccessedAt: new Date()
-        }
-      }
+      { $set: setOps }
     );
 
     if (result.matchedCount === 0) {
@@ -5748,19 +5736,12 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
           metadata: {
             userAgent: req.headers['user-agent'] || 'Unknown',
             ipAddress: req.ip || req.connection.remoteAddress || 'Unknown',
-            reason: 'Event internal data updated via UI'
+            reason: 'Event enrichment data updated via UI'
           }
-        });
-
-        logger.debug(`Audit entry created for event ${eventId}`, {
-          changesCount: changeSet.length
         });
       } catch (auditError) {
         logger.error('Failed to create audit entry:', auditError);
-        // Don't fail the request if audit logging fails
       }
-    } else {
-      logger.debug(`No changes detected for event ${eventId}, skipping audit entry`);
     }
 
     // Return updated event
@@ -5774,15 +5755,12 @@ app.patch('/api/events/:eventId/internal', verifyToken, async (req, res) => {
     }
 
     // Transform to frontend format
+    const cd = updatedEvent.calendarData || {};
     const transformedEvent = {
       ...updatedEvent.graphData,
-      ...updatedEvent.internalData,
+      ...cd,
       calendarId: updatedEvent.calendarId,
       sourceCalendars: updatedEvent.sourceCalendars,
-      _hasInternalData: Object.keys(updatedEvent.internalData).some(key =>
-        updatedEvent.internalData[key] &&
-        (Array.isArray(updatedEvent.internalData[key]) ? updatedEvent.internalData[key].length > 0 : true)
-      ),
       _lastSyncedAt: updatedEvent.lastSyncedAt
     };
 
@@ -5866,11 +5844,11 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       body: extractTextFromHtml(currentEvent.graphData?.body?.content),
       categories: currentEvent.graphData?.categories,
       isAllDay: currentEvent.graphData?.isAllDay,
-      // Internal fields from internalData
-      setupMinutes: currentEvent.internalData?.setupMinutes,
-      teardownMinutes: currentEvent.internalData?.teardownMinutes,
-      assignedTo: currentEvent.internalData?.assignedTo,
-      registrationNotes: currentEvent.internalData?.registrationNotes
+      // Enrichment fields from calendarData
+      setupMinutes: currentEvent.calendarData?.setupTimeMinutes,
+      teardownMinutes: currentEvent.calendarData?.teardownTimeMinutes,
+      assignedTo: currentEvent.calendarData?.assignedTo || currentEvent.assignedTo,
+      registrationNotes: currentEvent.calendarData?.registrationNotes
     };
 
     let graphUpdateResult = null;
@@ -6032,7 +6010,6 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
         calendarId: calendarId,
         calendarOwner: effectiveCalendarOwner, // Email of calendar owner for filtering
         graphData: updatedGraphData,
-        internalData: internalFields || {},
         createdAt: new Date(),
         createdBy: req.user.userId,
         createdByEmail: req.user.email,
@@ -6122,12 +6099,7 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
       const updateOperations = {};
 
       if (internalFields) {
-        updateOperations['internalData'] = {
-          ...currentEvent.internalData,
-          ...internalFields
-        };
-
-        // Update calendarData timing and notes fields from internalData
+        // Write enrichment fields directly to calendarData (no longer using internalData)
         if (internalFields.setupTime !== undefined) updateOperations['calendarData.setupTime'] = internalFields.setupTime;
         if (internalFields.teardownTime !== undefined) updateOperations['calendarData.teardownTime'] = internalFields.teardownTime;
         if (internalFields.doorOpenTime !== undefined) updateOperations['calendarData.doorOpenTime'] = internalFields.doorOpenTime;
@@ -6290,13 +6262,9 @@ app.post('/api/events/:eventId/audit-update', verifyToken, async (req, res) => {
     // Transform to frontend format
     const transformedEvent = {
       ...finalEvent.graphData,
-      ...finalEvent.internalData,
+      ...(finalEvent.calendarData || {}),
       calendarId: finalEvent.calendarId,
       sourceCalendars: finalEvent.sourceCalendars,
-      _hasInternalData: Object.keys(finalEvent.internalData || {}).some(key =>
-        finalEvent.internalData[key] &&
-        (Array.isArray(finalEvent.internalData[key]) ? finalEvent.internalData[key].length > 0 : true)
-      ),
       _lastSyncedAt: finalEvent.lastSyncedAt
     };
 
@@ -6449,7 +6417,6 @@ app.post('/api/events/batch', verifyToken, async (req, res) => {
           calendarId: calendarId,
           calendarOwner: batchCalendarOwner, // Email of calendar owner for filtering
           graphData: graphData,
-          internalData: internalFields,
           createdAt: new Date(),
           createdBy: req.user.userId,
           createdByEmail: req.user.email,
@@ -7925,7 +7892,7 @@ app.get('/api/events/by-source', verifyToken, async (req, res) => {
     // Transform events to frontend format
     const transformedSourceEvents = events.map(event => ({
       ...event.graphData,
-      ...event.internalData,
+      ...(event.calendarData || {}),
       // Explicitly include ID fields
       eventId: event.eventId,                          // Internal unique ID (UUID)
       id: event.graphData?.id || event.eventId,       // Graph ID or fallback to eventId
@@ -8637,27 +8604,29 @@ async function processMigration(sessionId, userId, graphToken, startDate, endDat
  * Create a TempleRegistration event from a main event
  */
 function createRegistrationEventFromMain(mainEvent, userId) {
-  const setupMinutes = mainEvent.internalData.setupMinutes || 0;
-  const teardownMinutes = mainEvent.internalData.teardownMinutes || 0;
-  
+  // Read from calendarData (authoritative) with internalData fallback for legacy data
+  const cd = mainEvent.calendarData || mainEvent.internalData || {};
+  const setupMinutes = cd.setupTimeMinutes || cd.setupMinutes || 0;
+  const teardownMinutes = cd.teardownTimeMinutes || cd.teardownMinutes || 0;
+
   // Calculate extended start/end times
   const mainStartTime = new Date(mainEvent.graphData.start.dateTime);
   const mainEndTime = new Date(mainEvent.graphData.end.dateTime);
-  
+
   const registrationStartTime = new Date(mainStartTime.getTime() - (setupMinutes * 60 * 1000));
   const registrationEndTime = new Date(mainEndTime.getTime() + (teardownMinutes * 60 * 1000));
-  
+
   // Create registration event subject
   const setupTeardownInfo = [];
   if (setupMinutes > 0) setupTeardownInfo.push(`Setup: ${setupMinutes} min`);
   if (teardownMinutes > 0) setupTeardownInfo.push(`Teardown: ${teardownMinutes} min`);
   const registrationSubject = `[SETUP/TEARDOWN] ${mainEvent.graphData.subject}${setupTeardownInfo.length > 0 ? ` (${setupTeardownInfo.join(', ')})` : ''}`;
-  
+
   return {
     userId: userId,
     calendarId: 'csv_import_templeregistration',
     eventId: `${mainEvent.eventId}_registration`,
-    
+
     graphData: {
       id: `${mainEvent.eventId}_registration`,
       subject: registrationSubject,
@@ -8672,10 +8641,10 @@ function createRegistrationEventFromMain(mainEvent, userId) {
       location: mainEvent.graphData.location,
       locations: mainEvent.graphData.locations || [],
       categories: [...(mainEvent.graphData.categories || []), 'Setup/Teardown'],
-      bodyPreview: mainEvent.internalData.registrationNotes || '',
+      bodyPreview: cd.registrationNotes || '',
       body: {
         contentType: 'text',
-        content: mainEvent.internalData.registrationNotes || ''
+        content: cd.registrationNotes || ''
       },
       isAllDay: false,
       importance: 'normal',
@@ -8691,18 +8660,18 @@ function createRegistrationEventFromMain(mainEvent, userId) {
       lastModifiedDateTime: new Date().toISOString(),
       type: 'singleInstance'
     },
-    
-    internalData: {
-      mecCategories: mainEvent.internalData.mecCategories,
-      setupMinutes: setupMinutes,
-      teardownMinutes: teardownMinutes,
+
+    calendarData: {
+      categories: cd.categories || cd.mecCategories || [],
+      setupTimeMinutes: setupMinutes,
+      teardownTimeMinutes: teardownMinutes,
       createRegistrationEvent: false, // This IS the registration event
-      registrationNotes: mainEvent.internalData.registrationNotes,
-      assignedTo: mainEvent.internalData.assignedTo,
+      registrationNotes: cd.registrationNotes,
+      assignedTo: cd.assignedTo,
       isCSVImport: true,
       isRegistrationEvent: true,
       linkedMainEventId: mainEvent.eventId,
-      rsId: mainEvent.internalData.rsId,
+      rsId: cd.rsId,
       importedAt: new Date().toISOString()
     },
     
@@ -8805,8 +8774,8 @@ app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (
         // DEBUG: Log transformed event rsId
         logger.debug(`Transformed event ${i + 1}:`, {
           eventId: unifiedEvent.eventId,
-          rsId: unifiedEvent.internalData.rsId,
-          rsIdType: typeof unifiedEvent.internalData.rsId
+          rsId: (unifiedEvent.calendarData || unifiedEvent.internalData)?.rsId,
+          rsIdType: typeof (unifiedEvent.calendarData || unifiedEvent.internalData)?.rsId
         });
         
         unifiedEvents.push(unifiedEvent);
@@ -8861,26 +8830,28 @@ app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (
         
         for (const event of newEvents) {
           // DEBUG: Log event before insertion
+          const eventCd = event.calendarData || event.internalData || {};
           logger.debug(`Preparing event for insertion:`, {
             eventId: event.eventId,
             subject: event.graphData.subject,
-            rsId: event.internalData.rsId,
-            rsIdType: typeof event.internalData.rsId,
-            createRegistrationEvent: event.internalData.createRegistrationEvent
+            rsId: eventCd.rsId,
+            rsIdType: typeof eventCd.rsId,
+            createRegistrationEvent: eventCd.createRegistrationEvent
           });
-          
+
           // Add main event
           allEventsToInsert.push(event);
-          
+
           // Create TempleRegistration event if setup/teardown is enabled
-          if (event.internalData.createRegistrationEvent) {
+          if (eventCd.createRegistrationEvent) {
             const registrationEvent = createRegistrationEventFromMain(event, userId);
-            
+            const regCd = registrationEvent.calendarData || registrationEvent.internalData || {};
+
             // DEBUG: Log registration event rsId
             logger.debug(`Registration event created:`, {
               eventId: registrationEvent.eventId,
-              rsId: registrationEvent.internalData.rsId,
-              rsIdType: typeof registrationEvent.internalData.rsId
+              rsId: regCd.rsId,
+              rsIdType: typeof regCd.rsId
             });
             
             allEventsToInsert.push(registrationEvent);
@@ -8890,10 +8861,11 @@ app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (
         
         if (allEventsToInsert.length > 0) {
           // DEBUG: Log sample event before insertion
+          const sampleCd = allEventsToInsert[0].calendarData || allEventsToInsert[0].internalData || {};
           logger.debug('Sample event being inserted:', {
             eventId: allEventsToInsert[0].eventId,
-            rsId: allEventsToInsert[0].internalData.rsId,
-            internalDataKeys: Object.keys(allEventsToInsert[0].internalData)
+            rsId: sampleCd.rsId,
+            calendarDataKeys: Object.keys(sampleCd)
           });
           
           const result = await unifiedEventsCollection.insertMany(allEventsToInsert, { ordered: false });
@@ -8908,9 +8880,9 @@ app.post('/api/admin/csv-import', verifyToken, upload.single('csvFile'), async (
           
           logger.debug('Sample event after insertion:', {
             eventId: insertedEvent?.eventId,
-            rsId: insertedEvent?.internalData?.rsId,
-            rsIdType: typeof insertedEvent?.internalData?.rsId,
-            internalDataKeys: insertedEvent?.internalData ? Object.keys(insertedEvent.internalData) : null
+            rsId: insertedEvent?.calendarData?.rsId || insertedEvent?.internalData?.rsId,
+            rsIdType: typeof (insertedEvent?.calendarData?.rsId || insertedEvent?.internalData?.rsId),
+            calendarDataKeys: insertedEvent?.calendarData ? Object.keys(insertedEvent.calendarData) : null
           });
         }
         
@@ -8991,8 +8963,8 @@ app.get('/api/admin/csv-import/stats', verifyToken, async (req, res) => {
           totalEvents: { $sum: 1 },
           activeEvents: { $sum: { $cond: [{ $ne: ['$isDeleted', true] }, 1, 0] } },
           deletedEvents: { $sum: { $cond: ['$isDeleted', 1, 0] } },
-          oldestImport: { $min: '$internalData.importedAt' },
-          newestImport: { $max: '$internalData.importedAt' }
+          oldestImport: { $min: { $ifNull: ['$calendarData.importedAt', '$internalData.importedAt'] } },
+          newestImport: { $max: { $ifNull: ['$calendarData.importedAt', '$internalData.importedAt'] } }
         }
       }
     ]).toArray();
@@ -9436,7 +9408,7 @@ app.post('/api/admin/csv-import/stream', verifyToken, upload.single('csvFile'), 
               allEventsToInsert.push(event);
               
               // Create TempleRegistration event if setup/teardown is enabled
-              if (event.internalData.createRegistrationEvent) {
+              if ((event.calendarData || event.internalData)?.createRegistrationEvent) {
                 const registrationEvent = createRegistrationEventFromMain(event, userId);
                 allEventsToInsert.push(registrationEvent);
                 registrationEventsCreated++;
@@ -10137,13 +10109,13 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
               lastModifiedDateTime: new Date().toISOString(),
               createdDateTime: new Date().toISOString()
             },
-            internalData: {
-              mecCategories: [],
-              setupMinutes: 0,
-              teardownMinutes: 0,
+            calendarData: {
+              categories: [],
+              setupTimeMinutes: 0,
+              teardownTimeMinutes: 0,
               registrationNotes: '',
               assignedTo: '',
-              internalNotes: '',
+              eventNotes: '',
               setupStatus: 'pending',
               estimatedCost: null,
               actualCost: null,
@@ -10197,18 +10169,18 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   if (rawValue && rawValue.toString().trim()) {
                     const category = rawValue.toString().trim();
                     transformedEvent.graphData.categories = [category];
-                    transformedEvent.internalData.mecCategories = [category];
+                    transformedEvent.calendarData.mecCategories = [category];
                   }
                   break;
 
                 case 'EventCode':
                   if (rawValue && rawValue.toString().trim()) {
                     const eventCode = rawValue.toString().trim();
-                    transformedEvent.internalData.rsEventCode = eventCode;
+                    transformedEvent.calendarData.rsEventCode = eventCode;
                     // Also add to categories if not already set
                     if (!transformedEvent.graphData.categories || transformedEvent.graphData.categories.length === 0) {
                       transformedEvent.graphData.categories = [eventCode];
-                      transformedEvent.internalData.mecCategories = [eventCode];
+                      transformedEvent.calendarData.mecCategories = [eventCode];
                     }
                   }
                   break;
@@ -10221,25 +10193,25 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                       contentType: 'text',
                       content: description
                     };
-                    transformedEvent.internalData.internalNotes = description;
+                    transformedEvent.calendarData.internalNotes = description;
                   }
                   break;
                   
                 case 'RequesterName':
                   if (rawValue && rawValue.toString().trim()) {
-                    transformedEvent.internalData.requesterName = rawValue.toString().trim();
+                    transformedEvent.calendarData.requesterName = rawValue.toString().trim();
                   }
                   break;
                   
                 case 'RequesterEmail':
                   if (rawValue && rawValue.toString().trim()) {
-                    transformedEvent.internalData.requesterEmail = rawValue.toString().trim();
+                    transformedEvent.calendarData.requesterEmail = rawValue.toString().trim();
                   }
                   break;
                   
                 case 'RequesterID':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.requesterID = parseInt(rawValue) || 0;
+                    transformedEvent.calendarData.requesterID = parseInt(rawValue) || 0;
                   }
                   break;
                   
@@ -10251,7 +10223,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   
                 case 'IsRecurring':
                   if (rawValue !== undefined && rawValue !== null) {
-                    transformedEvent.internalData.isRecurring = rawValue === 1 || rawValue === '1' || rawValue === true;
+                    transformedEvent.calendarData.isRecurring = rawValue === 1 || rawValue === '1' || rawValue === true;
                   }
                   break;
                   
@@ -10266,7 +10238,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   if (rawValue && rawValue.toString().trim()) {
                     const numValue = parseFloat(rawValue);
                     if (!isNaN(numValue)) {
-                      transformedEvent.internalData[targetField] = Math.round(numValue);
+                      transformedEvent.calendarData[targetField] = Math.round(numValue);
                     }
                   }
                   break;
@@ -10275,7 +10247,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   if (rawValue && rawValue.toString().trim()) {
                     const numValue = parseFloat(rawValue);
                     if (!isNaN(numValue)) {
-                      transformedEvent.internalData.attendeeCount = Math.round(numValue);
+                      transformedEvent.calendarData.attendeeCount = Math.round(numValue);
                     }
                   }
                   break;
@@ -10284,38 +10256,38 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                   if (rawValue && rawValue.toString().trim()) {
                     const numValue = parseFloat(rawValue);
                     if (!isNaN(numValue)) {
-                      transformedEvent.internalData.estimatedCost = numValue;
+                      transformedEvent.calendarData.estimatedCost = numValue;
                     }
                   }
                   break;
                   
                 case 'rsId':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.rsId = rawValue.toString();
+                    transformedEvent.calendarData.rsId = rawValue.toString();
                   }
                   break;
 
                 case 'StartDate':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.rsStartDate = parseFloat(rawValue) || 0;
+                    transformedEvent.calendarData.rsStartDate = parseFloat(rawValue) || 0;
                   }
                   break;
 
                 case 'StartTime':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.rsStartTime = parseFloat(rawValue) || 0;
+                    transformedEvent.calendarData.rsStartTime = parseFloat(rawValue) || 0;
                   }
                   break;
 
                 case 'EndDate':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.rsEndDate = parseFloat(rawValue) || 0;
+                    transformedEvent.calendarData.rsEndDate = parseFloat(rawValue) || 0;
                   }
                   break;
 
                 case 'EndTime':
                   if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
-                    transformedEvent.internalData.rsEndTime = parseFloat(rawValue) || 0;
+                    transformedEvent.calendarData.rsEndTime = parseFloat(rawValue) || 0;
                   }
                   break;
               }
@@ -10323,7 +10295,7 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
           });
           
           // Validate required fields for Resource Scheduler import
-          if (!transformedEvent.internalData.rsId || !transformedEvent.subject || !transformedEvent.startTime || !transformedEvent.endTime) {
+          if (!transformedEvent.calendarData.rsId || !transformedEvent.subject || !transformedEvent.startTime || !transformedEvent.endTime) {
             stats.errors.push({
               row: rowIndex,
               subject: transformedEvent.subject || 'Unknown',
@@ -10333,27 +10305,27 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
           } else {
             // Generate eventId using Resource Scheduler ID
             if (!transformedEvent.eventId) {
-              transformedEvent.eventId = `rs-import-${transformedEvent.internalData.rsId}`;
+              transformedEvent.eventId = `rs-import-${transformedEvent.calendarData.rsId}`;
               transformedEvent.graphData.id = transformedEvent.eventId;
             }
             
             // Check if event already exists (by rsId)
             const existingEvent = await unifiedEventsCollection.findOne({
               userId,
-              'internalData.rsId': transformedEvent.internalData.rsId
+              'calendarData.rsId': transformedEvent.calendarData.rsId
             });
             
             if (existingEvent && !importOptions.forceOverwrite) {
               stats.skipped++;
               streamProgress({ 
                 type: 'progress', 
-                message: `Skipped existing event: ${transformedEvent.subject} (rsId: ${transformedEvent.internalData.rsId})` 
+                message: `Skipped existing event: ${transformedEvent.subject} (rsId: ${transformedEvent.calendarData.rsId})` 
               });
             } else {
               if (existingEvent) {
                 // Generate change set for audit logging
                 const changeSet = generateChangeSet(existingEvent, transformedEvent, [
-                  'subject', 'startTime', 'endTime', 'location', 'source', 'sourceMetadata', 'internalData'
+                  'subject', 'startTime', 'endTime', 'location', 'source', 'sourceMetadata', 'calendarData'
                 ]);
 
                 // Update existing event
@@ -10364,9 +10336,9 @@ app.post('/api/admin/csv-import/execute', verifyToken, upload.single('csvFile'),
                       ...transformedEvent,
                       updatedAt: new Date(),
                       // Preserve enrichments if requested
-                      ...(importOptions.preserveEnrichments && existingEvent.internalData ? {
-                        'internalData.internalNotes': existingEvent.internalData.internalNotes || transformedEvent.internalData.internalNotes,
-                        'internalData.mecCategories': existingEvent.internalData.mecCategories || transformedEvent.internalData.mecCategories
+                      ...(importOptions.preserveEnrichments && (existingEvent.calendarData || existingEvent.internalData) ? {
+                        'calendarData.eventNotes': existingEvent.calendarData?.eventNotes || existingEvent.internalData?.internalNotes || transformedEvent.calendarData.eventNotes,
+                        'calendarData.categories': existingEvent.calendarData?.categories || existingEvent.internalData?.mecCategories || transformedEvent.calendarData.categories
                       } : {})
                     }
                   }
@@ -10678,13 +10650,13 @@ app.post('/api/admin/json-import/with-calendar', verifyToken, upload.single('jso
           userId,
           source: 'Resource Scheduler Import',
           rsId: rsId.toString(),
-          internalData: {
+          calendarData: {
             rsId: rsId.toString(),
-            subject,
+            eventTitle: subject,
             startDateTime: start.toISOString(),
             endDateTime: end.toISOString(),
-            location: location || '',
-            description: description || '',
+            locationDisplayNames: location || '',
+            eventDescription: description || '',
             importedAt: new Date().toISOString()
           },
           graphData: {
@@ -10699,7 +10671,7 @@ app.post('/api/admin/json-import/with-calendar', verifyToken, upload.single('jso
         // Check if event already exists
         const existingEvent = await db.collection('templeEvents__Events').findOne({
           userId,
-          'internalData.rsId': rsId.toString()
+          'calendarData.rsId': rsId.toString()
         });
 
         if (existingEvent) {
@@ -10934,13 +10906,13 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
               lastModifiedDateTime: now.toISOString(),
               createdDateTime: now.toISOString()
             },
-            internalData: {
-              mecCategories: [],
-              setupMinutes: 0,
-              teardownMinutes: 0,
+            calendarData: {
+              categories: [],
+              setupTimeMinutes: 0,
+              teardownTimeMinutes: 0,
               registrationNotes: '',
               assignedTo: '',
-              internalNotes: '',
+              eventNotes: '',
               setupStatus: 'pending',
               estimatedCost: null,
               actualCost: null,
@@ -10961,7 +10933,7 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
               case 'rsId':
                 if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
                   rsId = rawValue.toString();
-                  transformedEvent.internalData.rsId = rsId;
+                  transformedEvent.calendarData.rsId = rsId;
                 }
                 break;
 
@@ -11017,7 +10989,7 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
                 if (rawValue) {
                   const categories = rawValue.split(',').map(c => c.trim()).filter(c => c);
                   transformedEvent.graphData.categories = categories;
-                  transformedEvent.internalData.mecCategories = categories;
+                  transformedEvent.calendarData.mecCategories = categories;
                 }
                 break;
 
@@ -11070,7 +11042,7 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
           if (rsId) {
             existingEvent = await unifiedEventsCollection.findOne({
               userId,
-              'internalData.rsId': rsId
+              'calendarData.rsId': rsId
             });
           }
 
@@ -11079,7 +11051,7 @@ app.post('/api/admin/csv-import/with-calendar', verifyToken, upload.single('csvF
             const updateResult = await unifiedEventsCollection.updateOne(
               {
                 userId,
-                'internalData.rsId': rsId
+                'calendarData.rsId': rsId
               },
               {
                 $set: {
@@ -11338,14 +11310,17 @@ app.get('/api/public/internal-events', async (req, res) => {
 // Public endpoint to get available MEC categories (for dropdowns)
 app.get('/api/public/mec-categories', async (req, res) => {
   try {
-    // Get distinct MEC categories from all events
-    const categories = await unifiedEventsCollection.distinct('internalData.mecCategories');
-    
-    // Filter out null/empty values and sort
-    const cleanCategories = categories
+    // Get distinct categories from calendarData (authoritative) and top-level
+    const [calCats, topCats] = await Promise.all([
+      unifiedEventsCollection.distinct('calendarData.categories'),
+      unifiedEventsCollection.distinct('categories')
+    ]);
+
+    const allCategories = [...new Set([...calCats, ...topCats])];
+    const cleanCategories = allCategories
       .filter(cat => cat && cat.trim() !== '')
       .sort();
-    
+
     res.status(200).json(cleanCategories);
   } catch (error) {
     logger.error('Error fetching MEC categories:', error);
@@ -11851,14 +11826,14 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
             createdDateTime: event.createdDateTime || now.toISOString()
           },
           
-          // Internal enrichment data (preserve existing or set defaults)
-          internalData: existingUnified?.internalData || {
-            mecCategories: [],
-            setupMinutes: 0,
-            teardownMinutes: 0,
+          // Enrichment data in calendarData (preserve existing or set defaults)
+          calendarData: existingUnified?.calendarData || {
+            categories: [],
+            setupTimeMinutes: 0,
+            teardownTimeMinutes: 0,
             registrationNotes: '',
             assignedTo: '',
-            internalNotes: '',
+            eventNotes: '',
             setupStatus: 'pending',
             estimatedCost: null,
             actualCost: null
@@ -11891,8 +11866,8 @@ app.post('/api/internal-events/sync', verifyToken, async (req, res) => {
               $set: {
                 ...unifiedEventData,
                 sourceCalendars: mergedSourceCalendars,
-                // Preserve existing internal data
-                internalData: existingUnified.internalData || unifiedEventData.internalData,
+                // Preserve existing calendarData enrichments
+                calendarData: existingUnified.calendarData || unifiedEventData.calendarData,
                 updatedAt: now
               }
             }
@@ -12228,7 +12203,7 @@ app.get('/api/rooms/availability', async (req, res) => {
         return {
           id: res._id,
           eventTitle: cd.eventTitle,
-          requesterName: cd.requesterName,
+          requesterName: res.roomReservationData?.requestedBy?.name || cd.requesterName || '',
           status: res.status,
           originalStart: cd.startDateTime,
           originalEnd: cd.endDateTime,
@@ -12383,20 +12358,20 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         try { return new ObjectId(id); } catch { return id; }
       }),
 
-      // Room reservation data structure (for compatibility)
+      // Room reservation data structure
       roomReservationData: {
         requestedBy: {
           userId: userId,
           name: req.user.name || userEmail,
-          email: userEmail
+          email: userEmail,
+          department: department || '',
+          phone: phone || ''
         },
         contactPerson: isOnBehalfOf ? {
           name: contactName || '',
           email: contactEmail || '',
           isOnBehalfOf: true
         } : null,
-        department: department || '',
-        phone: phone || '',
         submittedAt: new Date()
       },
 
@@ -12461,11 +12436,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         categories: categories || mecCategories || [],
         services: services || {},
         assignedTo: '',
-        // Requester info
-        requesterName: req.user.name || userEmail,
-        requesterEmail: userEmail,
-        department: department || '',
-        phone: phone || '',
+        // Requester info lives in roomReservationData.requestedBy (single source)
         attendeeCount: attendeeCount || 0,
         requiredFeatures: requiredFeatures || [],
         // Delegation
@@ -13007,8 +12978,8 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
     }
 
-    // Validate ownership using calendarData.requesterEmail
-    if (reservation.calendarData?.requesterEmail !== userEmail) {
+    // Validate ownership using roomReservationData.requestedBy.email
+    if (reservation.roomReservationData?.requestedBy?.email !== userEmail) {
       return res.status(403).json({ error: 'You can only restore your own reservations' });
     }
 
@@ -13566,6 +13537,29 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       tokenUsed: tokenDoc._id,
       sponsoredBy: tokenDoc.createdByEmail,
 
+      // Room reservation data (requester info + workflow metadata)
+      roomReservationData: {
+        requestedBy: {
+          userId: `guest-${tokenDoc._id}`,
+          name: requesterName,
+          email: requesterEmail,
+          department: department || '',
+          phone: phone || ''
+        },
+        contactPerson: isOnBehalfOf ? {
+          name: contactName || '',
+          email: contactEmail || '',
+          isOnBehalfOf: true
+        } : null,
+        submittedAt: new Date(),
+        currentRevision: 1,
+        reviewingBy: null,
+        reviewedBy: null,
+        reviewNotes: '',
+        createdGraphEventIds: [],
+        calendarMode: null
+      },
+
       // CALENDAR DATA (consolidated event/calendar fields - source of truth)
       calendarData: {
         eventTitle,
@@ -13593,11 +13587,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         // Locations - use requestedRooms as ObjectId array
         locations: requestedRooms,
         locationDisplayNames: '', // Will be populated when published
-        // Requester info
-        requesterName: requesterName,
-        requesterEmail: requesterEmail,
-        department: department || '',
-        phone: phone || '',
+        // Requester info lives in roomReservationData.requestedBy (single source)
         // Delegation fields
         isOnBehalfOf: isOnBehalfOf,
         contactName: isOnBehalfOf ? contactName : null,
@@ -13712,8 +13702,8 @@ app.get('/api/room-reservations/:id', verifyToken, async (req, res) => {
       requestedRooms: cd.locations || [],
       attendeeCount: cd.attendeeCount || 0,
       requesterId: event.roomReservationData?.requestedBy?.userId,
-      requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
-      requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+      requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
+      requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
       submittedAt: event.roomReservationData?.submittedAt || event.createdAt,
       roomReservationData: event.roomReservationData,
       rejectionReason: event.roomReservationData?.rejectionReason,
@@ -16245,7 +16235,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomA.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomA._id,
           categories: ['Meeting'],
           setupTime: 0,
@@ -16277,7 +16267,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomA.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomA._id,
           categories: ['Meeting'],
           setupTime: 0,
@@ -16309,7 +16299,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomA.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomA._id,
           categories: ['Meeting'],
           setupTime: 0,
@@ -16342,7 +16332,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomB.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomB._id,
           categories: ['Meeting'],
           setupTime: 0,
@@ -16374,7 +16364,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomB.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomB._id,
           categories: ['Training'],
           setupTime: 0,
@@ -16406,7 +16396,7 @@ app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
           location: { displayName: conferenceRoomB.displayName },
           organizer: { emailAddress: { name: 'Test User', address: req.user.email } }
         },
-        internalData: {
+        calendarData: {
           roomId: conferenceRoomB._id,
           categories: ['Meeting'],
           setupTime: 0,
@@ -16612,49 +16602,8 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         try { return new ObjectId(id); } catch { return id; }
       }),
 
-      // Minimal graphData structure (not yet a real Graph event)
-      graphData: {
-        subject: eventTitle,
-        start: {
-          dateTime: startDateTime,
-          timeZone: 'America/New_York'
-        },
-        end: {
-          dateTime: endDateTime,
-          timeZone: 'America/New_York'
-        },
-        location: isOffsite
-          ? buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offsiteLon)
-          : { displayName: locationDisplayName },
-        bodyPreview: eventDescription || '',
-        categories: categories || [], // Categories sync with Outlook
-        isAllDay: false,
-        importance: 'normal',
-        showAs: 'busy',
-        sensitivity: 'normal',
-        attendees: [],
-        organizer: {
-          emailAddress: {
-            name: requesterName || userEmail,
-            address: requesterEmail || userEmail
-          }
-        }
-      },
-
-      // Standard internal enrichments
-      internalData: {
-        mecCategories: [],
-        setupMinutes: setupTimeMinutes || 0,
-        teardownMinutes: teardownTimeMinutes || 0,
-        registrationNotes: '',
-        assignedTo: '',
-        staffAssignments: [],
-        internalNotes: eventNotes || '',
-        setupStatus: 'pending',
-        estimatedCost: null,
-        actualCost: null,
-        customFields: {}
-      },
+      // graphData is null until a real Graph event is created (on publish)
+      graphData: null,
 
       // NEW: Room reservation metadata (workflow-specific data only)
       roomReservationData: {
@@ -16692,7 +16641,6 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         eventTitle,
         eventDescription: eventDescription || '',
         // Store datetime as-is (local time in America/New_York, no Z suffix)
-        // The graphData.start/end.timeZone specifies the timezone
         startDateTime: startDateTime ? startDateTime.replace(/Z$/, '') : '',
         endDateTime: endDateTime ? endDateTime.replace(/Z$/, '') : '',
         // Extract date and time components (preserve local time values)
@@ -16728,11 +16676,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         assignedTo: '',
         // Services (internal)
         services: services || {},
-        // Requester info (for room reservations)
-        requesterName: requesterName || userEmail,
-        requesterEmail: requesterEmail || userEmail,
-        department: department || '',
-        phone: phone || '',
+        // Requester info lives in roomReservationData.requestedBy (single source)
         // Room feature filtering
         requiredFeatures: requiredFeatures || [],
         // Concurrent scheduling settings
@@ -17160,8 +17104,8 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       const reservationForEmail = {
         _id: event._id,
         eventTitle: cd.eventTitle || event.graphData?.subject,
-        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
-        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+        requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
+        requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
         contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
         startTime: cd.startDateTime || event.graphData?.start?.dateTime,
         endTime: cd.endDateTime || event.graphData?.end?.dateTime,
@@ -17322,8 +17266,8 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
       const reservationForEmail = {
         _id: event._id,
         eventTitle: cd.eventTitle || event.graphData?.subject,
-        requesterName: cd.requesterName || event.roomReservationData?.requestedBy?.name,
-        requesterEmail: cd.requesterEmail || event.roomReservationData?.requestedBy?.email,
+        requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
+        requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
         contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
         startTime: cd.startDateTime || event.graphData?.start?.dateTime,
         endTime: cd.endDateTime || event.graphData?.end?.dateTime,
@@ -19076,7 +19020,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       graphData: _graphData,
       calendarData: _calendarData, // Nested object - individual fields handled via CALENDAR_DATA_FIELDS
       roomReservationData: _roomReservationData, // Nested object - not directly settable
-      internalData: _internalData, // Nested object - not directly settable
+      internalData: _internalData, // Deprecated - stripped from request body
       editScope: _editScope,
       occurrenceDate: _occurrenceDate,
       seriesMasterId: _seriesMasterId,

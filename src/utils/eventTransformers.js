@@ -169,14 +169,13 @@ export function transformEventToFlatStructure(event) {
                           (event.requestedRooms && event.requestedRooms.length > 0);
   const isOffsiteEvent = hasGraphLocation && !hasInternalRooms;
 
-  // Extract timing data - can come from multiple sources
-  // Prioritize calendarData/top-level fields (authoritative) over nested internalData (may be stale)
-  const timingSource = event.roomReservationData?.timing || event.internalData || {};
-  // calendarData/top-level fields take precedence over nested structures
-  const setupTime = getField(event, 'setupTime') || timingSource.setupTime || startTime || '';
-  const doorOpenTime = getField(event, 'doorOpenTime') || timingSource.doorOpenTime || startTime || '';
-  const rawTeardownTime = getField(event, 'teardownTime') || timingSource.teardownTime || '';
-  const rawDoorCloseTime = getField(event, 'doorCloseTime') || timingSource.doorCloseTime || '';
+  // Extract timing data from calendarData (authoritative) or top-level fields
+  // Do NOT fall back to startTime — empty values indicate the user hasn't set these yet,
+  // which is important for form validation (isFormValid must reflect actual data, not auto-defaults)
+  const setupTime = getField(event, 'setupTime') || '';
+  const doorOpenTime = getField(event, 'doorOpenTime') || '';
+  const rawTeardownTime = getField(event, 'teardownTime') || '';
+  const rawDoorCloseTime = getField(event, 'doorCloseTime') || '';
 
   // Auto-populate doorCloseTime with endTime if not set
   const doorCloseTime = rawDoorCloseTime || endTime || '';
@@ -184,12 +183,10 @@ export function transformEventToFlatStructure(event) {
   // Auto-populate teardownTime with endTime + 1 hour if not set
   const teardownTime = rawTeardownTime || calculateDefaultTeardownTime(endTime);
 
-  // Extract categories from multiple possible sources (with calendarData priority)
+  // Extract categories from calendarData (authoritative) or top-level fields
   const categories = getField(event, 'categories') ||
                     event.graphData?.categories ||
                     getField(event, 'mecCategories') ||
-                    event.internalData?.mecCategories ||
-                    event.internalData?.categories ||
                     [];
 
   return {
@@ -244,13 +241,13 @@ export function transformEventToFlatStructure(event) {
     teardownTime,
     doorOpenTime,
     doorCloseTime,
-    setupTimeMinutes: timingSource.setupTimeMinutes || event.internalData?.setupMinutes || getField(event, 'setupTimeMinutes', 0),
-    teardownTimeMinutes: timingSource.teardownTimeMinutes || event.internalData?.teardownMinutes || getField(event, 'teardownTimeMinutes', 0),
+    setupTimeMinutes: getField(event, 'setupTimeMinutes', 0),
+    teardownTimeMinutes: getField(event, 'teardownTimeMinutes', 0),
 
-    // Internal notes - can come from roomReservationData, internalData, calendarData, OR direct properties
-    setupNotes: event.roomReservationData?.internalNotes?.setupNotes || event.internalData?.setupNotes || event.internalNotes?.setupNotes || getField(event, 'setupNotes', ''),
-    doorNotes: event.roomReservationData?.internalNotes?.doorNotes || event.internalData?.doorNotes || event.internalNotes?.doorNotes || getField(event, 'doorNotes', ''),
-    eventNotes: event.roomReservationData?.internalNotes?.eventNotes || event.internalData?.eventNotes || event.internalNotes?.eventNotes || getField(event, 'eventNotes', ''),
+    // Internal notes from calendarData (authoritative) or roomReservationData
+    setupNotes: getField(event, 'setupNotes') || event.roomReservationData?.internalNotes?.setupNotes || '',
+    doorNotes: getField(event, 'doorNotes') || event.roomReservationData?.internalNotes?.doorNotes || '',
+    eventNotes: getField(event, 'eventNotes') || event.roomReservationData?.internalNotes?.eventNotes || '',
 
     // Contact person data
     contactName: event.roomReservationData?.contactPerson?.name || getField(event, 'contactName', ''),
@@ -261,7 +258,7 @@ export function transformEventToFlatStructure(event) {
     // Categories and services
     categories,
     mecCategories: categories, // Backwards compatibility alias
-    services: getField(event, 'services') || event.internalData?.services || {},
+    services: getField(event, 'services') || {},
 
     // Concurrent event settings (admin-only)
     isAllowedConcurrent: event.isAllowedConcurrent ?? false,

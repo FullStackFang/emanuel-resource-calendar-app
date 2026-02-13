@@ -11,7 +11,7 @@ import CommunicationHistory from './CommunicationHistory';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
-  const { canSubmitReservation, permissionsLoading } = usePermissions();
+  const { canSubmitReservation, canEditEvents, permissionsLoading } = usePermissions();
   const { showWarning, showSuccess, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -822,7 +822,7 @@ export default function MyReservations({ apiToken }) {
                   </button>
                 </>
               )}
-              {selectedReservation.status === 'published' && !selectedReservation.pendingEditRequest?.status && (
+              {selectedReservation.status === 'published' && !canEditEvents && !selectedReservation.pendingEditRequest?.status && (
                 <button
                   className="edit-request-btn"
                   onClick={() => {

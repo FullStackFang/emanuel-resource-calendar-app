@@ -143,8 +143,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       results.slice(0, 3).forEach((event, index) => {
         logger.debug(`Event ${index + 1}:`, {
           subject: event.calendarData?.eventTitle || event.eventTitle || event.subject,
-          calendarDataCategories: event.calendarData?.categories,
-          mecCategories: event.internalData?.mecCategories
+          calendarDataCategories: event.calendarData?.categories
         });
       });
     }
@@ -204,25 +203,22 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       location: {
         displayName: event.calendarData?.locationDisplayNames || event.locationDisplayName || event.location || event.locationDisplayNames || event.graphData?.location?.displayName || ''
       },
-      // Categories - prioritize calendarData, then top-level, then graphData, then internal
+      // Categories - prioritize calendarData, then top-level, then graphData
       categories: [
         ...(event.calendarData?.categories || []),
         ...(event.categories || []),
-        ...(event.graphData?.categories || []),
-        ...(event.internalData?.mecCategories || [])
+        ...(event.graphData?.categories || [])
       ].filter((cat, index, arr) => arr.indexOf(cat) === index), // Deduplicate
       bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
       organizer: event.graphData?.organizer || {},
       calendarId: event.calendarId,
       calendarName: event.calendarName,
-      // Include internal data for enriched display
-      internalData: event.internalData,
-      mecCategories: event.internalData?.mecCategories || [],
-      setupMinutes: event.setupMinutes || event.internalData?.setupMinutes,
-      teardownMinutes: event.teardownMinutes || event.internalData?.teardownMinutes,
-      assignedTo: event.internalData?.assignedTo,
-      estimatedCost: event.internalData?.estimatedCost,
-      actualCost: event.internalData?.actualCost,
+      mecCategories: event.calendarData?.categories || event.categories || [],
+      setupMinutes: event.calendarData?.setupTimeMinutes || event.setupTimeMinutes || 0,
+      teardownMinutes: event.calendarData?.teardownTimeMinutes || event.teardownTimeMinutes || 0,
+      assignedTo: event.calendarData?.assignedTo || event.assignedTo || '',
+      estimatedCost: event.calendarData?.estimatedCost || event.estimatedCost,
+      actualCost: event.calendarData?.actualCost || event.actualCost,
       // Top-level time fields from unified events collection
       startDate: event.startDate,
       startTime: event.startTime,

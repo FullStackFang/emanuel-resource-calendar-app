@@ -97,16 +97,18 @@ describe('My Events View Tests', () => {
       eventTitle: overrides.eventTitle || `Draft by ${user.displayName}`,
       calendarData: {
         eventTitle: overrides.eventTitle || `Draft by ${user.displayName}`,
-        requesterEmail: user.email,
         startDateTime: '2026-03-01T10:00:00',
         endDateTime: '2026-03-01T11:00:00',
         locations: [],
       },
       roomReservationData: {
-        requesterName: user.displayName,
-        requesterEmail: user.email,
-        department: 'General',
-        phone: '555-0000',
+        requestedBy: {
+          userId: user.odataId,
+          name: user.displayName,
+          email: user.email,
+          department: 'General',
+          phone: '555-0000',
+        },
         attendees: 10,
       },
       ...overrides,
@@ -125,16 +127,18 @@ describe('My Events View Tests', () => {
       eventTitle: overrides.eventTitle || `Pending by ${user.displayName}`,
       calendarData: {
         eventTitle: overrides.eventTitle || `Pending by ${user.displayName}`,
-        requesterEmail: user.email,
         startDateTime: '2026-03-01T12:00:00',
         endDateTime: '2026-03-01T13:00:00',
         locations: [],
       },
       roomReservationData: {
-        requesterName: user.displayName,
-        requesterEmail: user.email,
-        department: 'General',
-        phone: '555-0000',
+        requestedBy: {
+          userId: user.odataId,
+          name: user.displayName,
+          email: user.email,
+          department: 'General',
+          phone: '555-0000',
+        },
         attendees: 10,
       },
       ...overrides,
@@ -153,16 +157,18 @@ describe('My Events View Tests', () => {
       eventTitle: overrides.eventTitle || `Deleted by ${user.displayName}`,
       calendarData: {
         eventTitle: overrides.eventTitle || `Deleted by ${user.displayName}`,
-        requesterEmail: user.email,
         startDateTime: '2026-03-01T14:00:00',
         endDateTime: '2026-03-01T15:00:00',
         locations: [],
       },
       roomReservationData: {
-        requesterName: user.displayName,
-        requesterEmail: user.email,
-        department: 'General',
-        phone: '555-0000',
+        requestedBy: {
+          userId: user.odataId,
+          name: user.displayName,
+          email: user.email,
+          department: 'General',
+          phone: '555-0000',
+        },
         attendees: 10,
       },
       ...overrides,
@@ -317,6 +323,6 @@ describe('My Events View Tests', () => {
     // Admin should see only their own draft on the calendar
     const draftEvents = res.body.events.filter(e => e.status === 'draft');
     expect(draftEvents).toHaveLength(1);
-    expect(draftEvents[0].calendarData.requesterEmail).toBe(TEST_EMAILS.ADMIN);
+    expect(draftEvents[0].roomReservationData.requestedBy.email).toBe(TEST_EMAILS.ADMIN);
   });
 });

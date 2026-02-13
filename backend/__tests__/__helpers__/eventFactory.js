@@ -79,13 +79,18 @@ function createBaseEvent(options = {}) {
 
     // Room reservation data (for reservation workflow)
     roomReservationData: options.roomReservationData || {
-      requesterName: options.requesterName || 'Test Requester',
-      requesterEmail: options.requesterEmail || 'requester@external.com',
-      department: options.department || 'General',
-      phone: options.phone || '555-1234',
+      requestedBy: {
+        userId: options.userId || 'test-user',
+        name: options.requesterName || 'Test Requester',
+        email: options.requesterEmail || 'requester@external.com',
+        department: options.department || 'General',
+        phone: options.phone || '555-1234',
+      },
       attendees: options.attendees || 10,
       eventSetup: options.eventSetup || 'standard',
       notes: options.notes || '',
+      submittedAt: options.createdAt || now,
+      currentRevision: 1,
     },
 
     // Status history for tracking transitions
@@ -132,7 +137,6 @@ function createBaseEvent(options = {}) {
 
     // Optional nested structures
     graphData: options.graphData || null,
-    internalData: options.internalData || null,
 
     ...options,
   };

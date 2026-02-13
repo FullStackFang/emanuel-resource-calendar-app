@@ -314,8 +314,8 @@ export default function EventSyncAdmin({
                   <td>{new Date(event.externalData.start.dateTime).toLocaleString()}</td>
                   <td>{new Date(event.externalData.end.dateTime).toLocaleString()}</td>
                   <td>{event.isDeleted ? 'Deleted' : 'Active'}</td>
-                  <td>{event.internalData.mecCategories.join(', ') || '-'}</td>
-                  <td>{event.internalData.setupStatus}</td>
+                  <td>{(event.calendarData?.categories || event.categories || []).join(', ') || '-'}</td>
+                  <td>{event.calendarData?.setupStatus || event.setupStatus || '-'}</td>
                   <td>{new Date(event.lastSyncedAt).toLocaleString()}</td>
                 </tr>
               ))}
