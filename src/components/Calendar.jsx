@@ -6780,7 +6780,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}
-          canRequestEdit={effectivePermissions.submitReservation && !effectivePermissions.editEvents && !isEditRequestMode && !isViewingEditRequest}
+          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest}
           // Existing edit request props (for viewing pending edit requests)
           existingEditRequest={existingEditRequest}
           isViewingEditRequest={isViewingEditRequest}
