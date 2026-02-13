@@ -822,6 +822,21 @@ export default function MyReservations({ apiToken }) {
                   </button>
                 </>
               )}
+              {selectedReservation.status === 'published' && canEditEvents && (
+                <button
+                  className="edit-request-btn"
+                  onClick={() => {
+                    const reservation = selectedReservation;
+                    setSelectedReservation(null);
+                    window.dispatchEvent(new CustomEvent('open-edit-published-modal', {
+                      detail: { event: reservation }
+                    }));
+                  }}
+                  title="Edit this published reservation"
+                >
+                  Edit
+                </button>
+              )}
               {selectedReservation.status === 'published' && !canEditEvents && !selectedReservation.pendingEditRequest?.status && (
                 <button
                   className="edit-request-btn"

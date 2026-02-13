@@ -130,6 +130,9 @@ export default function ReviewModal({
   // Edit request modal props (for requesting edits on published events)
   onSubmitEditRequestModal = null,
   submittingEditRequestModal = false,
+  // Published edit props (for admins/approvers editing published events directly)
+  onSavePublishedEdit = null,
+  savingPublishedEdit = false,
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false
 }) {
@@ -538,6 +541,19 @@ export default function ReviewModal({
                   title={!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : 'Save changes to this pending reservation')}
                 >
                   {savingPendingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              )}
+
+              {/* Save Published Edit button - for admins/approvers editing published events */}
+              {onSavePublishedEdit && (
+                <button
+                  type="button"
+                  className="action-btn publish-btn"
+                  onClick={onSavePublishedEdit}
+                  disabled={!hasChanges || !isFormValid || savingPublishedEdit || hasSchedulingConflicts}
+                  title={hasSchedulingConflicts ? 'Resolve scheduling conflicts before saving' : (!hasChanges ? 'No changes to save' : (!isFormValid ? 'Please fill all required fields' : 'Save changes to this published reservation'))}
+                >
+                  {savingPublishedEdit ? 'Saving...' : 'Save Changes'}
                 </button>
               )}
 

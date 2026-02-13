@@ -145,6 +145,19 @@ function App() {
   const [editRequestVersion, setEditRequestVersion] = useState(null);
   const [showEditRequestDiscardDialog, setShowEditRequestDiscardDialog] = useState(false);
 
+  // Published edit modal state (for admins/approvers editing published events directly)
+  const [showPublishedEditModal, setShowPublishedEditModal] = useState(false);
+  const [publishedEditPrefillData, setPublishedEditPrefillData] = useState(null);
+  const [publishedEditFormData, setPublishedEditFormData] = useState(null);
+  const [publishedEditHasChanges, setPublishedEditHasChanges] = useState(false);
+  const publishedEditInitializedRef = useRef(false);
+  const [publishedEditIsFormValid, setPublishedEditIsFormValid] = useState(false);
+  const [publishedEditIsSaving, setPublishedEditIsSaving] = useState(false);
+  const [publishedEditEventId, setPublishedEditEventId] = useState(null);
+  const [publishedEditVersion, setPublishedEditVersion] = useState(null);
+  const [showPublishedEditDiscardDialog, setShowPublishedEditDiscardDialog] = useState(false);
+  const [publishedEditHasConflicts, setPublishedEditHasConflicts] = useState(false);
+
   // Error reporting modal state
   const [pendingError, setPendingError] = useState(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -497,6 +510,91 @@ function App() {
       editRequestInitializedRef.current = false;
     }
   }, [showEditRequestModal, editRequestPrefillData]);
+
+  // Listen for published edit modal event (from MyReservations -- admins/approvers editing published events)
+  useEffect(() => {
+    const handleOpenPublishedEditModal = (event) => {
+      const { event: publishedEvent } = event.detail;
+      if (!publishedEvent) return;
+
+      logger.debug('Opening published edit modal with data:', publishedEvent);
+
+      const parseDateTime = (dateTimeStr) => {
+        if (!dateTimeStr) return { date: '', time: '' };
+        if (dateTimeStr.includes('Z')) {
+          const d = new Date(dateTimeStr);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hours = String(d.getHours()).padStart(2, '0');
+          const minutes = String(d.getMinutes()).padStart(2, '0');
+          return { date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+        }
+        return {
+          date: dateTimeStr.split('T')[0] || '',
+          time: dateTimeStr.split('T')[1]?.slice(0, 5) || ''
+        };
+      };
+
+      const startParsed = parseDateTime(publishedEvent.startDateTime);
+      const endParsed = parseDateTime(publishedEvent.endDateTime);
+
+      const prefillData = {
+        eventTitle: publishedEvent.eventTitle || '',
+        eventDescription: publishedEvent.eventDescription || '',
+        startDate: publishedEvent.startDate || startParsed.date,
+        endDate: publishedEvent.endDate || endParsed.date,
+        startTime: publishedEvent.startTime || startParsed.time,
+        endTime: publishedEvent.endTime || endParsed.time,
+        requestedRooms: publishedEvent.requestedRooms || publishedEvent.locations || [],
+        locations: publishedEvent.requestedRooms || publishedEvent.locations || [],
+        attendeeCount: publishedEvent.attendeeCount || '',
+        setupTime: publishedEvent.setupTime || '',
+        teardownTime: publishedEvent.teardownTime || '',
+        doorOpenTime: publishedEvent.doorOpenTime || '',
+        doorCloseTime: publishedEvent.doorCloseTime || '',
+        categories: publishedEvent.categories || publishedEvent.mecCategories || [],
+        services: publishedEvent.services || {},
+        specialRequirements: publishedEvent.specialRequirements || '',
+        virtualMeetingUrl: publishedEvent.virtualMeetingUrl || '',
+        isOffsite: publishedEvent.isOffsite || false,
+        offsiteName: publishedEvent.offsiteName || '',
+        offsiteAddress: publishedEvent.offsiteAddress || '',
+        offsiteLat: publishedEvent.offsiteLat || null,
+        offsiteLon: publishedEvent.offsiteLon || null,
+        department: publishedEvent.roomReservationData?.requestedBy?.department || publishedEvent.department || '',
+        phone: publishedEvent.roomReservationData?.requestedBy?.phone || publishedEvent.phone || '',
+        _id: publishedEvent._id
+      };
+
+      setPublishedEditEventId(publishedEvent._id);
+      setPublishedEditVersion(publishedEvent._version);
+      setPublishedEditPrefillData(prefillData);
+      setPublishedEditFormData(null);
+      setPublishedEditHasChanges(false);
+      setPublishedEditHasConflicts(false);
+      setShowPublishedEditModal(true);
+    };
+
+    window.addEventListener('open-edit-published-modal', handleOpenPublishedEditModal);
+    return () => window.removeEventListener('open-edit-published-modal', handleOpenPublishedEditModal);
+  }, []);
+
+  // Reset hasChanges after published edit modal form initializes
+  useEffect(() => {
+    if (showPublishedEditModal && publishedEditPrefillData && !publishedEditInitializedRef.current) {
+      const timer = setTimeout(() => {
+        if (!publishedEditInitializedRef.current) {
+          setPublishedEditHasChanges(false);
+          publishedEditInitializedRef.current = true;
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    if (!showPublishedEditModal) {
+      publishedEditInitializedRef.current = false;
+    }
+  }, [showPublishedEditModal, publishedEditPrefillData]);
 
   // Memoized token acquisition function
   // Note: Graph token is no longer required - backend uses app-only authentication
@@ -1475,6 +1573,193 @@ function App() {
                       setEditRequestEventId(null);
                       setEditRequestVersion(null);
                       editRequestInitializedRef.current = false;
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    }}
+                  />
+                </ReviewModal>
+
+              {/* Published Edit Modal - for admins/approvers editing published events from MyReservations */}
+              <ReviewModal
+                  isOpen={showPublishedEditModal}
+                  title={publishedEditPrefillData?.eventTitle ? `Edit Published: ${publishedEditPrefillData.eventTitle}` : 'Edit Published Reservation'}
+                  itemStatus="published"
+                  mode="create"
+                  onClose={() => {
+                    if (publishedEditHasChanges) {
+                      setShowPublishedEditDiscardDialog(true);
+                      return;
+                    }
+                    setShowPublishedEditModal(false);
+                    setPublishedEditPrefillData(null);
+                    setPublishedEditFormData(null);
+                    setPublishedEditHasChanges(false);
+                    setPublishedEditIsFormValid(false);
+                    setPublishedEditEventId(null);
+                    setPublishedEditVersion(null);
+                    setPublishedEditHasConflicts(false);
+                    publishedEditInitializedRef.current = false;
+                  }}
+                  isDraft={false}
+                  onSavePublishedEdit={async () => {
+                    const formData = { ...publishedEditPrefillData, ...publishedEditFormData };
+                    if (!formData || !formData.eventTitle?.trim()) {
+                      showWarning('Event title is required');
+                      return;
+                    }
+                    if (!formData.startDate || !formData.endDate) {
+                      showWarning('Start date and end date are required');
+                      return;
+                    }
+                    if (!formData.startTime || !formData.endTime) {
+                      showWarning('Start time and end time are required');
+                      return;
+                    }
+
+                    setPublishedEditIsSaving(true);
+                    try {
+                      const payload = {
+                        _version: publishedEditVersion,
+                        eventTitle: formData.eventTitle || '',
+                        eventDescription: formData.eventDescription || '',
+                        startDateTime: formData.startDate && formData.startTime
+                          ? `${formData.startDate}T${formData.startTime}`
+                          : null,
+                        endDateTime: formData.endDate && formData.endTime
+                          ? `${formData.endDate}T${formData.endTime}`
+                          : null,
+                        startDate: formData.startDate || null,
+                        startTime: formData.startTime || null,
+                        endDate: formData.endDate || null,
+                        endTime: formData.endTime || null,
+                        attendeeCount: parseInt(formData.attendeeCount) || 0,
+                        requestedRooms: formData.requestedRooms || formData.locations || [],
+                        specialRequirements: formData.specialRequirements || '',
+                        department: formData.department || '',
+                        phone: formData.phone || '',
+                        setupTime: formData.setupTime || null,
+                        teardownTime: formData.teardownTime || null,
+                        doorOpenTime: formData.doorOpenTime || null,
+                        doorCloseTime: formData.doorCloseTime || null,
+                        categories: formData.categories || formData.mecCategories || [],
+                        services: formData.services || {},
+                        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+                        isOffsite: formData.isOffsite || false,
+                        offsiteName: formData.offsiteName || '',
+                        offsiteAddress: formData.offsiteAddress || '',
+                      };
+
+                      const response = await fetch(
+                        `${APP_CONFIG.API_BASE_URL}/admin/events/${publishedEditEventId}`,
+                        {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiToken}`
+                          },
+                          body: JSON.stringify(payload)
+                        }
+                      );
+
+                      if (response.status === 409) {
+                        const errorData = await response.json();
+                        if (errorData.error === 'SchedulingConflict') {
+                          showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+                          setPublishedEditIsSaving(false);
+                          return;
+                        }
+                        throw new Error(errorData.error || 'Conflict detected');
+                      }
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to save changes');
+                      }
+
+                      const result = await response.json();
+                      setPublishedEditVersion(result._version);
+
+                      // Close modal and reset state
+                      setShowPublishedEditModal(false);
+                      setPublishedEditPrefillData(null);
+                      setPublishedEditFormData(null);
+                      setPublishedEditHasChanges(false);
+                      setPublishedEditIsFormValid(false);
+                      setPublishedEditEventId(null);
+                      setPublishedEditVersion(null);
+                      setPublishedEditHasConflicts(false);
+                      publishedEditInitializedRef.current = false;
+
+                      showSuccess(result.graphSynced ? 'Reservation updated and synced to calendar' : 'Reservation updated successfully');
+                      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+                    } catch (error) {
+                      logger.error('Error saving published edit:', error);
+                      showError(error, { context: 'App.onSavePublishedEdit', userMessage: 'Failed to save changes' });
+                    } finally {
+                      setPublishedEditIsSaving(false);
+                    }
+                  }}
+                  savingPublishedEdit={publishedEditIsSaving}
+                  showDiscardDialog={showPublishedEditDiscardDialog}
+                  onDiscardDialogDiscard={() => {
+                    setShowPublishedEditDiscardDialog(false);
+                    setShowPublishedEditModal(false);
+                    setPublishedEditPrefillData(null);
+                    setPublishedEditFormData(null);
+                    setPublishedEditHasChanges(false);
+                    setPublishedEditIsFormValid(false);
+                    setPublishedEditEventId(null);
+                    setPublishedEditVersion(null);
+                    setPublishedEditHasConflicts(false);
+                    publishedEditInitializedRef.current = false;
+                  }}
+                  onDiscardDialogCancel={() => {
+                    setShowPublishedEditDiscardDialog(false);
+                  }}
+                  hasChanges={publishedEditHasChanges}
+                  isFormValid={publishedEditIsFormValid}
+                  isSaving={publishedEditIsSaving}
+                  hasSchedulingConflicts={publishedEditHasConflicts}
+                  showTabs={true}
+                >
+                  <UnifiedEventForm
+                    key={publishedEditEventId || 'published-edit'}
+                    mode="create"
+                    apiToken={apiToken}
+                    prefillData={publishedEditPrefillData}
+                    hideActionBar={true}
+                    onHasChangesChange={setPublishedEditHasChanges}
+                    onFormValidChange={setPublishedEditIsFormValid}
+                    onDataChange={(updatedData) => {
+                      setPublishedEditFormData(prev => ({
+                        ...(prev || publishedEditPrefillData || {}),
+                        ...updatedData
+                      }));
+                    }}
+                    onCancel={() => {
+                      if (publishedEditHasChanges) {
+                        setShowPublishedEditDiscardDialog(true);
+                        return;
+                      }
+                      setShowPublishedEditModal(false);
+                      setPublishedEditPrefillData(null);
+                      setPublishedEditFormData(null);
+                      setPublishedEditHasChanges(false);
+                      setPublishedEditIsFormValid(false);
+                      setPublishedEditEventId(null);
+                      setPublishedEditVersion(null);
+                      setPublishedEditHasConflicts(false);
+                      publishedEditInitializedRef.current = false;
+                    }}
+                    onSuccess={() => {
+                      setShowPublishedEditModal(false);
+                      setPublishedEditPrefillData(null);
+                      setPublishedEditFormData(null);
+                      setPublishedEditHasChanges(false);
+                      setPublishedEditIsFormValid(false);
+                      setPublishedEditEventId(null);
+                      setPublishedEditVersion(null);
+                      setPublishedEditHasConflicts(false);
+                      publishedEditInitializedRef.current = false;
                       window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
                     }}
                   />
