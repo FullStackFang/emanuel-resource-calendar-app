@@ -14,13 +14,13 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  padding: var(--space-5) 0;
-  overflow-y: auto;
+  padding: var(--space-2);
+  overflow: hidden;
 }
 
 /* ==========================================================================
@@ -29,12 +29,14 @@
 
 .review-modal {
   background: var(--bg-primary);
-  border-radius: var(--radius-xl);
-  padding: var(--space-3);
-  max-width: 2400px;
+  border-radius: var(--radius-2xl);
+  padding: var(--space-2);
+  max-width: 1200px;
   width: 100%;
-  min-height: min-content;
-  box-shadow: var(--shadow-2xl);
+  min-height: 0;
+  max-height: calc(100vh - var(--space-4));
+  overflow: hidden;
+  box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
   box-sizing: border-box;
 }
 
@@ -52,27 +54,46 @@
   -ms-user-select: none !important;
 }
 
-/* Scale all content inside modal to 75% while keeping modal window large */
-.review-modal > * {
-  zoom: 0.75;
+/* Scroll area for internal content scrolling */
+.review-modal-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 }
 
+/* Content wrapper — zoom scales form content down while scroll area stays at 1x.
+   Action bar + tabs stay at 1x (outside scroll area) for crisp buttons.
+   Scrollbar stays at 1x (on scroll-area, not content) to prevent jitter. */
+.review-modal-scroll-content {
+  zoom: 0.6;
+}
+
+/* Kill layout-affecting transitions inside modal to prevent jitter */
+.review-modal * {
+  transition-property: background-color, color, border-color, box-shadow, opacity !important;
+}
+
+/* Compact form overrides for natively-sized modal */
+
 /* ==========================================================================
-   STICKY ACTION BAR
+   ACTION BAR
    ========================================================================== */
 
 .review-action-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-default);
-  position: sticky;
-  top: 0;
+  position: relative;
+  top: auto;
   z-index: 10;
-  margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0 calc(var(--space-3) * -1);
-  gap: var(--space-6);
+  flex-shrink: 0;
+  margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 calc(var(--space-2) * -1);
+  border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  gap: var(--space-3);
 }
 
 /* Left side: Title + Status */
@@ -86,7 +107,7 @@
 .action-bar-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   white-space: nowrap;
@@ -177,19 +198,20 @@
 
 .review-modal .event-type-tabs {
   display: flex;
-  gap: var(--space-2);
-  margin: var(--space-5) var(--space-5) var(--space-4) var(--space-5);
+  gap: var(--space-1);
+  margin: var(--space-1) var(--space-2) !important;
   align-items: center;
   flex-wrap: wrap;
+  flex-shrink: 0;
   justify-content: flex-start !important;
 }
 
 .review-modal .event-type-tab {
-  padding: var(--space-3) var(--space-8);
+  padding: var(--space-1) var(--space-3) !important;
   border-radius: var(--radius-full);
   background: var(--color-primary-50);
   color: var(--color-primary-600);
-  font-size: var(--text-sm);
+  font-size: 11px !important;
   font-weight: var(--font-medium);
   border: none;
   cursor: pointer;
@@ -232,18 +254,18 @@
    ========================================================================== */
 
 .action-btn {
-  padding: 0 var(--space-4) !important;
+  padding: 0 var(--space-3) !important;
   border: none;
   border-radius: var(--radius-lg);
   font-family: var(--font-body);
-  font-size: var(--text-sm) !important;
+  font-size: var(--text-xs) !important;
   font-weight: var(--font-medium) !important;
   cursor: pointer;
   transition: var(--transition-all);
   white-space: nowrap;
-  line-height: 32px !important;
-  height: 32px !important;
-  min-height: 32px !important;
+  line-height: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -326,12 +348,12 @@
   background: var(--bg-tertiary) !important;
   color: var(--text-primary) !important;
   border: none !important;
-  padding: 0 var(--space-4) !important;
-  height: 32px !important;
-  min-height: 32px !important;
-  line-height: 32px !important;
+  padding: 0 var(--space-3) !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  line-height: 28px !important;
   border-radius: var(--radius-lg) !important;
-  font-size: var(--text-sm) !important;
+  font-size: var(--text-xs) !important;
   margin-top: 0 !important;
 }
 
@@ -360,7 +382,7 @@
   align-items: center;
   gap: var(--space-1);
   position: relative;
-  height: 32px;
+  height: 28px;
   vertical-align: middle;
 }
 
@@ -515,12 +537,12 @@
   background: var(--color-warning-500) !important;
   color: var(--text-inverse) !important;
   border: none !important;
-  padding: 0 var(--space-4) !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  line-height: 36px !important;
+  padding: 0 var(--space-3) !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  line-height: 28px !important;
   border-radius: var(--radius-lg) !important;
-  font-size: var(--text-sm) !important;
+  font-size: var(--text-xs) !important;
 }
 
 .review-actions .view-edit-request-btn:hover:not(:disabled) {
@@ -532,12 +554,12 @@
   background: var(--color-info-500) !important;
   color: var(--text-inverse) !important;
   border: none !important;
-  padding: 0 var(--space-4) !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  line-height: 36px !important;
+  padding: 0 var(--space-3) !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  line-height: 28px !important;
   border-radius: var(--radius-lg) !important;
-  font-size: var(--text-sm) !important;
+  font-size: var(--text-xs) !important;
 }
 
 .review-actions .toggle-view-btn:hover:not(:disabled) {
@@ -556,65 +578,135 @@
     min-width: 0 !important;
     padding: var(--space-1) !important;
     box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 }
 
 .review-modal .event-and-rooms-container {
   grid-template-columns: minmax(0, 30%) minmax(0, 70%) !important;
-  gap: var(--space-3) !important;
-  margin-bottom: var(--space-3) !important;
+  gap: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
 }
 
 .review-modal .form-group {
-  margin-bottom: var(--space-3) !important;
+  margin-bottom: var(--space-2) !important;
 }
 
 .review-modal .form-grid {
-  gap: var(--space-3) !important;
+  gap: var(--space-2) !important;
 }
 
 .review-modal .room-selection-container {
   min-width: 0 !important;
   max-width: 100%;
   overflow: hidden;
-  gap: var(--space-5) !important;
-  margin-top: var(--space-3) !important;
+  gap: var(--space-3) !important;
+  margin-top: var(--space-2) !important;
 }
 
 .review-modal .form-section {
   min-width: 0 !important;
   max-width: 100%;
   overflow: hidden;
-  padding: var(--space-3) !important;
-  margin-bottom: var(--space-3) !important;
+  padding: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
 }
 
 .review-modal .form-section h2 {
-  font-size: var(--text-lg) !important;
-  margin-bottom: var(--space-3) !important;
+  font-size: var(--text-xs) !important;
+  margin-bottom: var(--space-1) !important;
+  padding-bottom: var(--space-1) !important;
 }
 
 .review-modal .scheduling-assistant {
   min-width: 0 !important;
   max-width: 100%;
   overflow-x: hidden;
-  min-height: 600px !important;
-  padding: var(--space-5) !important;
+  min-height: 0 !important;
+  height: auto !important;
+  position: static !important;
+  padding: var(--space-3) !important;
 }
 
 .review-modal .assistant-header {
-  margin-bottom: var(--space-3) !important;
-  padding-bottom: var(--space-3) !important;
+  margin-bottom: var(--space-2) !important;
+  padding-bottom: var(--space-2) !important;
 }
 
 .review-modal .timeline-wrapper {
-  margin-bottom: var(--space-3) !important;
+  margin-bottom: var(--space-2) !important;
 }
 
 .review-modal .scheduling-assistant-container {
   min-width: 0 !important;
   max-width: 100%;
   overflow: hidden;
+}
+
+/* SchedulingAssistant header compact */
+.review-modal .assistant-header h3 {
+  font-size: var(--text-sm) !important;
+  margin: 0 !important;
+}
+.review-modal .selected-date {
+  font-size: var(--text-xs) !important;
+}
+
+/* Stats panel compact */
+.review-modal .stats-panel {
+  gap: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
+  padding: var(--space-2) !important;
+}
+
+/* Room tabs compact */
+.review-modal .room-tab {
+  padding: var(--space-2) !important;
+  font-size: var(--text-xs) !important;
+}
+
+/* Time groups: compact padding/margin */
+.review-modal .time-group-core,
+.review-modal .time-group-operations {
+  padding: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
+}
+
+.review-modal .time-group-core h3,
+.review-modal .time-group-operations h3 {
+  font-size: var(--text-sm) !important;
+  margin-bottom: var(--space-2) !important;
+}
+
+/* Time field rows: compact gap/margin */
+.review-modal .time-field-row {
+  gap: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
+}
+
+/* Section rows: compact gap/margin */
+.review-modal .section-row-3col,
+.review-modal .section-row-2col {
+  gap: var(--space-2) !important;
+  margin-bottom: var(--space-2) !important;
+  padding: 0 var(--space-1) !important;
+}
+
+/* Textarea min-height reduction */
+.review-modal textarea {
+  min-height: 40px !important;
+}
+
+/* Compact form labels and inputs inside review modal */
+.review-modal label {
+  font-size: var(--text-xs) !important;
+}
+
+.review-modal input,
+.review-modal textarea,
+.review-modal select {
+  font-size: var(--text-xs) !important;
+  padding: var(--space-1) var(--space-2) !important;
 }
 
 /* ==========================================================================

@@ -695,9 +695,8 @@ function App() {
                 <img src="/emanuel_logo.png" alt="Chat" className="ai-chat-fab-icon" />
               </button>
 
-              {/* AI Chat Reservation Modal - wrapped with zoom to match calendar page scaling */}
-              <div className="scale-80">
-                <ReviewModal
+              {/* AI Chat Reservation Modal */}
+              <ReviewModal
                   isOpen={showReservationModal}
                   title="Add Event - AI Assistant"
                   mode="create"
@@ -757,11 +756,9 @@ function App() {
                     }}
                   />
                 </ReviewModal>
-              </div>
 
               {/* Draft Edit Modal - for editing drafts from MyReservations */}
-              <div className="scale-80">
-                <ReviewModal
+              <ReviewModal
                   isOpen={showDraftModal}
                   title={draftPrefillData?.eventTitle ? `Edit Draft: ${draftPrefillData.eventTitle}` : 'Edit Draft'}
                   itemStatus="draft"
@@ -1137,11 +1134,9 @@ function App() {
                     }}
                   />
                 </ReviewModal>
-              </div>
 
               {/* Pending Edit Modal - for editing pending events from MyReservations */}
-              <div className="scale-80">
-                <ReviewModal
+              <ReviewModal
                   isOpen={showPendingEditModal}
                   title={pendingEditPrefillData?.eventTitle ? `Edit Pending: ${pendingEditPrefillData.eventTitle}` : 'Edit Pending Reservation'}
                   itemStatus="pending"
@@ -1320,11 +1315,9 @@ function App() {
                     }}
                   />
                 </ReviewModal>
-              </div>
 
               {/* Edit Request Modal - for requesting edits on published events from MyReservations */}
-              <div className="scale-80">
-                <ReviewModal
+              <ReviewModal
                   isOpen={showEditRequestModal}
                   title={editRequestPrefillData?.eventTitle ? `Request Edit: ${editRequestPrefillData.eventTitle}` : 'Request Edit'}
                   itemStatus="published"
@@ -1486,7 +1479,6 @@ function App() {
                     }}
                   />
                 </ReviewModal>
-              </div>
 
               {/* New Reservation Modal - triggered from MyReservations */}
               <NewReservationModal

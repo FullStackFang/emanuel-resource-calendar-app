@@ -1,5 +1,6 @@
 // src/components/shared/ReviewModal.jsx
 import React, { useEffect, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
@@ -124,7 +125,7 @@ export default function ReviewModal({
   showDiscardDialog = false,
   onDiscardDialogDiscard = null,
   onDiscardDialogCancel = null,
-  // Edit request modal props (scale-80 modal for requesting edits on published events)
+  // Edit request modal props (for requesting edits on published events)
   onSubmitEditRequestModal = null,
   submittingEditRequestModal = false,
   // Scheduling conflict state (from SchedulingAssistant)
@@ -184,10 +185,10 @@ export default function ReviewModal({
 
   // Only apply inline styles for the default review-modal, not for custom modals
   const inlineStyles = modalClassName === 'review-modal'
-    ? { maxWidth: '100vw', display: 'flex', flexDirection: 'column', maxHeight: '100vh' }
+    ? { display: 'flex', flexDirection: 'column' }
     : { display: 'flex', flexDirection: 'column' };
 
-  return (
+  const modalContent = (
     <div className={overlayClassName} onClick={handleOverlayClick}>
       <div className={modalClassName} style={inlineStyles}>
         {/* Sticky Action Bar */}
@@ -538,7 +539,7 @@ export default function ReviewModal({
                 </button>
               )}
 
-              {/* Submit Edit Request button - for requesting edits on approved events (scale-80 modal) */}
+              {/* Submit Edit Request button - for requesting edits on published events */}
               {onSubmitEditRequestModal && (
                 <button
                   type="button"
@@ -690,10 +691,14 @@ export default function ReviewModal({
         )}
 
         {/* Content Area */}
-        <div style={{ flex: 1, position: 'relative' }}>
-          {React.isValidElement(children)
-            ? React.cloneElement(children, { activeTab, isEditRequestMode, isViewingEditRequest, originalData })
-            : children}
+        <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+          <div className="review-modal-scroll-area">
+            <div className="review-modal-scroll-content">
+              {React.isValidElement(children)
+                ? React.cloneElement(children, { activeTab, isEditRequestMode, isViewingEditRequest, originalData })
+                : children}
+            </div>
+          </div>
 
           {/* Loading Overlay for Series Navigation */}
           {isNavigating && (
@@ -750,4 +755,6 @@ export default function ReviewModal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

@@ -1490,11 +1490,6 @@ main .welcome-message {
    UTILITY CLASSES
    ========================================================================== */
 
-/* Scale utilities - for modal zoom adjustments */
-.scale-80 {
-  zoom: 0.8;
-}
-
 /* Display utilities */
 .visually-hidden {
   position: absolute;

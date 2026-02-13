@@ -1311,7 +1311,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       {/* Review Modal (using ReviewModal component) - for regular reservations */}
       {showReviewModal && selectedReservation && (
-        <div className="scale-80">
         <ReviewModal
           isOpen={showReviewModal}
           title={`Review ${selectedReservation.eventTitle || 'Reservation Request'}`}
@@ -1386,7 +1385,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             />
           )}
         </ReviewModal>
-        </div>
       )}
       {/* Conflict Dialog for 409 version conflicts */}
       <ConflictDialog

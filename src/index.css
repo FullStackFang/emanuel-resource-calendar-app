@@ -142,7 +142,8 @@ select {
   border: var(--input-border-width) solid var(--border-default);
   border-radius: var(--radius-lg);
   padding: var(--input-padding);
-  transition: var(--transition-all);
+  transition: border-color var(--duration-normal) var(--ease-in-out),
+              box-shadow var(--duration-normal) var(--ease-in-out);
 }
 
 input:focus,

@@ -295,7 +295,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   }, []);
 
   return (
-    <div className="scale-80">
       <ReviewModal
         isOpen={isOpen}
         title={canCreateEvents ? 'Add Event' : 'Request Event'}
@@ -336,6 +335,5 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
           onSuccess={handleSuccess}
         />
       </ReviewModal>
-    </div>
   );
 }

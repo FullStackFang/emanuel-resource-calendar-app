@@ -58,7 +58,12 @@
       "Bash(git stash:*)",
       "Bash(git cherry-pick:*)",
       "Bash(python3:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npm root:*)",
+      "Bash(sudo apt-get install:*)"
     ],
     "deny": []
   }
