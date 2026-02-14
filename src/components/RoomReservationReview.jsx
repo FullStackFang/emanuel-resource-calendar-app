@@ -421,7 +421,7 @@ export default function RoomReservationReview({
             <>
               {/* Tab: Attachments */}
               {activeTab === 'attachments' && reservation && apiToken && (
-                <div style={{ padding: '20px' }}>
+                <div className="tab-content-pad">
                   <AttachmentsSection
                     resourceId={reservation?.eventId}
                     resourceType="event"
@@ -433,7 +433,7 @@ export default function RoomReservationReview({
 
               {/* Tab: History */}
               {activeTab === 'history' && reservation && apiToken && (
-                <div style={{ padding: '20px' }}>
+                <div className="tab-content-pad">
                   <EventAuditHistory
                     eventId={reservation.eventId}
                     apiToken={apiToken}
@@ -443,48 +443,59 @@ export default function RoomReservationReview({
 
               {/* Tab: Admin (for troubleshooting) */}
               {activeTab === 'admin' && isAdmin && reservation && (
-                <div style={{ padding: '20px' }}>
-                  <h3 style={{ marginBottom: '15px', fontSize: '1rem', fontWeight: '600' }}>Database Record Info</h3>
-                  <div style={{
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    backgroundColor: '#f5f5f5',
-                    padding: '15px',
-                    borderRadius: '4px',
-                    maxHeight: '60vh',
-                    overflow: 'auto'
-                  }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <tbody>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>_id</td><td>{reservation._id || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>eventId</td><td>{reservation.eventId || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>graphData.id</td><td style={{ wordBreak: 'break-all' }}>{reservation.graphData?.id || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>userId</td><td>{reservation.userId || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>source</td><td>{reservation.source || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>status</td><td>{reservation.status || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>isDeleted</td><td>{String(reservation.isDeleted ?? '--')}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>calendarId</td><td style={{ wordBreak: 'break-all' }}>{reservation.calendarId || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>locationDisplayNames</td><td>{reservation.locationDisplayNames || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>locations</td><td>{JSON.stringify(reservation.locations) || '[]'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>eventSeriesId</td><td>{reservation.eventSeriesId || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>isRecurringMaster</td><td>{String(reservation.isRecurringMaster ?? '--')}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>recurrenceType</td><td>{reservation.recurrenceType || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>seriesMasterId</td><td>{reservation.seriesMasterId || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>isException</td><td>{String(reservation.isException ?? '--')}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>createdAt</td><td>{reservation.createdAt || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>createdBy</td><td>{reservation.createdBy || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>createdByEmail</td><td>{reservation.createdByEmail || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>createdByName</td><td>{reservation.createdByName || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>createdSource</td><td>{reservation.createdSource || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>updatedAt</td><td>{reservation.updatedAt || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>lastModifiedDateTime</td><td>{reservation.lastModifiedDateTime || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>lastSyncedAt</td><td>{reservation.lastSyncedAt || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>cachedAt</td><td>{reservation.cachedAt || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>lastAccessedAt</td><td>{reservation.lastAccessedAt || '--'}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>syncedFromOutlook</td><td>{String(reservation.syncedFromOutlook ?? '--')}</td></tr>
-                        <tr><td style={{ fontWeight: 'bold', padding: '4px 8px', whiteSpace: 'nowrap' }}>sourceCalendars</td><td>{JSON.stringify(reservation.sourceCalendars) || '[]'}</td></tr>
-                      </tbody>
-                    </table>
+                <div className="tab-content-pad">
+                  <div className="db-section">
+                    <div className="db-header">
+                      <div className="db-header-left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                          <ellipse cx="12" cy="5" rx="9" ry="3" />
+                          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                        </svg>
+                        <span>Database Record</span>
+                      </div>
+                      <span className="db-field-count">{27} fields</span>
+                    </div>
+                    <div className="db-table-wrap">
+                      <table className="db-table">
+                        <tbody>
+                          {[
+                            ['_id', reservation._id],
+                            ['eventId', reservation.eventId],
+                            ['graphData.id', reservation.graphData?.id, true],
+                            ['userId', reservation.userId],
+                            ['source', reservation.source],
+                            ['status', reservation.status],
+                            ['isDeleted', String(reservation.isDeleted ?? '--')],
+                            ['calendarId', reservation.calendarId, true],
+                            ['locationDisplayNames', reservation.locationDisplayNames],
+                            ['locations', JSON.stringify(reservation.locations) || '[]'],
+                            ['eventSeriesId', reservation.eventSeriesId],
+                            ['isRecurringMaster', String(reservation.isRecurringMaster ?? '--')],
+                            ['recurrenceType', reservation.recurrenceType],
+                            ['seriesMasterId', reservation.seriesMasterId],
+                            ['isException', String(reservation.isException ?? '--')],
+                            ['createdAt', reservation.createdAt],
+                            ['createdBy', reservation.createdBy],
+                            ['createdByEmail', reservation.createdByEmail],
+                            ['createdByName', reservation.createdByName],
+                            ['createdSource', reservation.createdSource],
+                            ['updatedAt', reservation.updatedAt],
+                            ['lastModifiedDateTime', reservation.lastModifiedDateTime],
+                            ['lastSyncedAt', reservation.lastSyncedAt],
+                            ['cachedAt', reservation.cachedAt],
+                            ['lastAccessedAt', reservation.lastAccessedAt],
+                            ['syncedFromOutlook', String(reservation.syncedFromOutlook ?? '--')],
+                            ['sourceCalendars', JSON.stringify(reservation.sourceCalendars) || '[]'],
+                          ].map(([field, value, breakAll]) => (
+                            <tr key={field} className="db-row">
+                              <td className="db-field-name">{field}</td>
+                              <td className={`db-field-value${breakAll ? ' db-field-value--break' : ''}`}>{value || '--'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

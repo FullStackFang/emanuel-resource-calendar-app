@@ -5,6 +5,129 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import './AttachmentsSection.css';
 
+/* =========================================================================
+   SVG Icon Components — crisp at any size, no emoji rendering variance
+   ========================================================================= */
+
+const Icon = ({ children, size = 20, className = '', ...props }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={`att-icon ${className}`}
+    {...props}
+  >
+    {children}
+  </svg>
+);
+
+const IconImage = (props) => (
+  <Icon {...props}>
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <polyline points="21 15 16 10 5 21" />
+  </Icon>
+);
+
+const IconFileText = (props) => (
+  <Icon {...props}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </Icon>
+);
+
+const IconFilePdf = (props) => (
+  <Icon {...props}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <text x="8" y="18" fontSize="7" fontWeight="700" fill="currentColor" stroke="none" fontFamily="sans-serif">PDF</text>
+  </Icon>
+);
+
+const IconFileSpreadsheet = (props) => (
+  <Icon {...props}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="16" y2="17" />
+    <line x1="12" y1="11" x2="12" y2="19" />
+  </Icon>
+);
+
+const IconPaperclip = (props) => (
+  <Icon {...props}>
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </Icon>
+);
+
+const IconUploadCloud = (props) => (
+  <Icon {...props}>
+    <polyline points="16 16 12 12 8 16" />
+    <line x1="12" y1="12" x2="12" y2="21" />
+    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+    <polyline points="16 16 12 12 8 16" />
+  </Icon>
+);
+
+const IconDownload = (props) => (
+  <Icon {...props}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </Icon>
+);
+
+const IconTrash = (props) => (
+  <Icon {...props}>
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </Icon>
+);
+
+const IconX = (props) => (
+  <Icon {...props}>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </Icon>
+);
+
+const IconCheck = (props) => (
+  <Icon {...props}>
+    <polyline points="20 6 9 17 4 12" />
+  </Icon>
+);
+
+const IconEye = (props) => (
+  <Icon {...props}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+);
+
+const IconLoader = (props) => (
+  <Icon {...props} className={`att-icon att-icon-spin ${props.className || ''}`}>
+    <line x1="12" y1="2" x2="12" y2="6" />
+    <line x1="12" y1="18" x2="12" y2="22" />
+    <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
+    <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
+    <line x1="2" y1="12" x2="6" y2="12" />
+    <line x1="18" y1="12" x2="22" y2="12" />
+    <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
+    <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
+  </Icon>
+);
+
 /**
  * Reusable Attachments Section Component
  * Supports both events and reservations with full CRUD functionality
@@ -77,7 +200,7 @@ export default function AttachmentsSection({
           : `/reservations/${resourceId}/attachments`;
 
         // Debug logging to verify correct URL construction
-        logger.log('🔍 [AttachmentsSection] Upload Debug:', {
+        logger.log('[AttachmentsSection] Upload Debug:', {
           'API_BASE_URL': APP_CONFIG.API_BASE_URL,
           'endpoint': endpoint,
           'fullURL': `${APP_CONFIG.API_BASE_URL}${endpoint}`,
@@ -157,11 +280,19 @@ export default function AttachmentsSection({
   };
 
   const getFileIcon = (mimeType) => {
-    if (mimeType.startsWith('image/')) return '🖼️';
-    if (mimeType === 'application/pdf') return '📄';
-    if (mimeType.startsWith('text/')) return '📝';
-    if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return '📊';
-    return '📎';
+    if (mimeType.startsWith('image/')) return IconImage;
+    if (mimeType === 'application/pdf') return IconFilePdf;
+    if (mimeType.startsWith('text/')) return IconFileText;
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return IconFileSpreadsheet;
+    return IconPaperclip;
+  };
+
+  const getFileTypeLabel = (mimeType) => {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType === 'application/pdf') return 'pdf';
+    if (mimeType.startsWith('text/')) return 'text';
+    if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'spreadsheet';
+    return 'file';
   };
 
   const formatFileSize = (bytes) => {
@@ -243,10 +374,12 @@ export default function AttachmentsSection({
   // If no resource ID yet, show a placeholder message
   if (!resourceId) {
     return (
-      <div className="attachments-section">
-        <div className="attachments-placeholder">
-          <div className="placeholder-icon">📎</div>
-          <div className="placeholder-text">
+      <div className="att-section">
+        <div className="att-placeholder">
+          <div className="att-placeholder-icon">
+            <IconPaperclip size={32} />
+          </div>
+          <div className="att-placeholder-text">
             Save the {resourceType} first to enable file attachments
           </div>
         </div>
@@ -255,45 +388,49 @@ export default function AttachmentsSection({
   }
 
   return (
-    <div className="attachments-section">
+    <div className="att-section">
       {/* Upload Area - only show if not read-only */}
       {!readOnly && (
-        <div className="file-upload-section">
-          {/* Drag and Drop Zone */}
+        <div className="att-upload-section">
           <div
-            className={`file-drop-zone ${dragOver ? 'drag-over' : ''}`}
+            className={`att-drop-zone ${dragOver ? 'att-drop-zone--active' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={() => document.getElementById(`file-input-${resourceId}`).click()}
           >
-            <div className="drop-zone-content">
-              <div className="drop-zone-icon">📁</div>
-              <div className="drop-zone-text">
-                <strong>Drop files here</strong> or <span className="link-text">browse</span>
+            <div className="att-drop-zone-inner">
+              <div className="att-drop-zone-icon">
+                <IconUploadCloud size={28} />
               </div>
-              <div className="drop-zone-hint">
-                PNG, JPG, PDF, DOC, XLS, TXT (max 25MB each)
+              <div className="att-drop-zone-label">
+                <span className="att-drop-zone-primary">Drop files here</span> or <span className="att-drop-zone-link">browse</span>
+              </div>
+              <div className="att-drop-zone-hint">
+                PNG, JPG, PDF, DOC, XLS, TXT &middot; max 25 MB each
               </div>
             </div>
           </div>
 
-          {/* Hidden File Input */}
           <input
             id={`file-input-${resourceId}`}
             type="file"
             multiple
             accept=".png,.jpg,.jpeg,.gif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md"
             onChange={(e) => handleFileSelect(e.target.files)}
-            className="hidden-input"
+            className="att-hidden-input"
           />
 
           {/* Uploading Files Progress */}
           {uploadingFiles.length > 0 && (
-            <div className="uploading-files">
+            <div className="att-uploading-list">
               {uploadingFiles.map((file, index) => (
-                <div key={index} className="uploading-file">
-                  <span>📤 Uploading {file.name}...</span>
+                <div key={index} className="att-uploading-item">
+                  <IconLoader size={16} />
+                  <span className="att-uploading-name">{file.name}</span>
+                  <div className="att-uploading-bar">
+                    <div className="att-uploading-bar-fill" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -303,130 +440,174 @@ export default function AttachmentsSection({
 
       {/* Attachment List */}
       {attachments.length > 0 ? (
-        <div className="attachments-list">
-          <div className="attachments-header">
-            <strong>Attached Files ({attachments.length})</strong>
+        <div className="att-list">
+          <div className="att-list-header">
+            <IconPaperclip size={14} />
+            <span>Attached Files ({attachments.length})</span>
           </div>
-          {attachments.map((attachment) => (
-            <div key={attachment.id} className="attachment-item">
-              <div className="attachment-info">
-                {isPreviewable(attachment.mimeType) ? (
-                  <button
-                    type="button"
-                    className="file-icon clickable"
-                    onClick={() => handlePreviewFile(attachment)}
-                    title="Click to preview file"
-                  >
-                    {getFileIcon(attachment.mimeType)}
-                  </button>
-                ) : (
-                  <span className="file-icon">{getFileIcon(attachment.mimeType)}</span>
-                )}
-                <div className="file-details">
-                  <div className="file-name">{attachment.fileName}</div>
-                  <div className="file-meta">
-                    {formatFileSize(attachment.fileSize)} •
-                    Uploaded {new Date(attachment.uploadedAt).toLocaleDateString()}
-                  </div>
-                </div>
-              </div>
-              <div className="attachment-actions">
-                <button
-                  type="button"
-                  className="download-button"
-                  onClick={() => handleDownloadFile(attachment)}
-                  title="Download file"
-                >
-                  ⬇️
-                </button>
-                {!readOnly && (
-                  <>
-                    {deletingAttachmentId === attachment.id ? (
-                      // Show confirmation buttons
-                      <>
-                        <button
-                          type="button"
-                          className="cancel-delete-button"
-                          onClick={() => setDeletingAttachmentId(null)}
-                          title="Cancel"
-                        >
-                          ❌ Cancel
-                        </button>
-                        <button
-                          type="button"
-                          className="confirm-delete-button"
-                          onClick={() => removeAttachment(attachment.id, attachment.fileName)}
-                          title="Confirm delete"
-                        >
-                          ✓ Delete
-                        </button>
-                      </>
-                    ) : (
-                      // Show delete button
+          {attachments.map((attachment, index) => {
+            const FileIcon = getFileIcon(attachment.mimeType);
+            const fileType = getFileTypeLabel(attachment.mimeType);
+            const canPreview = isPreviewable(attachment.mimeType);
+
+            return (
+              <div
+                key={attachment.id}
+                className="att-item"
+                style={{ '--att-item-index': index }}
+              >
+                <div className="att-item-info">
+                  <div className={`att-item-icon att-item-icon--${fileType}`}>
+                    {canPreview ? (
                       <button
                         type="button"
-                        className="remove-button"
-                        onClick={() => setDeletingAttachmentId(attachment.id)}
-                        title="Remove file"
+                        className="att-item-icon-btn"
+                        onClick={() => handlePreviewFile(attachment)}
+                        title="Preview file"
                       >
-                        🗑️
+                        <FileIcon size={20} />
                       </button>
+                    ) : (
+                      <FileIcon size={20} />
                     )}
-                  </>
-                )}
+                  </div>
+                  <div className="att-item-details">
+                    <div className="att-item-name" title={attachment.fileName}>
+                      {attachment.fileName}
+                    </div>
+                    <div className="att-item-meta">
+                      <span className="att-item-size">{formatFileSize(attachment.fileSize)}</span>
+                      <span className="att-item-meta-dot">&middot;</span>
+                      <span className="att-item-date">{new Date(attachment.uploadedAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="att-item-actions">
+                  {canPreview && (
+                    <button
+                      type="button"
+                      className="att-action-btn att-action-btn--preview"
+                      onClick={() => handlePreviewFile(attachment)}
+                      title="Preview"
+                    >
+                      <IconEye size={16} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="att-action-btn att-action-btn--download"
+                    onClick={() => handleDownloadFile(attachment)}
+                    title="Download"
+                  >
+                    <IconDownload size={16} />
+                  </button>
+                  {!readOnly && (
+                    <>
+                      {deletingAttachmentId === attachment.id ? (
+                        <div className="att-delete-confirm">
+                          <button
+                            type="button"
+                            className="att-action-btn att-action-btn--cancel"
+                            onClick={() => setDeletingAttachmentId(null)}
+                            title="Cancel"
+                          >
+                            <IconX size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="att-action-btn att-action-btn--confirm-delete"
+                            onClick={() => removeAttachment(attachment.id, attachment.fileName)}
+                            title="Confirm delete"
+                          >
+                            <IconCheck size={14} />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="att-action-btn att-action-btn--delete"
+                          onClick={() => setDeletingAttachmentId(attachment.id)}
+                          title="Remove file"
+                        >
+                          <IconTrash size={16} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        <div className="attachments-empty">
-          <div className="empty-icon">📎</div>
-          <div className="empty-text">No attachments</div>
+        <div className="att-empty">
+          <div className="att-empty-icon">
+            <IconPaperclip size={32} />
+          </div>
+          <div className="att-empty-text">No attachments yet</div>
           {!readOnly && (
-            <div className="empty-hint">Drop files above or click to browse</div>
+            <div className="att-empty-hint">Drop files above or click to browse</div>
           )}
         </div>
       )}
 
       {/* Preview Modal */}
       {showPreviewModal && previewFile && (
-        <div className="preview-modal-overlay" onClick={closePreview}>
-          <div className="preview-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="preview-modal-header">
-              <h3>{previewFile.fileName}</h3>
-              <button
-                type="button"
-                className="close-preview-button"
-                onClick={closePreview}
-              >
-                ✕
-              </button>
+        <div className="att-preview-overlay" onClick={closePreview}>
+          <div className="att-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="att-preview-header">
+              <div className="att-preview-title-group">
+                {(() => {
+                  const PreviewIcon = getFileIcon(previewFile.mimeType);
+                  return <PreviewIcon size={18} />;
+                })()}
+                <h3>{previewFile.fileName}</h3>
+              </div>
+              <div className="att-preview-header-actions">
+                <button
+                  type="button"
+                  className="att-action-btn att-action-btn--download"
+                  onClick={() => handleDownloadFile(previewFile)}
+                  title="Download"
+                >
+                  <IconDownload size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="att-preview-close"
+                  onClick={closePreview}
+                >
+                  <IconX size={20} />
+                </button>
+              </div>
             </div>
-            <div className="preview-modal-body">
+            <div className="att-preview-body">
               {previewFile.mimeType.startsWith('image/') ? (
                 <img
                   src={previewFile.blobUrl}
                   alt={previewFile.fileName}
-                  className="preview-image"
+                  className="att-preview-image"
                 />
               ) : previewFile.mimeType === 'application/pdf' ? (
                 <iframe
                   src={previewFile.blobUrl}
-                  className="preview-pdf"
+                  className="att-preview-pdf"
                   title={previewFile.fileName}
                 />
               ) : (
-                <div className="preview-text">
+                <div className="att-preview-fallback">
+                  <IconPaperclip size={48} />
                   <p>Preview not available for this file type.</p>
-                  <p>
-                    <button
-                      type="button"
-                      className="download-link"
-                      onClick={() => handleDownloadFile(previewFile)}
-                    >
-                      Download {previewFile.fileName}
-                    </button>
-                  </p>
+                  <button
+                    type="button"
+                    className="att-preview-download-btn"
+                    onClick={() => handleDownloadFile(previewFile)}
+                  >
+                    <IconDownload size={16} />
+                    Download {previewFile.fileName}
+                  </button>
                 </div>
               )}
             </div>

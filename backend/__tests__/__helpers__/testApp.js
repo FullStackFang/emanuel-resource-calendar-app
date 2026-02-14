@@ -2106,16 +2106,15 @@ function createTestApp(options = {}) {
           }
         }
       } else if (view === 'approval-queue') {
-        if (status === 'deleted') {
-          query = { $or: [{ status: 'deleted' }, { isDeleted: true }] };
+        // Approval queue only shows statuses relevant to approver workflow
+        query.isDeleted = { $ne: true };
+        query.roomReservationData = { $exists: true, $ne: null };
+        if (status === 'pending') {
+          query.status = { $in: ['pending', 'room-reservation-request'] };
+        } else if (status === 'published' || status === 'rejected') {
+          query.status = status;
         } else {
-          query.isDeleted = { $ne: true };
-          query.roomReservationData = { $exists: true, $ne: null };
-          if (status === 'pending') {
-            query.status = { $in: ['pending', 'room-reservation-request'] };
-          } else if (status && status !== 'all') {
-            query.status = status;
-          }
+          query.status = { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] };
         }
       }
 
@@ -2186,17 +2185,17 @@ function createTestApp(options = {}) {
         const baseQuery = {
           isDeleted: { $ne: true },
           roomReservationData: { $exists: true, $ne: null },
+          status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] },
         };
 
-        const [all, pending, published, rejected, deleted] = await Promise.all([
+        const [all, pending, published, rejected] = await Promise.all([
           testCollections.events.countDocuments(baseQuery),
           testCollections.events.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'published' }),
           testCollections.events.countDocuments({ ...baseQuery, status: 'rejected' }),
-          testCollections.events.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] }),
         ]);
 
-        res.json({ all, pending, published, rejected, deleted });
+        res.json({ all, pending, published, rejected });
       }
     } catch (error) {
       console.error('Error in GET /api/events/list/counts:', error);

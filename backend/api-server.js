@@ -5370,17 +5370,17 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       }
 
     } else if (view === 'approval-queue') {
-      if (status === 'deleted') {
-        // Show ALL deleted events for approvers
-        query = { $or: [{ status: 'deleted' }, { isDeleted: true }] };
+      // Approval queue only shows statuses relevant to approver workflow:
+      // pending (needs action), published (outcome), rejected (outcome)
+      query.isDeleted = { $ne: true };
+      query.roomReservationData = { $exists: true, $ne: null };
+      if (status === 'pending') {
+        query.status = { $in: ['pending', 'room-reservation-request'] };
+      } else if (status === 'published' || status === 'rejected') {
+        query.status = status;
       } else {
-        query.isDeleted = { $ne: true };
-        query.roomReservationData = { $exists: true, $ne: null };
-        if (status === 'pending') {
-          query.status = { $in: ['pending', 'room-reservation-request'] };
-        } else if (status && status !== 'all') {
-          query.status = status;
-        }
+        // 'all' or unrecognized — only pending/published/rejected
+        query.status = { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] };
       }
 
     } else if (view === 'admin-browse') {
@@ -5635,18 +5635,18 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     } else if (view === 'approval-queue') {
       const baseQuery = {
         isDeleted: { $ne: true },
-        roomReservationData: { $exists: true, $ne: null }
+        roomReservationData: { $exists: true, $ne: null },
+        status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] }
       };
 
-      const [all, pending, published, rejected, deleted] = await Promise.all([
+      const [all, pending, published, rejected] = await Promise.all([
         unifiedEventsCollection.countDocuments(baseQuery),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
-        unifiedEventsCollection.countDocuments({ $or: [{ status: 'deleted' }, { isDeleted: true }] })
+        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' })
       ]);
 
-      res.json({ all, pending, published, rejected, deleted });
+      res.json({ all, pending, published, rejected });
 
     } else if (view === 'admin-browse') {
       const [total, pending, publishedCount, rejected, deleted, draft] = await Promise.all([

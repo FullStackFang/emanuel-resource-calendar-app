@@ -185,7 +185,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Client-side filtering based on active tab
   const filteredReservations = useMemo(() => {
     if (activeTab === 'all') {
-      return allReservations.filter(r => r.status !== 'deleted' && !r.isDeleted);
+      return allReservations;
     }
     if (activeTab === 'pending') {
       return allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
@@ -193,22 +193,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     if (activeTab === 'published') {
       return allReservations.filter(r => r.status === 'published');
     }
-    if (activeTab === 'cancelled') {
-      return allReservations.filter(r => r.status === 'cancelled');
-    }
-    if (activeTab === 'deleted') {
-      return allReservations.filter(r => r.status === 'deleted' || r.isDeleted);
+    if (activeTab === 'rejected') {
+      return allReservations.filter(r => r.status === 'rejected');
     }
     return allReservations.filter(r => r.status === activeTab);
   }, [allReservations, activeTab]);
 
   // Compute tab counts client-side
   const statusCounts = useMemo(() => ({
-    all: allReservations.filter(r => r.status !== 'deleted' && !r.isDeleted).length,
+    all: allReservations.length,
     pending: allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
     published: allReservations.filter(r => r.status === 'published').length,
-    cancelled: allReservations.filter(r => r.status === 'cancelled').length,
-    deleted: allReservations.filter(r => r.status === 'deleted' || r.isDeleted).length,
+    rejected: allReservations.filter(r => r.status === 'rejected').length,
   }), [allReservations]);
 
   // Load edit requests (for admin review)
@@ -951,18 +947,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <span className="count">({statusCounts.published})</span>
           </button>
           <button
-            className={`event-type-tab ${activeTab === 'cancelled' ? 'active' : ''}`}
-            onClick={() => handleTabChange('cancelled')}
+            className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}
+            onClick={() => handleTabChange('rejected')}
           >
-            Canceled
-            <span className="count">({statusCounts.cancelled})</span>
-          </button>
-          <button
-            className={`event-type-tab deleted-tab ${activeTab === 'deleted' ? 'active' : ''}`}
-            onClick={() => handleTabChange('deleted')}
-          >
-            Deleted
-            <span className="count">({statusCounts.deleted})</span>
+            Rejected
+            <span className="count">({statusCounts.rejected})</span>
           </button>
         </div>
       </div>
@@ -1059,7 +1048,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         {paginatedReservations.length === 0 && !loading && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
-              {activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'deleted' ? '🗑️' : '📁'}
+              {activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : '📁'}
             </div>
             <h3>No {activeTab === 'all' ? '' : activeTab} requests</h3>
             <p>
@@ -1067,10 +1056,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 ? 'All caught up! No pending requests to review.'
                 : activeTab === 'published'
                 ? 'No published reservations yet.'
-                : activeTab === 'cancelled'
-                ? 'No canceled reservations.'
-                : activeTab === 'deleted'
-                ? 'No deleted reservations.'
+                : activeTab === 'rejected'
+                ? 'No rejected reservations.'
                 : 'No reservation requests found.'}
             </p>
           </div>
@@ -1279,33 +1266,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   )}
                 </div>
               )}
-
-              {/* Cancelled: Delete + Close */}
-              {selectedDetailsReservation.status === 'cancelled' && (
-                <div className="confirm-button-group">
-                  <button
-                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
-                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                    disabled={deletingId === selectedDetailsReservation._id}
-                  >
-                    {deletingId === selectedDetailsReservation._id
-                      ? 'Deleting...'
-                      : confirmDeleteId === selectedDetailsReservation._id
-                        ? 'Confirm?'
-                        : 'Delete'}
-                  </button>
-                  {confirmDeleteId === selectedDetailsReservation._id && (
-                    <button
-                      className="cancel-confirm-x"
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Deleted: Close only (no actions) */}
 
               <button
                 className="rr-btn rr-close-btn"

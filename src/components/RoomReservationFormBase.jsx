@@ -1850,13 +1850,16 @@ export default function RoomReservationFormBase({
             <h2>Additional Information</h2>
 
             {/* Internal Notes Section (Staff Use Only) */}
-            <div className="internal-notes-section" style={{ marginBottom: '20px' }}>
-              <h4 style={{ color: '#333', marginBottom: '8px', fontSize: '1rem' }}>🔒 Internal Notes</h4>
-              <div className="internal-notes-disclaimer" style={{ marginBottom: '12px', fontSize: '0.85rem', color: '#64748b' }}>
+            <div className="internal-notes-section">
+              <h4>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '6px' }}><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                Internal Notes
+              </h4>
+              <div className="internal-notes-disclaimer">
                 These notes are for internal staff coordination and will not be visible to the requester.
               </div>
 
-              <div className="form-group" style={{ marginBottom: '12px' }}>
+              <div className="form-group">
                 <label htmlFor="setupNotes">Setup Notes (Maintenance)</label>
                 <textarea
                   id="setupNotes"
@@ -1885,8 +1888,11 @@ export default function RoomReservationFormBase({
 
             {/* Admin Notes (Review mode only) */}
             {reservationStatus === 'pending' && (
-              <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ color: '#333', marginBottom: '10px', fontSize: '1rem' }}>Admin Notes / Rejection Reason</h4>
+              <div className="admin-review-notes-section">
+                <h4 className="admin-review-notes-heading">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '6px' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+                  Admin Notes / Rejection Reason
+                </h4>
                 <div className="form-group full-width">
                   <label htmlFor="reviewNotes">Notes</label>
                   <textarea
@@ -1903,19 +1909,21 @@ export default function RoomReservationFormBase({
 
             {/* Concurrent Events Setting (Admin only) */}
             {isAdmin && (
-              <div className="concurrent-events-section" style={{ marginBottom: '20px', padding: '12px 16px', backgroundColor: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                <label className="concurrent-checkbox-label" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}>
+              <div className="concurrent-events-section">
+                <label className="concurrent-checkbox-label">
                   <input
                     type="checkbox"
                     name="isAllowedConcurrent"
                     checked={formData.isAllowedConcurrent || false}
                     onChange={handleInputChange}
                     disabled={fieldsDisabled}
-                    style={{ marginTop: '3px' }}
                   />
                   <div>
-                    <span style={{ fontWeight: 500, color: '#0369a1' }}>Allow concurrent events</span>
-                    <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    <span className="concurrent-label-text">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '4px' }}><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                      Allow concurrent events
+                    </span>
+                    <p className="concurrent-label-hint">
                       Enable for events like Shabbat Services that can host nested events (e.g., B&apos;nei Mitzvahs) at the same time without triggering conflict warnings.
                     </p>
                   </div>
@@ -1923,18 +1931,18 @@ export default function RoomReservationFormBase({
 
                 {/* Allowed Categories Selector (shown when concurrent is enabled) */}
                 {formData.isAllowedConcurrent && (
-                  <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed #bae6fd' }}>
-                    <label style={{ display: 'block', fontWeight: 500, color: '#0369a1', marginBottom: '8px' }}>
+                  <div className="concurrent-categories-selector">
+                    <label className="concurrent-categories-label">
                       Restrict to specific categories (optional)
                     </label>
-                    <p style={{ margin: '0 0 10px', fontSize: '0.85rem', color: '#64748b' }}>
+                    <p className="concurrent-categories-hint">
                       Leave empty to allow any event. Select categories to restrict which events can overlap.
                     </p>
 
                     {categoriesLoading ? (
-                      <div style={{ padding: '10px', color: '#64748b' }}>Loading categories...</div>
+                      <div className="concurrent-categories-loading">Loading categories...</div>
                     ) : availableCategories.length > 0 ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      <div className="concurrent-categories-grid">
                         {availableCategories.map(cat => {
                           // Use string comparison to handle ObjectId vs string mismatch
                           const isSelected = (formData.allowedConcurrentCategories || []).some(
@@ -1943,16 +1951,11 @@ export default function RoomReservationFormBase({
                           return (
                             <label
                               key={cat._id}
+                              className={`concurrent-category-chip ${isSelected ? 'concurrent-category-chip--selected' : ''}`}
                               style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                border: `1px solid ${isSelected ? cat.color || '#0ea5e9' : '#e2e8f0'}`,
-                                backgroundColor: isSelected ? `${cat.color || '#0ea5e9'}15` : '#fff',
-                                cursor: fieldsDisabled ? 'not-allowed' : 'pointer',
-                                transition: 'all 0.15s ease'
+                                borderColor: isSelected ? (cat.color || 'var(--color-info-400)') : undefined,
+                                backgroundColor: isSelected ? `${cat.color || 'var(--color-info-400)'}15` : undefined,
+                                cursor: fieldsDisabled ? 'not-allowed' : 'pointer'
                               }}
                             >
                               <input
@@ -1960,23 +1963,18 @@ export default function RoomReservationFormBase({
                                 checked={isSelected}
                                 onChange={() => handleAllowedCategoryToggle(cat._id)}
                                 disabled={fieldsDisabled}
-                                style={{ margin: 0 }}
                               />
                               <span
-                                style={{
-                                  width: '10px',
-                                  height: '10px',
-                                  borderRadius: '2px',
-                                  backgroundColor: cat.color || '#64748b'
-                                }}
+                                className="concurrent-category-dot"
+                                style={{ backgroundColor: cat.color || 'var(--text-tertiary)' }}
                               />
-                              <span style={{ fontSize: '0.9rem', color: '#334155' }}>{cat.name}</span>
+                              <span className="concurrent-category-name">{cat.name}</span>
                             </label>
                           );
                         })}
                       </div>
                     ) : (
-                      <div style={{ padding: '10px', color: '#64748b', fontSize: '0.85rem' }}>
+                      <div className="concurrent-categories-empty">
                         No categories available
                       </div>
                     )}
@@ -1987,16 +1985,14 @@ export default function RoomReservationFormBase({
 
             {/* Read-only Concurrent Events Indicator (Non-admins) */}
             {!isAdmin && formData.isAllowedConcurrent && (
-              <div className="concurrent-events-badge" style={{ marginBottom: '20px', padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px dashed #0ea5e9' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '1.1rem' }}>🔄</span>
-                  <span style={{ fontSize: '0.9rem', color: '#0369a1' }}>This event allows concurrent scheduling</span>
+              <div className="concurrent-events-badge">
+                <div className="concurrent-events-badge-row">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
+                  <span>This event allows concurrent scheduling</span>
                 </div>
                 {(formData.allowedConcurrentCategories || []).length > 0 && (
-                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #bae6fd' }}>
-                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                      Restricted to categories: {(formData.allowedConcurrentCategories || []).length} selected
-                    </span>
+                  <div className="concurrent-events-badge-sub">
+                    Restricted to categories: {(formData.allowedConcurrentCategories || []).length} selected
                   </div>
                 )}
               </div>
