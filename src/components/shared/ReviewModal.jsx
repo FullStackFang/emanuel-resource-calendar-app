@@ -534,10 +534,10 @@ export default function ReviewModal({
                     disabled={isSaving || savingDraft || !isFormValid}
                   >
                     {isSaving
-                      ? (canApproveReservations ? 'Creating...' : 'Submitting...')
+                      ? (canApproveReservations ? 'Publishing...' : 'Submitting...')
                       : localConfirming === 'submitDraft'
-                        ? (canApproveReservations ? 'Confirm Create?' : 'Confirm Submit?')
-                        : (canApproveReservations ? 'Create Event' : 'Submit Request')}
+                        ? (canApproveReservations ? 'Confirm Publish?' : 'Confirm Submit?')
+                        : (canApproveReservations ? 'Publish' : 'Submit Request')}
                   </button>
                   {localConfirming === 'submitDraft' && (
                     <button

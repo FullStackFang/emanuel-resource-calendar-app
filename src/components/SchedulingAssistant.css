@@ -1,7 +1,9 @@
 /* ============================================================================
    SCHEDULING ASSISTANT - Emanuel Modern Design System
    ============================================================================
-   Interactive timeline view for room scheduling and availability
+   Interactive timeline view for room scheduling and availability.
+   Visual language: editorial institutional — clean typography, gradient accents,
+   SVG icons, semantic color badges, no emoji.
    ============================================================================ */
 
 /* ==========================================================================
@@ -27,19 +29,37 @@
 .assistant-header {
   margin-bottom: var(--space-4);
   padding-bottom: var(--space-4);
-  border-bottom: 2px solid var(--border-default);
+  border-bottom: none;
+  position: relative;
+}
+
+/* Signature gradient accent bar */
+.assistant-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 120px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-accent-500));
+  border-radius: var(--radius-full);
 }
 
 .assistant-header h3 {
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
   font-weight: var(--font-semibold);
   margin: 0 0 var(--space-2) 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   letter-spacing: var(--tracking-tight);
+}
+
+.sa-header-icon {
+  flex-shrink: 0;
+  color: var(--color-primary-500);
 }
 
 .calendar-name-badge {
@@ -71,12 +91,11 @@
 
 .tab-scroll-btn {
   flex-shrink: 0;
-  width: 45px;
+  width: 36px;
   background: var(--bg-primary);
   border: 1px solid var(--color-neutral-300);
   border-bottom: none;
   cursor: pointer;
-  font-size: var(--text-xl);
   color: var(--text-secondary);
   transition: var(--transition-all);
   display: flex;
@@ -84,9 +103,12 @@
   justify-content: center;
   padding: var(--space-3) 0 var(--space-4) 0;
   margin-bottom: -2px;
-  font-weight: var(--font-semibold);
   box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.08);
   z-index: 10;
+}
+
+.tab-scroll-btn svg {
+  flex-shrink: 0;
 }
 
 .tab-scroll-btn:hover {
@@ -180,9 +202,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 var(--space-2);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
   border-radius: var(--radius-full);
   font-size: var(--text-2xs);
   font-weight: var(--font-bold);
@@ -191,99 +213,88 @@
   flex-shrink: 0;
 }
 
+/* Close button — hidden by default, visible on hover */
 .room-tab-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin-left: var(--space-1);
   border-radius: var(--radius-full);
-  font-size: var(--text-base);
-  line-height: 1;
   color: var(--color-neutral-400);
   transition: var(--transition-all);
   cursor: pointer;
-  opacity: 0.5;
+  opacity: 0;
   flex-shrink: 0;
 }
 
+.room-tab:hover .room-tab-close {
+  opacity: 0.7;
+}
+
 .room-tab-close:hover {
-  opacity: 1;
+  opacity: 1 !important;
   background: var(--color-error-50);
   color: var(--color-error-500);
   transform: scale(1.1);
 }
 
 .room-tab.active .room-tab-close {
+  opacity: 0;
+}
+
+.room-tab.active:hover .room-tab-close {
   opacity: 0.7;
 }
 
 .room-tab.active .room-tab-close:hover {
-  opacity: 1;
+  opacity: 1 !important;
   background: var(--color-error-100);
-}
-
-/* ==========================================================================
-   STATS PANEL
-   ========================================================================== */
-
-.stats-panel {
-  display: flex;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-  padding: var(--space-3);
-  background: var(--color-accent-50);
-  border: 1px solid var(--color-accent-400);
-  border-radius: var(--radius-lg);
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.stat-icon {
-  font-size: var(--text-xl);
-}
-
-.stat-value {
-  font-size: var(--text-lg);
-  font-weight: var(--font-bold);
-  color: var(--color-accent-800);
-}
-
-.stat-label {
-  font-size: var(--text-sm);
-  color: var(--color-accent-900);
-  font-weight: var(--font-medium);
 }
 
 /* ==========================================================================
    EMPTY STATE
    ========================================================================== */
 
-.empty-assistant {
+.sa-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--space-16) var(--space-5);
+  padding: var(--space-16) var(--space-8);
   text-align: center;
-  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-2xl);
+  border: 2px dashed var(--border-default);
 }
 
-.empty-icon {
-  font-size: var(--text-5xl);
-  margin-bottom: var(--space-4);
-  opacity: 0.5;
+.sa-empty-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--space-5);
+  background: var(--color-primary-50);
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.empty-assistant p {
+.sa-empty-icon svg {
+  color: var(--color-primary-500);
+}
+
+.sa-empty-state h3 {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.sa-empty-state p {
   margin: 0;
-  font-style: italic;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 /* ==========================================================================
@@ -395,6 +406,18 @@
   overflow: hidden;
 }
 
+/* Alternating hour backgrounds for readability */
+.sa-hour-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.sa-hour-bg-even {
+  background: var(--bg-secondary);
+}
+
 /* Hour Lines */
 .hour-line {
   position: absolute;
@@ -404,14 +427,42 @@
   pointer-events: none;
 }
 
-/* Quarter-Hour Lines (15-minute increments) */
+/* Quarter-Hour Lines (15-minute increments) — reduced opacity */
 .quarter-hour-line {
   position: absolute;
   left: 0;
   right: 0;
   border-bottom: 1px dashed var(--color-neutral-200);
-  opacity: 0.5;
+  opacity: 0.3;
   pointer-events: none;
+}
+
+/* ==========================================================================
+   CURRENT TIME INDICATOR
+   ========================================================================== */
+
+.sa-current-time-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--color-error-400);
+  z-index: 25;
+  pointer-events: none;
+}
+
+.sa-current-time-label {
+  position: absolute;
+  left: 0;
+  top: -10px;
+  font-size: 9px;
+  font-weight: var(--font-bold);
+  color: var(--color-error-500);
+  background: var(--bg-primary);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -422,7 +473,6 @@
   position: absolute;
   padding: var(--space-2);
   border-radius: var(--radius-md);
-  border-width: 2px;
   cursor: pointer;
   transition: var(--transition-all);
   overflow: hidden;
@@ -437,6 +487,26 @@
   z-index: 20;
   box-shadow: var(--shadow-lg);
   border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* User event — blue left border accent */
+.event-block.user-event {
+  border-left: 4px solid var(--color-primary-500);
+}
+
+/* Conflict indicator — red left border + tinted background */
+.event-block.conflict:not(.allows-concurrent) {
+  border-left: 4px solid var(--color-error-400);
+  background-image: linear-gradient(
+    to right,
+    rgba(220, 38, 38, 0.15) 0%,
+    transparent 30%
+  ) !important;
+}
+
+/* Pending status — amber top border */
+.event-block.sa-pending {
+  border-top: 2px solid var(--color-warning-500);
 }
 
 .event-block.calendar-event {
@@ -466,6 +536,16 @@
   color: var(--text-inverse) !important;
 }
 
+/* "YOUR EVENT" micro-label above user event title */
+.sa-user-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1;
+}
+
 /* Hide inline time by default - shown only in compact modes */
 .event-time-inline {
   display: none;
@@ -479,9 +559,11 @@
   color: var(--text-inverse) !important;
 }
 
-.event-icon {
-  font-size: var(--text-sm);
+/* Lock icon for locked events */
+.sa-lock-icon {
   flex-shrink: 0;
+  opacity: 0.7;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .event-title {
@@ -539,6 +621,10 @@
   justify-content: flex-start;
 }
 
+.event-block.compact .sa-user-label {
+  display: none;
+}
+
 .event-block.compact .event-block-header {
   flex-wrap: nowrap;
 }
@@ -566,10 +652,6 @@
   font-size: var(--text-xs);
 }
 
-.event-block.compact .event-icon {
-  font-size: var(--text-xs);
-}
-
 .event-block.compact .event-status {
   display: none;
 }
@@ -586,6 +668,10 @@
 .event-block.very-compact .event-block-content {
   gap: 0;
   justify-content: flex-start;
+}
+
+.event-block.very-compact .sa-user-label {
+  display: none;
 }
 
 .event-block.very-compact .event-block-header {
@@ -616,8 +702,9 @@
   font-size: 10px;
 }
 
-.event-block.very-compact .event-icon {
-  font-size: 10px;
+.event-block.very-compact .sa-lock-icon {
+  width: 10px;
+  height: 10px;
 }
 
 .event-block.very-compact .event-status {
@@ -712,8 +799,6 @@
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(0, 0, 0, 0.2);
   color: var(--color-primary-500);
-  font-size: var(--text-base);
-  font-weight: var(--font-bold);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -759,19 +844,6 @@
   position: relative;
 }
 
-.event-block.allows-concurrent::before {
-  content: '🔄';
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  font-size: var(--text-2xs);
-  opacity: 0.8;
-}
-
-.event-block.allows-concurrent .event-title {
-  padding-right: 18px;
-}
-
 /* Concurrent events should NOT show conflict styling even if overlapping */
 .event-block.allows-concurrent.conflict {
   box-shadow: none;
@@ -780,6 +852,46 @@
 /* Non-conflicting overlay indicator for concurrent-allowed events */
 .event-block.allows-concurrent:not(.conflict) {
   opacity: 0.95;
+}
+
+/* ==========================================================================
+   SUMMARY FOOTER
+   ========================================================================== */
+
+.sa-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.sa-summary-count strong {
+  font-weight: var(--font-semibold);
+  color: var(--color-primary-600);
+}
+
+.sa-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+}
+
+.sa-badge-conflict {
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+}
+
+.sa-badge-clear {
+  background: var(--color-success-50);
+  color: var(--color-success-600);
 }
 
 /* ==========================================================================
@@ -800,7 +912,7 @@
   }
 
   .assistant-header h3 {
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
   }
 
   .room-tabs {
@@ -818,8 +930,8 @@
   }
 
   .room-tab-badge {
-    min-width: 18px;
-    height: 18px;
+    min-width: 16px;
+    height: 16px;
     font-size: var(--text-2xs);
     padding: 0 var(--space-1);
   }
@@ -827,7 +939,6 @@
   .room-tab-close {
     width: 16px;
     height: 16px;
-    font-size: var(--text-base);
     margin-left: var(--space-1);
   }
 
@@ -860,12 +971,8 @@
     display: none;
   }
 
-  .stats-panel {
+  .sa-summary {
     flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .stat-label {
-    font-size: var(--text-xs);
+    gap: var(--space-1);
   }
 }

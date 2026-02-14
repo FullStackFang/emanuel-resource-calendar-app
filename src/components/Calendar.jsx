@@ -453,7 +453,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
       // Determine if creating new or editing existing
       const isEditing = !!(event.eventId || event.id);
-      const actionWord = isEditing ? 'Save' : 'Create';
+      const actionWord = isEditing ? 'Save' : 'Publish';
 
       return `⚠️ ${actionWord} "${title}" at ${locationNames} (${timeStr})?`;
     }, [pendingSaveConfirmation, eventReviewModal.event, rooms]);
@@ -6887,11 +6887,11 @@ import ConflictDialog from './shared/ConflictDialog';
             pendingMultiDayConfirmation
               ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
                   ? `⚠️ Confirm Adding (${pendingMultiDayConfirmation.eventCount}) Events to Series`
-                  : `⚠️ Confirm Creating (${pendingMultiDayConfirmation.eventCount}) Events`)
+                  : `⚠️ Confirm Publishing (${pendingMultiDayConfirmation.eventCount}) Events`)
               : pendingSaveConfirmation
                 ? getSaveConfirmationText()
                 : (!eventReviewModal.event?.id && effectivePermissions.createEvents
-                  ? '✨ Create'
+                  ? 'Publish'
                   : null)
           }
           deleteButtonText={

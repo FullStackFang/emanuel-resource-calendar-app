@@ -972,8 +972,6 @@ export default function SchedulingAssistant({
 
   // Render event block with drag capability
   const renderEventBlock = (block, allVisibleBlocks) => {
-    const eventIcon = block.isUserEvent ? '✏️' : (block.type === 'reservation' ? '📅' : '🗓️');
-    const borderStyle = block.status === 'pending' ? 'dashed' : 'solid';
     const offset = getOverlapOffset(block, allVisibleBlocks);
 
     const isDragging = draggingEventId === block.id;
@@ -1011,66 +1009,66 @@ export default function SchedulingAssistant({
     let opacity, cursor, boxShadow, backgroundColor, filter;
 
     if (isUserEvent) {
-      // User event styling - bright, vibrant, draggable (unless disabled)
       opacity = hasConflict ? 0.95 : 0.9;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
       boxShadow = isDragging
         ? '0 8px 20px rgba(0, 120, 212, 0.5)'
-        : '0 0 0 3px rgba(0, 120, 212, 0.5)'; // Blue glow for user event
+        : '0 0 0 3px rgba(0, 120, 212, 0.5)';
       backgroundColor = block.color;
       filter = 'none';
     } else if (isLocked) {
-      // Locked event styling - greyed out, or light green if allows concurrent
       opacity = 0.75;
       cursor = 'not-allowed';
       boxShadow = 'none';
-      // Muted green for events that allow concurrent scheduling (e.g., Shabbat Services)
-      // Grey for regular locked events
-      backgroundColor = block.isAllowedConcurrent ? '#4aba6d' : '#999999'; // Muted green vs grey
+      backgroundColor = block.isAllowedConcurrent ? '#4aba6d' : '#999999';
       filter = block.isAllowedConcurrent ? 'none' : 'grayscale(100%)';
     } else {
-      // Current reservation styling - normal/vibrant (unless disabled)
       opacity = hasConflict ? 0.95 : 0.8;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
       boxShadow = isDragging
         ? '0 8px 20px rgba(0, 0, 0, 0.3)'
-        : '0 0 0 3px rgba(0, 120, 212, 0.5)'; // Blue glow for current event
+        : '0 0 0 3px rgba(0, 120, 212, 0.5)';
       backgroundColor = block.color;
       filter = 'none';
     }
 
-    const conflictIndicator = hasConflict ? '⚠️ ' : '';
-    const currentEventLabel = isCurrentReservation ? '✏️ ' : '';
-    const lockedIcon = isLocked ? '🔒 ' : '';
-    const concurrentIcon = block.isAllowedConcurrent ? '🔄 ' : '';
-
-    // Build title/tooltip based on event type and lock status
+    // Build tooltip text (no emoji)
     let title;
     if (isUserEvent) {
-      title = `✏️ ${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\n👆 Drag to reschedule${hasConflict ? '\n⚠️ Time conflicts with other events' : '\n✓ No conflicts at this time'}`;
+      title = `${hasConflict ? 'CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nDrag to reschedule${hasConflict ? '\nTime conflicts with other events' : '\nNo conflicts at this time'}`;
     } else if (isLocked) {
-      // Different message for reservations (with nav button) vs calendar events (no nav button)
-      const concurrentNote = block.isAllowedConcurrent ? '\n🔄 Allows concurrent events (no conflict)' : '';
+      const concurrentNote = block.isAllowedConcurrent ? '\nAllows concurrent events (no conflict)' : '';
       if (block.type === 'reservation') {
-        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\n→ Click the arrow button to open this reservation\n(This event is locked - you can only drag your own reservation)`;
+        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\nClick the arrow to open this reservation`;
       } else {
-        title = `🔒 ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\nThis calendar event is locked - you can only drag your own reservation.`;
+        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}`;
       }
     } else {
-      title = `${currentEventLabel}${hasConflict ? '⚠️ CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\n👆 Drag to reschedule your event${hasConflict ? '\n⚠️ Overlaps with other events' : '\n✓ No conflicts'}`;
+      title = `${hasConflict ? 'CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nDrag to reschedule${hasConflict ? '\nOverlaps with other events' : '\nNo conflicts'}`;
     }
+
+    // Build CSS class list
+    const classNames = [
+      'event-block',
+      block.type,
+      hasConflict ? 'conflict' : 'non-conflict',
+      isLocked ? 'locked' : '',
+      isUserEvent ? 'user-event' : '',
+      isCurrentReservation ? 'current-event' : '',
+      block.isAllowedConcurrent ? 'allows-concurrent' : '',
+      block.status === 'pending' ? 'sa-pending' : '',
+      block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''
+    ].filter(Boolean).join(' ');
 
     return (
       <div
         key={`${block.id}-${block.roomIndex}`}
         data-event-id={block.id}
-        className={`event-block ${block.type} ${hasConflict ? 'conflict' : 'non-conflict'} ${isLocked ? 'locked' : ''} ${isUserEvent ? 'user-event' : ''} ${isCurrentReservation ? 'current-event' : ''} ${block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''}`}
+        className={classNames}
         style={{
           top: `${top}px`,
           height: `${block.height}px`,
           backgroundColor: backgroundColor,
-          borderStyle: borderStyle,
-          borderWidth: '2px',
           left: `${offset.left}%`,
           width: `${offset.width}%`,
           opacity: opacity,
@@ -1084,8 +1082,15 @@ export default function SchedulingAssistant({
         title={title}
       >
         <div className="event-block-content">
+          {isUserEvent && (
+            <span className="sa-user-label">YOUR EVENT</span>
+          )}
           <div className="event-block-header">
-            <span className="event-icon">{lockedIcon}{concurrentIcon}{currentEventLabel}{conflictIndicator}{eventIcon}</span>
+            {isLocked && (
+              <svg className="sa-lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z" />
+              </svg>
+            )}
             <span className="event-title">{block.title}</span>
             <span className="event-time-inline">
               {formatTime(block.startTime)} - {formatTime(block.endTime)}
@@ -1098,7 +1103,10 @@ export default function SchedulingAssistant({
                 onClick={(e) => handleNavigateToEvent(e, block.id)}
                 title="Open this reservation"
               >
-                →
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
               </button>
             )}
           </div>
@@ -1109,7 +1117,7 @@ export default function SchedulingAssistant({
             <div className="event-organizer">{block.organizer}</div>
           )}
           {block.status && block.status === 'pending' && (
-            <div className="event-status">Pending Approval</div>
+            <div className="event-status">Pending</div>
           )}
         </div>
       </div>
@@ -1203,16 +1211,48 @@ export default function SchedulingAssistant({
     }
   };
 
+  // Current time indicator — only shown when selectedDate is today
+  const currentTimePosition = useMemo(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (effectiveDate !== todayStr) return null;
+    const hours = now.getHours() + now.getMinutes() / 60;
+    return {
+      top: hours * PIXELS_PER_HOUR,
+      label: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    };
+  }, [effectiveDate, PIXELS_PER_HOUR]);
+
+  // Update current time every minute
+  const [, setTimeTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTimeTick(t => t + 1), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   if (!selectedRooms.length) {
     return (
       <div className="scheduling-assistant">
         <div className="assistant-header">
-          <h3>📅 Selected Rooms & Scheduling Assistant</h3>
-          <p>Select locations to view their availability</p>
+          <h3>
+            <svg className="sa-header-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            Scheduling Assistant
+          </h3>
         </div>
-        <div className="empty-assistant">
-          <div className="empty-icon">🏢</div>
-          <p>Click on location cards to add them to the scheduling view</p>
+        <div className="sa-empty-state">
+          <div className="sa-empty-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+          </div>
+          <h3>No Rooms Selected</h3>
+          <p>Select locations to view their availability</p>
         </div>
       </div>
     );
@@ -1222,7 +1262,13 @@ export default function SchedulingAssistant({
     <div className="scheduling-assistant">
       <div className="assistant-header">
         <h3>
-          🗓️ Selected Rooms & Scheduling Assistant
+          <svg className="sa-header-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          Scheduling Assistant
           {defaultCalendar && (
             <span className="calendar-name-badge"> ({defaultCalendar})</span>
           )}
@@ -1247,7 +1293,9 @@ export default function SchedulingAssistant({
               onClick={() => scrollTabs('left')}
               aria-label="Scroll tabs left"
             >
-              ‹
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
             </button>
           )}
 
@@ -1303,7 +1351,10 @@ export default function SchedulingAssistant({
                     onClick={handleCloseTab}
                     title={`Remove ${room.name}`}
                   >
-                    ×
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                   </span>
                 )}
               </button>
@@ -1318,7 +1369,9 @@ export default function SchedulingAssistant({
               onClick={() => scrollTabs('right')}
               aria-label="Scroll tabs right"
             >
-              ›
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
             </button>
           )}
         </div>
@@ -1358,6 +1411,18 @@ export default function SchedulingAssistant({
               className="events-area"
               style={{ height: `${(END_HOUR - START_HOUR) * PIXELS_PER_HOUR}px` }}
             >
+              {/* Alternating hour backgrounds */}
+              {Array.from({ length: END_HOUR - START_HOUR }).map((_, index) => (
+                <div
+                  key={`bg-${index}`}
+                  className={`sa-hour-bg ${index % 2 === 0 ? 'sa-hour-bg-even' : ''}`}
+                  style={{
+                    top: `${index * PIXELS_PER_HOUR}px`,
+                    height: `${PIXELS_PER_HOUR}px`
+                  }}
+                />
+              ))}
+
               {/* Hour lines */}
               {Array.from({ length: END_HOUR - START_HOUR }).map((_, index) => (
                 <div
@@ -1387,6 +1452,16 @@ export default function SchedulingAssistant({
                 );
               })}
 
+              {/* Current time indicator */}
+              {currentTimePosition && (
+                <div
+                  className="sa-current-time-line"
+                  style={{ top: `${currentTimePosition.top}px` }}
+                >
+                  <span className="sa-current-time-label">{currentTimePosition.label}</span>
+                </div>
+              )}
+
               {/* Event blocks - all draggable */}
               {visibleEventBlocks.map(block => renderEventBlock(block, visibleEventBlocks))}
             </div>
@@ -1396,9 +1471,15 @@ export default function SchedulingAssistant({
 
       {/* Summary */}
       {activeRoomStats && activeRoomStats.eventCount > 0 && (
-        <div className="list-selection-summary">
-          <strong>{activeRoomStats.eventCount}</strong> event{activeRoomStats.eventCount !== 1 ? 's' : ''}
-          {activeRoomStats.conflictCount > 0 && ` (${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''})`}
+        <div className="sa-summary">
+          <span className="sa-summary-count">
+            <strong>{activeRoomStats.eventCount}</strong> event{activeRoomStats.eventCount !== 1 ? 's' : ''}
+          </span>
+          <span className={`sa-summary-badge ${activeRoomStats.conflictCount > 0 ? 'sa-badge-conflict' : 'sa-badge-clear'}`}>
+            {activeRoomStats.conflictCount > 0
+              ? `${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''}`
+              : 'No conflicts'}
+          </span>
         </div>
       )}
 

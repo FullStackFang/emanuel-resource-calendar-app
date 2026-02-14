@@ -821,6 +821,36 @@ export default function RoomReservationFormBase({
       [name]: value
     };
 
+    // Auto-adjust endTime (and downstream times) when startTime moves to or past endTime
+    if (name === 'startTime' && value && formData.endTime) {
+      const [startH, startM] = value.split(':').map(Number);
+      const [endH, endM] = formData.endTime.split(':').map(Number);
+      const startMins = startH * 60 + startM;
+      const endMins = endH * 60 + endM;
+
+      if (startMins >= endMins) {
+        // Push endTime to startTime + 30 minutes
+        const newEndMins = startMins + 30;
+        if (newEndMins < 24 * 60) {
+          const newEndTime = `${String(Math.floor(newEndMins / 60)).padStart(2, '0')}:${String(newEndMins % 60).padStart(2, '0')}`;
+          updatedData.endTime = newEndTime;
+          // Cascade: doorCloseTime always syncs with endTime
+          updatedData.doorCloseTime = newEndTime;
+          // Cascade: push teardownTime if it's now at or before new endTime
+          if (formData.teardownTime) {
+            const [tdH, tdM] = formData.teardownTime.split(':').map(Number);
+            const tdMins = tdH * 60 + tdM;
+            if (tdMins <= newEndMins) {
+              const newTdMins = newEndMins + 30;
+              if (newTdMins < 24 * 60) {
+                updatedData.teardownTime = `${String(Math.floor(newTdMins / 60)).padStart(2, '0')}:${String(newTdMins % 60).padStart(2, '0')}`;
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Auto-populate doorCloseTime and teardownTime when endTime changes
     if (name === 'endTime' && value) {
       // Always sync doorCloseTime with endTime
