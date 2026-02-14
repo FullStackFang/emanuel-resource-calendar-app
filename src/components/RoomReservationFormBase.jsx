@@ -712,6 +712,10 @@ export default function RoomReservationFormBase({
 
   // Validate time fields are in chronological order
   const validateTimes = useCallback(() => {
+    if (formData.isAllDayEvent) {
+      setTimeErrors([]);
+      return true;
+    }
     const errors = [];
     const { setupTime, doorOpenTime, startTime, endTime, doorCloseTime, teardownTime, startDate, endDate } = formData;
 
@@ -805,9 +809,11 @@ export default function RoomReservationFormBase({
   }, [formData]);
 
   const isFormValid = useMemo(() => {
-    const requiredFields = ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
+    const requiredFields = formData.isAllDayEvent
+      ? ['eventTitle', 'startDate', 'endDate']
+      : ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
-  }, [isFieldValid, timeErrors, selectedCategories]);
+  }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
   // Notify parent when form validity changes
   // Note: onFormValidChange intentionally excluded from deps to prevent render loop
@@ -1415,7 +1421,29 @@ export default function RoomReservationFormBase({
                   type="button"
                   className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
                   onClick={() => {
-                    setFormData(prev => ({ ...prev, isAllDayEvent: !prev.isAllDayEvent }));
+                    const turningOn = !formData.isAllDayEvent;
+                    setFormData(prev => ({
+                      ...prev,
+                      isAllDayEvent: turningOn,
+                      ...(turningOn
+                        ? {
+                            setupTime: '00:00',
+                            doorOpenTime: '00:00',
+                            startTime: '00:00',
+                            endTime: '23:59',
+                            doorCloseTime: '23:59',
+                            teardownTime: '23:59',
+                          }
+                        : {
+                            setupTime: '',
+                            doorOpenTime: '',
+                            startTime: '',
+                            endTime: '',
+                            doorCloseTime: '',
+                            teardownTime: '',
+                          }
+                      ),
+                    }));
                     setHasChanges(true);
                   }}
                   disabled={fieldsDisabled}
@@ -1623,7 +1651,7 @@ export default function RoomReservationFormBase({
                   name="setupTime"
                   value={formData.setupTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
                   required
                   className={hasFieldChanged('setupTime') ? 'input-changed' : ''}
                 />
@@ -1644,7 +1672,7 @@ export default function RoomReservationFormBase({
                   name="doorOpenTime"
                   value={formData.doorOpenTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
                   className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
                   required
                 />
@@ -1665,7 +1693,7 @@ export default function RoomReservationFormBase({
                   name="startTime"
                   value={formData.startTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
                   required
                   className={hasFieldChanged('startTime') ? 'input-changed' : ''}
                 />
@@ -1686,7 +1714,7 @@ export default function RoomReservationFormBase({
                   name="endTime"
                   value={formData.endTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
                   required
                   className={hasFieldChanged('endTime') ? 'input-changed' : ''}
                 />
@@ -1721,7 +1749,7 @@ export default function RoomReservationFormBase({
                   name="teardownTime"
                   value={formData.teardownTime}
                   onChange={handleInputChange}
-                  disabled={fieldsDisabled}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
                   className={hasFieldChanged('teardownTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When cleanup must be completed</div>

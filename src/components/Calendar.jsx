@@ -5527,7 +5527,7 @@ import ConflictDialog from './shared/ConflictDialog';
         isOnBehalfOf: eventData.isOnBehalfOf || false,
         contactName: eventData.contactName || '',
         contactEmail: eventData.contactEmail || '',
-        mecCategories: eventData.mecCategories || [],
+        categories: eventData.categories || eventData.mecCategories || [],
         services: eventData.services || {},
         recurrence: eventData.recurrence || null,
         virtualMeetingUrl: eventData.virtualMeetingUrl || null,
