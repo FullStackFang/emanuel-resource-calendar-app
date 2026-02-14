@@ -12347,6 +12347,18 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       });
     }
 
+    // Resolve location display names from ObjectIds
+    let locationDisplayNames = '';
+    if (requestedRooms && requestedRooms.length > 0 && !isOffsite) {
+      try {
+        locationDisplayNames = await calculateLocationDisplayNames(requestedRooms, db);
+      } catch (err) {
+        logger.warn('Could not resolve location display names for draft:', err.message);
+      }
+    } else if (isOffsite && offsiteName) {
+      locationDisplayNames = `${offsiteName} (Offsite)`;
+    }
+
     // Create draft event record in unified events collection with calendarData structure
     const draft = {
       // Event identification
@@ -12424,7 +12436,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         specialRequirements: specialRequirements || '',
         // Locations
         locations: requestedRooms || [],
-        locationDisplayNames: '',
+        locationDisplayNames: locationDisplayNames,
         isOffsite: isOffsite || false,
         offsiteName: offsiteName || '',
         offsiteAddress: offsiteAddress || '',
@@ -12565,6 +12577,18 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       ? endDateTime.replace(/Z$/, '')
       : (endDate ? `${endDate}T23:59:00` : null);
 
+    // Resolve location display names from ObjectIds
+    let draftLocationDisplayNames = '';
+    if (requestedRooms && requestedRooms.length > 0 && !isOffsite) {
+      try {
+        draftLocationDisplayNames = await calculateLocationDisplayNames(requestedRooms, db);
+      } catch (err) {
+        logger.warn('Could not resolve location display names for draft update:', err.message);
+      }
+    } else if (isOffsite && offsiteName) {
+      draftLocationDisplayNames = `${offsiteName} (Offsite)`;
+    }
+
     const updateData = {
       // calendarData fields (source of truth for calendar queries)
       'calendarData.eventTitle': eventTitle.trim(),
@@ -12577,6 +12601,7 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       'calendarData.endTime': endTime || null,
       'calendarData.attendeeCount': attendeeCount || 0,
       'calendarData.locations': requestedRooms || [],
+      'calendarData.locationDisplayNames': draftLocationDisplayNames,
       'calendarData.isOffsite': isOffsite || false,
       'calendarData.offsiteName': offsiteName || '',
       'calendarData.offsiteAddress': offsiteAddress || '',
@@ -12833,6 +12858,15 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       // Send admin notification
       try {
         const submittedCd = submittedReservation.calendarData || {};
+        // Resolve location display names if not already set (fallback for older drafts)
+        let emailLocationNames = submittedCd.locationDisplayNames;
+        if (!emailLocationNames && submittedCd.locations && submittedCd.locations.length > 0) {
+          try {
+            emailLocationNames = await calculateLocationDisplayNames(submittedCd.locations, db);
+          } catch (err) {
+            logger.warn('Could not resolve location names for email:', err.message);
+          }
+        }
         const reservationForEmail = {
           _id: submittedReservation._id,
           eventTitle: submittedCd.eventTitle,
@@ -12840,7 +12874,8 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           endDateTime: submittedCd.endDateTime,
           requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
           requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
-          locationDisplayNames: submittedCd.locationDisplayNames || submittedCd.location || 'TBD'
+          locationDisplayNames: emailLocationNames || 'TBD',
+          attendeeCount: submittedCd.attendeeCount || 0
         };
 
         // Send confirmation to requester
@@ -17126,6 +17161,15 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
     try {
       const cd = event.calendarData || {};
       const requestedBy = event.roomReservationData?.requestedBy || {};
+      // Resolve location display names if not already set
+      let publishEmailLocationNames = cd.locationDisplayNames;
+      if (!publishEmailLocationNames && cd.locations && cd.locations.length > 0) {
+        try {
+          publishEmailLocationNames = await calculateLocationDisplayNames(cd.locations, db);
+        } catch (err) {
+          logger.warn('Could not resolve location names for publish email:', err.message);
+        }
+      }
       const reservationForEmail = {
         _id: event._id,
         eventTitle: cd.eventTitle || event.eventTitle,
@@ -17134,9 +17178,10 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         contactEmail: event.roomReservationData?.contactPerson?.email,
         startDateTime: cd.startDateTime || event.startDateTime,
         endDateTime: cd.endDateTime || event.endDateTime,
-        locationDisplayNames: cd.locationDisplayNames
-          ? (Array.isArray(cd.locationDisplayNames) ? cd.locationDisplayNames : [cd.locationDisplayNames])
-          : []
+        locationDisplayNames: publishEmailLocationNames
+          ? (Array.isArray(publishEmailLocationNames) ? publishEmailLocationNames : [publishEmailLocationNames])
+          : [],
+        attendeeCount: cd.attendeeCount || 0
       };
 
       const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '', reviewChanges || []);
@@ -17291,6 +17336,15 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     try {
       const cd = event.calendarData || {};
       const requestedBy = event.roomReservationData?.requestedBy || {};
+      // Resolve location display names if not already set
+      let rejectEmailLocationNames = cd.locationDisplayNames;
+      if (!rejectEmailLocationNames && cd.locations && cd.locations.length > 0) {
+        try {
+          rejectEmailLocationNames = await calculateLocationDisplayNames(cd.locations, db);
+        } catch (err) {
+          logger.warn('Could not resolve location names for reject email:', err.message);
+        }
+      }
       const reservationForEmail = {
         _id: event._id,
         eventTitle: cd.eventTitle || event.eventTitle,
@@ -17299,9 +17353,10 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
         contactEmail: event.roomReservationData?.contactPerson?.email,
         startDateTime: cd.startDateTime || event.startDateTime,
         endDateTime: cd.endDateTime || event.endDateTime,
-        locationDisplayNames: cd.locationDisplayNames
-          ? (Array.isArray(cd.locationDisplayNames) ? cd.locationDisplayNames : [cd.locationDisplayNames])
-          : []
+        locationDisplayNames: rejectEmailLocationNames
+          ? (Array.isArray(rejectEmailLocationNames) ? rejectEmailLocationNames : [rejectEmailLocationNames])
+          : [],
+        attendeeCount: cd.attendeeCount || 0
       };
 
       const emailResult = await emailService.sendRejectionNotification(reservationForEmail, reason);

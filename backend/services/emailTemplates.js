@@ -919,14 +919,15 @@ function extractVariables(reservation, extras = {}) {
 
   // Locations: top-level locationDisplayNames > calendarData
   let locationsStr = 'TBD';
-  const displayNames = reservation.locationDisplayNames || cd.locationDisplayNames;
-  if (displayNames) {
-    const resolved = Array.isArray(displayNames) ? displayNames.join(', ') : displayNames;
-    if (resolved) locationsStr = resolved; // Guard against empty string from empty array join
+  const displayNames = reservation.locationDisplayNames ?? cd.locationDisplayNames;
+  if (displayNames != null && displayNames !== '') {
+    const resolved = Array.isArray(displayNames) ? displayNames.join(', ') : String(displayNames);
+    if (resolved) locationsStr = resolved;
   }
 
-  // Attendee count: top-level > calendarData
-  const attendeeCount = reservation.attendeeCount || cd.attendeeCount || 'Not specified';
+  // Attendee count: top-level > calendarData (use != null to allow 0)
+  const rawAttendeeCount = reservation.attendeeCount ?? cd.attendeeCount;
+  const attendeeCount = (rawAttendeeCount != null && rawAttendeeCount !== 0) ? rawAttendeeCount : 'Not specified';
 
   // Created/submitted date
   const createdAt = reservation.createdAt || reqData.createdAt || new Date();
