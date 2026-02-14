@@ -753,7 +753,7 @@ export default function ReviewModal({
         )}
 
         {/* Content Area */}
-        <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+        <div style={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
               {React.isValidElement(children)

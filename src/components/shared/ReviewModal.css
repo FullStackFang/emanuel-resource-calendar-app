@@ -1,7 +1,8 @@
 /* ============================================================================
    REVIEW MODAL - Emanuel Modern Design System
    ============================================================================
-   Full-screen modal for reviewing and editing reservations/events
+   Full-screen modal for reviewing and editing reservations/events.
+   Refined institutional aesthetic with signature gradient accents.
    ============================================================================ */
 
 /* ==========================================================================
@@ -14,13 +15,21 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(28, 25, 23, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  padding: var(--space-3);
+  padding: var(--space-4);
   overflow: hidden;
+  animation: overlay-fade-in var(--duration-normal) var(--ease-out);
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* ==========================================================================
@@ -36,8 +45,23 @@
   min-height: 0;
   max-height: calc(100vh - var(--space-6));
   overflow: hidden;
-  box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 25px 60px -12px rgba(0, 0, 0, 0.3),
+    0 12px 24px -8px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
   box-sizing: border-box;
+  animation: modal-slide-up var(--duration-slow) var(--ease-out);
+}
+
+@keyframes modal-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Prevent modal scrolling when dragging inside timeline */
@@ -62,11 +86,29 @@
   min-height: 0;
 }
 
+/* Custom scrollbar for content area */
+.review-modal-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.review-modal-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.review-modal-scroll-area::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: var(--radius-full);
+}
+
+.review-modal-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-400);
+}
+
 /* Content wrapper — zoom scales form content down while scroll area stays at 1x.
    Action bar + tabs stay at 1x (outside scroll area) for crisp buttons.
    Scrollbar stays at 1x (on scroll-area, not content) to prevent jitter. */
 .review-modal-scroll-content {
-  zoom: 0.78;
+  zoom: 0.70;
 }
 
 /* Kill layout-affecting transitions inside modal to prevent jitter */
@@ -82,30 +124,42 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-secondary);
+  padding: var(--space-3) var(--space-5);
+  background:
+    linear-gradient(180deg, var(--color-neutral-50) 0%, var(--bg-primary) 100%);
   border-bottom: 1px solid var(--border-default);
   position: relative;
-  top: auto;
   z-index: 10;
   flex-shrink: 0;
   margin: calc(var(--space-3) * -1) calc(var(--space-3) * -1) 0 calc(var(--space-3) * -1);
   border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
   gap: var(--space-3);
+  min-height: 52px;
+}
+
+/* Signature gradient accent bar — matches CalendarHeader and MyReservations */
+.review-action-bar::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-primary-500), var(--color-accent-500));
 }
 
 /* Left side: Title + Status */
 .action-bar-left {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
 }
 
 .action-bar-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--font-semibold);
   color: var(--text-primary);
   white-space: nowrap;
@@ -122,12 +176,13 @@
 .status-pill {
   display: inline-flex;
   align-items: center;
-  height: 28px;
+  height: 26px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  text-transform: capitalize;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
   line-height: 1;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -136,36 +191,40 @@
 .status-pill.status-published {
   background: var(--color-success-50);
   color: var(--color-success-700);
+  border: 1px solid var(--color-success-100);
 }
 
 .status-pill.status-pending {
   background: var(--color-warning-50);
   color: var(--color-warning-600);
+  border: 1px solid var(--color-warning-100);
 }
 
 .status-pill.status-draft {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--border-strong);
 }
 
 .status-pill.status-rejected {
   background: var(--color-error-50);
-  color: var(--color-error-500);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-100);
 }
 
 .status-pill.status-cancelled {
-  background: var(--color-neutral-200);
+  background: var(--color-neutral-100);
   color: var(--text-secondary);
+  border: 1px solid var(--color-neutral-200);
 }
 
 .version-badge {
   display: inline-flex;
   align-items: center;
-  height: 28px;
+  height: 24px;
   padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  font-size: var(--text-2xs);
   font-weight: var(--font-medium);
   font-family: var(--font-mono);
   line-height: 1;
@@ -181,14 +240,14 @@
    ========================================================================== */
 
 .form-toggle-btn {
-  height: 28px;
+  height: 26px;
   padding: 0 var(--space-3);
   font-size: var(--text-xs);
   line-height: 1;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
   cursor: pointer;
   font-weight: var(--font-medium);
   transition: var(--transition-all);
@@ -199,11 +258,14 @@
 }
 
 .form-toggle-btn:hover {
-  background: var(--color-neutral-200);
+  border-color: var(--border-strong);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 /* ==========================================================================
    TAB NAVIGATION
+   Segmented control pattern matching CalendarHeader view selector
    ========================================================================== */
 
 .review-modal .event-type-tabs {
@@ -217,31 +279,38 @@
 }
 
 .review-modal .event-type-tab {
-  padding: var(--space-1) var(--space-3) !important;
+  padding: var(--space-1) var(--space-4) !important;
   border-radius: var(--radius-full);
-  background: var(--color-primary-50);
-  color: var(--color-primary-600);
+  background: transparent;
+  color: var(--text-tertiary);
   font-size: var(--text-xs) !important;
   font-weight: var(--font-medium);
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   flex-shrink: 0;
   flex-grow: 0;
   transition: var(--transition-all);
   text-align: center;
   width: auto;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .review-modal .event-type-tab:hover {
-  background: var(--color-primary-100);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-primary);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-color: var(--border-default);
 }
 
 .review-modal .event-type-tab.active {
-  background: var(--color-primary-500);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
   color: var(--text-inverse);
-  box-shadow: var(--shadow-primary);
+  font-weight: var(--font-semibold);
+  border-color: transparent;
+  box-shadow:
+    0 2px 4px rgba(59, 110, 184, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================
@@ -270,7 +339,7 @@
   border-radius: var(--radius-lg);
   font-family: var(--font-body);
   font-size: var(--text-xs) !important;
-  font-weight: var(--font-medium) !important;
+  font-weight: var(--font-semibold) !important;
   cursor: pointer;
   transition: var(--transition-all);
   white-space: nowrap;
@@ -282,6 +351,8 @@
   align-items: center;
   justify-content: center;
   vertical-align: middle;
+  letter-spacing: var(--tracking-wide);
+  text-transform: none;
 }
 
 .action-btn:disabled {
@@ -289,113 +360,137 @@
   cursor: not-allowed;
 }
 
+.action-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
 /* Publish Button */
 .publish-btn {
-  background: var(--color-success-500);
+  background: linear-gradient(135deg, var(--color-success-500) 0%, var(--color-success-600) 100%);
   color: var(--text-inverse);
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.3);
 }
 
 .publish-btn:hover:not(:disabled) {
-  background: var(--color-success-400);
+  background: linear-gradient(135deg, var(--color-success-400) 0%, var(--color-success-500) 100%);
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.35);
 }
 
 .publish-btn.confirming {
   background: var(--color-success-600);
   color: var(--text-inverse);
-  animation: pulse-confirm 1s ease-in-out infinite;
+  box-shadow: 0 0 0 2px var(--color-success-100), 0 2px 8px rgba(5, 150, 105, 0.4);
+  animation: pulse-confirm 1.2s ease-in-out infinite;
 }
 
 .publish-btn.confirming:hover:not(:disabled) {
-  background: var(--color-success-400);
+  background: var(--color-success-500);
 }
 
 /* Reject Button */
 .reject-btn {
-  background: var(--color-error-500);
+  background: linear-gradient(135deg, var(--color-error-500) 0%, var(--color-error-600) 100%);
   color: var(--text-inverse);
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.3);
 }
 
 .reject-btn:hover:not(:disabled) {
-  background: var(--color-error-400);
+  background: linear-gradient(135deg, var(--color-error-400) 0%, var(--color-error-500) 100%);
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
 }
 
 .reject-btn.confirming {
   background: var(--color-error-600);
   color: var(--text-inverse);
-  animation: pulse-confirm 1s ease-in-out infinite;
+  box-shadow: 0 0 0 2px var(--color-error-100), 0 2px 8px rgba(220, 38, 38, 0.4);
+  animation: pulse-confirm 1.2s ease-in-out infinite;
 }
 
 .reject-btn.confirming:hover:not(:disabled) {
-  background: var(--color-error-400);
+  background: var(--color-error-500);
 }
 
 /* Save Button */
 .save-btn {
-  background: var(--color-primary-500);
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
   color: var(--text-inverse);
+  box-shadow: 0 1px 3px rgba(59, 110, 184, 0.3);
 }
 
 .save-btn:hover:not(:disabled) {
-  background: var(--color-primary-400);
+  background: linear-gradient(135deg, var(--color-primary-400) 0%, var(--color-primary-500) 100%);
+  box-shadow: 0 2px 6px rgba(59, 110, 184, 0.35);
 }
 
 .save-btn.confirming {
   background: var(--color-primary-600);
   color: var(--text-inverse);
-  animation: pulse-confirm 1s ease-in-out infinite;
+  box-shadow: 0 0 0 2px var(--color-primary-100), 0 2px 8px rgba(59, 110, 184, 0.4);
+  animation: pulse-confirm 1.2s ease-in-out infinite;
 }
 
 .save-btn.confirming:hover:not(:disabled) {
-  background: var(--color-primary-400);
+  background: var(--color-primary-500);
 }
 
-/* Delete Button */
+/* Delete Button — outlined style, fills on confirm */
 .delete-btn {
-  background: var(--color-error-50) !important;
+  background: var(--bg-primary) !important;
   color: var(--color-error-500) !important;
-  border: 1px solid var(--color-error-100) !important;
+  border: 1px solid var(--color-error-200) !important;
 }
 
 .delete-btn:hover:not(:disabled) {
-  background: var(--color-error-100) !important;
+  background: var(--color-error-50) !important;
   border-color: var(--color-error-300) !important;
 }
 
 .delete-btn.confirming {
-  background: var(--color-error-500) !important;
+  background: linear-gradient(135deg, var(--color-error-500) 0%, var(--color-error-600) 100%) !important;
   color: var(--text-inverse) !important;
-  border-color: var(--color-error-500) !important;
-  animation: pulse-confirm 1s ease-in-out infinite;
+  border-color: transparent !important;
+  box-shadow: 0 0 0 2px var(--color-error-100), 0 2px 8px rgba(220, 38, 38, 0.4) !important;
+  animation: pulse-confirm 1.2s ease-in-out infinite;
 }
 
 .delete-btn.confirming:hover:not(:disabled) {
-  background: var(--color-error-400) !important;
-  border-color: var(--color-error-400) !important;
+  background: var(--color-error-500) !important;
+  border-color: transparent !important;
 }
 
 /* Draft Button */
 .draft-btn {
-  background: var(--color-info-500);
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
   color: var(--text-inverse);
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.3);
 }
 
 .draft-btn:hover:not(:disabled) {
-  background: var(--color-info-400);
+  background: linear-gradient(135deg, var(--color-info-400) 0%, var(--color-info-500) 100%);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
 }
 
 .draft-btn.confirming {
   background: var(--color-info-600);
   color: var(--text-inverse);
-  animation: pulse-confirm 1s ease-in-out infinite;
+  box-shadow: 0 0 0 2px var(--color-info-100), 0 2px 8px rgba(2, 132, 199, 0.4);
+  animation: pulse-confirm 1.2s ease-in-out infinite;
 }
 
 .draft-btn.confirming:hover:not(:disabled) {
-  background: var(--color-info-400);
+  background: var(--color-info-500);
 }
 
 @keyframes pulse-confirm {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
 }
 
 .draft-cancel-x {
@@ -407,29 +502,32 @@
   background: var(--color-info-700) !important;
 }
 
-/* Request Edit Button — solid fill like Save Draft / Submit Request */
+/* Request Edit Button */
 .review-actions .request-edit-btn {
-  background: var(--color-info-500) !important;
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%) !important;
   color: var(--text-inverse) !important;
   border: none !important;
   margin: 0 !important;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.3);
 }
 
 .review-actions .request-edit-btn:hover:not(:disabled) {
-  background: var(--color-info-400) !important;
+  background: linear-gradient(135deg, var(--color-info-400) 0%, var(--color-info-500) 100%) !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
 }
 
-/* Cancel/Close Button — solid fill like other action buttons */
+/* Cancel/Close Button — neutral, understated */
 .review-actions .cancel-btn {
-  background: var(--color-neutral-400) !important;
-  color: var(--text-inverse) !important;
-  border: none !important;
+  background: var(--bg-primary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-default) !important;
   margin: 0 !important;
 }
 
 .review-actions .cancel-btn:hover {
-  background: var(--color-neutral-300) !important;
+  background: var(--bg-secondary) !important;
   color: var(--text-primary) !important;
+  border-color: var(--border-strong) !important;
 }
 
 /* ==========================================================================
@@ -456,6 +554,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  height: var(--btn-height-sm);
 }
 
 /* Cancel button variants */
@@ -509,44 +608,50 @@
 }
 
 /* ==========================================================================
-   STATUS BADGES
+   STATUS BADGES (Action bar variants)
    ========================================================================== */
 
 .status-badge-action {
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-lg);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
   display: inline-flex;
   align-items: center;
-  height: 36px;
+  height: var(--btn-height-sm);
   box-sizing: border-box;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
 }
 
 .status-badge-action.status-pending {
   background: var(--color-warning-50);
-  color: var(--color-warning-500);
+  color: var(--color-warning-600);
+  border: 1px solid var(--color-warning-100);
 }
 
 .status-badge-action.status-published {
   background: var(--color-success-50);
   color: var(--color-success-700);
+  border: 1px solid var(--color-success-100);
 }
 
 .status-badge-action.status-rejected {
   background: var(--color-error-50);
-  color: var(--color-error-500);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-100);
 }
 
 .status-badge-action.status-cancelled {
-  background: var(--color-neutral-200);
+  background: var(--color-neutral-100);
   color: var(--text-secondary);
+  border: 1px solid var(--color-neutral-200);
 }
 
 .status-badge-action.status-draft {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
-  border: 1px dashed var(--border-default);
+  border: 1px dashed var(--border-strong);
 }
 
 /* ==========================================================================
@@ -554,14 +659,16 @@
    ========================================================================== */
 
 .edit-request-mode-badge {
-  height: 28px;
+  height: 26px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
   line-height: 1;
-  background: var(--color-info-100);
+  background: var(--color-info-50);
   color: var(--color-info-700);
+  border: 1px solid var(--color-info-100);
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -574,24 +681,28 @@
 
 .edit-request-no-changes {
   background: var(--color-warning-50);
-  border: 1px solid var(--color-warning-500);
+  border: 1px solid var(--color-warning-100);
+  border-left: 3px solid var(--color-warning-500);
   border-radius: var(--radius-lg);
-  margin: var(--space-4) var(--space-5);
+  margin: var(--space-3) var(--space-5);
   padding: var(--space-3) var(--space-4);
   color: var(--color-warning-700);
   font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   text-align: center;
 }
 
 .edit-request-view-badge {
-  height: 28px;
+  height: 26px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-xs);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
   line-height: 1;
   background: var(--color-warning-50);
   color: var(--color-warning-600);
+  border: 1px solid var(--color-warning-100);
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -599,24 +710,28 @@
 
 /* View Edit Request Button */
 .review-actions .view-edit-request-btn {
-  background: var(--color-warning-500) !important;
+  background: linear-gradient(135deg, var(--color-warning-500) 0%, var(--color-warning-600) 100%) !important;
   color: var(--text-inverse) !important;
   border: none !important;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.3);
 }
 
 .review-actions .view-edit-request-btn:hover:not(:disabled) {
-  background: var(--color-warning-400) !important;
+  background: linear-gradient(135deg, var(--color-warning-400) 0%, var(--color-warning-500) 100%) !important;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.35);
 }
 
 /* Toggle View Button */
 .review-actions .toggle-view-btn {
-  background: var(--color-info-500) !important;
+  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%) !important;
   color: var(--text-inverse) !important;
   border: none !important;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.3);
 }
 
 .review-actions .toggle-view-btn:hover:not(:disabled) {
-  background: var(--color-info-400) !important;
+  background: linear-gradient(135deg, var(--color-info-400) 0%, var(--color-info-500) 100%) !important;
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.35);
 }
 
 /* ==========================================================================
@@ -688,6 +803,11 @@
 
 .review-modal .timeline-wrapper {
   margin-bottom: var(--space-2) !important;
+}
+
+/* Reduce timeline height inside modal to prevent form overflow */
+.review-modal .timeline-container {
+  height: 400px !important;
 }
 
 .review-modal .scheduling-assistant-container {
@@ -772,12 +892,12 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
 }
 
 .navigation-loading-spinner {
@@ -813,6 +933,10 @@
    ========================================================================== */
 
 @media (max-width: 768px) {
+  .review-modal-overlay {
+    padding: 0;
+  }
+
   .review-modal {
     max-width: 100vw;
     max-height: 100vh;
@@ -821,28 +945,45 @@
 
   .review-action-bar {
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-3);
     align-items: stretch;
+    padding: var(--space-3);
+    border-radius: 0;
+  }
+
+  .action-bar-left {
+    justify-content: center;
   }
 
   .review-actions {
-    flex-direction: column;
+    flex-wrap: wrap;
+    justify-content: center;
     width: 100%;
   }
 
   .action-btn {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 100px;
+  }
+
+  .review-modal .event-type-tabs {
+    padding: var(--space-2) var(--space-3) !important;
+    justify-content: center !important;
   }
 }
 
-/* Scheduling Conflict Warning */
+/* ==========================================================================
+   SCHEDULING CONFLICT WARNING
+   ========================================================================== */
+
 .scheduling-conflict-warning {
-  color: var(--color-warning-600);
+  color: var(--color-warning-700);
   font-size: var(--text-xs);
   font-weight: var(--font-semibold);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
   background: var(--color-warning-50);
-  border: 1px solid var(--color-warning-300, #fcd34d);
+  border: 1px solid var(--color-warning-100);
   white-space: nowrap;
+  letter-spacing: var(--tracking-wide);
 }
