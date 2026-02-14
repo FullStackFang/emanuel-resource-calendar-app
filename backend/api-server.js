@@ -12098,7 +12098,7 @@ app.get('/api/rooms/availability', async (req, res) => {
     if (roomObjectIds.length > 0) {
       allEvents = await unifiedEventsCollection.find({
         isDeleted: { $ne: true },  // Match events where isDeleted is false OR doesn't exist
-        status: { $ne: 'draft' },  // Drafts should never block scheduling
+        status: { $nin: ['draft', 'pending', 'rejected', 'cancelled', 'deleted'] },  // Only published reservations and Graph events (no status) block scheduling
         'calendarData.startDateTime': { $lt: end },
         'calendarData.endDateTime': { $gt: start },
         // Match both ObjectId format (room reservations) and string format (unified form events)
@@ -12121,13 +12121,13 @@ app.get('/api/rooms/availability', async (req, res) => {
       })));
     }
 
-    // Separate events into reservations (have status field with pending/published) and calendar events
+    // Separate events into reservations (published only) and calendar events (no status = Graph events)
     // Room reservations created via the reservation system have a 'status' field
     const allReservations = allEvents.filter(e =>
-      e.status && ['pending', 'published'].includes(e.status)
+      e.status === 'published'
     );
     const allCalendarEvents = allEvents.filter(e =>
-      !e.status || !['pending', 'published'].includes(e.status)
+      !e.status
     );
 
     logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);

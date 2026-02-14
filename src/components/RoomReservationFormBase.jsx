@@ -7,7 +7,6 @@ import SchedulingAssistant from './SchedulingAssistant';
 import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
-import VirtualMeetingModal from './VirtualMeetingModal';
 import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
@@ -36,6 +35,25 @@ const getVirtualPlatform = (locationString) => {
   if (lower.includes('webex.com')) return 'Webex';
 
   return 'Virtual';
+};
+
+const detectPlatform = (url) => {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  if (lower.includes('zoom.us')) return { name: 'Zoom', icon: '📹', color: '#2D8CFF' };
+  if (lower.includes('teams.microsoft.com') || lower.includes('teams.live.com'))
+    return { name: 'Teams', icon: '💼', color: '#6264A7' };
+  if (lower.includes('meet.google.com')) return { name: 'Google Meet', icon: '🎥', color: '#00897B' };
+  if (lower.includes('webex.com')) return { name: 'Webex', icon: '🌐', color: '#07C160' };
+  return { name: 'Virtual', icon: '🌐', color: '#1a73e8' };
+};
+
+const isValidUrl = (str) => {
+  if (!str) return true;
+  try {
+    const url = new URL(str);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch { return false; }
 };
 
 /**
@@ -238,8 +256,8 @@ export default function RoomReservationFormBase({
   }, [initialData?._isPreProcessed, initialData?.eventTitle, initialData?.startDate, initialData?.selectedLocations, initialData?.requestedRooms, initialData?.startTime, initialData?.isAllowedConcurrent, initialData?.allowedConcurrentCategories]);
 
   // Virtual meeting state
-  const [showVirtualModal, setShowVirtualModal] = useState(false);
   const [virtualMeetingUrl, setVirtualMeetingUrl] = useState(initialData.virtualMeetingUrl || '');
+  const [virtualUrlError, setVirtualUrlError] = useState('');
 
   // Offsite location modal state
   const [showOffsiteModal, setShowOffsiteModal] = useState(false);
@@ -950,15 +968,33 @@ export default function RoomReservationFormBase({
     notifyDataChange({ ...formData, recurrence: null });
   };
 
-  // Handle virtual meeting URL save
-  const handleVirtualMeetingSave = (url) => {
+  // Handle virtual meeting URL inline change
+  const handleVirtualUrlChange = (e) => {
+    const url = e.target.value;
     setVirtualMeetingUrl(url);
-    setFormData(prev => ({ ...prev, virtualMeetingUrl: url }));
-    setHasChanges(true);
 
-    // Notify parent component
-    notifyDataChange({ ...formData, virtualMeetingUrl: url });
+    if (url && !isValidUrl(url)) {
+      setVirtualUrlError('Please enter a valid URL (e.g., https://zoom.us/j/123)');
+    } else {
+      setVirtualUrlError('');
+      setFormData(prev => ({ ...prev, virtualMeetingUrl: url }));
+      setHasChanges(true);
+      notifyDataChange({ ...formData, virtualMeetingUrl: url });
+    }
   };
+
+  const handleClearVirtualUrl = () => {
+    setVirtualMeetingUrl('');
+    setVirtualUrlError('');
+    setFormData(prev => ({ ...prev, virtualMeetingUrl: '' }));
+    setHasChanges(true);
+    notifyDataChange({ ...formData, virtualMeetingUrl: '' });
+  };
+
+  // Detected platform memo
+  const detectedPlatform = useMemo(() => {
+    return virtualMeetingUrl && isValidUrl(virtualMeetingUrl) ? detectPlatform(virtualMeetingUrl) : null;
+  }, [virtualMeetingUrl]);
 
   // Handle series event navigation click (from MultiDatePicker - handles inline confirmation internally)
   const handleSeriesEventClick = (event) => {
@@ -1356,10 +1392,11 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Make Recurring Button Row */}
-            {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-              editScope === 'allEvents') && (
-              <div className="time-field-row">
+            {/* Make Recurring + Set All Day Button Row */}
+            <div className="time-field-row">
+              {/* Make Recurring - conditional */}
+              {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
+                editScope === 'allEvents') && (
                 <div className="form-group">
                   <button
                     type="button"
@@ -1371,9 +1408,26 @@ export default function RoomReservationFormBase({
                     {(recurrencePattern || initialData.graphData?.recurrence) ? '↻ Edit Recurrence' : '↻ Make Recurring'}
                   </button>
                 </div>
-                <div className="form-group"></div>
+              )}
+              {/* Set All Day - always visible */}
+              <div className="form-group">
+                <button
+                  type="button"
+                  className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, isAllDayEvent: !prev.isAllDayEvent }));
+                    setHasChanges(true);
+                  }}
+                  disabled={fieldsDisabled}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
+                </button>
               </div>
-            )}
+              {/* Empty spacer when Make Recurring is hidden */}
+              {!((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
+                editScope === 'allEvents') && <div className="form-group"></div>}
+            </div>
 
             {/* Ad Hoc Calendar Picker - Show when toggled on */}
             {showAdHocPicker && (
@@ -1524,46 +1578,34 @@ export default function RoomReservationFormBase({
               </div>
             </div>
 
-            {/* All Day Event Toggle and Virtual Meeting Toggle */}
-            <div className="all-day-toggle-wrapper">
-              <button
-                type="button"
-                className={`all-day-toggle ${formData.isAllDayEvent ? 'active' : ''}`}
-                onClick={() => {
-                  setFormData(prev => ({ ...prev, isAllDayEvent: !prev.isAllDayEvent }));
-                  setHasChanges(true);
-                }}
-                disabled={fieldsDisabled}
-              >
-                {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
-              </button>
-
-              <button
-                type="button"
-                className={`all-day-toggle ${virtualMeetingUrl ? 'active' : ''}`}
-                onClick={() => setShowVirtualModal(true)}
-                disabled={fieldsDisabled}
-              >
-                {virtualMeetingUrl ? '✓ ' : ''}Set Virtual
-              </button>
-            </div>
-
-            {/* Virtual Meeting Link Display - Only show when URL exists */}
-            {virtualMeetingUrl && (
-              <div className="virtual-link-wrapper">
-                <a
-                  href={virtualMeetingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="virtual-link-pill"
-                >
-                  <span className="virtual-link-icon">🌐</span>
-                  <span className="virtual-link-text">
-                    Join {getVirtualPlatform(virtualMeetingUrl)} Meeting
+            {/* Virtual Meeting URL - Inline Input */}
+            <div className="virtual-url-row">
+              <label className="virtual-url-label">
+                <span className="virtual-url-icon">🎥</span> Virtual Meeting URL
+              </label>
+              <div className="virtual-url-input-wrapper">
+                <input
+                  type="url"
+                  className={`virtual-url-input ${virtualUrlError ? 'virtual-url-invalid' : virtualMeetingUrl ? 'virtual-url-valid' : ''}`}
+                  value={virtualMeetingUrl}
+                  onChange={handleVirtualUrlChange}
+                  placeholder="https://zoom.us/j/123456789"
+                  disabled={fieldsDisabled}
+                />
+                {detectedPlatform && !virtualUrlError && (
+                  <span className="virtual-platform-badge">
+                    {detectedPlatform.icon} {detectedPlatform.name}
                   </span>
-                </a>
+                )}
+                {virtualMeetingUrl && !fieldsDisabled && (
+                  <button type="button" className="virtual-url-clear" onClick={handleClearVirtualUrl}
+                    aria-label="Clear virtual meeting URL">×</button>
+                )}
               </div>
-            )}
+              {virtualUrlError && (
+                <div className="virtual-url-error">{virtualUrlError}</div>
+              )}
+            </div>
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
@@ -2132,14 +2174,6 @@ export default function RoomReservationFormBase({
         initialPattern={recurrencePattern}
         eventStartDate={formData.startDate}
         existingSeriesDates={seriesEvents.map(e => e.startDate?.split('T')[0]).filter(Boolean)}
-      />
-
-      {/* Virtual Meeting Modal */}
-      <VirtualMeetingModal
-        isOpen={showVirtualModal}
-        onClose={() => setShowVirtualModal(false)}
-        onSave={handleVirtualMeetingSave}
-        initialUrl={virtualMeetingUrl}
       />
 
       {/* Offsite Location Modal */}
