@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, hasRole } = require('../../utils/authUtils');
+const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
 const graphApiMock = require('./graphApiMock');
@@ -103,6 +104,7 @@ async function createAuditLog(data) {
     previousState: data.previousState || null,
     newState: data.newState || null,
     changes: data.changes || {},
+    reviewChanges: data.reviewChanges || null,
     metadata: data.metadata || {},
   };
 
@@ -133,9 +135,9 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
   const startTimeStr = toLocalISOString(startTime);
   const endTimeStr = toLocalISOString(endTime);
 
-  // Find overlapping pending/published events in the same rooms
+  // Find overlapping published events in the same rooms
   const query = {
-    status: { $in: ['pending', 'published'] },
+    status: 'published',
     _id: { $ne: excludeId },
     $or: [
       { 'calendarData.locations': { $in: roomIds } },
@@ -822,6 +824,16 @@ function createTestApp(options = {}) {
 
       const publishedEvent = await testCollections.events.findOne(query);
 
+      // Read any approver modifications captured during the save step
+      const reviewChanges = event.roomReservationData?.reviewChanges || [];
+
+      // Clear reviewChanges from the document (one-time use)
+      if (reviewChanges.length > 0) {
+        await testCollections.events.updateOne(query, {
+          $unset: { 'roomReservationData.reviewChanges': '' },
+        });
+      }
+
       // Create audit log
       await createAuditLog({
         eventId: event.eventId,
@@ -831,11 +843,13 @@ function createTestApp(options = {}) {
         previousState: event,
         newState: publishedEvent,
         changes: { status: { from: 'pending', to: 'published' } },
+        reviewChanges: reviewChanges.length > 0 ? reviewChanges : null,
       });
 
       res.json({
         success: true,
         event: publishedEvent,
+        reviewChanges: reviewChanges.length > 0 ? reviewChanges : undefined,
       });
     } catch (error) {
       console.error('Error publishing event:', error);
@@ -2033,6 +2047,18 @@ function createTestApp(options = {}) {
 
       mongoUpdate.lastModifiedDateTime = new Date();
       mongoUpdate.lastModifiedBy = userId;
+
+      // Track approver modifications on pending events for publish notification emails
+      if (event.status === 'pending') {
+        try {
+          const reviewChanges = detectEventChanges(event, mongoUpdate);
+          if (reviewChanges.length > 0) {
+            mongoUpdate['roomReservationData.reviewChanges'] = formatChangesForEmail(reviewChanges);
+          }
+        } catch (changeErr) {
+          // Non-blocking
+        }
+      }
 
       await testCollections.events.updateOne(query, { $set: mongoUpdate });
 

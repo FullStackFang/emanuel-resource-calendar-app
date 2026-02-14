@@ -308,12 +308,9 @@ async function getAdminEmails(db) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendSubmissionConfirmation(reservation) {
-  // Pending requests use roomReservationData, published events use top-level
-  const isPending = reservation.status === 'pending';
   const reqData = reservation.roomReservationData || {};
-  const recipientEmail = isPending
-    ? (reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail)
-    : (reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail);
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for submission confirmation', {
@@ -358,10 +355,10 @@ async function sendAdminNewRequestAlert(reservation, adminEmails, adminPanelUrl 
  * @param {string} adminNotes - Optional notes from admin
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendPublishNotification(reservation, adminNotes = '') {
-  // Publish emails go to published events - use top-level, fall back to roomReservationData
+async function sendPublishNotification(reservation, adminNotes = '', reviewChanges = []) {
   const reqData = reservation.roomReservationData || {};
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for publish notification', {
@@ -370,7 +367,7 @@ async function sendPublishNotification(reservation, adminNotes = '') {
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = await emailTemplates.generateApprovalNotification(reservation, adminNotes);
+  const { subject, html } = await emailTemplates.generateApprovalNotification(reservation, adminNotes, reviewChanges);
 
   return sendEmail(recipientEmail, subject, html, {
     reservationId: reservation._id?.toString()
@@ -384,9 +381,9 @@ async function sendPublishNotification(reservation, adminNotes = '') {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendRejectionNotification(reservation, rejectionReason = '') {
-  // Rejection emails - use top-level, fall back to roomReservationData
   const reqData = reservation.roomReservationData || {};
-  const recipientEmail = reservation.requesterEmail || reservation.contactEmail || reqData.createdByEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for rejection notification', {
@@ -408,10 +405,9 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendResubmissionConfirmation(reservation) {
-  // Resubmission is for pending requests - use roomReservationData
   const reqData = reservation.roomReservationData || {};
-  const recipientEmail = reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail ||
-                         reservation.requesterEmail || reservation.contactEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for resubmission confirmation', {
@@ -433,10 +429,9 @@ async function sendResubmissionConfirmation(reservation) {
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendReviewStartedNotification(reservation) {
-  // Review started is for pending requests - use roomReservationData
   const reqData = reservation.roomReservationData || {};
-  const recipientEmail = reqData.createdByEmail || reqData.requesterEmail || reqData.contactEmail ||
-                         reservation.requesterEmail || reservation.contactEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for review started notification', {
@@ -464,8 +459,8 @@ async function sendReviewStartedNotification(reservation) {
  */
 async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = '') {
   const reqData = editRequest.roomReservationData || {};
-  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
-                         editRequest.createdByEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request confirmation', {
@@ -513,8 +508,8 @@ async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPa
  */
 async function sendEditRequestApprovedNotification(editRequest, adminNotes = '') {
   const reqData = editRequest.roomReservationData || {};
-  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
-                         editRequest.createdByEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request approval notification', {
@@ -538,8 +533,8 @@ async function sendEditRequestApprovedNotification(editRequest, adminNotes = '')
  */
 async function sendEditRequestRejectedNotification(editRequest, rejectionReason = '') {
   const reqData = editRequest.roomReservationData || {};
-  const recipientEmail = editRequest.requesterEmail || reqData.requestedBy?.email ||
-                         editRequest.createdByEmail;
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || editRequest.requesterEmail;
 
   if (!recipientEmail) {
     logger.warn('No requester email for edit request rejection notification', {

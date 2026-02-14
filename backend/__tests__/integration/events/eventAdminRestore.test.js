@@ -487,8 +487,8 @@ describe('Admin Restore Tests (AR-1 to AR-24)', () => {
 
     describe('AR-17: Conflict when restoring to pending', () => {
       it('should return 409 SchedulingConflict', async () => {
-        const existing = createPendingEvent({
-          eventTitle: 'Existing Pending Event',
+        const existing = createPublishedEvent({
+          eventTitle: 'Existing Published Event',
           startDateTime: conflictStart,
           endDateTime: conflictEnd,
           locations: [roomId],

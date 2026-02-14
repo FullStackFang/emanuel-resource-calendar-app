@@ -692,18 +692,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
-   * Save form data as a draft (two-click confirmation pattern)
+   * Internal: execute draft save without confirmation gate or modal close.
+   * Used by handleSaveDraft (after confirmation) and handleSubmitDraft (directly).
    */
-  const handleSaveDraft = useCallback(async () => {
-    // Get form data from the form component — skip time validation for drafts
+  const _executeDraftSave = useCallback(async () => {
     const formData = formDataGetterRef.current?.({ skipValidation: true });
     if (!formData) {
-      logger.error('handleSaveDraft: No form data getter available');
+      logger.error('_executeDraftSave: No form data getter available');
       if (onError) onError('Unable to get form data');
       return { success: false, error: 'No form data' };
     }
 
-    // Minimal validation - eventTitle and dates required
     if (!formData.eventTitle?.trim()) {
       if (onError) onError('Event title is required to save as draft');
       return { success: false, error: 'Event title required' };
@@ -713,18 +712,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       return { success: false, error: 'Dates required' };
     }
 
-    // First click - show confirmation
-    if (!pendingDraftConfirmation) {
-      setPendingDraftConfirmation(true);
-      setPendingApproveConfirmation(false);
-      setPendingRejectConfirmation(false);
-      setPendingDeleteConfirmation(false);
-      setPendingSaveConfirmation(false);
-      return { success: false, cancelled: true, needsConfirmation: true };
-    }
-
-    // Second click - execute save
-    setPendingDraftConfirmation(false);
     setSavingDraft(true);
 
     try {
@@ -755,9 +742,6 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
       setHasChanges(false);
       setShowDraftDialog(false);
-
-      if (onSuccess) onSuccess({ ...result, savedAsDraft: true });
-      await closeModal(true);
       return { success: true, data: result };
 
     } catch (error) {
@@ -767,7 +751,47 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setSavingDraft(false);
     }
-  }, [apiToken, draftId, pendingDraftConfirmation, buildDraftPayload, closeModal, onSuccess, onError]);
+  }, [apiToken, draftId, buildDraftPayload, onError]);
+
+  /**
+   * Save form data as a draft (two-click confirmation pattern)
+   */
+  const handleSaveDraft = useCallback(async () => {
+    // Validate before showing confirmation
+    const formData = formDataGetterRef.current?.({ skipValidation: true });
+    if (!formData) {
+      logger.error('handleSaveDraft: No form data getter available');
+      if (onError) onError('Unable to get form data');
+      return { success: false, error: 'No form data' };
+    }
+    if (!formData.eventTitle?.trim()) {
+      if (onError) onError('Event title is required to save as draft');
+      return { success: false, error: 'Event title required' };
+    }
+    if (!formData.startDate || !formData.endDate) {
+      if (onError) onError('Start date and end date are required to save as draft');
+      return { success: false, error: 'Dates required' };
+    }
+
+    // First click - show confirmation
+    if (!pendingDraftConfirmation) {
+      setPendingDraftConfirmation(true);
+      setPendingApproveConfirmation(false);
+      setPendingRejectConfirmation(false);
+      setPendingDeleteConfirmation(false);
+      setPendingSaveConfirmation(false);
+      return { success: false, cancelled: true, needsConfirmation: true };
+    }
+
+    // Second click - execute save
+    setPendingDraftConfirmation(false);
+    const result = await _executeDraftSave();
+    if (result.success) {
+      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+      await closeModal(true);
+    }
+    return result;
+  }, [pendingDraftConfirmation, _executeDraftSave, closeModal, onSuccess, onError]);
 
   /**
    * Submit an existing draft for approval
@@ -778,10 +802,10 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       return { success: false, error: 'No draft ID' };
     }
 
-    // First save any pending changes
+    // Save any pending changes directly (bypass confirmation gate)
     const formData = formDataGetterRef.current?.();
     if (formData && hasChanges) {
-      const saveResult = await handleSaveDraft();
+      const saveResult = await _executeDraftSave();
       if (!saveResult.success) {
         return saveResult;
       }
@@ -834,18 +858,19 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [draftId, apiToken, hasChanges, handleSaveDraft, closeModal, onSuccess, onError]);
+  }, [draftId, apiToken, hasChanges, _executeDraftSave, closeModal, onSuccess, onError]);
 
   /**
    * Handlers for draft save dialog
    */
   const handleDraftDialogSave = useCallback(async () => {
-    const result = await handleSaveDraft();
+    // Dialog itself serves as user confirmation — bypass the confirmation gate
+    const result = await _executeDraftSave();
     if (result.success) {
-      // After saving draft, close the modal
+      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
       await closeModal(true);
     }
-  }, [handleSaveDraft, closeModal]);
+  }, [_executeDraftSave, closeModal, onSuccess]);
 
   const handleDraftDialogDiscard = useCallback(async () => {
     setShowDraftDialog(false);

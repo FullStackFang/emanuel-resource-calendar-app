@@ -19,6 +19,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
+const { detectEventChanges, formatChangesForEmail } = require('./utils/changeDetection');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -1657,7 +1658,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const roomIds = reservation.calendarData?.locations || reservation.locations || reservation.requestedRooms;
     const query = {
       $and: [
-        { status: { $in: ['pending', 'published'] } }, // Only check against pending and published
+        { status: 'published' }, // Only check against published events
         {
           // Check calendarData.locations (source of truth)
           'calendarData.locations': { $in: roomIds }
@@ -12839,7 +12840,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           endDateTime: submittedCd.endDateTime,
           requesterName: submittedReservation.roomReservationData?.requestedBy?.name || userEmail,
           requesterEmail: submittedReservation.roomReservationData?.requestedBy?.email || userEmail,
-          requestedRooms: submittedCd.locations
+          locationDisplayNames: submittedCd.locationDisplayNames || submittedCd.location || 'TBD'
         };
 
         // Send confirmation to requester
@@ -16751,7 +16752,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         contactEmail: isOnBehalfOf ? contactEmail : null,
         startTime: startDateTime,
         endTime: endDateTime,
-        locationDisplayNames: roomNames,
+        locationDisplayNames: locationDisplayName,
         attendeeCount: attendeeCount || 0,
         createdAt: new Date()
       };
@@ -17076,7 +17077,32 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, graphUpdate);
     }
 
+    // Read any approver modifications captured during the save step
+    const reviewChanges = event.roomReservationData?.reviewChanges || [];
+
+    // Clear reviewChanges from the document (one-time use for email)
+    if (reviewChanges.length > 0) {
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $unset: { 'roomReservationData.reviewChanges': '' } }
+      );
+    }
+
     // Audit log
+    const auditChanges = [
+      { field: 'status', oldValue: 'pending', newValue: 'published' },
+      { field: 'reviewNotes', oldValue: '', newValue: notes || '' }
+    ];
+    // Include approver modifications in audit trail
+    if (reviewChanges.length > 0) {
+      for (const change of reviewChanges) {
+        auditChanges.push({
+          field: change.displayName || change.field,
+          oldValue: change.oldValue,
+          newValue: change.newValue
+        });
+      }
+    }
     await eventAuditHistoryCollection.insertOne({
       eventId: event.eventId,
       reservationId: event._id,
@@ -17084,10 +17110,8 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       performedBy: userId,
       performedByEmail: userEmail,
       timestamp: new Date(),
-      changes: [
-        { field: 'status', oldValue: 'room-reservation-request', newValue: 'published' },
-        { field: 'reviewNotes', oldValue: '', newValue: notes || '' }
-      ],
+      changes: auditChanges,
+      reviewChanges: reviewChanges.length > 0 ? reviewChanges : null,
       revisionNumber: (event.roomReservationData?.currentRevision || 1) + 1
     });
 
@@ -17101,18 +17125,21 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
     // Send publish notification email (non-blocking)
     try {
       const cd = event.calendarData || {};
+      const requestedBy = event.roomReservationData?.requestedBy || {};
       const reservationForEmail = {
         _id: event._id,
-        eventTitle: cd.eventTitle || event.graphData?.subject,
-        requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
-        requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
-        contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
-        startTime: cd.startDateTime || event.graphData?.start?.dateTime,
-        endTime: cd.endDateTime || event.graphData?.end?.dateTime,
-        locationDisplayNames: cd.locationDisplayNames ? [cd.locationDisplayNames] : []
+        eventTitle: cd.eventTitle || event.eventTitle,
+        requesterName: requestedBy.name,
+        requesterEmail: requestedBy.email,
+        contactEmail: event.roomReservationData?.contactPerson?.email,
+        startDateTime: cd.startDateTime || event.startDateTime,
+        endDateTime: cd.endDateTime || event.endDateTime,
+        locationDisplayNames: cd.locationDisplayNames
+          ? (Array.isArray(cd.locationDisplayNames) ? cd.locationDisplayNames : [cd.locationDisplayNames])
+          : []
       };
 
-      const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '');
+      const emailResult = await emailService.sendPublishNotification(reservationForEmail, notes || '', reviewChanges || []);
       logger.info('Publish notification email sent', {
         eventId: event.eventId,
         correlationId: emailResult.correlationId,
@@ -17263,15 +17290,18 @@ app.put('/api/admin/events/:id/reject', verifyToken, async (req, res) => {
     // Send rejection notification email (non-blocking)
     try {
       const cd = event.calendarData || {};
+      const requestedBy = event.roomReservationData?.requestedBy || {};
       const reservationForEmail = {
         _id: event._id,
-        eventTitle: cd.eventTitle || event.graphData?.subject,
-        requesterName: event.roomReservationData?.requestedBy?.name || cd.requesterName,
-        requesterEmail: event.roomReservationData?.requestedBy?.email || cd.requesterEmail,
-        contactEmail: cd.contactEmail || event.roomReservationData?.contactPerson?.email,
-        startTime: cd.startDateTime || event.graphData?.start?.dateTime,
-        endTime: cd.endDateTime || event.graphData?.end?.dateTime,
-        locationDisplayNames: cd.locationDisplayNames ? [cd.locationDisplayNames] : []
+        eventTitle: cd.eventTitle || event.eventTitle,
+        requesterName: requestedBy.name,
+        requesterEmail: requestedBy.email,
+        contactEmail: event.roomReservationData?.contactPerson?.email,
+        startDateTime: cd.startDateTime || event.startDateTime,
+        endDateTime: cd.endDateTime || event.endDateTime,
+        locationDisplayNames: cd.locationDisplayNames
+          ? (Array.isArray(cd.locationDisplayNames) ? cd.locationDisplayNames : [cd.locationDisplayNames])
+          : []
       };
 
       const emailResult = await emailService.sendRejectionNotification(reservationForEmail, reason);
@@ -19226,6 +19256,42 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       } else {
         // Keep non-calendar fields as-is (graphData.*, status, etc.)
         finalUpdateOperations[key] = value;
+      }
+    }
+
+    // Track approver modifications on pending events for publish notification emails.
+    // Compare original calendarData with incoming updates to capture what changed.
+    if (event.status === 'pending') {
+      try {
+        const reviewChanges = detectEventChanges(event, updateOperations);
+        if (reviewChanges.length > 0) {
+          // Build location ID → name map if locations changed
+          let locationMap = {};
+          const locationsChanged = reviewChanges.some(c => c.field === 'locations');
+          if (locationsChanged) {
+            const allLocationIds = new Set();
+            for (const c of reviewChanges.filter(ch => ch.field === 'locations')) {
+              (Array.isArray(c.oldValue) ? c.oldValue : []).forEach(id => allLocationIds.add(String(id)));
+              (Array.isArray(c.newValue) ? c.newValue : []).forEach(id => allLocationIds.add(String(id)));
+            }
+            if (allLocationIds.size > 0) {
+              const locationDocs = await locationsCollection.find({
+                _id: { $in: [...allLocationIds].map(id => new ObjectId(id)) }
+              }).toArray();
+              for (const loc of locationDocs) {
+                locationMap[String(loc._id)] = loc.name || loc.displayName || String(loc._id);
+              }
+            }
+          }
+          finalUpdateOperations['roomReservationData.reviewChanges'] = formatChangesForEmail(reviewChanges, { locationMap });
+          logger.info('Detected approver modifications on pending event:', {
+            eventId: id,
+            changeCount: reviewChanges.length,
+            fields: reviewChanges.map(c => c.field)
+          });
+        }
+      } catch (changeErr) {
+        logger.warn('Failed to detect review changes (non-blocking):', changeErr.message);
       }
     }
 

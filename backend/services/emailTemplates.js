@@ -185,6 +185,16 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
+{{#reviewChanges}}
+<div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Changes Made During Review:</h4>
+  <p style="margin: 0 0 10px 0; color: #4a5568; font-size: 14px; font-style: italic;">
+    The reviewer made the following adjustments to your request. The details above reflect the final confirmed values.
+  </p>
+  {{changesTable}}
+</div>
+{{/reviewChanges}}
+
 {{#adminNotes}}
 <div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
   <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from Admin:</h4>
@@ -199,7 +209,7 @@ const DEFAULT_TEMPLATES = {
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
   },
 
   [TEMPLATE_IDS.REJECTION]: {
@@ -881,80 +891,45 @@ function wrapEmailTemplate(content) {
 
 /**
  * Extract variables from reservation data
- * Handles unified events with different data sources based on status:
- * - Pending requests: use roomReservationData (requester's original submission)
- * - Published/other: use top-level fields (application's working data)
+ *
+ * Data source priority (post-cleanup architecture):
+ * - Requester info: roomReservationData.requestedBy (single canonical source)
+ * - Event fields: top-level fields (eventTitle, startDateTime, etc.) which mirror calendarData
+ * - Fallback: calendarData for events that haven't been fully migrated
+ * - graphData is NOT used (only exists for published events, not authoritative for display)
+ *
+ * The reservationForEmail objects built at each endpoint already extract
+ * the right fields, so this function primarily handles direct-from-DB objects.
  */
 function extractVariables(reservation, extras = {}) {
-  // Determine data source based on status
-  // Pending requests use roomReservationData, published events use top-level
-  const isPending = reservation.status === 'pending';
   const reqData = reservation.roomReservationData || {};
-
-  // Get event title
-  const eventTitle = isPending
-    ? (reqData.eventTitle || reservation.subject || 'Untitled Event')
-    : (reservation.subject || reservation.eventTitle || reqData.eventTitle || 'Untitled Event');
-
-  // Get requester info from roomReservationData.requestedBy (single source)
+  const cd = reservation.calendarData || {};
   const requestedBy = reqData.requestedBy || {};
-  const requesterName = requestedBy.name
-    || reqData.createdByName || reservation.createdByName || 'Guest';
 
-  const requesterEmail = requestedBy.email
-    || reqData.createdByEmail || reservation.createdByEmail || '';
+  // Event title: top-level > calendarData
+  const eventTitle = reservation.eventTitle || cd.eventTitle || 'Untitled Event';
 
-  // Get date/time info
-  const startDateTime = isPending
-    ? (reqData.startDateTime || reservation.start?.dateTime)
-    : (reservation.start?.dateTime || reservation.startDateTime || reqData.startDateTime);
+  // Requester info: requestedBy is the single canonical source
+  const requesterName = requestedBy.name || reservation.requesterName || 'Guest';
+  const requesterEmail = requestedBy.email || reservation.requesterEmail || '';
 
-  const endDateTime = isPending
-    ? (reqData.endDateTime || reservation.end?.dateTime)
-    : (reservation.end?.dateTime || reservation.endDateTime || reqData.endDateTime);
+  // Date/time: top-level > calendarData
+  const startDateTime = reservation.startDateTime || reservation.startTime || cd.startDateTime;
+  const endDateTime = reservation.endDateTime || reservation.endTime || cd.endDateTime;
 
-  // Get locations - handle various formats
+  // Locations: top-level locationDisplayNames > calendarData
   let locationsStr = 'TBD';
-  if (isPending) {
-    // For pending, prefer roomReservationData
-    if (reqData.locationDisplayNames) {
-      locationsStr = Array.isArray(reqData.locationDisplayNames)
-        ? reqData.locationDisplayNames.join(', ')
-        : reqData.locationDisplayNames;
-    } else if (reqData.locations) {
-      locationsStr = Array.isArray(reqData.locations)
-        ? reqData.locations.map(l => typeof l === 'string' ? l : l.displayName).join(', ')
-        : reqData.locations;
-    } else if (reqData.location) {
-      locationsStr = reqData.location;
-    }
-  } else {
-    // For published, prefer top-level
-    if (reservation.locationDisplayNames) {
-      locationsStr = Array.isArray(reservation.locationDisplayNames)
-        ? reservation.locationDisplayNames.join(', ')
-        : reservation.locationDisplayNames;
-    } else if (reservation.locations) {
-      locationsStr = Array.isArray(reservation.locations)
-        ? reservation.locations.map(l => typeof l === 'string' ? l : l.displayName).join(', ')
-        : reservation.locations;
-    } else if (reservation.location?.displayName) {
-      locationsStr = reservation.location.displayName;
-    } else if (reqData.locationDisplayNames) {
-      // Fall back to roomReservationData
-      locationsStr = Array.isArray(reqData.locationDisplayNames)
-        ? reqData.locationDisplayNames.join(', ')
-        : reqData.locationDisplayNames;
-    }
+  const displayNames = reservation.locationDisplayNames || cd.locationDisplayNames;
+  if (displayNames) {
+    const resolved = Array.isArray(displayNames) ? displayNames.join(', ') : displayNames;
+    if (resolved) locationsStr = resolved; // Guard against empty string from empty array join
   }
 
-  // Get attendee count
-  const attendeeCount = isPending
-    ? (reqData.attendeeCount || reqData.expectedAttendees || 'Not specified')
-    : (reservation.attendeeCount || reservation.expectedAttendees || reqData.attendeeCount || 'Not specified');
+  // Attendee count: top-level > calendarData
+  const attendeeCount = reservation.attendeeCount || cd.attendeeCount || 'Not specified';
 
-  // Get created/submitted date
-  const createdAt = reqData.createdAt || reservation.createdAt || new Date();
+  // Created/submitted date
+  const createdAt = reservation.createdAt || reqData.createdAt || new Date();
 
   return {
     eventTitle: escapeHtml(eventTitle),
@@ -1014,11 +989,22 @@ async function generateAdminNewRequestAlert(reservation, adminPanelUrl = '') {
 
 /**
  * Generate approval notification email
+ * @param {Object} reservation - Reservation data
+ * @param {string} adminNotes - Optional notes from admin
+ * @param {Array} reviewChanges - Optional array of {displayName, oldValue, newValue} from changeDetection
  */
-async function generateApprovalNotification(reservation, adminNotes = '') {
-  const variables = extractVariables(reservation, {
+async function generateApprovalNotification(reservation, adminNotes = '', reviewChanges = []) {
+  const extras = {
     adminNotes: adminNotes ? escapeHtml(adminNotes) : ''
-  });
+  };
+
+  // Build review changes HTML table if there are changes
+  if (reviewChanges && reviewChanges.length > 0) {
+    extras.reviewChanges = 'true'; // Truthy string to enable conditional block
+    extras.changesTable = buildChangesTableHtml(reviewChanges);
+  }
+
+  const variables = extractVariables(reservation, extras);
   return generateFromTemplate(TEMPLATE_IDS.APPROVAL, variables);
 }
 
@@ -1166,6 +1152,36 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
   };
 }
 
+/**
+ * Build HTML table for review changes in approval email
+ * @param {Array<{displayName: string, oldValue: string, newValue: string}>} changes
+ * @returns {string} HTML table string
+ */
+function buildChangesTableHtml(changes) {
+  if (!changes || changes.length === 0) return '';
+
+  const rows = changes.map(change =>
+    `<tr style="border-bottom: 1px solid #e2e8f0;">
+      <td style="padding: 8px; color: #2d3748; font-weight: 500;">${escapeHtml(change.displayName)}</td>
+      <td style="padding: 8px; color: #718096; text-decoration: line-through;">${escapeHtml(change.oldValue)}</td>
+      <td style="padding: 8px; color: #2d3748; font-weight: 600;">${escapeHtml(change.newValue)}</td>
+    </tr>`
+  ).join('\n      ');
+
+  return `<table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
+    <thead>
+      <tr style="background-color: #f7fafc;">
+        <th style="padding: 8px; text-align: left; color: #718096; font-weight: 600; font-size: 13px;">Field</th>
+        <th style="padding: 8px; text-align: left; color: #718096; font-weight: 600; font-size: 13px;">Original</th>
+        <th style="padding: 8px; text-align: left; color: #718096; font-weight: 600; font-size: 13px;">Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+  </table>`;
+}
+
 module.exports = {
   // Database
   setDbConnection,
@@ -1186,6 +1202,7 @@ module.exports = {
   wrapEmailTemplate,
   extractVariables,
   escapeHtml,
+  buildChangesTableHtml,
 
   // Generator functions (backward compatible)
   generateSubmissionConfirmation,
