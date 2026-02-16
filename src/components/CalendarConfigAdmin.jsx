@@ -21,8 +21,12 @@ export default function CalendarConfigAdmin({ apiToken }) {
   const [selectedAllowedCalendars, setSelectedAllowedCalendars] = useState([]);
   const [savingAllowedCalendars, setSavingAllowedCalendars] = useState(false);
 
+  // App version info
+  const [versionInfo, setVersionInfo] = useState(null);
+
   useEffect(() => {
     loadCalendarSettings();
+    loadVersionInfo();
   }, []);
 
   const loadCalendarSettings = async () => {
@@ -57,6 +61,18 @@ export default function CalendarConfigAdmin({ apiToken }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadVersionInfo = async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/version`);
+      if (response.ok) {
+        const data = await response.json();
+        setVersionInfo(data);
+      }
+    } catch (err) {
+      logger.error('Error loading version info:', err);
     }
   };
 
@@ -329,6 +345,56 @@ export default function CalendarConfigAdmin({ apiToken }) {
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="info-panel version-panel">
+        <h3>Deployment Info</h3>
+        <table className="version-table">
+          <tbody>
+            <tr className="version-section-header">
+              <td colSpan="2">Frontend</td>
+            </tr>
+            <tr>
+              <td>Commit</td>
+              <td><code>{typeof __BUILD_COMMIT__ !== 'undefined' ? __BUILD_COMMIT__ : 'dev'}</code></td>
+            </tr>
+            <tr>
+              <td>Built</td>
+              <td>
+                {typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__
+                  ? new Date(__BUILD_TIME__).toLocaleString()
+                  : 'N/A (dev mode)'}
+              </td>
+            </tr>
+            {versionInfo && (
+              <>
+                <tr className="version-section-header">
+                  <td colSpan="2">Backend</td>
+                </tr>
+                <tr>
+                  <td>Environment</td>
+                  <td>
+                    <span className={`version-badge ${versionInfo.environment === 'production' ? 'production' : 'development'}`}>
+                      {versionInfo.environment}
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Commit</td>
+                  <td><code>{versionInfo.commit}</code></td>
+                </tr>
+                <tr>
+                  <td>Built</td>
+                  <td>
+                    {versionInfo.buildTime
+                      ? new Date(versionInfo.buildTime).toLocaleString()
+                      : 'N/A (dev mode)'}
+                  </td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

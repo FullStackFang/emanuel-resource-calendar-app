@@ -24,6 +24,7 @@ export default function EmailTestAdmin({ apiToken }) {
   // Editable settings
   const [editEnabled, setEditEnabled] = useState(false);
   const [editRedirectTo, setEditRedirectTo] = useState('');
+  const [editCcTo, setEditCcTo] = useState('');
 
   // Test email form state
   const [toEmail, setToEmail] = useState('');
@@ -92,6 +93,7 @@ export default function EmailTestAdmin({ apiToken }) {
         setEmailConfig(config);
         setEditEnabled(config.enabled || false);
         setEditRedirectTo(config.redirectTo || '');
+        setEditCcTo(config.ccTo || '');
       } else {
         setError('Failed to load email configuration');
       }
@@ -140,7 +142,8 @@ export default function EmailTestAdmin({ apiToken }) {
         },
         body: JSON.stringify({
           enabled: editEnabled,
-          redirectTo: editRedirectTo.trim()
+          redirectTo: editRedirectTo.trim(),
+          ccTo: editCcTo.trim()
         })
       });
 
@@ -341,7 +344,8 @@ export default function EmailTestAdmin({ apiToken }) {
 
     const hasChanges = emailConfig && (
       editEnabled !== emailConfig.enabled ||
-      (editRedirectTo || '') !== (emailConfig.redirectTo || '')
+      (editRedirectTo || '') !== (emailConfig.redirectTo || '') ||
+      (editCcTo || '') !== (emailConfig.ccTo || '')
     );
 
     return (
@@ -389,6 +393,21 @@ export default function EmailTestAdmin({ apiToken }) {
             />
           </div>
 
+          <div className="setting-row">
+            <label className="setting-label-block">
+              <strong>CC All Emails To</strong>
+              <small>Add a CC recipient to every notification email (ignored when redirect is active)</small>
+            </label>
+            <input
+              type="email"
+              value={editCcTo}
+              onChange={(e) => setEditCcTo(e.target.value)}
+              placeholder="cc-recipient@example.com"
+              className="redirect-input"
+              disabled={!!editRedirectTo.trim()}
+            />
+          </div>
+
           {emailConfig?.dbSettings && (
             <div className="settings-meta">
               Last updated: {new Date(emailConfig.dbSettings.updatedAt).toLocaleString()}
@@ -429,6 +448,16 @@ export default function EmailTestAdmin({ apiToken }) {
                   <span className="redirect-active">All emails → {emailConfig.redirectTo}</span>
                 ) : (
                   <span className="redirect-inactive">Off (sending to actual recipients)</span>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td>CC Recipient</td>
+              <td>
+                {emailConfig.ccTo ? (
+                  <span className="redirect-active">CC → {emailConfig.ccTo}</span>
+                ) : (
+                  <span className="redirect-inactive">None</span>
                 )}
               </td>
             </tr>

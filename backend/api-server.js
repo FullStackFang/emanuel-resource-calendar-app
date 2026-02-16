@@ -11353,19 +11353,26 @@ app.get('/api/version', (req, res) => {
   const packageJson = require('./package.json');
   let buildInfo = { commit: 'dev', buildTime: null };
 
-  // Try to read build-info.json (generated during deploy)
+  // Read build-info.json fresh each time (don't use require which caches)
   try {
-    buildInfo = require('./build-info.json');
+    const fs = require('fs');
+    const path = require('path');
+    const raw = fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf8');
+    buildInfo = JSON.parse(raw);
   } catch (e) {
     // File doesn't exist in dev mode, use defaults
   }
+
+  // Detect environment: if build-info.json exists with a real commit, it was deployed
+  const isDeployed = buildInfo.commit && buildInfo.commit !== 'dev';
+  const environment = process.env.NODE_ENV || (isDeployed ? 'production' : 'development');
 
   res.status(200).json({
     version: packageJson.version,
     name: packageJson.name,
     commit: buildInfo.commit || 'dev',
     buildTime: buildInfo.buildTime || null,
-    environment: process.env.NODE_ENV || 'development'
+    environment
   });
 });
 
@@ -19650,11 +19657,13 @@ app.get('/api/admin/email/config', verifyToken, async (req, res) => {
       // DB overrides (if set)
       enabled: dbSettings?.enabled !== undefined ? dbSettings.enabled : baseConfig.enabled,
       redirectTo: dbSettings?.redirectTo !== undefined ? dbSettings.redirectTo : baseConfig.redirectTo,
+      ccTo: dbSettings?.ccTo || null,
       // Flag to show if DB settings exist
       hasDbSettings: !!dbSettings,
       dbSettings: dbSettings ? {
         enabled: dbSettings.enabled,
         redirectTo: dbSettings.redirectTo,
+        ccTo: dbSettings.ccTo || null,
         updatedAt: dbSettings.updatedAt,
         updatedBy: dbSettings.updatedBy
       } : null
@@ -19684,11 +19693,16 @@ app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    const { enabled, redirectTo } = req.body;
+    const { enabled, redirectTo, ccTo } = req.body;
 
     // Validate redirectTo if provided
     if (redirectTo && redirectTo.trim() !== '' && !emailService.validateEmail(redirectTo)) {
       return res.status(400).json({ error: 'Invalid redirect email address format' });
+    }
+
+    // Validate ccTo if provided
+    if (ccTo && ccTo.trim() !== '' && !emailService.validateEmail(ccTo)) {
+      return res.status(400).json({ error: 'Invalid CC email address format' });
     }
 
     const updateDoc = {
@@ -19704,6 +19718,10 @@ app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
       updateDoc.redirectTo = redirectTo.trim() || null; // Empty string becomes null
     }
 
+    if (ccTo !== undefined) {
+      updateDoc.ccTo = ccTo.trim() || null; // Empty string becomes null
+    }
+
     await systemSettingsCollection.updateOne(
       { _id: 'email-settings' },
       { $set: updateDoc },
@@ -19713,7 +19731,8 @@ app.put('/api/admin/email/settings', verifyToken, async (req, res) => {
     logger.info('Email settings updated', {
       updatedBy: userEmail,
       enabled,
-      redirectTo: redirectTo || '(none)'
+      redirectTo: redirectTo || '(none)',
+      ccTo: ccTo || '(none)'
     });
 
     // Clear the cached settings in emailService

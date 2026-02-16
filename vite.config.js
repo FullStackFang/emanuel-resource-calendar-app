@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
+import { execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -8,14 +9,26 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// Get git commit hash for frontend build info
+let gitCommit = 'dev';
+try {
+  gitCommit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+} catch (e) {
+  // git not available
+}
+
 /*
 https: {
   key: fs.readFileSync(path.resolve(__dirname, 'certs/key.pem')),
   cert: fs.readFileSync(path.resolve(__dirname, 'certs/cert.pem')),
-}, 
+},
 */
 
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __BUILD_COMMIT__: JSON.stringify(gitCommit)
+  },
   // Force all React imports to resolve to the same instance
   // This fixes "Cannot read properties of null (reading 'useEffect')" errors
   // caused by libraries bundling their own React

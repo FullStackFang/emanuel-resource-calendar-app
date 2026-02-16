@@ -51,7 +51,8 @@ async function getEffectiveSettings() {
       if (settings) {
         cachedDbSettings = {
           enabled: settings.enabled !== undefined ? settings.enabled : ENV_EMAIL_ENABLED,
-          redirectTo: settings.redirectTo !== undefined ? settings.redirectTo : ENV_EMAIL_REDIRECT_TO
+          redirectTo: settings.redirectTo !== undefined ? settings.redirectTo : ENV_EMAIL_REDIRECT_TO,
+          ccTo: settings.ccTo || null
         };
         dbSettingsLastFetch = now;
         return cachedDbSettings;
@@ -64,7 +65,8 @@ async function getEffectiveSettings() {
   // Fallback to environment variables
   return {
     enabled: ENV_EMAIL_ENABLED,
-    redirectTo: ENV_EMAIL_REDIRECT_TO
+    redirectTo: ENV_EMAIL_REDIRECT_TO,
+    ccTo: null
   };
 }
 
@@ -147,6 +149,7 @@ async function sendEmail(to, subject, htmlBody, options = {}) {
   const settings = await getEffectiveSettings();
   const emailEnabled = settings.enabled;
   const emailRedirectTo = settings.redirectTo;
+  const globalCcTo = settings.ccTo;
 
   // Normalize recipients to array
   const recipients = Array.isArray(to) ? to : [to];
@@ -211,9 +214,11 @@ async function sendEmail(to, subject, htmlBody, options = {}) {
         toRecipients: actualRecipients.map(addr => ({
           emailAddress: { address: addr }
         })),
-        ccRecipients: cc.filter(validateEmail).map(addr => ({
-          emailAddress: { address: addr }
-        })),
+        ccRecipients: [...cc, ...(globalCcTo && !emailRedirectTo ? [globalCcTo] : [])]
+          .filter((addr, i, arr) => validateEmail(addr) && arr.indexOf(addr) === i)
+          .map(addr => ({
+            emailAddress: { address: addr }
+          })),
         from: {
           emailAddress: {
             address: EMAIL_FROM_ADDRESS,
