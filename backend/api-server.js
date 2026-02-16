@@ -4347,7 +4347,7 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     // - requester: include pending events they created
     // - approver/admin: include all pending events
     const role = roleInfo?.role || 'viewer';
-    const userEmail = roleInfo?.userEmail?.toLowerCase();
+    const userEmail = roleInfo?.userEmail;
 
     // Email-match conditions for ownership checks (reused across roles)
     const ownerEmailConditions = userEmail ? [
