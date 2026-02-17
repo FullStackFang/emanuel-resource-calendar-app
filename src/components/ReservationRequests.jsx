@@ -1,14 +1,14 @@
 // src/components/ReservationRequests.jsx
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useReviewModal } from '../hooks/useReviewModal';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
-import UnifiedEventForm from './UnifiedEventForm';
 import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
 import ConflictDialog from './shared/ConflictDialog';
@@ -23,7 +23,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
-  const [actionNotes, setActionNotes] = useState('');
   const PAGE_SIZE = 20;
 
   // Calendar event creation settings
@@ -33,56 +32,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [defaultCalendar, setDefaultCalendar] = useState('');
   const [selectedTargetCalendar, setSelectedTargetCalendar] = useState('');
 
-  // Editable form state
-  const [editableData, setEditableData] = useState(null);
-  const [eventVersion, setEventVersion] = useState(null);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [isFormValid, setIsFormValid] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Child component's save function (exposed via callback)
-  const childSaveFunctionRef = useRef(null);
-
-  // Memoized callback for receiving the save function from child
-  const handleSaveFunctionReady = useCallback((saveFunc) => {
-    childSaveFunctionRef.current = saveFunc;
-  }, []);
-
-  // Conflict detection state
-  const [forcePublish, setForcePublish] = useState(false);
-
   // Feature flag: Toggle between old and new review form
-  // Default to UnifiedEventForm to match the draft edit form in MyReservations
   const [useUnifiedForm, setUseUnifiedForm] = useState(true);
 
-  // Details modal state (lightweight info modal before full review)
-  const [selectedDetailsReservation, setSelectedDetailsReservation] = useState(null);
-
-  // Review modal state
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [selectedReservation, setSelectedReservation] = useState(null);
-
-  // Delete state
+  // Card-level delete state (separate from modal delete)
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-
-  // Approval confirmation state (for ReviewModal)
-  const [isApproving, setIsApproving] = useState(false);
-  const [isApproveConfirming, setIsApproveConfirming] = useState(false);
-
-  // Rejection confirmation state (for ReviewModal)
-  const [isRejecting, setIsRejecting] = useState(false);
-  const [isRejectConfirming, setIsRejectConfirming] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState('');
-
-  // Delete confirmation state (for ReviewModal - separate from card delete)
-  const [isModalDeleting, setIsModalDeleting] = useState(false);
-  const [isModalDeleteConfirming, setIsModalDeleteConfirming] = useState(false);
 
   // Scheduling conflict state (from SchedulingAssistant via RoomReservationReview)
   const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
 
-  // Edit request state
+  // Edit request state (card-level EditRequestComparison modal)
   const [editRequests, setEditRequests] = useState([]);
   const [editRequestsLoading, setEditRequestsLoading] = useState(false);
   const [selectedEditRequest, setSelectedEditRequest] = useState(null);
@@ -91,13 +51,29 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [rejectingEditRequest, setRejectingEditRequest] = useState(false);
   const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
 
-  // Conflict dialog state
-  const [conflictDialog, setConflictDialog] = useState({ isOpen: false, conflictType: 'data_changed', details: {} });
+  // Edit request state (in-ReviewModal viewing/management — matches Calendar.jsx)
+  const [existingEditRequest, setExistingEditRequest] = useState(null);
+  const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
+  const [loadingEditRequest, setLoadingEditRequest] = useState(false);
+  const [originalEventData, setOriginalEventData] = useState(null);
+  const [isApprovingEditRequestInModal, setIsApprovingEditRequestInModal] = useState(false);
+  const [isRejectingEditRequestInModal, setIsRejectingEditRequestInModal] = useState(false);
+  const [modalEditRequestRejectionReason, setModalEditRequestRejectionReason] = useState('');
+  const [isEditRequestApproveConfirming, setIsEditRequestApproveConfirming] = useState(false);
+  const [isEditRequestRejectConfirming, setIsEditRequestRejectConfirming] = useState(false);
 
   // Use room context for efficient room name resolution
   const { getRoomName, getRoomDetails, loading: roomsLoading } = useRooms();
-  
-  
+
+  // useReviewModal hook — replaces ~17 manual state vars and ~10 handlers
+  const reviewModal = useReviewModal({
+    apiToken,
+    graphToken,
+    selectedCalendarId: selectedTargetCalendar || defaultCalendar,
+    onSuccess: () => { loadReservations(); },
+    onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
+  });
+
   // Load calendar settings on mount
   useEffect(() => {
     if (apiToken) {
@@ -156,14 +132,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Transform events using shared utility (single source of truth)
       const transformedEvents = transformEventsToFlatStructure(data.events || []);
 
-      logger.debug('🔧 TRANSFORMED EVENT (first event) - Series fields:', {
-        eventId: transformedEvents?.[0]?.eventId,
-        hasEventSeriesId: !!transformedEvents?.[0]?.eventSeriesId,
-        eventSeriesId: transformedEvents?.[0]?.eventSeriesId,
-        seriesIndex: transformedEvents?.[0]?.seriesIndex,
-        seriesLength: transformedEvents?.[0]?.seriesLength
-      });
-
       logger.info('Loaded room reservation events:', {
         count: transformedEvents.length
       });
@@ -176,11 +144,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setLoading(false);
     }
   }, [apiToken]);
-
-  // Legacy alias for compatibility
-  const loadAllReservations = useCallback(() => {
-    return loadReservations();
-  }, [loadReservations]);
 
   // Client-side filtering based on active tab
   const filteredReservations = useMemo(() => {
@@ -275,9 +238,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  // Note: Edit requests functionality preserved but tab removed from UI
-  // Edit requests can be managed through other admin interfaces if needed
-
   // Client-side pagination
   const totalPages = Math.ceil(filteredReservations.length / PAGE_SIZE);
   const startIndex = (page - 1) * PAGE_SIZE;
@@ -293,74 +253,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const handlePageChange = useCallback((newPage) => {
     setPage(newPage);
   }, []);
-
-  // Open review modal (using ReviewModal component)
-  const openReviewModal = async (reservation) => {
-    // Initialize editable data (includes all fields needed for conflict diff)
-    setEditableData({
-      eventTitle: reservation.eventTitle || '',
-      eventDescription: reservation.eventDescription || '',
-      startDateTime: reservation.startDateTime,
-      endDateTime: reservation.endDateTime,
-      startDate: reservation.startDate || '',
-      startTime: reservation.startTime || '',
-      endDate: reservation.endDate || '',
-      endTime: reservation.endTime || '',
-      setupTime: reservation.setupTime || '',
-      teardownTime: reservation.teardownTime || '',
-      doorOpenTime: reservation.doorOpenTime || '',
-      doorCloseTime: reservation.doorCloseTime || '',
-      setupTimeMinutes: reservation.setupTimeMinutes || 0,
-      teardownTimeMinutes: reservation.teardownTimeMinutes || 0,
-      attendeeCount: reservation.attendeeCount || 0,
-      requestedRooms: reservation.requestedRooms || [],
-      locationDisplayNames: reservation.locationDisplayNames || '',
-      categories: reservation.categories || [],
-      specialRequirements: reservation.specialRequirements || '',
-      status: reservation.status || '',
-      requesterName: reservation.roomReservationData?.requestedBy?.name || reservation.requesterName || '',
-      requesterEmail: reservation.roomReservationData?.requestedBy?.email || reservation.requesterEmail || '',
-      contactName: reservation.roomReservationData?.contactPerson?.name || reservation.contactName || '',
-      contactEmail: reservation.roomReservationData?.contactPerson?.email || reservation.contactEmail || '',
-      phone: reservation.roomReservationData?.requestedBy?.phone || reservation.phone || '',
-      department: reservation.roomReservationData?.requestedBy?.department || reservation.department || '',
-      sponsoredBy: reservation.sponsoredBy || '',
-      isOnBehalfOf: reservation.roomReservationData?.contactPerson?.isOnBehalfOf || reservation.isOnBehalfOf || false
-    });
-
-    setEventVersion(reservation._version || null);
-    setHasChanges(false);
-
-    logger.debug('📦 OPENING REVIEW MODAL - Reservation Object:', {
-      eventId: reservation.eventId,
-      hasEventSeriesId: !!reservation.eventSeriesId,
-      eventSeriesId: reservation.eventSeriesId,
-      seriesIndex: reservation.seriesIndex,
-      seriesLength: reservation.seriesLength,
-      fullObject: reservation
-    });
-
-    setSelectedReservation(reservation);
-    setShowReviewModal(true);
-  };
-
-  // Close review modal
-  const closeReviewModal = async () => {
-    setShowReviewModal(false);
-    setSelectedReservation(null);
-    setEditableData(null);
-    setEventVersion(null);
-    setHasChanges(false);
-    setActionNotes('');
-    setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
-    setCreateCalendarEvent(true);
-    setForcePublish(false);
-    // Reset confirmation states
-    setIsApproveConfirming(false);
-    setIsRejectConfirming(false);
-    setRejectionReason('');
-    setIsModalDeleteConfirming(false);
-  };
 
   // =========================================================================
   // EDIT REQUEST HANDLERS
@@ -474,7 +366,229 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   };
 
   // =========================================================================
-  // END EDIT REQUEST HANDLERS
+  // END CARD-LEVEL EDIT REQUEST HANDLERS
+  // =========================================================================
+
+  // =========================================================================
+  // IN-MODAL EDIT REQUEST VIEWING/MANAGEMENT (Calendar.jsx gold standard)
+  // =========================================================================
+
+  // Helper to get event field with calendarData fallback
+  const getEventField = (event, field, defaultValue = undefined) => {
+    if (!event) return defaultValue;
+    if (event.calendarData?.[field] !== undefined) return event.calendarData[field];
+    if (event[field] !== undefined) return event[field];
+    return defaultValue;
+  };
+
+  // Extract and transform pendingEditRequest from an event
+  const fetchExistingEditRequest = useCallback((event) => {
+    if (!event) return null;
+
+    setLoadingEditRequest(true);
+    try {
+      if (event.pendingEditRequest && event.pendingEditRequest.status === 'pending') {
+        const pendingReq = event.pendingEditRequest;
+        return {
+          _id: event._id,
+          eventId: event.eventId,
+          editRequestId: pendingReq.id,
+          status: pendingReq.status,
+          requestedBy: pendingReq.requestedBy,
+          changeReason: pendingReq.changeReason,
+          proposedChanges: pendingReq.proposedChanges,
+          originalValues: pendingReq.originalValues,
+          reviewedBy: pendingReq.reviewedBy,
+          reviewedAt: pendingReq.reviewedAt,
+          reviewNotes: pendingReq.reviewNotes,
+          eventTitle: pendingReq.proposedChanges?.eventTitle || event.eventTitle,
+          eventDescription: pendingReq.proposedChanges?.eventDescription || event.eventDescription,
+          startDateTime: pendingReq.proposedChanges?.startDateTime || event.startDateTime,
+          endDateTime: pendingReq.proposedChanges?.endDateTime || event.endDateTime,
+          startDate: pendingReq.proposedChanges?.startDateTime?.split('T')[0] || event.startDate,
+          startTime: pendingReq.proposedChanges?.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
+          endDate: pendingReq.proposedChanges?.endDateTime?.split('T')[0] || event.endDate,
+          endTime: pendingReq.proposedChanges?.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
+          attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? getEventField(event, 'attendeeCount'),
+          locations: pendingReq.proposedChanges?.locations || getEventField(event, 'locations', []),
+          locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || getEventField(event, 'locationDisplayNames', ''),
+          requestedRooms: pendingReq.proposedChanges?.requestedRooms || getEventField(event, 'requestedRooms', []),
+          categories: pendingReq.proposedChanges?.categories || getEventField(event, 'categories', []),
+          services: pendingReq.proposedChanges?.services || getEventField(event, 'services', {}),
+          setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? getEventField(event, 'setupTimeMinutes'),
+          teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? getEventField(event, 'teardownTimeMinutes'),
+          setupTime: pendingReq.proposedChanges?.setupTime || getEventField(event, 'setupTime', ''),
+          teardownTime: pendingReq.proposedChanges?.teardownTime || getEventField(event, 'teardownTime', ''),
+          doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || getEventField(event, 'doorOpenTime', ''),
+          doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || getEventField(event, 'doorCloseTime', ''),
+          setupNotes: pendingReq.proposedChanges?.setupNotes ?? getEventField(event, 'setupNotes'),
+          doorNotes: pendingReq.proposedChanges?.doorNotes ?? getEventField(event, 'doorNotes'),
+          eventNotes: pendingReq.proposedChanges?.eventNotes ?? getEventField(event, 'eventNotes'),
+          specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? getEventField(event, 'specialRequirements'),
+          isOffsite: pendingReq.proposedChanges?.isOffsite ?? getEventField(event, 'isOffsite', false),
+          offsiteName: pendingReq.proposedChanges?.offsiteName || getEventField(event, 'offsiteName', ''),
+          offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || getEventField(event, 'offsiteAddress', ''),
+          createdAt: pendingReq.requestedBy?.requestedAt
+        };
+      }
+      return null;
+    } finally {
+      setLoadingEditRequest(false);
+    }
+  }, []);
+
+  // Check for existing edit requests when ReviewModal opens with a published event
+  useEffect(() => {
+    if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
+      const editRequest = fetchExistingEditRequest(reviewModal.currentItem);
+      setExistingEditRequest(editRequest);
+    } else if (!reviewModal.isOpen) {
+      setExistingEditRequest(null);
+      setIsViewingEditRequest(false);
+      setOriginalEventData(null);
+      setIsEditRequestApproveConfirming(false);
+      setIsEditRequestRejectConfirming(false);
+      setModalEditRequestRejectionReason('');
+    }
+  }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
+
+  // View the edit request data in the form
+  const handleViewEditRequest = useCallback(() => {
+    if (existingEditRequest) {
+      const currentData = reviewModal.editableData;
+      if (currentData) {
+        setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+      }
+      reviewModal.updateData(existingEditRequest);
+      setIsViewingEditRequest(true);
+    }
+  }, [existingEditRequest, reviewModal]);
+
+  // Toggle back to the original published event
+  const handleViewOriginalEvent = useCallback(() => {
+    if (originalEventData) {
+      reviewModal.updateData(originalEventData);
+      setIsViewingEditRequest(false);
+    }
+  }, [originalEventData, reviewModal]);
+
+  // Approve edit request from within ReviewModal (admin only)
+  const handleApproveEditRequestInModal = useCallback(async () => {
+    if (!isEditRequestApproveConfirming) {
+      setIsEditRequestApproveConfirming(true);
+      return;
+    }
+
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      logger.error('No edit request to approve');
+      return;
+    }
+
+    try {
+      setIsApprovingEditRequestInModal(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({ notes: '', graphToken })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve edit request');
+      }
+
+      setIsEditRequestApproveConfirming(false);
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+      reviewModal.closeModal();
+      loadReservations();
+      showSuccess('Edit request approved. Changes have been applied.');
+    } catch (error) {
+      logger.error('Error approving edit request:', error);
+      showError(error, { context: 'ReservationRequests.approveEditRequestInModal', userMessage: 'Failed to approve edit request' });
+    } finally {
+      setIsApprovingEditRequestInModal(false);
+      setIsEditRequestApproveConfirming(false);
+    }
+  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, loadReservations, showSuccess, showError]);
+
+  // Reject edit request from within ReviewModal (admin only)
+  const handleRejectEditRequestInModal = useCallback(async () => {
+    if (!isEditRequestRejectConfirming) {
+      setIsEditRequestRejectConfirming(true);
+      return;
+    }
+
+    if (!modalEditRequestRejectionReason.trim()) {
+      showWarning('Please provide a reason for rejecting the edit request.');
+      return;
+    }
+
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      logger.error('No edit request to reject');
+      return;
+    }
+
+    try {
+      setIsRejectingEditRequestInModal(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({ reason: modalEditRequestRejectionReason.trim() })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reject edit request');
+      }
+
+      setIsEditRequestRejectConfirming(false);
+      setModalEditRequestRejectionReason('');
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+      reviewModal.closeModal();
+      loadReservations();
+      showSuccess('Edit request rejected.');
+    } catch (error) {
+      logger.error('Error rejecting edit request:', error);
+      showError(error, { context: 'ReservationRequests.rejectEditRequestInModal', userMessage: 'Failed to reject edit request' });
+    } finally {
+      setIsRejectingEditRequestInModal(false);
+      setIsEditRequestRejectConfirming(false);
+    }
+  }, [isEditRequestRejectConfirming, modalEditRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadReservations, showSuccess, showError, showWarning]);
+
+  const cancelEditRequestApproveConfirmation = useCallback(() => {
+    setIsEditRequestApproveConfirming(false);
+  }, []);
+
+  const cancelEditRequestRejectConfirmation = useCallback(() => {
+    setIsEditRequestRejectConfirming(false);
+    setModalEditRequestRejectionReason('');
+  }, []);
+
+  // =========================================================================
+  // END IN-MODAL EDIT REQUEST HANDLERS
   // =========================================================================
 
   // Handle locked event click from SchedulingAssistant
@@ -491,7 +605,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
 
     // Check if there are unsaved changes
-    if (hasChanges) {
+    if (reviewModal.hasChanges) {
       const confirmMessage = `You have unsaved changes to the current reservation.\n\n` +
                             `If you navigate to "${targetReservation.eventTitle}", your changes will be lost.\n\n` +
                             `Do you want to continue?`;
@@ -504,339 +618,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
     // Close current modal and open the new one
     logger.debug('[ReservationRequests] Navigating to reservation:', targetReservation.eventTitle);
-    await closeReviewModal();
+    await reviewModal.closeModal(true);
 
     // Small delay to ensure cleanup completes
     setTimeout(() => {
-      openReviewModal(targetReservation);
+      reviewModal.openModal(targetReservation);
     }, 100);
   };
 
-  // Handle field changes in editable form
-  const handleFieldChange = (field, value) => {
-    setEditableData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    setHasChanges(true);
-  };
-
-  // Save changes with version validation
-  // This function is now mainly called as a callback from RoomReservationReview
-  // RoomReservationReview handles the actual API call and passes the result here
-  const handleSaveChanges = async (result) => {
-    // If result is null, it's a conflict-triggered refresh request
-    if (result === null) {
-      await loadAllReservations();
-      closeReviewModal();
-      return;
-    }
-
-    // If result is provided, it means RoomReservationReview already saved
-    // Just update our local state with the new version and refresh the data
-    if (result && result._version) {
-      logger.debug('Updating reservation data after save:', result);
-
-      setEventVersion(result._version);
-      setHasChanges(false);
-
-      // Update the selected reservation with the saved data (transform to flat structure)
-      if (result.reservation) {
-        logger.debug('Updating selectedReservation with saved data');
-        const flatReservation = transformEventToFlatStructure(result.reservation);
-        setSelectedReservation(flatReservation);
-
-        // Also update the reservation in allReservations array
-        setAllReservations(prev => {
-          return prev.map(res =>
-            res._id === result.reservation._id ? flatReservation : res
-          );
-        });
-      }
-
-      setError('Changes saved successfully');
-      setTimeout(() => setError(''), 3000);
-      return;
-    }
-  };
-  
-  // Handle approve click - two-click confirmation pattern
-  const handleApproveClick = (reservation) => {
-    if (isApproveConfirming) {
-      // Already in confirm state, proceed with approve
-      handleApprove(reservation);
-    } else {
-      // First click - enter confirm state
-      setIsApproveConfirming(true);
-    }
-  };
-
-  const handleApprove = async (reservation) => {
-    try {
-      setIsApproving(true);
-      setIsApproveConfirming(false);
-      logger.debug('🚀 Starting reservation approval process:', {
-        reservationId: reservation._id,
-        eventTitle: reservation.eventTitle,
-        calendarMode,
-        createCalendarEvent,
-        forcePublish
-      });
-
-      const requestBody = {
-        notes: actionNotes,
-        calendarMode: calendarMode,
-        createCalendarEvent: createCalendarEvent,
-        graphToken: graphToken,
-        forcePublish: forcePublish,
-        targetCalendar: selectedTargetCalendar || defaultCalendar,
-        _version: eventVersion || reservation._version || null
-      };
-
-      logger.debug('Sending approval request:', requestBody);
-
-      const approveEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/publish`;
-
-      const response = await fetch(approveEndpoint, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      // Handle conflict (409)
-      if (response.status === 409) {
-        const data = await response.json();
-
-        // Check if it's a scheduling conflict or version conflict
-        if (data.error === 'SchedulingConflict') {
-          setConflicts(data.conflicts || []);
-          setError(`Cannot publish: ${data.conflicts.length} scheduling conflict(s) detected. ` +
-                  `Please review conflicts below and either modify the reservation or check "Override conflicts" to force publish.`);
-          return;
-        }
-
-        // Version conflict - show ConflictDialog
-        const conflictDetails = data.details || {};
-        const currentStatus = conflictDetails.currentStatus || data.currentStatus;
-
-        logger.warn('Version conflict detected (409)', { details: conflictDetails });
-
-        // Determine conflict type
-        const expectedStatus = reservation.status;
-        const conflictType = currentStatus && currentStatus !== expectedStatus
-          ? (currentStatus === 'published' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
-          : 'data_changed';
-
-        setConflictDialog({
-          isOpen: true,
-          conflictType,
-          details: conflictDetails,
-          staleData: editableData
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('❌ Publish request failed:', response.status, errorText);
-        throw new Error(`Failed to publish reservation: ${response.status} ${errorText}`);
-      }
-
-      const result = await response.json();
-      logger.debug('✅ Approval response received:', result);
-
-      // Check for calendar event creation results (backend returns as 'calendarEvent')
-      const calendarEventResult = result.calendarEvent || result.calendarEventResult;
-      
-      if (createCalendarEvent && calendarEventResult) {
-        if (calendarEventResult.success) {
-          logger.debug('📅 Calendar event created successfully:', {
-            eventId: calendarEventResult.eventId,
-            calendar: calendarEventResult.targetCalendar
-          });
-          setError(`✅ Reservation published and calendar event created in ${calendarEventResult.targetCalendar}`);
-        } else {
-          logger.error('📅 Calendar event creation failed:', calendarEventResult.error);
-          setError(`⚠️ Reservation published but calendar event creation failed: ${calendarEventResult.error}`);
-        }
-      } else if (createCalendarEvent) {
-        logger.warn('📅 Calendar event creation was requested but no result received');
-        setError('⚠️ Reservation published but calendar event creation status unknown');
-      } else {
-        logger.debug('✅ Reservation published (calendar event creation disabled)');
-        setError('✅ Reservation published successfully');
-      }
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id
-          ? { ...r, status: 'published', actionDate: new Date(), calendarEventId: calendarEventResult?.eventId }
-          : r
-      ));
-
-      setSelectedReservation(null);
-      setActionNotes('');
-      setCalendarMode(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
-      setCreateCalendarEvent(true);
-
-      // Clear success message after 5 seconds
-      setTimeout(() => setError(''), 5000);
-      
-    } catch (err) {
-      logger.error('❌ Error in approval process:', err);
-      logger.error('Error approving reservation:', err);
-      showError(err, { context: 'ReservationRequests.handleApprove', userMessage: 'Failed to publish reservation' });
-    } finally {
-      setIsApproving(false);
-    }
-  };
-
-  // Handle reject click - two-click confirmation pattern with reason input
-  const handleRejectClick = (reservation) => {
-    if (isRejectConfirming) {
-      // Already in confirm state, check for reason and proceed
-      if (!rejectionReason.trim()) {
-        showWarning('Please provide a reason for rejection');
-        return;
-      }
-      handleReject(reservation);
-    } else {
-      // First click - enter confirm state (shows reason input)
-      setIsRejectConfirming(true);
-    }
-  };
-
-  const handleReject = async (reservation) => {
-    try {
-      setIsRejecting(true);
-      setIsRejectConfirming(false);
-
-      const rejectEndpoint = `${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}/reject`;
-
-      const response = await fetch(rejectEndpoint, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ reason: rejectionReason, _version: eventVersion || reservation._version || null })
-      });
-
-      // Handle version conflict (409)
-      if (response.status === 409) {
-        const data = await response.json();
-        const conflictDetails = data.details || {};
-        const currentStatus = conflictDetails.currentStatus;
-
-        const conflictType = currentStatus && currentStatus !== reservation.status
-          ? (currentStatus === 'published' || currentStatus === 'rejected' ? 'already_actioned' : 'status_changed')
-          : 'data_changed';
-
-        setConflictDialog({ isOpen: true, conflictType, details: conflictDetails, staleData: editableData });
-        return;
-      }
-
-      if (!response.ok) throw new Error('Failed to reject reservation');
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id
-          ? { ...r, status: 'rejected', actionDate: new Date(), rejectionReason: rejectionReason }
-          : r
-      ));
-
-      setSelectedReservation(null);
-      setRejectionReason('');
-      showSuccess(`Reservation "${reservation.eventTitle}" rejected`);
-    } catch (err) {
-      logger.error('Error rejecting reservation:', err);
-      showError(err, { context: 'ReservationRequests.handleReject', userMessage: 'Failed to reject reservation' });
-    } finally {
-      setIsRejecting(false);
-    }
-  };
-
-  // Handle modal delete click - two-click confirmation pattern (separate from card delete)
-  const handleModalDeleteClick = (reservation) => {
-    if (isModalDeleteConfirming) {
-      // Already in confirm state, proceed with delete
-      handleModalDelete(reservation);
-    } else {
-      // First click - enter confirm state
-      setIsModalDeleteConfirming(true);
-    }
-  };
-
-  const handleModalDelete = async (reservation) => {
-    try {
-      setIsModalDeleting(true);
-      setIsModalDeleteConfirming(false);
-
-      logger.debug('🗑️ Starting reservation deletion from modal:', {
-        reservationId: reservation._id,
-        eventTitle: reservation.eventTitle
-      });
-
-      // Only include graphToken if the event has been synced to Graph (has calendarId)
-      const hasGraphData = reservation.calendarId || reservation.graphData?.id;
-
-      // Use unified events endpoint
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({
-          graphToken: hasGraphData ? graphToken : undefined,
-          calendarId: reservation.calendarId,
-          _version: eventVersion || reservation._version || null
-        })
-      });
-
-      // Handle version conflict (409)
-      if (response.status === 409) {
-        const data = await response.json();
-        const conflictDetails = data.details || {};
-        setConflictDialog({ isOpen: true, conflictType: 'data_changed', details: conflictDetails, staleData: editableData });
-        return;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to delete reservation: ${response.status} ${errorText}`);
-      }
-
-      // Update local state - mark as deleted
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id
-          ? { ...r, status: 'deleted', isDeleted: true }
-          : r
-      ));
-
-      // Close the review modal
-      setShowReviewModal(false);
-      setSelectedReservation(null);
-      showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
-
-    } catch (err) {
-      logger.error('Error deleting reservation from modal:', err);
-      showError(err, { context: 'ReservationRequests.handleModalDelete', userMessage: 'Failed to delete reservation' });
-    } finally {
-      setIsModalDeleting(false);
-    }
-  };
-
-  // First click sets confirm state, second click deletes
+  // Card-level delete handlers (separate from modal delete via hook)
   const handleDeleteClick = (reservation) => {
     if (confirmDeleteId === reservation._id) {
-      // Already in confirm state, proceed with delete
       handleDelete(reservation);
     } else {
-      // First click - enter confirm state
       setConfirmDeleteId(reservation._id);
     }
   };
@@ -846,17 +640,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setDeletingId(reservation._id);
       setConfirmDeleteId(null);
 
-      logger.debug('🗑️ Starting reservation deletion:', {
-        reservationId: reservation._id,
-        eventTitle: reservation.eventTitle,
-        hasGraphData: !!reservation.graphData?.id,
-        calendarId: reservation.calendarId
-      });
-
-      // Only include graphToken if the event has been synced to Graph (has calendarId)
       const hasGraphData = reservation.calendarId || reservation.graphData?.id;
 
-      // Use unified events endpoint (reservations are stored in templeEvents__Events)
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/events/${reservation._id}`, {
         method: 'DELETE',
         headers: {
@@ -872,29 +657,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('❌ Delete request failed:', response.status, errorText);
         throw new Error(`Failed to delete reservation: ${response.status} ${errorText}`);
       }
 
-      const result = await response.json();
-      logger.debug('✅ Reservation deleted successfully:', result);
-
-      // Update local state - mark as deleted instead of removing (for deleted tab)
+      // Update local state
       setAllReservations(prev => prev.map(r =>
         r._id === reservation._id
           ? { ...r, status: 'deleted', isDeleted: true }
           : r
       ));
 
-      // Close modals
-      setSelectedDetailsReservation(null);
-      setShowReviewModal(false);
-      setSelectedReservation(null);
-      setActionNotes('');
       showSuccess(`Reservation "${reservation.eventTitle}" deleted successfully`);
 
     } catch (err) {
-      logger.error('❌ Error deleting reservation:', err);
+      logger.error('Error deleting reservation:', err);
       showError(err, { context: 'ReservationRequests.handleDelete', userMessage: 'Failed to delete reservation' });
     } finally {
       setDeletingId(null);
@@ -978,7 +754,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           </button>
         </div>
       </div>
-      
+
       {/* Reservations List */}
       <div className="rr-reservations-list">
         {paginatedReservations.map(reservation => {
@@ -1000,7 +776,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <div className="rr-card-actions">
                   <button
                     className="rr-btn rr-btn-primary"
-                    onClick={() => setSelectedDetailsReservation(reservation)}
+                    onClick={() => reviewModal.openModal(reservation)}
                   >
                     View Details
                   </button>
@@ -1109,198 +885,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         </div>
       )}
 
-      {/* Details Modal (lightweight info modal) */}
-      {selectedDetailsReservation && (
-        <div className="rr-details-modal-overlay" onClick={() => setSelectedDetailsReservation(null)}>
-          <div className="rr-details-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Reservation Details</h2>
-            <div className="rr-reservation-details">
-              <div className="rr-detail-row">
-                <label>Event:</label>
-                <div>{selectedDetailsReservation.eventTitle}</div>
-              </div>
-
-              <div className="rr-detail-row">
-                <label>Requested By:</label>
-                <div>
-                  {selectedDetailsReservation.roomReservationData?.requestedBy?.name || selectedDetailsReservation.requesterName}
-                  {(selectedDetailsReservation.roomReservationData?.requestedBy?.department || selectedDetailsReservation.department) && (
-                    <span className="rr-details-dept"> ({selectedDetailsReservation.roomReservationData?.requestedBy?.department || selectedDetailsReservation.department})</span>
-                  )}
-                  {(selectedDetailsReservation.roomReservationData?.contactPerson?.isOnBehalfOf || selectedDetailsReservation.isOnBehalfOf) &&
-                    (selectedDetailsReservation.roomReservationData?.contactPerson?.name || selectedDetailsReservation.contactName) && (
-                    <div className="rr-details-on-behalf">
-                      on behalf of {selectedDetailsReservation.roomReservationData?.contactPerson?.name || selectedDetailsReservation.contactName}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rr-detail-row">
-                <label>Date & Time:</label>
-                <div>
-                  {new Date(selectedDetailsReservation.startDateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                  {', '}
-                  {new Date(selectedDetailsReservation.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                  {' - '}
-                  {new Date(selectedDetailsReservation.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </div>
-              </div>
-
-              <div className="rr-detail-row">
-                <label>Rooms:</label>
-                <div>
-                  {selectedDetailsReservation.requestedRooms.map(roomId => {
-                    const roomDetails = getRoomDetails(roomId);
-                    return roomDetails.location
-                      ? `${roomDetails.name} (${roomDetails.location})`
-                      : roomDetails.name;
-                  }).join(', ')}
-                </div>
-              </div>
-
-              <div className="rr-detail-row">
-                <label>Status:</label>
-                <div>
-                  <span className={`status-badge status-${selectedDetailsReservation.status}`}>
-                    {selectedDetailsReservation.status.charAt(0).toUpperCase() + selectedDetailsReservation.status.slice(1)}
-                  </span>
-                </div>
-              </div>
-
-              {selectedDetailsReservation.eventDescription && (
-                <div className="rr-detail-row">
-                  <label>Description:</label>
-                  <div>{selectedDetailsReservation.eventDescription}</div>
-                </div>
-              )}
-
-              {selectedDetailsReservation.specialRequirements && (
-                <div className="rr-detail-row">
-                  <label>Special Requirements:</label>
-                  <div>{selectedDetailsReservation.specialRequirements}</div>
-                </div>
-              )}
-
-              {selectedDetailsReservation.rejectionReason && (
-                <div className="rr-detail-row">
-                  <label>Rejection Reason:</label>
-                  <div className="rr-details-rejection">{selectedDetailsReservation.rejectionReason}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="rr-modal-actions">
-              {/* Pending: Review + Delete + Close */}
-              {selectedDetailsReservation.status === 'pending' && (
-                <>
-                  <button
-                    className="rr-btn rr-review-btn"
-                    onClick={() => {
-                      const reservation = selectedDetailsReservation;
-                      setSelectedDetailsReservation(null);
-                      openReviewModal(reservation);
-                    }}
-                  >
-                    Review
-                  </button>
-                  <div className="confirm-button-group">
-                    <button
-                      className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
-                      onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                      disabled={deletingId === selectedDetailsReservation._id}
-                    >
-                      {deletingId === selectedDetailsReservation._id
-                        ? 'Deleting...'
-                        : confirmDeleteId === selectedDetailsReservation._id
-                          ? 'Confirm?'
-                          : 'Delete'}
-                    </button>
-                    {confirmDeleteId === selectedDetailsReservation._id && (
-                      <button
-                        className="cancel-confirm-x"
-                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* Published: Edit + Delete + Close */}
-              {selectedDetailsReservation.status === 'published' && (
-                <>
-                  <button
-                    className="rr-btn rr-review-btn"
-                    onClick={() => {
-                      const reservation = selectedDetailsReservation;
-                      setSelectedDetailsReservation(null);
-                      openReviewModal(reservation);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <div className="confirm-button-group">
-                    <button
-                      className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
-                      onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                      disabled={deletingId === selectedDetailsReservation._id}
-                    >
-                      {deletingId === selectedDetailsReservation._id
-                        ? 'Deleting...'
-                        : confirmDeleteId === selectedDetailsReservation._id
-                          ? 'Confirm?'
-                          : 'Delete'}
-                    </button>
-                    {confirmDeleteId === selectedDetailsReservation._id && (
-                      <button
-                        className="cancel-confirm-x"
-                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* Rejected: Delete + Close */}
-              {selectedDetailsReservation.status === 'rejected' && (
-                <div className="confirm-button-group">
-                  <button
-                    className={`rr-btn rr-btn-danger ${confirmDeleteId === selectedDetailsReservation._id ? 'confirming' : ''}`}
-                    onClick={() => handleDeleteClick(selectedDetailsReservation)}
-                    disabled={deletingId === selectedDetailsReservation._id}
-                  >
-                    {deletingId === selectedDetailsReservation._id
-                      ? 'Deleting...'
-                      : confirmDeleteId === selectedDetailsReservation._id
-                        ? 'Confirm?'
-                        : 'Delete'}
-                  </button>
-                  {confirmDeleteId === selectedDetailsReservation._id && (
-                    <button
-                      className="cancel-confirm-x"
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <button
-                className="rr-btn rr-close-btn"
-                onClick={() => setSelectedDetailsReservation(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Edit Request Review Modal */}
       {showEditRequestModal && selectedEditRequest && (
         <EditRequestComparison
@@ -1315,96 +899,100 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         />
       )}
 
-      {/* Review Modal (using ReviewModal component) - for regular reservations */}
-      {showReviewModal && selectedReservation && (
-        <ReviewModal
-          isOpen={showReviewModal}
-          title={`Review ${selectedReservation.eventTitle || 'Reservation Request'}`}
-          onClose={closeReviewModal}
-          onApprove={() => handleApproveClick(selectedReservation)}
-          onReject={() => handleRejectClick(selectedReservation)}
-          onDelete={() => handleModalDeleteClick(selectedReservation)}
-          isPending={selectedReservation?.status === 'pending'}
-          itemStatus={selectedReservation?.status}
-          eventVersion={eventVersion}
-          hasChanges={hasChanges}
-          isFormValid={isFormValid}
-          isSaving={isSaving}
-          showFormToggle={true}
-          useUnifiedForm={useUnifiedForm}
-          onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}
-          // Approval confirmation state
-          isApproving={isApproving}
-          isApproveConfirming={isApproveConfirming}
-          onCancelApprove={() => setIsApproveConfirming(false)}
-          // Rejection confirmation state
-          isRejecting={isRejecting}
-          isRejectConfirming={isRejectConfirming}
-          onCancelReject={() => {
-            setIsRejectConfirming(false);
-            setRejectionReason('');
-          }}
-          rejectionReason={rejectionReason}
-          onRejectionReasonChange={setRejectionReason}
-          // Delete confirmation state
-          isDeleting={isModalDeleting}
-          isDeleteConfirming={isModalDeleteConfirming}
-          onCancelDelete={() => setIsModalDeleteConfirming(false)}
-          hasSchedulingConflicts={hasSchedulingConflicts}
-        >
-          {useUnifiedForm ? (
-            <UnifiedEventForm
-              mode="reservation"
-              reservation={selectedReservation}
-              apiToken={apiToken}
-              hideActionBar={true}
-              onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
-              onReject={(notes) => handleReject(selectedReservation)}
-              onCancel={closeReviewModal}
-              onSave={handleSaveChanges}
-              onHasChangesChange={setHasChanges}
-              onFormValidChange={setIsFormValid}
-              onIsSavingChange={setIsSaving}
-              onSaveFunctionReady={handleSaveFunctionReady}
-              onLockedEventClick={handleLockedEventClick}
-            />
-          ) : (
-            <RoomReservationReview
-              reservation={selectedReservation}
-              apiToken={apiToken}
-              onApprove={(updatedData, notes) => handleApprove(selectedReservation)}
-              onReject={(notes) => handleReject(selectedReservation)}
-              onCancel={closeReviewModal}
-              onSave={handleSaveChanges}
-              onHasChangesChange={setHasChanges}
-              onFormValidChange={setIsFormValid}
-              onIsSavingChange={setIsSaving}
-              onSaveFunctionReady={handleSaveFunctionReady}
-              onLockedEventClick={handleLockedEventClick}
-              availableCalendars={availableCalendars}
-              defaultCalendar={defaultCalendar}
-              selectedTargetCalendar={selectedTargetCalendar}
-              onTargetCalendarChange={setSelectedTargetCalendar}
-              createCalendarEvent={createCalendarEvent}
-              onCreateCalendarEventChange={setCreateCalendarEvent}
-              onSchedulingConflictsChange={setHasSchedulingConflicts}
-            />
-          )}
-        </ReviewModal>
-      )}
+      {/* Review Modal — powered by useReviewModal hook (Calendar.jsx gold standard) */}
+      <ReviewModal
+        isOpen={reviewModal.isOpen}
+        title={`${reviewModal.currentItem?.status === 'pending' ? 'Review' : 'Edit'} ${reviewModal.editableData?.eventTitle || 'Reservation Request'}`}
+        onClose={reviewModal.closeModal}
+        onApprove={reviewModal.handleApprove}
+        onReject={reviewModal.handleReject}
+        onSave={reviewModal.currentItem?.status === 'pending' ? null : reviewModal.handleSave}
+        onDelete={reviewModal.handleDelete}
+        mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
+        isPending={reviewModal.currentItem?.status === 'pending'}
+        isFormValid={reviewModal.isFormValid}
+        isSaving={reviewModal.isSaving}
+        isDeleting={reviewModal.isDeleting}
+        isApproving={reviewModal.isApproving}
+        showActionButtons={true}
+        itemStatus={reviewModal.currentItem?.status}
+        eventVersion={reviewModal.eventVersion}
+        hasChanges={reviewModal.hasChanges}
+        // Confirmation states from hook
+        deleteButtonText={reviewModal.pendingDeleteConfirmation ? '⚠️ Confirm Delete?' : null}
+        isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
+        onCancelDelete={reviewModal.cancelDeleteConfirmation}
+        isApproveConfirming={reviewModal.pendingApproveConfirmation}
+        onCancelApprove={reviewModal.cancelApproveConfirmation}
+        isRejectConfirming={reviewModal.pendingRejectConfirmation}
+        onCancelReject={reviewModal.cancelRejectConfirmation}
+        isRejecting={reviewModal.isRejecting}
+        rejectionReason={reviewModal.rejectionReason}
+        onRejectionReasonChange={reviewModal.setRejectionReason}
+        isSaveConfirming={reviewModal.pendingSaveConfirmation}
+        onCancelSave={reviewModal.cancelSaveConfirmation}
+        // Existing edit request props (viewing pending edit requests)
+        existingEditRequest={existingEditRequest}
+        isViewingEditRequest={isViewingEditRequest}
+        loadingEditRequest={loadingEditRequest}
+        onViewEditRequest={handleViewEditRequest}
+        onViewOriginalEvent={handleViewOriginalEvent}
+        // Edit request approval/rejection (admin)
+        onApproveEditRequest={canApproveReservations ? handleApproveEditRequestInModal : null}
+        onRejectEditRequest={canApproveReservations ? handleRejectEditRequestInModal : null}
+        isApprovingEditRequest={isApprovingEditRequestInModal}
+        isRejectingEditRequest={isRejectingEditRequestInModal}
+        editRequestRejectionReason={modalEditRequestRejectionReason}
+        onEditRequestRejectionReasonChange={setModalEditRequestRejectionReason}
+        isEditRequestApproveConfirming={isEditRequestApproveConfirming}
+        isEditRequestRejectConfirming={isEditRequestRejectConfirming}
+        onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
+        onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
+        // Scheduling conflicts
+        hasSchedulingConflicts={hasSchedulingConflicts}
+        // Form toggle
+        showFormToggle={true}
+        useUnifiedForm={useUnifiedForm}
+        onFormToggle={() => setUseUnifiedForm(!useUnifiedForm)}
+      >
+        {reviewModal.currentItem && (
+          <RoomReservationReview
+            reservation={reviewModal.editableData}
+            prefetchedAvailability={reviewModal.prefetchedAvailability}
+            apiToken={apiToken}
+            graphToken={graphToken}
+            onDataChange={reviewModal.updateData}
+            onFormDataReady={reviewModal.setFormDataGetter}
+            onFormValidChange={reviewModal.setIsFormValid}
+            onLockedEventClick={handleLockedEventClick}
+            availableCalendars={availableCalendars}
+            defaultCalendar={defaultCalendar}
+            selectedTargetCalendar={selectedTargetCalendar}
+            onTargetCalendarChange={setSelectedTargetCalendar}
+            createCalendarEvent={createCalendarEvent}
+            onCreateCalendarEventChange={setCreateCalendarEvent}
+            onSchedulingConflictsChange={setHasSchedulingConflicts}
+          />
+        )}
+      </ReviewModal>
+
       {/* Conflict Dialog for 409 version conflicts */}
       <ConflictDialog
-        isOpen={conflictDialog.isOpen}
-        onClose={() => setConflictDialog(prev => ({ ...prev, isOpen: false }))}
-        onRefresh={async () => {
-          setConflictDialog(prev => ({ ...prev, isOpen: false }));
-          await loadAllReservations();
-          closeReviewModal();
+        isOpen={!!reviewModal.conflictInfo}
+        onClose={() => {
+          reviewModal.dismissConflict();
+          reviewModal.closeModal(true);
+          loadReservations();
         }}
-        conflictType={conflictDialog.conflictType}
-        eventTitle={selectedReservation?.eventTitle || 'Event'}
-        details={conflictDialog.details}
-        staleData={conflictDialog.staleData}
+        onRefresh={() => {
+          reviewModal.dismissConflict();
+          reviewModal.closeModal(true);
+          loadReservations();
+        }}
+        conflictType={reviewModal.conflictInfo?.conflictType}
+        eventTitle={reviewModal.conflictInfo?.eventTitle}
+        details={reviewModal.conflictInfo?.details}
+        staleData={reviewModal.conflictInfo?.staleData}
       />
     </div>
   );

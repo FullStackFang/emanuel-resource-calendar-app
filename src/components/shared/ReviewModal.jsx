@@ -121,6 +121,18 @@ export default function ReviewModal({
   isCancelingEditRequest = false,
   isCancelEditRequestConfirming = false,
   onCancelCancelEditRequest = null,
+  // Requester action buttons (opt-in, for MyReservations)
+  // Cancel Request (requester, pending events)
+  onCancelRequest = null,
+  isCancellingRequest = false,
+  cancelRequestReason = '',
+  onCancelRequestReasonChange = null,
+  // Resubmit (requester, rejected events)
+  onResubmit = null,
+  isResubmitting = false,
+  // Restore (owner, deleted/cancelled events)
+  onRestore = null,
+  isRestoring = false,
   // Pending edit props (for editing pending events directly)
   onSavePendingEdit = null,
   savingPendingEdit = false,
@@ -414,6 +426,92 @@ export default function ReviewModal({
                       {loadingEditRequest ? 'Checking...' : 'Request Edit'}
                     </button>
                   )}
+
+              {/* Cancel Request button — requester, pending events */}
+              {isRequesterOnly && itemStatus === 'pending' && onCancelRequest && !isEditRequestMode && !isViewingEditRequest && (
+                <div className="confirm-button-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {localConfirming === 'cancelRequest' && (
+                    <input
+                      type="text"
+                      placeholder="Cancellation reason (required)"
+                      value={cancelRequestReason}
+                      onChange={(e) => onCancelRequestReasonChange?.(e.target.value)}
+                      disabled={isCancellingRequest}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--color-error-300, #f87171)',
+                        fontSize: '0.875rem',
+                        minWidth: '200px'
+                      }}
+                      autoFocus
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className={`action-btn reject-btn ${localConfirming === 'cancelRequest' ? 'confirming' : ''}`}
+                    onClick={() => handleLocalConfirmClick('cancelRequest', onCancelRequest)}
+                    disabled={isCancellingRequest || (localConfirming === 'cancelRequest' && !cancelRequestReason?.trim())}
+                  >
+                    {isCancellingRequest ? 'Cancelling...' : (localConfirming === 'cancelRequest' ? 'Confirm Cancel?' : 'Cancel Request')}
+                  </button>
+                  {localConfirming === 'cancelRequest' && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x reject-cancel-x"
+                      onClick={() => setLocalConfirming(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Resubmit button — requester, rejected events */}
+              {isRequesterOnly && itemStatus === 'rejected' && onResubmit && !isEditRequestMode && !isViewingEditRequest && (
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn publish-btn ${localConfirming === 'resubmit' ? 'confirming' : ''}`}
+                    onClick={() => handleLocalConfirmClick('resubmit', onResubmit)}
+                    disabled={isResubmitting}
+                  >
+                    {isResubmitting ? 'Resubmitting...' : (localConfirming === 'resubmit' ? 'Confirm Resubmit?' : 'Resubmit')}
+                  </button>
+                  {localConfirming === 'resubmit' && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x publish-cancel-x"
+                      onClick={() => setLocalConfirming(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Restore button — owner, deleted/cancelled events */}
+              {isRequesterOnly && ['deleted', 'cancelled'].includes(itemStatus) && onRestore && !isEditRequestMode && !isViewingEditRequest && (
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn publish-btn ${localConfirming === 'restore' ? 'confirming' : ''}`}
+                    onClick={() => handleLocalConfirmClick('restore', onRestore)}
+                    disabled={isRestoring}
+                  >
+                    {isRestoring ? 'Restoring...' : (localConfirming === 'restore' ? 'Confirm Restore?' : 'Restore')}
+                  </button>
+                  {localConfirming === 'restore' && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x publish-cancel-x"
+                      onClick={() => setLocalConfirming(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Publish button - only in review mode for pending items (not for requesters) */}
               {!isRequesterOnly && mode === 'review' && isPending && onApprove && (

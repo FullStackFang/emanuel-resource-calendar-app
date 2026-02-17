@@ -5,36 +5,63 @@ import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
+import { useReviewModal } from '../hooks/useReviewModal';
 import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+import ReviewModal from './shared/ReviewModal';
+import RoomReservationReview from './RoomReservationReview';
+import ConflictDialog from './shared/ConflictDialog';
 import LoadingSpinner from './shared/LoadingSpinner';
-import CommunicationHistory from './CommunicationHistory';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
-  const { canSubmitReservation, canEditEvents, permissionsLoading } = usePermissions();
+  const { canSubmitReservation, canEditEvents, canApproveReservations, permissionsLoading } = usePermissions();
   const { showWarning, showSuccess, showError } = useNotification();
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('draft');
   const [page, setPage] = useState(1);
-  const [selectedReservation, setSelectedReservation] = useState(null);
-  const [cancelReason, setCancelReason] = useState('');
-  const [cancelling, setCancelling] = useState(false);
-  const [isCancelConfirming, setIsCancelConfirming] = useState(false);
-  const [deletingDraftId, setDeletingDraftId] = useState(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
-  const [restoringId, setRestoringId] = useState(null);
-  const [confirmRestoreId, setConfirmRestoreId] = useState(null);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
-
-  // Resubmit state (in-button confirmation pattern)
-  const [resubmittingId, setResubmittingId] = useState(null);
-  const [confirmResubmitId, setConfirmResubmitId] = useState(null);
 
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
-  
+
+  // --- useReviewModal hook (replaces manual modal state) ---
+  const reviewModal = useReviewModal({
+    apiToken,
+    onSuccess: () => { loadMyReservations(); },
+    onError: (error) => { showError(error, { context: 'MyReservations' }); }
+  });
+
+  // Local state for requester actions in ReviewModal
+  const [cancelRequestReason, setCancelRequestReason] = useState('');
+  const [isCancellingRequest, setIsCancellingRequest] = useState(false);
+  const [isResubmitting, setIsResubmitting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
+
+  // Local state for pending edit (owner editing pending events)
+  const [savingPendingEdit, setSavingPendingEdit] = useState(false);
+
+  // Local state for edit request mode (requester requesting edits on published events)
+  const [isEditRequestMode, setIsEditRequestMode] = useState(false);
+  const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
+  const [submittingEditRequest, setSubmittingEditRequest] = useState(false);
+
+  // Reset local state when modal closes
+  useEffect(() => {
+    if (!reviewModal.isOpen) {
+      setIsEditRequestMode(false);
+      setEditRequestChangeReason('');
+      setCancelRequestReason('');
+      setHasSchedulingConflicts(false);
+      setSavingPendingEdit(false);
+      setSubmittingEditRequest(false);
+    }
+  }, [reviewModal.isOpen]);
+
+  const isRequesterOnly = !canEditEvents && !canApproveReservations;
+
   const loadMyReservations = useCallback(async () => {
     try {
       setLoading(true);
@@ -137,195 +164,6 @@ export default function MyReservations({ apiToken }) {
     setActiveTab(newTab);
     setPage(1);
   };
-  
-  // Handle cancel click - two-click confirmation pattern with inline reason input
-  const handleCancelClick = (reservation) => {
-    if (isCancelConfirming) {
-      // Already in confirm state, check for reason and proceed
-      if (!cancelReason.trim()) {
-        showWarning('Please enter a cancellation reason');
-        return;
-      }
-      handleCancelRequest(reservation);
-    } else {
-      // First click - enter confirm state (shows reason input)
-      setIsCancelConfirming(true);
-    }
-  };
-
-  const handleCancelRequest = async (reservation) => {
-    try {
-      setCancelling(true);
-      setIsCancelConfirming(false);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/cancel`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ reason: cancelReason, _version: reservation._version || null })
-      });
-
-      if (!response.ok) throw new Error('Failed to cancel reservation');
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id
-          ? { ...r, status: 'cancelled', actionDate: new Date(), cancelReason: cancelReason }
-          : r
-      ));
-
-      setSelectedReservation(null);
-      setCancelReason('');
-      showSuccess(`"${reservation.eventTitle}" has been cancelled`);
-    } catch (err) {
-      logger.error('Error cancelling reservation:', err);
-      showError(err, { context: 'MyReservations.handleCancelRequest' });
-    } finally {
-      setCancelling(false);
-    }
-  };
-
-  // Handle resubmit - first click shows confirm, second click resubmits
-  const handleResubmitClick = (reservation) => {
-    if (confirmResubmitId === reservation._id) {
-      // Already in confirm state, proceed with resubmit
-      handleResubmit(reservation);
-    } else {
-      // First click - enter confirm state
-      setConfirmResubmitId(reservation._id);
-    }
-  };
-
-  const handleResubmit = async (reservation) => {
-    try {
-      setResubmittingId(reservation._id);
-      setConfirmResubmitId(null);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/resubmit`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ _version: reservation._version || null })
-      });
-
-      if (!response.ok) throw new Error('Failed to resubmit reservation');
-
-      // Update local state
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id ? { ...r, status: 'pending' } : r
-      ));
-      setSelectedReservation(null);
-      showSuccess(`"${reservation.eventTitle}" resubmitted for review`);
-    } catch (err) {
-      logger.error('Error resubmitting reservation:', err);
-      showError(err, { context: 'MyReservations.handleResubmit' });
-    } finally {
-      setResubmittingId(null);
-    }
-  };
-
-  // Handle continue editing a draft - dispatch event to open modal
-  const handleEditDraft = (draft) => {
-    // Dispatch custom event to open draft in modal (handled by App.jsx)
-    window.dispatchEvent(new CustomEvent('open-draft-modal', {
-      detail: { draft }
-    }));
-  };
-
-  // Handle delete draft - first click shows confirm, second click deletes
-  const handleDeleteClick = (draft) => {
-    if (confirmDeleteId === draft._id) {
-      // Already in confirm state, proceed with delete
-      handleDeleteDraft(draft);
-    } else {
-      // First click - enter confirm state
-      setConfirmDeleteId(draft._id);
-    }
-  };
-
-  const handleDeleteDraft = async (draft) => {
-    try {
-      setDeletingDraftId(draft._id);
-      setConfirmDeleteId(null);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draft._id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to delete draft');
-
-      // Update status to 'deleted' so counts update correctly (draft -1, deleted +1)
-      setAllReservations(prev => prev.map(r =>
-        r._id === draft._id ? { ...r, status: 'deleted' } : r
-      ));
-      setSelectedReservation(null);
-      showSuccess(`"${draft.eventTitle || 'Draft'}" moved to deleted`);
-    } catch (err) {
-      logger.error('Error deleting draft:', err);
-      showError(err, { context: 'MyReservations.handleDeleteDraft' });
-    } finally {
-      setDeletingDraftId(null);
-    }
-  };
-
-  // Handle restore - first click shows confirm, second click restores
-  const handleRestoreClick = (reservation) => {
-    if (confirmRestoreId === reservation._id) {
-      // Already in confirm state, proceed with restore
-      handleRestore(reservation);
-    } else {
-      // First click - enter confirm state
-      setConfirmRestoreId(reservation._id);
-    }
-  };
-
-  const handleRestore = async (reservation) => {
-    try {
-      setRestoringId(reservation._id);
-      setConfirmRestoreId(null);
-
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${reservation._id}/restore`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiToken}`
-        },
-        body: JSON.stringify({ _version: reservation._version || null })
-      });
-
-      if (response.status === 409) {
-        const data = await response.json();
-        if (data.error === 'SchedulingConflict') {
-          setRestoreConflicts({ ...data, eventTitle: reservation.eventTitle });
-          return;
-        }
-        throw new Error(data.message || 'Version conflict');
-      }
-
-      if (!response.ok) throw new Error('Failed to restore reservation');
-
-      const result = await response.json();
-
-      // Update local state with restored status
-      setAllReservations(prev => prev.map(r =>
-        r._id === reservation._id ? { ...r, status: result.status } : r
-      ));
-      setSelectedReservation(null);
-      showSuccess(`"${reservation.eventTitle}" restored to ${result.status}`);
-    } catch (err) {
-      logger.error('Error restoring reservation:', err);
-      showError(err, { context: 'MyReservations.handleRestore' });
-    } finally {
-      setRestoringId(null);
-    }
-  };
 
   // Calculate days until draft auto-deletes
   const getDaysUntilDelete = (draftCreatedAt) => {
@@ -336,8 +174,8 @@ export default function MyReservations({ apiToken }) {
     const daysRemaining = Math.ceil((deleteDate - now) / (24 * 60 * 60 * 1000));
     return Math.max(0, daysRemaining);
   };
-  
-  // Format date/time for modal display
+
+  // Format date/time for conflict modal display
   const formatDateTime = (date) => {
     return new Date(date).toLocaleString('en-US', {
       weekday: 'short',
@@ -348,36 +186,271 @@ export default function MyReservations({ apiToken }) {
     });
   };
 
-  // Get display status for UI
-  const getDisplayStatus = (reservation) => {
-    if (reservation.status === 'published') {
-      // Check if there's a pending edit request
-      if (reservation.pendingEditRequest?.status === 'pending') {
-        return 'Published Edit';
-      }
-      return 'Published';
-    }
-    // Capitalize first letter for display
-    return reservation.status.charAt(0).toUpperCase() + reservation.status.slice(1);
-  };
+  // --- Requester action handlers (local, not in hook) ---
 
-  const getStatusBadgeClass = (reservation) => {
-    const status = reservation.status;
-    if (status === 'published') {
-      // Check if there's a pending edit request
-      if (reservation.pendingEditRequest?.status === 'pending') {
-        return 'status-published-edit';
+  // Cancel Request (requester, pending events) — used by ReviewModal's onCancelRequest button
+  const handleCancelRequest = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    if (!item) return;
+    if (!cancelRequestReason.trim()) {
+      showWarning('Please enter a cancellation reason');
+      return;
+    }
+
+    setIsCancellingRequest(true);
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ reason: cancelRequestReason, _version: item._version || null })
+      });
+
+      if (!response.ok) throw new Error('Failed to cancel reservation');
+
+      showSuccess(`"${item.eventTitle}" has been cancelled`);
+      setCancelRequestReason('');
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error cancelling reservation:', err);
+      showError(err, { context: 'MyReservations.handleCancelRequest' });
+    } finally {
+      setIsCancellingRequest(false);
+    }
+  }, [reviewModal, cancelRequestReason, apiToken, loadMyReservations, showSuccess, showWarning, showError]);
+
+  // Resubmit (requester, rejected events) — used by ReviewModal's onResubmit button
+  const handleResubmit = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    if (!item) return;
+
+    setIsResubmitting(true);
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/resubmit`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ _version: item._version || null })
+      });
+
+      if (!response.ok) throw new Error('Failed to resubmit reservation');
+
+      showSuccess(`"${item.eventTitle}" resubmitted for review`);
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error resubmitting reservation:', err);
+      showError(err, { context: 'MyReservations.handleResubmit' });
+    } finally {
+      setIsResubmitting(false);
+    }
+  }, [reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+
+  // Restore (owner, deleted/cancelled events) — used by ReviewModal's onRestore button
+  const handleRestore = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    if (!item) return;
+
+    setIsRestoring(true);
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/restore`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ _version: item._version || null })
+      });
+
+      if (response.status === 409) {
+        const data = await response.json();
+        if (data.error === 'SchedulingConflict') {
+          setRestoreConflicts({ ...data, eventTitle: item.eventTitle });
+          return;
+        }
+        throw new Error(data.message || 'Version conflict');
       }
-      return 'status-published';
+
+      if (!response.ok) throw new Error('Failed to restore reservation');
+
+      const result = await response.json();
+      showSuccess(`"${item.eventTitle}" restored to ${result.status}`);
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error restoring reservation:', err);
+      showError(err, { context: 'MyReservations.handleRestore' });
+    } finally {
+      setIsRestoring(false);
     }
-    switch (status) {
-      case 'pending': return 'status-pending';
-      case 'rejected': return 'status-rejected';
-      case 'deleted': return 'status-deleted';
-      case 'draft': return 'status-draft';
-      default: return '';
+  }, [reviewModal, apiToken, loadMyReservations, showSuccess, showError]);
+
+  // Save Pending Edit (owner editing pending events) — used by ReviewModal's onSavePendingEdit button
+  const handleSavePendingEdit = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    const formData = reviewModal.editableData;
+    if (!item || !formData) return;
+
+    if (!formData.eventTitle?.trim()) {
+      showWarning('Event title is required');
+      return;
     }
-  };
+    if (!formData.startDate || !formData.endDate) {
+      showWarning('Start date and end date are required');
+      return;
+    }
+    if (!formData.startTime || !formData.endTime) {
+      showWarning('Start time and end time are required');
+      return;
+    }
+
+    setSavingPendingEdit(true);
+    try {
+      const payload = {
+        _version: reviewModal.eventVersion,
+        eventTitle: formData.eventTitle || '',
+        eventDescription: formData.eventDescription || '',
+        startDateTime: `${formData.startDate}T${formData.startTime}`,
+        endDateTime: `${formData.endDate}T${formData.endTime}`,
+        startDate: formData.startDate,
+        startTime: formData.startTime,
+        endDate: formData.endDate,
+        endTime: formData.endTime,
+        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        requestedRooms: formData.requestedRooms || formData.locations || [],
+        specialRequirements: formData.specialRequirements || '',
+        department: formData.department || '',
+        phone: formData.phone || '',
+        setupTime: formData.setupTime || null,
+        teardownTime: formData.teardownTime || null,
+        doorOpenTime: formData.doorOpenTime || null,
+        doorCloseTime: formData.doorCloseTime || null,
+        categories: formData.categories || [],
+        services: formData.services || {},
+        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+        isOffsite: formData.isOffsite || false,
+        offsiteName: formData.offsiteName || '',
+        offsiteAddress: formData.offsiteAddress || '',
+      };
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === 'SchedulingConflict') {
+          showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+          return;
+        }
+        throw new Error(errorData.error || 'Conflict detected');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save changes');
+      }
+
+      showSuccess('Reservation updated successfully');
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error saving pending edit:', err);
+      showError(err, { context: 'MyReservations.handleSavePendingEdit' });
+    } finally {
+      setSavingPendingEdit(false);
+    }
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+
+  // Edit request handlers (requester requesting edits on published events)
+  const handleRequestEdit = useCallback(() => {
+    setIsEditRequestMode(true);
+  }, []);
+
+  const handleCancelEditRequest = useCallback(() => {
+    setIsEditRequestMode(false);
+    setEditRequestChangeReason('');
+  }, []);
+
+  const handleSubmitEditRequest = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    const formData = reviewModal.editableData;
+    if (!item || !formData) return;
+
+    if (!formData.eventTitle?.trim()) {
+      showWarning('Event title is required');
+      return;
+    }
+
+    setSubmittingEditRequest(true);
+    try {
+      const payload = {
+        _version: reviewModal.eventVersion,
+        eventTitle: formData.eventTitle || '',
+        eventDescription: formData.eventDescription || '',
+        startDateTime: formData.startDate && formData.startTime
+          ? `${formData.startDate}T${formData.startTime}` : null,
+        endDateTime: formData.endDate && formData.endTime
+          ? `${formData.endDate}T${formData.endTime}` : null,
+        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        requestedRooms: formData.requestedRooms || formData.locations || [],
+        specialRequirements: formData.specialRequirements || '',
+        department: formData.department || '',
+        phone: formData.phone || '',
+        setupTime: formData.setupTime || null,
+        teardownTime: formData.teardownTime || null,
+        doorOpenTime: formData.doorOpenTime || null,
+        doorCloseTime: formData.doorCloseTime || null,
+        categories: formData.categories || [],
+        services: formData.services || {},
+        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+        isOffsite: formData.isOffsite || false,
+        offsiteName: formData.offsiteName || '',
+        offsiteAddress: formData.offsiteAddress || '',
+      };
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/events/${item._id}/request-edit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit edit request');
+      }
+
+      showSuccess('Edit request submitted');
+      setIsEditRequestMode(false);
+      setEditRequestChangeReason('');
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error submitting edit request:', err);
+      showError(err, { context: 'MyReservations.handleSubmitEditRequest' });
+    } finally {
+      setSubmittingEditRequest(false);
+    }
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {
@@ -399,6 +472,17 @@ export default function MyReservations({ apiToken }) {
   if (loading && allReservations.length === 0) {
     return <LoadingSpinner />;
   }
+
+  // Determine ReviewModal title
+  const getModalTitle = () => {
+    const item = reviewModal.currentItem;
+    if (!item) return 'Event Details';
+    const status = item.status;
+    const title = reviewModal.editableData?.eventTitle || item.eventTitle || 'Event';
+    if (reviewModal.isDraft) return `Edit Draft: ${title}`;
+    if (status === 'pending') return `${isRequesterOnly ? 'View' : 'Review'} Pending: ${title}`;
+    return `${isRequesterOnly ? 'View' : 'Edit'} ${title}`;
+  };
 
   return (
     <div className="my-reservations">
@@ -423,10 +507,10 @@ export default function MyReservations({ apiToken }) {
 
       {error && (
         <div className="error-message">
-          ❌ {error}
+          {error}
         </div>
       )}
-      
+
       {/* Tab Navigation */}
       <div className="tabs-container">
         <div className="tabs">
@@ -481,7 +565,7 @@ export default function MyReservations({ apiToken }) {
           </button>
         </div>
       </div>
-      
+
       {/* Reservations List */}
       <div className="mr-reservations-list">
         {paginatedReservations.map(reservation => {
@@ -505,7 +589,7 @@ export default function MyReservations({ apiToken }) {
                 <div className="mr-card-actions">
                   <button
                     className="mr-btn mr-btn-primary"
-                    onClick={() => setSelectedReservation(reservation)}
+                    onClick={() => reviewModal.openModal(reservation)}
                   >
                     View Details
                   </button>
@@ -578,7 +662,7 @@ export default function MyReservations({ apiToken }) {
                     ) : reservation.actionDate && reservation.status !== 'pending' ? (
                       <span>{new Date(reservation.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     ) : (
-                      <span className="mr-not-set">—</span>
+                      <span className="mr-not-set">&mdash;</span>
                     )}
                   </div>
                 </div>
@@ -618,7 +702,7 @@ export default function MyReservations({ apiToken }) {
           </div>
         )}
       </div>
-      
+
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="pagination">
@@ -637,300 +721,118 @@ export default function MyReservations({ apiToken }) {
           </button>
         </div>
       )}
-      
-      {/* Details/Cancel Modal */}
-      {selectedReservation && (
-        <div className="details-modal-overlay">
-          <div className="details-modal">
-            <h2>Reservation Details</h2>
-            
-            <div className="reservation-details">
-              <div className="detail-row">
-                <label>Event:</label>
-                <div>{selectedReservation.eventTitle}</div>
-              </div>
 
-              {selectedReservation.isOnBehalfOf && selectedReservation.contactName && (
-                <div className="detail-row">
-                  <label>Submitted for:</label>
-                  <div>
-                    {selectedReservation.contactName} ({selectedReservation.contactEmail})
-                    <div className="delegation-note">Updates will be sent to this contact</div>
-                  </div>
-                </div>
-              )}
-              
-              <div className="detail-row">
-                <label>Date & Time:</label>
-                <div>
-                  {formatDateTime(selectedReservation.startDateTime)} - {formatDateTime(selectedReservation.endDateTime)}
-                </div>
-              </div>
-              
-              <div className="detail-row">
-                <label>Rooms:</label>
-                <div>
-                  {selectedReservation.requestedRooms.map(roomId => {
-                    const roomDetails = getRoomDetails(roomId);
-                    return roomDetails.location ? 
-                      `${roomDetails.name} (${roomDetails.location})` : 
-                      roomDetails.name;
-                  }).join(', ')}
-                </div>
-              </div>
+      {/* ReviewModal — unified event form (replaces old details-modal) */}
+      <ReviewModal
+        isOpen={reviewModal.isOpen}
+        title={getModalTitle()}
+        onClose={reviewModal.closeModal}
+        // Admin/approver actions from hook
+        onApprove={!isRequesterOnly ? reviewModal.handleApprove : null}
+        onReject={!isRequesterOnly ? reviewModal.handleReject : null}
+        onSave={!isRequesterOnly && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
+        onDelete={!isRequesterOnly ? reviewModal.handleDelete : null}
+        // Mode and status
+        mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
+        isPending={reviewModal.currentItem?.status === 'pending'}
+        isFormValid={reviewModal.isFormValid}
+        isSaving={reviewModal.isSaving}
+        isDeleting={reviewModal.isDeleting}
+        isApproving={reviewModal.isApproving}
+        showActionButtons={true}
+        isRequesterOnly={isRequesterOnly}
+        itemStatus={reviewModal.currentItem?.status || null}
+        eventVersion={reviewModal.eventVersion}
+        hasChanges={isEditRequestMode ? reviewModal.hasChanges : reviewModal.hasChanges}
+        // Admin confirmation states from hook
+        deleteButtonText={reviewModal.pendingDeleteConfirmation ? '⚠️ Confirm Delete?' : null}
+        isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
+        onCancelDelete={reviewModal.cancelDeleteConfirmation}
+        isApproveConfirming={reviewModal.pendingApproveConfirmation}
+        onCancelApprove={reviewModal.cancelApproveConfirmation}
+        isRejectConfirming={reviewModal.pendingRejectConfirmation}
+        onCancelReject={reviewModal.cancelRejectConfirmation}
+        isRejecting={reviewModal.isRejecting}
+        rejectionReason={reviewModal.rejectionReason}
+        onRejectionReasonChange={reviewModal.setRejectionReason}
+        isSaveConfirming={reviewModal.pendingSaveConfirmation}
+        onCancelSave={reviewModal.cancelSaveConfirmation}
+        // Requester action buttons (Phase 2 props)
+        onCancelRequest={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleCancelRequest : null}
+        isCancellingRequest={isCancellingRequest}
+        cancelRequestReason={cancelRequestReason}
+        onCancelRequestReasonChange={setCancelRequestReason}
+        onResubmit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleResubmit : null}
+        isResubmitting={isResubmitting}
+        onRestore={isRequesterOnly && ['deleted', 'cancelled'].includes(reviewModal.currentItem?.status) ? handleRestore : null}
+        isRestoring={isRestoring}
+        // Owner pending edit (requester editing their own pending event)
+        onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
+        savingPendingEdit={savingPendingEdit}
+        // Edit request props (requester requesting edits on published events)
+        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && !reviewModal.currentItem?.pendingEditRequest?.status && !isEditRequestMode}
+        onRequestEdit={handleRequestEdit}
+        existingEditRequest={reviewModal.currentItem?.pendingEditRequest}
+        isEditRequestMode={isEditRequestMode}
+        editRequestChangeReason={editRequestChangeReason}
+        onEditRequestChangeReasonChange={setEditRequestChangeReason}
+        onSubmitEditRequest={handleSubmitEditRequest}
+        onCancelEditRequest={handleCancelEditRequest}
+        isSubmittingEditRequest={submittingEditRequest}
+        detectedChanges={reviewModal.hasChanges ? [{ field: 'changes' }] : []}
+        // Edit request submission via modal button
+        onSubmitEditRequestModal={isEditRequestMode ? handleSubmitEditRequest : null}
+        submittingEditRequestModal={submittingEditRequest}
+        // Draft props from hook
+        isDraft={reviewModal.isDraft}
+        onSaveDraft={reviewModal.isDraft ? reviewModal.handleSaveDraft : null}
+        savingDraft={reviewModal.savingDraft}
+        isDraftConfirming={reviewModal.pendingDraftConfirmation}
+        onCancelDraft={reviewModal.cancelDraftConfirmation}
+        canSaveDraft={reviewModal.canSaveDraft}
+        showDraftDialog={reviewModal.showDraftDialog}
+        onDraftDialogSave={reviewModal.handleDraftDialogSave}
+        onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
+        onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
+        onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
+        // Scheduling conflicts
+        hasSchedulingConflicts={hasSchedulingConflicts}
+      >
+        {reviewModal.currentItem && (
+          <RoomReservationReview
+            reservation={reviewModal.editableData}
+            prefetchedAvailability={reviewModal.prefetchedAvailability}
+            apiToken={apiToken}
+            onDataChange={reviewModal.updateData}
+            onFormDataReady={reviewModal.setFormDataGetter}
+            onFormValidChange={reviewModal.setIsFormValid}
+            readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending'}
+            editScope={reviewModal.editScope}
+            onSchedulingConflictsChange={setHasSchedulingConflicts}
+          />
+        )}
+      </ReviewModal>
 
-              <div className="detail-row">
-                <label>Status:</label>
-                <div>
-                  <span className={`status-badge ${getStatusBadgeClass(selectedReservation)}`}>
-                    {getDisplayStatus(selectedReservation)}
-                  </span>
-                </div>
-              </div>
-              
-              
-              {selectedReservation.eventDescription && (
-                <div className="detail-row">
-                  <label>Description:</label>
-                  <div>{selectedReservation.eventDescription}</div>
-                </div>
-              )}
+      {/* Conflict Dialog for version conflicts */}
+      <ConflictDialog
+        isOpen={!!reviewModal.conflictInfo}
+        onClose={() => {
+          reviewModal.dismissConflict();
+          reviewModal.closeModal(true);
+          loadMyReservations();
+        }}
+        onRefresh={() => {
+          reviewModal.dismissConflict();
+          reviewModal.closeModal(true);
+          loadMyReservations();
+        }}
+        conflictType={reviewModal.conflictInfo?.conflictType}
+        eventTitle={reviewModal.conflictInfo?.eventTitle}
+        details={reviewModal.conflictInfo?.details}
+        staleData={reviewModal.conflictInfo?.staleData}
+      />
 
-              {selectedReservation.specialRequirements && (
-                <div className="detail-row">
-                  <label>Special Requirements:</label>
-                  <div>{selectedReservation.specialRequirements}</div>
-                </div>
-              )}
-
-              {selectedReservation.rejectionReason && (
-                <div className="detail-row">
-                  <label>Rejection Reason:</label>
-                  <div className="rejection-text">{selectedReservation.rejectionReason}</div>
-                </div>
-              )}
-
-              {selectedReservation.cancelReason && (
-                <div className="detail-row">
-                  <label>Cancellation Reason:</label>
-                  <div className="cancel-text">{selectedReservation.cancelReason}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Communication History */}
-            {selectedReservation.communicationHistory && selectedReservation.communicationHistory.length > 0 && (
-              <CommunicationHistory reservation={selectedReservation} />
-            )}
-
-            <div className="modal-actions">
-              {/* Draft actions: Edit + Delete */}
-              {selectedReservation.status === 'draft' && (
-                <>
-                  <button
-                    className="edit-request-btn"
-                    onClick={() => {
-                      setSelectedReservation(null);
-                      handleEditDraft(selectedReservation);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <div className="confirm-button-group">
-                    <button
-                      className={`mr-btn mr-btn-danger ${confirmDeleteId === selectedReservation._id ? 'confirming' : ''}`}
-                      onClick={() => handleDeleteClick(selectedReservation)}
-                      disabled={deletingDraftId === selectedReservation._id}
-                    >
-                      {deletingDraftId === selectedReservation._id
-                        ? 'Deleting...'
-                        : confirmDeleteId === selectedReservation._id
-                          ? 'Confirm?'
-                          : 'Delete'}
-                    </button>
-                    {confirmDeleteId === selectedReservation._id && (
-                      <button
-                        type="button"
-                        className="cancel-confirm-x"
-                        onClick={() => setConfirmDeleteId(null)}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-              {/* Pending actions: Cancel Request + Edit */}
-              {selectedReservation.status === 'pending' && (
-                <>
-                  <div className="cancel-confirm-group">
-                    {isCancelConfirming && (
-                      <input
-                        type="text"
-                        className="cancel-reason-input"
-                        placeholder="Cancellation reason (required)"
-                        value={cancelReason}
-                        onChange={(e) => setCancelReason(e.target.value)}
-                        disabled={cancelling}
-                        autoFocus
-                      />
-                    )}
-                    <button
-                      className={`confirm-cancel-btn ${isCancelConfirming ? 'confirming' : ''}`}
-                      onClick={() => handleCancelClick(selectedReservation)}
-                      disabled={cancelling || (isCancelConfirming && !cancelReason.trim())}
-                    >
-                      {cancelling ? 'Cancelling...' : (isCancelConfirming ? 'Confirm Cancel?' : 'Cancel Request')}
-                    </button>
-                    {isCancelConfirming && (
-                      <button
-                        type="button"
-                        className="cancel-confirm-x"
-                        onClick={() => {
-                          setIsCancelConfirming(false);
-                          setCancelReason('');
-                        }}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    className="edit-request-btn"
-                    onClick={() => {
-                      const reservation = selectedReservation;
-                      setSelectedReservation(null);
-                      window.dispatchEvent(new CustomEvent('open-edit-pending-modal', {
-                        detail: { event: reservation }
-                      }));
-                    }}
-                  >
-                    Edit
-                  </button>
-                </>
-              )}
-              {selectedReservation.status === 'published' && canEditEvents && (
-                <button
-                  className="edit-request-btn"
-                  onClick={() => {
-                    const reservation = selectedReservation;
-                    setSelectedReservation(null);
-                    window.dispatchEvent(new CustomEvent('open-edit-published-modal', {
-                      detail: { event: reservation }
-                    }));
-                  }}
-                >
-                  Edit
-                </button>
-              )}
-              {selectedReservation.status === 'published' && !canEditEvents && !selectedReservation.pendingEditRequest?.status && (
-                <button
-                  className="edit-request-btn"
-                  onClick={() => {
-                    const reservation = selectedReservation;
-                    setSelectedReservation(null);
-                    window.dispatchEvent(new CustomEvent('open-edit-request-modal', {
-                      detail: { event: reservation }
-                    }));
-                  }}
-                >
-                  Request Edit
-                </button>
-              )}
-              {selectedReservation.status === 'published' && selectedReservation.pendingEditRequest?.status === 'pending' && (
-                <div className="pending-edit-notice">
-                  Edit request pending approval
-                </div>
-              )}
-              {selectedReservation.status === 'rejected' && selectedReservation.resubmissionAllowed !== false && (
-                <div className="confirm-button-group">
-                  <button
-                    className={`resubmit-btn ${confirmResubmitId === selectedReservation._id ? 'confirming' : ''}`}
-                    onClick={() => handleResubmitClick(selectedReservation)}
-                    disabled={resubmittingId === selectedReservation._id}
-                  >
-                    {resubmittingId === selectedReservation._id
-                      ? 'Resubmitting...'
-                      : confirmResubmitId === selectedReservation._id
-                        ? 'Confirm?'
-                        : 'Resubmit'}
-                  </button>
-                  {confirmResubmitId === selectedReservation._id && (
-                    <button
-                      type="button"
-                      className="cancel-confirm-x resubmit-cancel-x"
-                      onClick={() => setConfirmResubmitId(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-              {selectedReservation.status === 'cancelled' && (
-                <div className="confirm-button-group">
-                  <button
-                    className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirming' : ''}`}
-                    onClick={() => handleRestoreClick(selectedReservation)}
-                    disabled={restoringId === selectedReservation._id}
-                  >
-                    {restoringId === selectedReservation._id
-                      ? 'Restoring...'
-                      : confirmRestoreId === selectedReservation._id
-                        ? 'Confirm?'
-                        : 'Restore'}
-                  </button>
-                  {confirmRestoreId === selectedReservation._id && (
-                    <button
-                      type="button"
-                      className="cancel-confirm-x restore-cancel-x"
-                      onClick={() => setConfirmRestoreId(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-              {selectedReservation.status === 'deleted' && (
-                <div className="confirm-button-group">
-                  <button
-                    className={`restore-btn ${confirmRestoreId === selectedReservation._id ? 'confirming' : ''}`}
-                    onClick={() => handleRestoreClick(selectedReservation)}
-                    disabled={restoringId === selectedReservation._id}
-                  >
-                    {restoringId === selectedReservation._id
-                      ? 'Restoring...'
-                      : confirmRestoreId === selectedReservation._id
-                        ? 'Confirm?'
-                        : 'Restore'}
-                  </button>
-                  {confirmRestoreId === selectedReservation._id && (
-                    <button
-                      type="button"
-                      className="cancel-confirm-x restore-cancel-x"
-                      onClick={() => setConfirmRestoreId(null)}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-              <button
-                className="close-btn"
-                onClick={() => {
-                  setSelectedReservation(null);
-                  setCancelReason('');
-                  setIsCancelConfirming(false);
-                }}
-                disabled={cancelling}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Scheduling Conflict Modal */}
+      {/* Scheduling Conflict Modal (for restore conflicts) */}
       {restoreConflicts && (
         <div className="mr-modal-overlay" onClick={() => setRestoreConflicts(null)}>
           <div className="mr-scheduling-conflict-modal" onClick={e => e.stopPropagation()}>
