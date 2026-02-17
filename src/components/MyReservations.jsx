@@ -48,6 +48,108 @@ export default function MyReservations({ apiToken }) {
   const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
   const [submittingEditRequest, setSubmittingEditRequest] = useState(false);
 
+  // Local state for viewing existing edit requests on published events
+  const [existingEditRequest, setExistingEditRequest] = useState(null);
+  const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
+  const [originalEventData, setOriginalEventData] = useState(null);
+  const [loadingEditRequest, setLoadingEditRequest] = useState(false);
+
+  // Helper to get event field with calendarData fallback
+  const getEventField = (event, field, defaultValue = undefined) => {
+    if (!event) return defaultValue;
+    if (event.calendarData?.[field] !== undefined) return event.calendarData[field];
+    if (event[field] !== undefined) return event[field];
+    return defaultValue;
+  };
+
+  // Extract and transform pendingEditRequest from an event
+  const fetchExistingEditRequest = useCallback((event) => {
+    if (!event) return null;
+
+    setLoadingEditRequest(true);
+    try {
+      if (event.pendingEditRequest && event.pendingEditRequest.status === 'pending') {
+        const pendingReq = event.pendingEditRequest;
+        return {
+          _id: event._id,
+          eventId: event.eventId,
+          editRequestId: pendingReq.id,
+          status: pendingReq.status,
+          requestedBy: pendingReq.requestedBy,
+          changeReason: pendingReq.changeReason,
+          proposedChanges: pendingReq.proposedChanges,
+          originalValues: pendingReq.originalValues,
+          reviewedBy: pendingReq.reviewedBy,
+          reviewedAt: pendingReq.reviewedAt,
+          reviewNotes: pendingReq.reviewNotes,
+          eventTitle: pendingReq.proposedChanges?.eventTitle || event.eventTitle,
+          eventDescription: pendingReq.proposedChanges?.eventDescription || event.eventDescription,
+          startDateTime: pendingReq.proposedChanges?.startDateTime || event.startDateTime,
+          endDateTime: pendingReq.proposedChanges?.endDateTime || event.endDateTime,
+          startDate: pendingReq.proposedChanges?.startDateTime?.split('T')[0] || event.startDate,
+          startTime: pendingReq.proposedChanges?.startDateTime?.split('T')[1]?.substring(0, 5) || event.startTime,
+          endDate: pendingReq.proposedChanges?.endDateTime?.split('T')[0] || event.endDate,
+          endTime: pendingReq.proposedChanges?.endDateTime?.split('T')[1]?.substring(0, 5) || event.endTime,
+          attendeeCount: pendingReq.proposedChanges?.attendeeCount ?? getEventField(event, 'attendeeCount'),
+          locations: pendingReq.proposedChanges?.locations || getEventField(event, 'locations', []),
+          locationDisplayNames: pendingReq.proposedChanges?.locationDisplayNames || getEventField(event, 'locationDisplayNames', ''),
+          requestedRooms: pendingReq.proposedChanges?.requestedRooms || getEventField(event, 'requestedRooms', []),
+          categories: pendingReq.proposedChanges?.categories || getEventField(event, 'categories', []),
+          services: pendingReq.proposedChanges?.services || getEventField(event, 'services', {}),
+          setupTimeMinutes: pendingReq.proposedChanges?.setupTimeMinutes ?? getEventField(event, 'setupTimeMinutes'),
+          teardownTimeMinutes: pendingReq.proposedChanges?.teardownTimeMinutes ?? getEventField(event, 'teardownTimeMinutes'),
+          setupTime: pendingReq.proposedChanges?.setupTime || getEventField(event, 'setupTime', ''),
+          teardownTime: pendingReq.proposedChanges?.teardownTime || getEventField(event, 'teardownTime', ''),
+          doorOpenTime: pendingReq.proposedChanges?.doorOpenTime || getEventField(event, 'doorOpenTime', ''),
+          doorCloseTime: pendingReq.proposedChanges?.doorCloseTime || getEventField(event, 'doorCloseTime', ''),
+          setupNotes: pendingReq.proposedChanges?.setupNotes ?? getEventField(event, 'setupNotes'),
+          doorNotes: pendingReq.proposedChanges?.doorNotes ?? getEventField(event, 'doorNotes'),
+          eventNotes: pendingReq.proposedChanges?.eventNotes ?? getEventField(event, 'eventNotes'),
+          specialRequirements: pendingReq.proposedChanges?.specialRequirements ?? getEventField(event, 'specialRequirements'),
+          isOffsite: pendingReq.proposedChanges?.isOffsite ?? getEventField(event, 'isOffsite', false),
+          offsiteName: pendingReq.proposedChanges?.offsiteName || getEventField(event, 'offsiteName', ''),
+          offsiteAddress: pendingReq.proposedChanges?.offsiteAddress || getEventField(event, 'offsiteAddress', ''),
+          createdAt: pendingReq.requestedBy?.requestedAt
+        };
+      }
+      return null;
+    } finally {
+      setLoadingEditRequest(false);
+    }
+  }, []);
+
+  // Check for existing edit requests when ReviewModal opens with a published event
+  useEffect(() => {
+    if (reviewModal.isOpen && reviewModal.currentItem?.status === 'published') {
+      const editRequest = fetchExistingEditRequest(reviewModal.currentItem);
+      setExistingEditRequest(editRequest);
+    } else if (!reviewModal.isOpen) {
+      setExistingEditRequest(null);
+      setIsViewingEditRequest(false);
+      setOriginalEventData(null);
+    }
+  }, [reviewModal.isOpen, reviewModal.currentItem, fetchExistingEditRequest]);
+
+  // View the edit request data in the form
+  const handleViewEditRequest = useCallback(() => {
+    if (existingEditRequest) {
+      const currentData = reviewModal.editableData;
+      if (currentData) {
+        setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+      }
+      reviewModal.updateData(existingEditRequest);
+      setIsViewingEditRequest(true);
+    }
+  }, [existingEditRequest, reviewModal]);
+
+  // Toggle back to the original published event
+  const handleViewOriginalEvent = useCallback(() => {
+    if (originalEventData) {
+      reviewModal.updateData(originalEventData);
+      setIsViewingEditRequest(false);
+    }
+  }, [originalEventData, reviewModal]);
+
   // Reset local state when modal closes
   useEffect(() => {
     if (!reviewModal.isOpen) {
@@ -769,10 +871,15 @@ export default function MyReservations({ apiToken }) {
         // Owner pending edit (requester editing their own pending event)
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
         savingPendingEdit={savingPendingEdit}
+        // Existing edit request props (viewing pending edit requests)
+        existingEditRequest={existingEditRequest}
+        isViewingEditRequest={isViewingEditRequest}
+        loadingEditRequest={loadingEditRequest}
+        onViewEditRequest={handleViewEditRequest}
+        onViewOriginalEvent={handleViewOriginalEvent}
         // Edit request props (requester requesting edits on published events)
-        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && !reviewModal.currentItem?.pendingEditRequest?.status && !isEditRequestMode}
+        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && !reviewModal.currentItem?.pendingEditRequest?.status && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}
-        existingEditRequest={reviewModal.currentItem?.pendingEditRequest}
         isEditRequestMode={isEditRequestMode}
         editRequestChangeReason={editRequestChangeReason}
         onEditRequestChangeReasonChange={setEditRequestChangeReason}

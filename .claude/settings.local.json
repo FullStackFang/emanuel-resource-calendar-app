@@ -63,7 +63,8 @@
       "Bash(pip3 install:*)",
       "Bash(npx playwright:*)",
       "Bash(npm root:*)",
-      "Bash(sudo apt-get install:*)"
+      "Bash(sudo apt-get install:*)",
+      "Bash(npx vite build:*)"
     ],
     "deny": []
   }
