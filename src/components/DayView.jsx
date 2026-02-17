@@ -342,8 +342,8 @@ const DayView = memo(({
                       const isPending = event.status === 'pending';
                       // Check if event is a draft
                       const isDraft = event.status === 'draft';
-                      // Check for pending edit request
-                      const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
+                      // Check for pending edit request (role-filtered by Calendar.jsx)
+                      const hasPendingEditRequest = !!event.showPendingEditBadge;
                       const bgAlpha = isDraft ? 0.1 : isPending ? 0.15 : (isShowingRegistrationTime ? 0.15 : 0.2);
 
                       const transparentColor = hasPendingEditRequest

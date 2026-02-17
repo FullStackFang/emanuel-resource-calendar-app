@@ -2952,6 +2952,11 @@ import ConflictDialog from './shared/ConflictDialog';
         const aEndTime = new Date(a.end.dateTime);
         const bEndTime = new Date(b.end.dateTime);
         return aEndTime - bEndTime;
+      }).map(event => {
+        // Add showPendingEditBadge flag: only visible to owner, admins, and approvers
+        if (event.pendingEditRequest?.status !== 'pending') return event;
+        const showBadge = isEventOwner(event) || canApproveReservations || effectivePermissions.isAdmin;
+        return showBadge ? { ...event, showPendingEditBadge: true } : event;
       });
 
       // Log filter summary
@@ -2980,7 +2985,9 @@ import ConflictDialog from './shared/ConflictDialog';
       simulatedRole,
       isPendingEvent,
       isDraftEvent,
-      isEventOwner
+      isEventOwner,
+      canApproveReservations,
+      effectivePermissions.isAdmin
     ]);
 
     /**

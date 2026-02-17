@@ -331,8 +331,8 @@ const WeekView = memo(({
                         const isPending = event.status === 'pending';
                         // Check if event is a draft
                         const isDraft = event.status === 'draft';
-                        // Check for pending edit request
-                        const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
+                        // Check for pending edit request (role-filtered by Calendar.jsx)
+                        const hasPendingEditRequest = !!event.showPendingEditBadge;
                         const bgAlpha = isDraft ? 0.08 : isPending ? 0.12 : (isShowingRegistrationTime ? 0.1 : 0.15);
                         const transparentColor = hasPendingEditRequest
                           ? 'rgba(139, 92, 246, 0.12)' // Purple tint for pending edits

@@ -4337,9 +4337,11 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
   try {
     // Simple query using top-level fields only (no complex $or conditions)
     // Filter out deleted events and non-displayable statuses
+    // Use case-insensitive regex for calendarOwner as a safety net for mixed-case stored values
+    const escapedOwner = calendarOwner.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const query = {
       isDeleted: { $ne: true },
-      calendarOwner: calendarOwner.toLowerCase()
+      calendarOwner: { $regex: new RegExp(`^${escapedOwner}$`, 'i') }
     };
 
     // Role-aware status filtering for pending events
@@ -4393,9 +4395,14 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     }
 
     // Date range filter using calendarData.startDateTime/endDateTime
+    // calendarData dates are stored as local-time strings (e.g., "2026-02-21T15:30"),
+    // so we must compare with local-time strings, NOT UTC (toISOString shifts times)
     if (startDate && endDate) {
-      query['calendarData.startDateTime'] = { $lt: endDate.toISOString() };
-      query['calendarData.endDateTime'] = { $gt: startDate.toISOString() };
+      const pad = (n) => String(n).padStart(2, '0');
+      const toLocalISO = (d) =>
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      query['calendarData.startDateTime'] = { $lt: toLocalISO(endDate) };
+      query['calendarData.endDateTime'] = { $gt: toLocalISO(startDate) };
     }
 
     logger.debug('Calendar events query:', JSON.stringify(query));
@@ -5640,14 +5647,21 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
         status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] }
       };
 
-      const [all, pending, published, rejected] = await Promise.all([
+      const [all, pending, publishedTotal, rejected] = await Promise.all([
         unifiedEventsCollection.countDocuments(baseQuery),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
         unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' })
       ]);
 
-      res.json({ all, pending, published, rejected });
+      const published_edit = await unifiedEventsCollection.countDocuments({
+        ...baseQuery,
+        status: 'published',
+        'pendingEditRequest.status': 'pending'
+      });
+      const published = publishedTotal - published_edit;
+
+      res.json({ all, pending, published, published_edit, rejected });
 
     } else if (view === 'admin-browse') {
       const [total, pending, publishedCount, rejected, deleted, draft] = await Promise.all([
@@ -11340,8 +11354,8 @@ app.get('/api/config', (req, res) => {
   res.status(200).json({
     calendarMode: mode,
     defaultDisplayCalendar: mode === 'production'
-      ? 'TempleEvents@emanuelnyc.org'
-      : 'TempleEventsSandbox@emanuelnyc.org',
+      ? 'templeevents@emanuelnyc.org'
+      : 'templeeventssandbox@emanuelnyc.org',
     roomReservationCalendar: mode === 'production'
       ? CALENDAR_CONFIG.PRODUCTION_CALENDAR
       : CALENDAR_CONFIG.SANDBOX_CALENDAR
@@ -16936,21 +16950,21 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           // targetCalendar could be an email or calendar ID
           // If it looks like an email, use it as the owner
           if (targetCalendar.includes('@')) {
-            selectedCalendarOwner = targetCalendar;
+            selectedCalendarOwner = targetCalendar.toLowerCase();
             selectedCalendarId = null; // Use default calendar for this user
           } else {
             // It's a calendar ID - we need the owner email too
-            selectedCalendarOwner = event.calendarOwner || 'templeeventssandbox@emanuelnyc.org';
+            selectedCalendarOwner = (event.calendarOwner || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
             selectedCalendarId = targetCalendar;
           }
         } else if (event.calendarOwner) {
           // Use the event's calendar owner
-          selectedCalendarOwner = event.calendarOwner;
+          selectedCalendarOwner = event.calendarOwner.toLowerCase();
           selectedCalendarId = event.calendarId || null;
         } else {
           // Get default from database
           const settings = await systemSettingsCollection.findOne({ _id: 'calendar-settings' });
-          selectedCalendarOwner = settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org';
+          selectedCalendarOwner = (settings?.defaultCalendar || 'templeeventssandbox@emanuelnyc.org').toLowerCase();
           selectedCalendarId = null;
         }
 

@@ -298,6 +298,9 @@ export function transformEventToFlatStructure(event) {
     // Optimistic concurrency control
     _version: event._version || null,
 
+    // Edit request data (for approval queue filtering)
+    pendingEditRequest: event.pendingEditRequest || null,
+
     // Flags
     _isPreProcessed: true // Flag to tell FormBase that data is pre-processed
   };

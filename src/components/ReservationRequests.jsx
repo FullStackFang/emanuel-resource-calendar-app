@@ -191,7 +191,16 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       return allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
     }
     if (activeTab === 'published') {
-      return allReservations.filter(r => r.status === 'published');
+      return allReservations.filter(r =>
+        r.status === 'published' &&
+        (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
+      );
+    }
+    if (activeTab === 'published_edit') {
+      return allReservations.filter(r =>
+        r.status === 'published' &&
+        r.pendingEditRequest?.status === 'pending'
+      );
     }
     if (activeTab === 'rejected') {
       return allReservations.filter(r => r.status === 'rejected');
@@ -203,7 +212,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const statusCounts = useMemo(() => ({
     all: allReservations.length,
     pending: allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
-    published: allReservations.filter(r => r.status === 'published').length,
+    published: allReservations.filter(r =>
+      r.status === 'published' &&
+      (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
+    ).length,
+    published_edit: allReservations.filter(r =>
+      r.status === 'published' &&
+      r.pendingEditRequest?.status === 'pending'
+    ).length,
     rejected: allReservations.filter(r => r.status === 'rejected').length,
   }), [allReservations]);
 
@@ -945,6 +961,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           >
             Published
             <span className="count">({statusCounts.published})</span>
+          </button>
+          <button
+            className={`event-type-tab published-edit-tab ${activeTab === 'published_edit' ? 'active' : ''}`}
+            onClick={() => handleTabChange('published_edit')}
+          >
+            Published Edit
+            <span className="count">({statusCounts.published_edit})</span>
           </button>
           <button
             className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}

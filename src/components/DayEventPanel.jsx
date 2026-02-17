@@ -150,7 +150,7 @@ const DayEventPanel = memo(({
               return sortedEvents.map((event) => {
                 const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents);
                 const isPending = event.status === 'pending';
-                const hasPendingEditRequest = event.pendingEditRequest?.status === 'pending';
+                const hasPendingEditRequest = !!event.showPendingEditBadge;
                 // Get primary category for color
                 const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
                 const primaryCategory = eventCategories[0] || 'Uncategorized';
@@ -285,8 +285,8 @@ const DayEventPanel = memo(({
                   )}
 
                   {/* Request Edit button for published events - visible to requesters and above */}
-                  {/* Hide if there's already a pending edit request */}
-                  {event.status === 'published' && canSubmitReservation && !canEditEvents && onRequestEdit && !hasPendingEditRequest && (
+                  {/* Hide if there's already a pending edit request (use raw data, not role-filtered badge) */}
+                  {event.status === 'published' && canSubmitReservation && !canEditEvents && onRequestEdit && event.pendingEditRequest?.status !== 'pending' && (
                     <button
                       className="request-edit-btn"
                       onClick={(e) => {
