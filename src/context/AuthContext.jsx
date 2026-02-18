@@ -17,6 +17,7 @@ const AuthContext = createContext(null);
  */
 export function AuthProvider({ children }) {
   const [apiToken, setApiTokenState] = useState(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Use ref for synchronous access (needed for error handlers)
   const tokenRef = useRef(null);
@@ -25,6 +26,10 @@ export function AuthProvider({ children }) {
   const setApiToken = useCallback((token) => {
     tokenRef.current = token;
     setApiTokenState(token);
+    // Clear session expired flag when a fresh token is set
+    if (token) {
+      setSessionExpired(false);
+    }
   }, []);
 
   // Synchronous getter for use in callbacks/error handlers
@@ -35,7 +40,9 @@ export function AuthProvider({ children }) {
   const value = {
     apiToken,
     setApiToken,
-    getApiToken
+    getApiToken,
+    sessionExpired,
+    setSessionExpired
   };
 
   return (

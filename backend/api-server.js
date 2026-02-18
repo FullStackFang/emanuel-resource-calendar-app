@@ -1951,7 +1951,10 @@ const verifyToken = async (req, res, next) => {
     }, (err, decoded) => {
       if (err) {
         logger.error('Token verification error:', err);
-        return res.status(401).json({ error: 'Invalid token' });
+        if (err.name === 'TokenExpiredError') {
+          return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+        }
+        return res.status(401).json({ error: 'Invalid token', code: 'TOKEN_INVALID' });
       }
       
       logger.log('Token decoded successfully');

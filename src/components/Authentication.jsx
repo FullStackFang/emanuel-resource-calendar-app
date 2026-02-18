@@ -4,11 +4,13 @@ import { Link } from 'react-router-dom';
 import { useMsal } from '@azure/msal-react';
 import { loginRequest } from '../config/authConfig';
 import { useRoleSimulationSafe, ROLE_TEMPLATES } from '../context/RoleSimulationContext';
+import { useSessionTimer } from '../hooks/useSessionTimer';
 
 function Authentication({ onSignIn, onSignOut }) {
   const { instance, accounts } = useMsal();
   // Use safe version - returns defaults when outside RoleSimulationProvider
   const { isActualAdmin, isSimulating, simulatedRoleName, startSimulation, endSimulation } = useRoleSimulationSafe();
+  const session = useSessionTimer();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -125,6 +127,11 @@ function Authentication({ onSignIn, onSignOut }) {
             </div>
           )}
 
+          {session && (
+            <span className={`session-chip session-${session.status}`} title="Time until token refresh">
+              {session.minutesRemaining}m
+            </span>
+          )}
           <Link to="/my-settings" className="my-profile-link">
             My Profile
           </Link>

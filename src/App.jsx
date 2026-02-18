@@ -10,6 +10,7 @@ import ReviewModal from './components/shared/ReviewModal';
 import NewReservationModal from './components/NewReservationModal';
 import LoadingSpinner from './components/shared/LoadingSpinner';
 import ErrorReportModal from './components/shared/ErrorReportModal';
+import SessionExpiredDialog from './components/shared/SessionExpiredDialog';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navigation from './components/Navigation';
 import { TimezoneProvider } from './context/TimezoneContext';
@@ -17,6 +18,7 @@ import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
 import { useAuth } from './context/AuthContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
+import { useTokenRefresh } from './hooks/useTokenRefresh';
 import { logger } from './utils/logger';
 import './App.css';
 
@@ -223,26 +225,9 @@ function App() {
     initializeMsal();
   }, [instance]);
 
-  // Handle silent token acquisition after initialization
-  useEffect(() => {
-    const silentLogin = async () => {
-      if (!isInitialized) {
-        logger.debug('MSAL not yet initialized, skipping token acquisition');
-        return;
-      }
-
-      logger.debug('Attempting silent login after initialization');
-      const accounts = instance.getAllAccounts();
-      if (accounts.length > 0) {
-        logger.debug('Found existing account, acquiring tokens');
-        await acquireTokens(accounts[0]);
-      } else {
-        logger.debug('No existing accounts found');
-      }
-    };
-
-    silentLogin();
-  }, [isInitialized, instance, acquireTokens]);
+  // Proactive token refresh: acquires token on init, refreshes every 45 min,
+  // and re-acquires when tab becomes visible after being hidden
+  useTokenRefresh({ isInitialized, setGraphToken });
 
   const handleSignIn = async () => {
     const accounts = instance.getAllAccounts();
@@ -438,6 +423,9 @@ function App() {
           error={pendingError}
           apiToken={apiToken}
         />
+
+        {/* Session Expired Dialog - shown when 24-hour refresh token expires */}
+        <SessionExpiredDialog />
 
       </div>
         </RoleSimulationProvider>
