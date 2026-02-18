@@ -51,10 +51,8 @@ export default function ReviewModal({
   // Styling
   modalClassName = 'review-modal',
   overlayClassName = 'review-modal-overlay',
-  // Button text customization
-  saveButtonText = null,
-  deleteButtonText = null,
-  approveButtonText = null,
+  // Button label customization (default label only, not confirmation text)
+  saveButtonLabel = null,
   // Requester-only mode (can view but not edit/publish)
   isRequesterOnly = false,
   // Current item status for status badge display
@@ -522,7 +520,7 @@ export default function ReviewModal({
                     onClick={onApprove}
                     disabled={isApproving || hasSchedulingConflicts}
                   >
-                    {isApproving ? 'Publishing...' : (isApproveConfirming ? (approveButtonText || 'Confirm Publish?') : 'Publish')}
+                    {isApproving ? 'Publishing...' : (isApproveConfirming ? 'Confirm Publish?' : 'Publish')}
                   </button>
                   {isApproveConfirming && onCancelApprove && (
                     <button
@@ -585,7 +583,7 @@ export default function ReviewModal({
                     onClick={onDelete}
                     disabled={isDeleting}
                   >
-                    {isDeleting ? 'Deleting...' : (deleteButtonText || 'Delete')}
+                    {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
                   </button>
                   {isDeleteConfirming && onCancelDelete && (
                     <button
@@ -632,10 +630,10 @@ export default function ReviewModal({
                     disabled={isSaving || savingDraft || !isFormValid}
                   >
                     {isSaving
-                      ? (canApproveReservations ? 'Publishing...' : 'Submitting...')
+                      ? 'Submitting...'
                       : localConfirming === 'submitDraft'
-                        ? (canApproveReservations ? 'Confirm Publish?' : 'Confirm Submit?')
-                        : (canApproveReservations ? 'Publish' : 'Submit Request')}
+                        ? 'Confirm Submit?'
+                        : 'Submit Request'}
                   </button>
                   {localConfirming === 'submitDraft' && (
                     <button
@@ -727,7 +725,7 @@ export default function ReviewModal({
                     onClick={onSave}
                     disabled={!hasChanges || !isFormValid || isSaving}
                   >
-                    {isSaving ? 'Submitting...' : (isSaveConfirming ? (saveButtonText || 'Confirm Submit?') : 'Submit Request')}
+                    {isSaving ? 'Submitting...' : (isSaveConfirming ? 'Confirm Submit?' : 'Submit Request')}
                   </button>
                   {isSaveConfirming && onCancelSave && (
                     <button
@@ -751,7 +749,7 @@ export default function ReviewModal({
                     onClick={onSave}
                     disabled={!hasChanges || !isFormValid || isSaving || hasSchedulingConflicts}
                   >
-                    {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonText || 'Save'))}
+                    {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
                   </button>
                   {isSaveConfirming && onCancelSave && (
                     <button
@@ -775,7 +773,7 @@ export default function ReviewModal({
                     onClick={onDelete}
                     disabled={isDeleting}
                   >
-                    {isDeleting ? 'Deleting...' : (deleteButtonText || 'Delete')}
+                    {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
                   </button>
                   {isDeleteConfirming && onCancelDelete && (
                     <button

@@ -428,54 +428,6 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
 
     /**
-     * Generate save confirmation button text with event summary
-     * Format: ⚠️ Create "Event Name" at Location (Start - End)?
-     */
-    const getSaveConfirmationText = useCallback(() => {
-      if (!pendingSaveConfirmation || !eventReviewModal.event) return null;
-
-      const event = eventReviewModal.event;
-      const title = event.eventTitle || 'Untitled Event';
-
-      // Get location names - check requestedRooms first (current form state), then locations (check calendarData first)
-      const locationIds = event.requestedRooms?.length > 0
-        ? event.requestedRooms
-        : (getEventField(event, 'locations', []));
-      const locationNames = locationIds
-        .map(id => rooms.find(r => r._id === id || r._id?.toString() === id?.toString())?.name)
-        .filter(Boolean)
-        .join(', ') || 'No location';
-
-      // Format time
-      const startTime = event.startTime || '';
-      const endTime = event.endTime || '';
-      const timeStr = startTime && endTime ? `${startTime} - ${endTime}` : '';
-
-      // Determine if creating new or editing existing
-      const isEditing = !!(event.eventId || event.id);
-      const actionWord = isEditing ? 'Save' : 'Publish';
-
-      return `⚠️ ${actionWord} "${title}" at ${locationNames} (${timeStr})?`;
-    }, [pendingSaveConfirmation, eventReviewModal.event, rooms]);
-
-    /**
-     * Generate publish confirmation button text with event summary and target calendar
-     * Format: ⚠️ Publish "Event Name" to [Calendar Name]?
-     */
-    const getApproveConfirmationText = useCallback(() => {
-      if (!reviewModal.pendingApproveConfirmation || !reviewModal.currentItem) return null;
-
-      const item = reviewModal.currentItem;
-      const title = item.graphData?.subject || item.eventTitle || 'Untitled Event';
-
-      // Get target calendar display name
-      const targetCalendar = availableCalendars?.find(c => c.id === selectedCalendarId);
-      const calendarName = targetCalendar?.name || selectedCalendarId || 'Default Calendar';
-
-      return `⚠️ Publish "${title}" to ${calendarName}?`;
-    }, [reviewModal.pendingApproveConfirmation, reviewModal.currentItem, availableCalendars, selectedCalendarId]);
-
-    /**
      * Handle registration times toggle
      */
     const handleRegistrationTimesToggle = useCallback((enabled) => {
@@ -4598,11 +4550,13 @@ import ConflictDialog from './shared/ConflictDialog';
             if (!pendingMultiDayConfirmation) {
               // First click: Set pending confirmation state and return
               setPendingMultiDayConfirmation({ eventCount: dayCount });
+              setPendingSaveConfirmation(true); // Drive standard "Confirm Save?" button text
               return;
             }
 
             // Second click: User confirmed, proceed with creation
             setPendingMultiDayConfirmation(null); // Reset confirmation state
+            setPendingSaveConfirmation(false); // Reset save confirmation
             setSavingEvent(true); // Show "Saving..." message
 
             // Generate unique series ID for linking events
@@ -6759,15 +6713,9 @@ import ConflictDialog from './shared/ConflictDialog';
           isRequesterOnly={!canEditEvents && !canApproveReservations}
           itemStatus={reviewModal.currentItem?.status || 'published'}
           eventVersion={reviewModal.eventVersion}
-          deleteButtonText={
-            reviewModal.pendingDeleteConfirmation
-              ? '⚠️ Confirm Delete?'
-              : null
-          }
           isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
           onCancelDelete={reviewModal.cancelDeleteConfirmation}
           isApproveConfirming={reviewModal.pendingApproveConfirmation}
-          approveButtonText={getApproveConfirmationText()}
           onCancelApprove={reviewModal.cancelApproveConfirmation}
           isRejectConfirming={reviewModal.pendingRejectConfirmation}
           onCancelReject={reviewModal.cancelRejectConfirmation}
@@ -6880,26 +6828,15 @@ import ConflictDialog from './shared/ConflictDialog';
           isNavigating={eventReviewModal.isNavigating}
           showActionButtons={true}
           showTabs={true}
-          saveButtonText={
-            pendingMultiDayConfirmation
-              ? (eventReviewModal.event?.eventId || eventReviewModal.event?.id
-                  ? `⚠️ Confirm Adding (${pendingMultiDayConfirmation.eventCount}) Events to Series`
-                  : `⚠️ Confirm Publishing (${pendingMultiDayConfirmation.eventCount}) Events`)
-              : pendingSaveConfirmation
-                ? getSaveConfirmationText()
-                : (!eventReviewModal.event?.id && effectivePermissions.createEvents
-                  ? 'Publish'
-                  : null)
-          }
-          deleteButtonText={
-            pendingEventDeleteConfirmation
-              ? '⚠️ Confirm Delete?'
+          saveButtonLabel={
+            !eventReviewModal.event?.id && effectivePermissions.createEvents
+              ? 'Publish'
               : null
           }
           isDeleteConfirming={pendingEventDeleteConfirmation}
           onCancelDelete={() => setPendingEventDeleteConfirmation(false)}
-          isSaveConfirming={pendingSaveConfirmation}
-          onCancelSave={() => setPendingSaveConfirmation(false)}
+          isSaveConfirming={pendingSaveConfirmation || !!pendingMultiDayConfirmation}
+          onCancelSave={() => { setPendingSaveConfirmation(false); setPendingMultiDayConfirmation(null); }}
           // Draft-related props - show for new event creation (not editing existing events)
           onSaveDraft={!(eventReviewModal.event?.id || eventReviewModal.event?.eventId) ? handleSaveDraft : null}
           savingDraft={savingDraft}

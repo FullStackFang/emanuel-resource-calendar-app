@@ -299,7 +299,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         isOpen={isOpen}
         title={canCreateEvents ? 'Add Event' : 'Request Event'}
         mode={canCreateEvents ? 'edit' : 'create'}
-        saveButtonText={canCreateEvents ? 'Publish' : null}
+        saveButtonLabel={canCreateEvents ? 'Publish' : null}
         onClose={handleClose}
         onSave={canCreateEvents ? handleAdminPublish : handleRequesterSubmit}
         onSaveDraft={handleSaveDraft}

@@ -847,7 +847,6 @@ export default function MyReservations({ apiToken }) {
         eventVersion={reviewModal.eventVersion}
         hasChanges={isEditRequestMode ? reviewModal.hasChanges : reviewModal.hasChanges}
         // Admin confirmation states from hook
-        deleteButtonText={reviewModal.pendingDeleteConfirmation ? '⚠️ Confirm Delete?' : null}
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
         onCancelDelete={reviewModal.cancelDeleteConfirmation}
         isApproveConfirming={reviewModal.pendingApproveConfirmation}

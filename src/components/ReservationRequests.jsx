@@ -919,7 +919,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         eventVersion={reviewModal.eventVersion}
         hasChanges={reviewModal.hasChanges}
         // Confirmation states from hook
-        deleteButtonText={reviewModal.pendingDeleteConfirmation ? '⚠️ Confirm Delete?' : null}
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
         onCancelDelete={reviewModal.cancelDeleteConfirmation}
         isApproveConfirming={reviewModal.pendingApproveConfirmation}
