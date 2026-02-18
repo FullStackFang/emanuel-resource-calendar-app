@@ -128,12 +128,15 @@ export default function SchedulingAssistant({
           const manualAdjustment = manuallyAdjustedPositions.current[reservationId];
 
           let startTime, endTime, position;
+          let originalStartTime, originalEndTime;
 
           if (manualAdjustment) {
             // Use the manually adjusted position and times
             logger.debug(`[SchedulingAssistant] Using manually adjusted position for: "${reservation.eventTitle}"`);
             startTime = manualAdjustment.startTime;
             endTime = manualAdjustment.endTime;
+            originalStartTime = startTime;
+            originalEndTime = endTime;
             position = {
               top: manualAdjustment.top,
               height: (manualAdjustment.endTime - manualAdjustment.startTime) / (1000 * 60 * 60) * PIXELS_PER_HOUR
@@ -142,6 +145,14 @@ export default function SchedulingAssistant({
             // Use the effective blocking times from API (includes setup/teardown)
             startTime = new Date(reservation.effectiveStart);
             endTime = new Date(reservation.effectiveEnd);
+            originalStartTime = new Date(startTime);
+            originalEndTime = new Date(endTime);
+            // Clamp multi-day events to the viewed day's boundaries
+            const dayStart = new Date(`${effectiveDate}T00:00:00`);
+            const dayEnd = new Date(`${effectiveDate}T23:59:59`);
+            if (startTime < dayStart) startTime = dayStart;
+            if (endTime > dayEnd) endTime = dayEnd;
+
             position = calculateEventPosition(startTime, endTime);
           }
 
@@ -163,6 +174,8 @@ export default function SchedulingAssistant({
             status: reservation.status,
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
+            originalStartTime,
+            originalEndTime,
             ...position
           });
 
@@ -181,8 +194,15 @@ export default function SchedulingAssistant({
           }
 
           // Use effectiveStart/effectiveEnd if available (includes setup/teardown), otherwise fall back to base times
-          const startTime = new Date(event.effectiveStart || event.start.dateTime || event.start);
-          const endTime = new Date(event.effectiveEnd || event.end.dateTime || event.end);
+          let startTime = new Date(event.effectiveStart || event.start.dateTime || event.start);
+          let endTime = new Date(event.effectiveEnd || event.end.dateTime || event.end);
+          const originalStartTime = new Date(startTime);
+          const originalEndTime = new Date(endTime);
+          // Clamp multi-day events to the viewed day's boundaries
+          const dayStart = new Date(`${effectiveDate}T00:00:00`);
+          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
+          if (startTime < dayStart) startTime = dayStart;
+          if (endTime > dayEnd) endTime = dayEnd;
 
           const position = calculateEventPosition(startTime, endTime);
 
@@ -203,6 +223,8 @@ export default function SchedulingAssistant({
             organizer: event.organizer?.emailAddress?.name || 'Unknown',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+            originalStartTime,
+            originalEndTime,
             ...position
           });
 
@@ -987,6 +1009,19 @@ export default function SchedulingAssistant({
     // Lock ALL backend events (only user events are draggable)
     const isLocked = !isUserEvent;
 
+    // Detect multi-day events
+    const originalStartDate = block.originalStartTime?.toISOString().split('T')[0];
+    const originalEndDate = block.originalEndTime?.toISOString().split('T')[0];
+    const isMultiDayBlock = originalStartDate && originalEndDate && originalStartDate !== originalEndDate;
+
+    // Detect if this locked event conflicts with the user's event
+    const conflictsWithUser = isLocked && !block.isAllowedConcurrent && allVisibleBlocks.some(other =>
+      other.isUserEvent &&
+      block.startTime < other.endTime &&
+      block.endTime > other.startTime &&
+      !other.isAllowedConcurrent
+    );
+
     // Check for conflicts at current dragged position
     let hasConflict = block.isConflict;
     if (isDragging) {
@@ -1017,11 +1052,11 @@ export default function SchedulingAssistant({
       backgroundColor = block.color;
       filter = 'none';
     } else if (isLocked) {
-      opacity = 0.75;
+      opacity = conflictsWithUser ? 0.85 : 0.75;
       cursor = 'not-allowed';
       boxShadow = 'none';
       backgroundColor = block.isAllowedConcurrent ? '#4aba6d' : '#999999';
-      filter = block.isAllowedConcurrent ? 'none' : 'grayscale(100%)';
+      filter = block.isAllowedConcurrent ? 'none' : (conflictsWithUser ? 'none' : 'grayscale(100%)');
     } else {
       opacity = hasConflict ? 0.95 : 0.8;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
@@ -1032,16 +1067,33 @@ export default function SchedulingAssistant({
       filter = 'none';
     }
 
+    // Multi-day date range for tooltips
+    const multiDayRange = isMultiDayBlock
+      ? `\n${block.originalStartTime.toLocaleDateString()} - ${block.originalEndTime.toLocaleDateString()}`
+      : '';
+
     // Build tooltip text (no emoji)
     let title;
-    if (isUserEvent) {
-      title = `${hasConflict ? 'CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nDrag to reschedule${hasConflict ? '\nTime conflicts with other events' : '\nNo conflicts at this time'}`;
+    if (isUserEvent && hasConflict) {
+      // Name the specific conflicting events
+      const conflictingBlocks = allVisibleBlocks.filter(other => {
+        if (other.id === block.id) return false;
+        if (other.isAllowedConcurrent) return false;
+        return block.startTime < other.endTime && block.endTime > other.startTime;
+      });
+      const conflictList = conflictingBlocks.map(c =>
+        `  - "${c.title}" (${formatTime(c.startTime)} - ${formatTime(c.endTime)})`
+      ).join('\n');
+      title = `CONFLICT: ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nConflicts with:\n${conflictList}\n\nDrag to reschedule`;
+    } else if (isUserEvent) {
+      title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nDrag to reschedule\nNo conflicts at this time`;
     } else if (isLocked) {
       const concurrentNote = block.isAllowedConcurrent ? '\nAllows concurrent events (no conflict)' : '';
+      const conflictNote = conflictsWithUser ? '\nConflicts with your event' : '';
       if (block.type === 'reservation') {
-        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}\n\nClick the arrow to open this reservation`;
+        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${multiDayRange}\nOrganizer: ${block.organizer}${concurrentNote}${conflictNote}\n\nClick the arrow to open this reservation`;
       } else {
-        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}${concurrentNote}`;
+        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${multiDayRange}\nOrganizer: ${block.organizer}${concurrentNote}${conflictNote}`;
       }
     } else {
       title = `${hasConflict ? 'CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nDrag to reschedule${hasConflict ? '\nOverlaps with other events' : '\nNo conflicts'}`;
@@ -1056,6 +1108,7 @@ export default function SchedulingAssistant({
       isUserEvent ? 'user-event' : '',
       isCurrentReservation ? 'current-event' : '',
       block.isAllowedConcurrent ? 'allows-concurrent' : '',
+      conflictsWithUser ? 'conflicts-with-user' : '',
       block.status === 'pending' ? 'sa-pending' : '',
       block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''
     ].filter(Boolean).join(' ');
@@ -1113,6 +1166,14 @@ export default function SchedulingAssistant({
           <div className="event-time">
             {formatTime(block.startTime)} - {formatTime(block.endTime)}
           </div>
+          {conflictsWithUser && (
+            <div className="event-conflict-label">Conflicts with your event</div>
+          )}
+          {isMultiDayBlock && (
+            <div className="event-multi-day-label">
+              Multi-day ({new Date(block.originalStartTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(block.originalEndTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+            </div>
+          )}
           {block.organizer && (
             <div className="event-organizer">{block.organizer}</div>
           )}
