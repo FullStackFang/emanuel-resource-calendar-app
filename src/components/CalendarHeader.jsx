@@ -8,15 +8,14 @@ import './CalendarHeader.css';
 
 /**
  * Custom input component for DatePicker
- * Shows the date and calendar icon, clicking opens the picker
+ * Shows contextual date range text and a dropdown chevron
  */
-const CustomDateInput = React.forwardRef(({ value, onClick }, ref) => (
-  <div className="date-picker-input-group" onClick={onClick} ref={ref}>
-    <span className="date-picker-display">{value}</span>
-    <span className="date-picker-calendar-btn" title="Open calendar picker">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12.667 2.667H3.333C2.597 2.667 2 3.264 2 4v9.333c0 .737.597 1.334 1.333 1.334h9.334c.736 0 1.333-.597 1.333-1.334V4c0-.736-.597-1.333-1.333-1.333z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M10.667 1.333v2.667M5.333 1.333v2.667M2 6.667h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+const CustomDateInput = React.forwardRef(({ value, onClick, displayText, isOpen }, ref) => (
+  <div className={`date-picker-input-group${isOpen ? ' open' : ''}`} onClick={onClick} ref={ref}>
+    <span className="date-picker-display">{displayText || value}</span>
+    <span className="date-picker-chevron" title="Open calendar picker">
+      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     </span>
   </div>
@@ -26,9 +25,9 @@ CustomDateInput.displayName = 'CustomDateInput';
 
 /**
  * DatePickerButton component for calendar date selection
- * Uses react-datepicker with text input mode for proper date validation
+ * Shows view-appropriate date range text as the trigger
  */
-const DatePickerButton = ({ currentDate, onDateChange }) => {
+const DatePickerButton = ({ currentDate, onDateChange, displayText }) => {
   const [isOpen, setIsOpen] = React.useState(false);
 
   const handleDateSelect = (date) => {
@@ -37,6 +36,14 @@ const DatePickerButton = ({ currentDate, onDateChange }) => {
     }
   };
 
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const minYear = 2020;
+  const maxYear = 2035;
+  const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i);
+
   return (
     <div className="date-picker-wrapper">
       <DatePicker
@@ -44,14 +51,47 @@ const DatePickerButton = ({ currentDate, onDateChange }) => {
         onChange={handleDateSelect}
         onCalendarOpen={() => setIsOpen(true)}
         onCalendarClose={() => setIsOpen(false)}
-        customInput={<CustomDateInput />}
+        customInput={<CustomDateInput displayText={displayText} isOpen={isOpen} />}
         dateFormat="MMM d, yyyy"
-        showMonthDropdown
-        showYearDropdown
-        dropdownMode="select"
         popperClassName="date-picker-popper"
-        popperPlacement="bottom-start"
+        popperPlacement="bottom"
         showPopperArrow={false}
+        renderCustomHeader={({
+          date,
+          changeYear,
+          changeMonth,
+        }) => (
+          <div className="dp-custom-header">
+            <div className="dp-custom-header__select-wrapper">
+              <select
+                className="dp-custom-header__select dp-custom-header__select--month"
+                value={date.getMonth()}
+                onChange={({ target: { value } }) => changeMonth(Number(value))}
+              >
+                {months.map((month, i) => (
+                  <option key={month} value={i}>{month}</option>
+                ))}
+              </select>
+              <svg className="dp-custom-header__chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div className="dp-custom-header__select-wrapper">
+              <select
+                className="dp-custom-header__select dp-custom-header__select--year"
+                value={date.getFullYear()}
+                onChange={({ target: { value } }) => changeYear(Number(value))}
+              >
+                {years.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+              <svg className="dp-custom-header__chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          </div>
+        )}
       />
     </div>
   );
@@ -94,11 +134,12 @@ const CalendarHeader = ({
   updateUserProfilePreferences
 }) => {
 
-  // Format date range display
-  const formatDateRange = () => {
+  // Format contextual date display based on view type
+  const getDateDisplayText = () => {
     if (viewType === 'day') {
       return currentDate.toLocaleDateString('en-US', {
-        month: 'long',
+        weekday: 'short',
+        month: 'short',
         day: 'numeric',
         year: 'numeric'
       });
@@ -111,15 +152,17 @@ const CalendarHeader = ({
       });
     }
 
-    // Week view
-    return `${dateRange.start.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric'
-    })} - ${dateRange.end.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    })}`;
+    // Week view - show range
+    const startMonth = dateRange.start.toLocaleDateString('en-US', { month: 'short' });
+    const endMonth = dateRange.end.toLocaleDateString('en-US', { month: 'short' });
+    const startDay = dateRange.start.getDate();
+    const endDay = dateRange.end.getDate();
+    const year = dateRange.end.getFullYear();
+
+    if (startMonth === endMonth) {
+      return `${startMonth} ${startDay} – ${endDay}, ${year}`;
+    }
+    return `${startMonth} ${startDay} – ${endMonth} ${endDay}, ${year}`;
   };
 
   return (
@@ -130,24 +173,35 @@ const CalendarHeader = ({
         <div className="header-top-row">
           <div className="navigation-group">
             <div className="navigation">
-              <button onClick={() => onNavigate('previous')} className="nav-button">
-                Previous
+              <button
+                onClick={() => onNavigate('previous')}
+                className="nav-button nav-arrow"
+                aria-label="Previous"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8.5 3L4.5 7L8.5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </button>
-              <button onClick={() => onNavigate('today')} className="nav-button">
-                Today
-              </button>
+
               <DatePickerButton
                 currentDate={currentDate}
                 onDateChange={onDateChange}
-                viewType={viewType}
+                displayText={getDateDisplayText()}
               />
-              <button onClick={() => onNavigate('next')} className="nav-button">
-                Next
-              </button>
-            </div>
 
-            <div className="current-range">
-              {formatDateRange()}
+              <button
+                onClick={() => onNavigate('next')}
+                className="nav-button nav-arrow"
+                aria-label="Next"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M5.5 3L9.5 7L5.5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+
+              <button onClick={() => onNavigate('today')} className="nav-button nav-today">
+                Today
+              </button>
             </div>
           </div>
 

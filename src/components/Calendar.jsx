@@ -3446,14 +3446,29 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const handleToday = useCallback(() => {
       const today = new Date();
-      // Skip if already on current month - prevents infinite loading spinner
-      if (currentDate.getMonth() === today.getMonth() &&
-          currentDate.getFullYear() === today.getFullYear()) {
-        return;
+      // Check if already showing today based on view type
+      if (viewType === 'month') {
+        // Month view: skip if already on current month
+        if (currentDate.getMonth() === today.getMonth() &&
+            currentDate.getFullYear() === today.getFullYear()) {
+          return;
+        }
+      } else if (viewType === 'week') {
+        // Week view: skip if today is within the currently displayed week
+        if (today >= dateRange.start && today <= dateRange.end) {
+          return;
+        }
+      } else if (viewType === 'day') {
+        // Day view: skip if already on today's date
+        if (currentDate.getDate() === today.getDate() &&
+            currentDate.getMonth() === today.getMonth() &&
+            currentDate.getFullYear() === today.getFullYear()) {
+          return;
+        }
       }
       startNavigation();
       setCurrentDate(today);
-    }, [startNavigation, currentDate]);
+    }, [startNavigation, currentDate, viewType, dateRange]);
 
     /**
      * Navigate to the next time period
