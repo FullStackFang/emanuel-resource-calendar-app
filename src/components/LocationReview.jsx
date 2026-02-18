@@ -491,6 +491,7 @@ export default function LocationReview({ apiToken }) {
                         <button
                           onClick={() => handleEditLocation(location)}
                           className="edit-location-btn"
+                          disabled={confirmDeleteId === location._id}
                         >
                           Edit
                         </button>

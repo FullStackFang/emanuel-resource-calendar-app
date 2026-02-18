@@ -65,6 +65,30 @@ describe('changeDetection', () => {
       expect(valuesAreDifferent(50, '50')).toBe(false);
       expect(valuesAreDifferent(50, 51)).toBe(true);
     });
+
+    // DateTime normalization tests
+    test('datetime with and without seconds are treated as equal', () => {
+      expect(valuesAreDifferent('2026-02-18T10:00', '2026-02-18T10:00:00')).toBe(false);
+      expect(valuesAreDifferent('2026-02-18T10:00:00', '2026-02-18T10:00')).toBe(false);
+    });
+
+    test('different datetimes with mixed seconds formats are still different', () => {
+      expect(valuesAreDifferent('2026-02-18T10:00', '2026-02-18T11:00:00')).toBe(true);
+      expect(valuesAreDifferent('2026-02-18T10:00:00', '2026-02-18T11:00')).toBe(true);
+    });
+
+    test('identical datetimes both without seconds are not different', () => {
+      expect(valuesAreDifferent('2026-02-18T10:00', '2026-02-18T10:00')).toBe(false);
+    });
+
+    test('identical datetimes both with seconds are not different', () => {
+      expect(valuesAreDifferent('2026-02-18T10:00:00', '2026-02-18T10:00:00')).toBe(false);
+    });
+
+    test('datetime normalization does not affect non-datetime strings', () => {
+      expect(valuesAreDifferent('hello', 'hello:00')).toBe(true);
+      expect(valuesAreDifferent('10:00', '10:00:00')).toBe(true);
+    });
   });
 
   // =========================================================================
@@ -233,6 +257,20 @@ describe('changeDetection', () => {
       expect(changes).toEqual([]);
     });
 
+    test('does not flag datetime as changed when only seconds format differs', () => {
+      const eventNoSeconds = {
+        calendarData: {
+          startDateTime: '2026-02-18T10:00',
+          endDateTime: '2026-02-18T12:00'
+        }
+      };
+      const changes = detectEventChanges(eventNoSeconds, {
+        startDateTime: '2026-02-18T10:00:00',
+        endDateTime: '2026-02-18T12:00:00'
+      });
+      expect(changes).toEqual([]);
+    });
+
     test('detects location display name change', () => {
       const changes = detectEventChanges(baseEvent, {
         locationDisplayNames: 'Room B'
@@ -292,6 +330,13 @@ describe('changeDetection', () => {
       expect(NOTIFIABLE_FIELDS).toContain('locationDisplayNames');
       expect(NOTIFIABLE_FIELDS).toContain('categories');
       expect(NOTIFIABLE_FIELDS).toContain('attendeeCount');
+    });
+
+    test('does not include redundant date/time component fields', () => {
+      expect(NOTIFIABLE_FIELDS).not.toContain('startDate');
+      expect(NOTIFIABLE_FIELDS).not.toContain('startTime');
+      expect(NOTIFIABLE_FIELDS).not.toContain('endDate');
+      expect(NOTIFIABLE_FIELDS).not.toContain('endTime');
     });
 
     test('every NOTIFIABLE_FIELD has a display name', () => {

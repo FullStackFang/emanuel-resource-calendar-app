@@ -15,10 +15,6 @@ const NOTIFIABLE_FIELDS = [
   'eventDescription',
   'startDateTime',
   'endDateTime',
-  'startDate',
-  'startTime',
-  'endDate',
-  'endTime',
   'locationDisplayNames',
   'locations',
   'attendeeCount',
@@ -42,10 +38,6 @@ const FIELD_DISPLAY_NAMES = {
   eventDescription: 'Description',
   startDateTime: 'Start Date/Time',
   endDateTime: 'End Date/Time',
-  startDate: 'Start Date',
-  startTime: 'Start Time',
-  endDate: 'End Date',
-  endTime: 'End Time',
   locationDisplayNames: 'Location(s)',
   locations: 'Room(s)',
   attendeeCount: 'Expected Attendees',
@@ -155,6 +147,18 @@ function valuesAreDifferent(oldVal, newVal) {
   // Numeric comparison (handle string "50" vs number 50)
   if (typeof a === 'number' || typeof b === 'number') {
     return Number(a) !== Number(b);
+  }
+
+  // DateTime normalization: "2026-02-18T10:00" and "2026-02-18T10:00:00" should be equal
+  const dateTimeNoSec = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  const dateTimeWithSec = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+  if (typeof a === 'string' && typeof b === 'string') {
+    const aIsDateTime = dateTimeNoSec.test(a) || dateTimeWithSec.test(a);
+    const bIsDateTime = dateTimeNoSec.test(b) || dateTimeWithSec.test(b);
+    if (aIsDateTime && bIsDateTime) {
+      const pad = (s) => dateTimeNoSec.test(s) ? s + ':00' : s;
+      return pad(a) !== pad(b);
+    }
   }
 
   return String(a) !== String(b);

@@ -81,6 +81,8 @@ export default function EventManagement({ apiToken }) {
   const [conflictDialog, setConflictDialog] = useState(null);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
 
+  const anyConfirming = confirmDeleteId !== null || confirmRestoreId !== null;
+
   const searchTimeoutRef = useRef(null);
   const debouncedSearchRef = useRef('');
 
@@ -757,7 +759,7 @@ export default function EventManagement({ apiToken }) {
                     )}
                   </div>
                 )}
-                <button className="em-close-btn" onClick={() => setSelectedEvent(null)}>
+                <button className="em-close-btn" onClick={() => setSelectedEvent(null)} disabled={anyConfirming}>
                   Close
                 </button>
               </div>

@@ -176,6 +176,11 @@ export default function ReviewModal({
   // Tracks which button is in "Confirm?" state: 'submitDraft' | 'pendingEdit' | 'publishedEdit' | 'editRequestModal' | null
   const [localConfirming, setLocalConfirming] = useState(null);
 
+  // When ANY button is in confirming state, all OTHER buttons should be disabled
+  const anyConfirming = isApproveConfirming || isRejectConfirming || isDeleteConfirming ||
+    isSaveConfirming || isDraftConfirming || isEditRequestConfirming ||
+    isEditRequestApproveConfirming || isEditRequestRejectConfirming ||
+    isCancelEditRequestConfirming || localConfirming !== null;
 
   // Clear local confirmation when external confirmations activate
   useEffect(() => {
@@ -260,6 +265,7 @@ export default function ReviewModal({
                 type="button"
                 className="form-toggle-btn"
                 onClick={onToggleForm}
+                disabled={anyConfirming}
               >
                 {useUnifiedForm ? 'New Form' : 'Legacy Form'}
               </button>
@@ -277,7 +283,7 @@ export default function ReviewModal({
                       type="button"
                       className={`action-btn publish-btn ${isEditRequestConfirming ? 'confirming' : ''}`}
                       onClick={onSubmitEditRequest}
-                      disabled={isSubmittingEditRequest || !hasChanges}
+                      disabled={isSubmittingEditRequest || !hasChanges || (anyConfirming && !isEditRequestConfirming)}
                     >
                       {isSubmittingEditRequest ? 'Submitting...' : (isEditRequestConfirming ? 'Confirm Submit?' : 'Submit Edit Request')}
                     </button>
@@ -311,6 +317,7 @@ export default function ReviewModal({
                         type="button"
                         className="action-btn toggle-view-btn"
                         onClick={onViewOriginalEvent}
+                        disabled={anyConfirming}
                       >
                         🔄 View Original
                       </button>
@@ -322,7 +329,7 @@ export default function ReviewModal({
                             type="button"
                             className={`action-btn publish-btn ${isEditRequestApproveConfirming ? 'confirming' : ''}`}
                             onClick={onApproveEditRequest}
-                            disabled={isApprovingEditRequest}
+                            disabled={isApprovingEditRequest || (anyConfirming && !isEditRequestApproveConfirming)}
                           >
                             {isApprovingEditRequest ? 'Approving...' : (isEditRequestApproveConfirming ? 'Confirm Approve?' : 'Approve Edit')}
                           </button>
@@ -360,7 +367,7 @@ export default function ReviewModal({
                             type="button"
                             className={`action-btn reject-btn ${isEditRequestRejectConfirming ? 'confirming' : ''}`}
                             onClick={onRejectEditRequest}
-                            disabled={isRejectingEditRequest}
+                            disabled={isRejectingEditRequest || (anyConfirming && !isEditRequestRejectConfirming)}
                           >
                             {isRejectingEditRequest ? 'Rejecting...' : (isEditRequestRejectConfirming ? 'Confirm Reject?' : 'Reject Edit')}
                           </button>
@@ -383,7 +390,7 @@ export default function ReviewModal({
                             type="button"
                             className={`action-btn reject-btn ${isCancelEditRequestConfirming ? 'confirming' : ''}`}
                             onClick={onCancelPendingEditRequest}
-                            disabled={isCancelingEditRequest}
+                            disabled={isCancelingEditRequest || (anyConfirming && !isCancelEditRequestConfirming)}
                           >
                             {isCancelingEditRequest ? 'Canceling...' : (isCancelEditRequestConfirming ? '⚠️ Confirm Cancel?' : '🚫 Cancel Edit Request')}
                           </button>
@@ -407,7 +414,7 @@ export default function ReviewModal({
                       type="button"
                       className="action-btn view-edit-request-btn"
                       onClick={onViewEditRequest}
-                      disabled={loadingEditRequest}
+                      disabled={loadingEditRequest || anyConfirming}
                     >
                       {loadingEditRequest ? 'Loading...' : '📋 View Edit Request'}
                     </button>
@@ -419,7 +426,7 @@ export default function ReviewModal({
                       type="button"
                       className="action-btn request-edit-btn"
                       onClick={onRequestEdit}
-                      disabled={loadingEditRequest}
+                      disabled={loadingEditRequest || anyConfirming}
                     >
                       {loadingEditRequest ? 'Checking...' : 'Request Edit'}
                     </button>
@@ -449,7 +456,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn reject-btn ${localConfirming === 'cancelRequest' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('cancelRequest', onCancelRequest)}
-                    disabled={isCancellingRequest || (localConfirming === 'cancelRequest' && !cancelRequestReason?.trim())}
+                    disabled={isCancellingRequest || (localConfirming === 'cancelRequest' && !cancelRequestReason?.trim()) || (anyConfirming && localConfirming !== 'cancelRequest')}
                   >
                     {isCancellingRequest ? 'Cancelling...' : (localConfirming === 'cancelRequest' ? 'Confirm Cancel?' : 'Cancel Request')}
                   </button>
@@ -472,7 +479,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'resubmit' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('resubmit', onResubmit)}
-                    disabled={isResubmitting}
+                    disabled={isResubmitting || (anyConfirming && localConfirming !== 'resubmit')}
                   >
                     {isResubmitting ? 'Resubmitting...' : (localConfirming === 'resubmit' ? 'Confirm Resubmit?' : 'Resubmit')}
                   </button>
@@ -495,7 +502,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'restore' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('restore', onRestore)}
-                    disabled={isRestoring}
+                    disabled={isRestoring || (anyConfirming && localConfirming !== 'restore')}
                   >
                     {isRestoring ? 'Restoring...' : (localConfirming === 'restore' ? 'Confirm Restore?' : 'Restore')}
                   </button>
@@ -518,7 +525,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
                     onClick={onApprove}
-                    disabled={isApproving || hasSchedulingConflicts}
+                    disabled={isApproving || hasSchedulingConflicts || (anyConfirming && !isApproveConfirming)}
                   >
                     {isApproving ? 'Publishing...' : (isApproveConfirming ? 'Confirm Publish?' : 'Publish')}
                   </button>
@@ -558,7 +565,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn reject-btn ${isRejectConfirming ? 'confirming' : ''}`}
                     onClick={onReject}
-                    disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim())}
+                    disabled={isRejecting || (isRejectConfirming && !rejectionReason?.trim()) || (anyConfirming && !isRejectConfirming)}
                   >
                     {isRejecting ? 'Rejecting...' : (isRejectConfirming ? 'Confirm Reject?' : 'Reject')}
                   </button>
@@ -581,7 +588,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
                     onClick={onDelete}
-                    disabled={isDeleting}
+                    disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
                   >
                     {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
                   </button>
@@ -604,7 +611,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn draft-btn ${isDraftConfirming ? 'confirming' : ''}`}
                     onClick={onSaveDraft}
-                    disabled={savingDraft || isSaving || !canSaveDraft}
+                    disabled={savingDraft || isSaving || !canSaveDraft || (anyConfirming && !isDraftConfirming)}
                   >
                     {savingDraft ? 'Drafting...' : (isDraftConfirming ? 'Confirm Draft?' : 'Save Draft')}
                   </button>
@@ -627,7 +634,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'submitDraft' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('submitDraft', onSubmitDraft)}
-                    disabled={isSaving || savingDraft || !isFormValid}
+                    disabled={isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
                   >
                     {isSaving
                       ? 'Submitting...'
@@ -654,7 +661,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'pendingEdit' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('pendingEdit', onSavePendingEdit)}
-                    disabled={!hasChanges || !isFormValid || savingPendingEdit}
+                    disabled={!hasChanges || !isFormValid || savingPendingEdit || (anyConfirming && localConfirming !== 'pendingEdit')}
                   >
                     {savingPendingEdit ? 'Saving...' : (localConfirming === 'pendingEdit' ? 'Confirm Save?' : 'Save Changes')}
                   </button>
@@ -677,7 +684,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'publishedEdit' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('publishedEdit', onSavePublishedEdit)}
-                    disabled={!hasChanges || !isFormValid || savingPublishedEdit || hasSchedulingConflicts}
+                    disabled={!hasChanges || !isFormValid || savingPublishedEdit || hasSchedulingConflicts || (anyConfirming && localConfirming !== 'publishedEdit')}
                   >
                     {savingPublishedEdit ? 'Saving...' : (localConfirming === 'publishedEdit' ? 'Confirm Save?' : 'Save Changes')}
                   </button>
@@ -700,7 +707,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'editRequestModal' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('editRequestModal', onSubmitEditRequestModal)}
-                    disabled={!hasChanges || !isFormValid || submittingEditRequestModal}
+                    disabled={!hasChanges || !isFormValid || submittingEditRequestModal || (anyConfirming && localConfirming !== 'editRequestModal')}
                   >
                     {submittingEditRequestModal ? 'Submitting...' : (localConfirming === 'editRequestModal' ? 'Confirm Submit?' : 'Submit Edit Request')}
                   </button>
@@ -723,7 +730,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving}
+                    disabled={!hasChanges || !isFormValid || isSaving || (anyConfirming && !isSaveConfirming)}
                   >
                     {isSaving ? 'Submitting...' : (isSaveConfirming ? 'Confirm Submit?' : 'Submit Request')}
                   </button>
@@ -747,7 +754,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving || hasSchedulingConflicts}
+                    disabled={!hasChanges || !isFormValid || isSaving || hasSchedulingConflicts || (anyConfirming && !isSaveConfirming)}
                   >
                     {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
                   </button>
@@ -771,7 +778,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn delete-btn ${isDeleteConfirming ? 'confirming' : ''}`}
                     onClick={onDelete}
-                    disabled={isDeleting}
+                    disabled={isDeleting || (anyConfirming && !isDeleteConfirming)}
                   >
                     {isDeleting ? 'Deleting...' : (isDeleteConfirming ? 'Confirm Delete?' : 'Delete')}
                   </button>
@@ -797,6 +804,7 @@ export default function ReviewModal({
                 type="button"
                 className="action-btn cancel-btn"
                 onClick={onClose}
+                disabled={anyConfirming}
               >
                 {isRequesterOnly ? 'Close' : (mode === 'create' || (mode === 'review' && isPending) ? 'Cancel' : 'Close')}
               </button>

@@ -299,6 +299,7 @@ export default function FeatureManagement({ apiToken }) {
                           <button
                             className="action-btn edit-btn"
                             onClick={() => handleEdit(capability, 'capability')}
+                            disabled={confirmDeleteId === capability._id}
                           >
                             Edit
                           </button>
@@ -361,6 +362,7 @@ export default function FeatureManagement({ apiToken }) {
                           <button
                             className="action-btn edit-btn"
                             onClick={() => handleEdit(service, 'service')}
+                            disabled={confirmDeleteId === service._id}
                           >
                             Edit
                           </button>
@@ -436,6 +438,7 @@ export default function FeatureManagement({ apiToken }) {
                       <button
                         className="action-btn edit-btn"
                         onClick={() => handleEdit(category, 'category')}
+                        disabled={confirmDeleteId === category._id}
                       >
                         Edit
                       </button>
