@@ -192,21 +192,22 @@ const DayView = memo(({
               {/* Events for this group on this day */}
               {(() => {
                 // Filter events for this group and day
-                const groupEvents = filteredEvents.filter(event => {
-                  // Check if event is for this day
-                  if (!getEventPosition(event, currentDay)) return false;
-                  
-                  if (groupBy === 'categories') {
-                    // Check calendarData.categories first (authoritative), then top-level, then graphData fallback
-                    const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-                    const category = categories[0] || 'Uncategorized';
-                    return category === group;
-                  } else {
-                    // FIXED: Use proper location detection
-                    const displayLocation = getEventDisplayLocation(event);
-                    return displayLocation === group;
-                  }
-                });
+                const groupEvents = filteredEvents
+                  .map(event => {
+                    const posInfo = getEventPosition(event, currentDay);
+                    return posInfo ? { ...event, _multiDayInfo: posInfo } : null;
+                  })
+                  .filter(Boolean)
+                  .filter(event => {
+                    if (groupBy === 'categories') {
+                      const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                      const category = categories[0] || 'Uncategorized';
+                      return category === group;
+                    } else {
+                      const displayLocation = getEventDisplayLocation(event);
+                      return displayLocation === group;
+                    }
+                  });
 
                 // Sort events by start time
                 const sortedEvents = sortEventsByStartTime(groupEvents);
@@ -282,8 +283,13 @@ const DayView = memo(({
                       const endDate = new Date(ensureUTCFormat(endDateTime));
                       const duration = Math.round((endDate - startDate) / (1000 * 60)); // duration in minutes
 
-                      // Check if it's an all-day event (24 hours or more)
-                      const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
+                      // Multi-day event detection
+                      const isMultiDay = event._multiDayInfo?.isMultiDay;
+                      const multiDayPosition = event._multiDayInfo?.position;
+
+                      // Check if it's an all-day event - use authoritative flag, not just duration
+                      const isAllDay = event.calendarData?.isAllDayEvent === true ||
+                        (!isMultiDay && duration >= 1440);
 
                       // Detect drafts without specific times (defaulted to 00:00-23:59)
                       const isTimelessDraft = event.status === 'draft' &&
@@ -292,6 +298,18 @@ const DayView = memo(({
                       let timeDisplay;
                       if (isTimelessDraft) {
                         timeDisplay = "All day (time TBD)";
+                      } else if (isMultiDay && !isAllDay) {
+                        // Multi-day event with specific times
+                        const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+                        if (multiDayPosition === 'start') {
+                          const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
+                          timeDisplay = `${startTimeStr} \u2192`;
+                        } else if (multiDayPosition === 'end') {
+                          const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
+                          timeDisplay = `\u2192 ${endTimeStr}`;
+                        } else {
+                          timeDisplay = "All day";
+                        }
                       } else if (isAllDay) {
                         timeDisplay = "All day";
                       } else {
@@ -353,7 +371,7 @@ const DayView = memo(({
                       return (
                         <div
                           key={event.eventId}
-                          className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
+                          className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''} ${isMultiDay ? 'multi-day-event' : ''}`}
                           style={{
                             position: 'relative',
                             backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.15) : transparentColor,
@@ -448,6 +466,11 @@ const DayView = memo(({
                           {isDraft && (
                             <span className="event-status-badge badge-draft" style={{ fontSize: '9px', padding: '2px 6px' }}>
                               DRAFT
+                            </span>
+                          )}
+                          {isMultiDay && (
+                            <span className="event-status-badge badge-multi-day" style={{ fontSize: '9px', padding: '2px 6px' }}>
+                              Day {event._multiDayInfo.dayNumber}/{event._multiDayInfo.totalDays}
                             </span>
                           )}
                           {/* Pending Edit Request indicator */}

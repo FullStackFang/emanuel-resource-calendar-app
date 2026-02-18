@@ -909,64 +909,29 @@ import ConflictDialog from './shared/ConflictDialog';
        */
       const getMonthDayEventPosition = useCallback((event, day) => {
         try {
-          // Special handling for all-day events
-          // Check both the isAllDay flag and time patterns (consistent with EventForm detection)
-          const isAllDayEvent = event.isAllDay || (
-            event.start?.dateTime && event.end?.dateTime &&
-            event.start.dateTime.includes('T00:00:00') && 
-            (event.end.dateTime.includes('T00:00:00') || event.end.dateTime.includes('T23:59:59'))
-          );
-          
-          if (isAllDayEvent) {
-            // For all-day events, use the start date in the user's timezone
-            const startUtcString = event.start.dateTime.endsWith('Z') ? 
-              event.start.dateTime : `${event.start.dateTime}Z`;
-            const startDateUTC = new Date(startUtcString);
-            
-            if (isNaN(startDateUTC.getTime())) {
-              logger.error('Invalid all-day event start date:', event.start.dateTime, event);
-              return false;
-            }
-            
-            // Convert to user timezone and get the date
-            const eventInUserTZ = new Date(startDateUTC.toLocaleString('en-US', {
-              timeZone: userTimezone
-            }));
-            
-            // Reset to midnight for date comparison
-            const eventDay = new Date(eventInUserTZ);
-            eventDay.setHours(0, 0, 0, 0);
-            
-            const compareDay = new Date(day);
-            compareDay.setHours(0, 0, 0, 0);
-            
-            return eventDay.getTime() === compareDay.getTime();
-          }
-          
-          // Regular timed events
-          // Ensure proper UTC format
-          const utcDateString = event.start.dateTime.endsWith('Z') ? 
-            event.start.dateTime : `${event.start.dateTime}Z`;
-          const eventDateUTC = new Date(utcDateString);
-          
-          if (isNaN(eventDateUTC.getTime())) {
+          // Helper to convert a dateTime string to a midnight Date in user timezone
+          const toUserTZDay = (dateTimeStr) => {
+            const utcStr = dateTimeStr.endsWith('Z') ? dateTimeStr : `${dateTimeStr}Z`;
+            const dateUTC = new Date(utcStr);
+            if (isNaN(dateUTC.getTime())) return null;
+            const inUserTZ = new Date(dateUTC.toLocaleString('en-US', { timeZone: userTimezone }));
+            inUserTZ.setHours(0, 0, 0, 0);
+            return inUserTZ;
+          };
+
+          if (!event.start?.dateTime) return false;
+
+          const startDay = toUserTZDay(event.start.dateTime);
+          const endDay = toUserTZDay(event.end?.dateTime || event.start.dateTime);
+          if (!startDay || !endDay) {
             logger.error('Invalid event date:', event.start.dateTime, event);
             return false;
           }
-          
-          // Convert to user timezone for comparison
-          const eventInUserTZ = new Date(eventDateUTC.toLocaleString('en-US', {
-            timeZone: userTimezone
-          }));
-          
-          // Reset to midnight for date comparison
-          const eventDay = new Date(eventInUserTZ);
-          eventDay.setHours(0, 0, 0, 0);
-          
+
           const compareDay = new Date(day);
           compareDay.setHours(0, 0, 0, 0);
-          
-          return eventDay.getTime() === compareDay.getTime();
+
+          return compareDay.getTime() >= startDay.getTime() && compareDay.getTime() <= endDay.getTime();
         } catch (err) {
           logger.error('Error comparing event date in month view:', err, event);
           return false;
@@ -974,26 +939,36 @@ import ConflictDialog from './shared/ConflictDialog';
       }, [userTimezone]);
   
       /**
-       * Check if an event occurs on a specific day
+       * Check if an event occurs on a specific day (supports multi-day events)
        * @param {Object} event - The event object
        * @param {Date} day - The day to check
-       * @returns {boolean} True if the event occurs on the day
+       * @returns {Object|null} Position info object (truthy) or null (falsy)
+       *   { position: 'only'|'start'|'middle'|'end', isMultiDay: boolean, totalDays: number }
        */
       const getEventPosition = useCallback((event, day) => {
         try {
-          // Use event.start.dateTime - the canonical date field
-          if (event.start?.dateTime) {
-            const eventDateStr = event.start.dateTime.split('T')[0];
-            const compareDay = new Date(day);
-            const compareDateStr = compareDay.toISOString().split('T')[0];
-            return eventDateStr === compareDateStr;
+          if (!event.start?.dateTime) {
+            logger.error('Event missing start.dateTime:', event);
+            return null;
           }
+          const startDateStr = event.start.dateTime.split('T')[0];
+          const endDateStr = (event.end?.dateTime || event.start.dateTime).split('T')[0];
+          const compareDay = new Date(day);
+          const compareDateStr = compareDay.toISOString().split('T')[0];
 
-          logger.error('Event missing start.dateTime:', event);
-          return false;
+          if (compareDateStr < startDateStr || compareDateStr > endDateStr) return null;
+
+          const isMultiDay = startDateStr !== endDateStr;
+          if (!isMultiDay) return { position: 'only', isMultiDay: false, totalDays: 1 };
+
+          const totalDays = Math.round((new Date(endDateStr) - new Date(startDateStr)) / 86400000) + 1;
+          const dayNumber = Math.round((new Date(compareDateStr) - new Date(startDateStr)) / 86400000) + 1;
+          const position = compareDateStr === startDateStr ? 'start'
+                         : compareDateStr === endDateStr ? 'end' : 'middle';
+          return { position, isMultiDay: true, totalDays, dayNumber };
         } catch (err) {
           logger.error('Error comparing event date:', err, event);
-          return false;
+          return null;
         }
       }, []);
 

@@ -192,10 +192,13 @@ const WeekView = memo(({
                     groupEvents = groupData?.events || [];
                   }
 
-                  // Filter to events for this specific day
-                  const dayEvents = groupEvents.filter(event => {
-                    return getEventPosition(event, day);
-                  });
+                  // Filter to events for this specific day, capturing multi-day position info
+                  const dayEvents = groupEvents
+                    .map(event => {
+                      const posInfo = getEventPosition(event, day);
+                      return posInfo ? { ...event, _multiDayInfo: posInfo } : null;
+                    })
+                    .filter(Boolean);
 
                   // Sort events by start time
                   const sortedEvents = sortEventsByStartTime(dayEvents);
@@ -271,8 +274,13 @@ const WeekView = memo(({
                         const endDate = new Date(ensureUTCFormat(endDateTime));
                         const duration = Math.round((endDate - startDate) / (1000 * 60)); // duration in minutes
 
-                        // Check if it's an all-day event (24 hours or more)
-                        const isAllDay = duration >= 1440; // 24 hours = 1440 minutes
+                        // Multi-day event detection
+                        const isMultiDay = event._multiDayInfo?.isMultiDay;
+                        const multiDayPosition = event._multiDayInfo?.position;
+
+                        // Check if it's an all-day event - use authoritative flag, not just duration
+                        const isAllDay = event.calendarData?.isAllDayEvent === true ||
+                          (!isMultiDay && duration >= 1440);
 
                         // Detect drafts without specific times (defaulted to 00:00-23:59)
                         const isTimelessDraft = event.status === 'draft' &&
@@ -281,6 +289,18 @@ const WeekView = memo(({
                         let timeDisplay;
                         if (isTimelessDraft) {
                           timeDisplay = "All day (time TBD)";
+                        } else if (isMultiDay && !isAllDay) {
+                          // Multi-day event with specific times
+                          const sourceTimezone = event.start?.timeZone || event.graphData?.start?.timeZone;
+                          if (multiDayPosition === 'start') {
+                            const startTimeStr = formatEventTime(startDateTime, userTimezone, event.subject, sourceTimezone);
+                            timeDisplay = `${startTimeStr} \u2192`;
+                          } else if (multiDayPosition === 'end') {
+                            const endTimeStr = formatEventTime(endDateTime, userTimezone, event.subject, sourceTimezone);
+                            timeDisplay = `\u2192 ${endTimeStr}`;
+                          } else {
+                            timeDisplay = "All day";
+                          }
                         } else if (isAllDay) {
                           timeDisplay = "All day";
                         } else {
@@ -341,7 +361,7 @@ const WeekView = memo(({
                         return (
                           <div
                             key={event.eventId}
-                            className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''}`}
+                            className={`event-item ${isDraft ? 'draft-event' : ''} ${isPending ? 'pending-event' : ''} ${hasPendingEditRequest ? 'has-pending-edit' : ''} ${isParentEvent ? 'parent-event' : ''} ${isMultiDay ? 'multi-day-event' : ''}`}
                             style={{
                               position: 'relative',
                               backgroundColor: isParentEvent ? hexToRgba('#4aba6d', 0.12) : transparentColor,
@@ -452,6 +472,11 @@ const WeekView = memo(({
                             {isDraft && (
                               <span className="event-status-badge badge-draft">
                                 DRAFT
+                              </span>
+                            )}
+                            {isMultiDay && (
+                              <span className="event-status-badge badge-multi-day">
+                                Day {event._multiDayInfo.dayNumber}/{event._multiDayInfo.totalDays}
                               </span>
                             )}
                             {/* Pending Edit Request indicator */}

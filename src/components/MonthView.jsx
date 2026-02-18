@@ -125,15 +125,19 @@ const MonthView = memo(({
   // Force re-calculation of events when timezone changes
   const getEventsForSelectedDay = useCallback(() => {
     if (!selectedDay) return [];
-    
+
+    // Set up day boundaries for range comparison
+    const dayStart = new Date(selectedDay);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(selectedDay);
+    dayEnd.setHours(23, 59, 59, 999);
+
     const eventsForDay = filteredEvents.filter(event => {
-      const eventDate = new Date(event.start.dateTime);
-      
-      return (
-        eventDate.getFullYear() === selectedDay.getFullYear() &&
-        eventDate.getMonth() === selectedDay.getMonth() &&
-        eventDate.getDate() === selectedDay.getDate()
-      );
+      const startDate = new Date(event.start.dateTime);
+      const endDate = new Date(event.end?.dateTime || event.start.dateTime);
+
+      // Event overlaps with this day if it starts before day ends AND ends after day starts
+      return startDate <= dayEnd && endDate >= dayStart;
     });
 
     // Sort events by start time and add timezone for proper formatting
@@ -233,24 +237,23 @@ const MonthView = memo(({
                       {(() => {
                         // Use filteredEvents from Calendar's main filtering system
                         const dayFilteredEvents = filteredEvents.filter(event => {
-                          // Use event.start.dateTime (top-level field set by backend)
-                          let eventDateStr;
-
-                          if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) {
-                            const regDate = new Date(event.registrationStart);
-                            eventDateStr = regDate.toISOString().split('T')[0];
-                          } else {
-                            // Use start.dateTime - the canonical date field
-                            eventDateStr = event.start.dateTime.split('T')[0];
-                          }
-
                           // Compare date strings directly (YYYY-MM-DD format)
                           const year = day.date.getFullYear();
                           const month = String(day.date.getMonth() + 1).padStart(2, '0');
                           const dayNum = String(day.date.getDate()).padStart(2, '0');
                           const dayDateStr = `${year}-${month}-${dayNum}`;
 
-                          return eventDateStr === dayDateStr;
+                          let startDateStr, endDateStr;
+                          if (showRegistrationTimes && event.hasRegistrationEvent && event.registrationStart) {
+                            const regDate = new Date(event.registrationStart);
+                            startDateStr = regDate.toISOString().split('T')[0];
+                            endDateStr = startDateStr; // Registration times are single-day
+                          } else {
+                            startDateStr = event.start.dateTime.split('T')[0];
+                            endDateStr = (event.end?.dateTime || event.start.dateTime).split('T')[0];
+                          }
+
+                          return dayDateStr >= startDateStr && dayDateStr <= endDateStr;
                         });
 
                         // Show event count circle if there are filtered events
