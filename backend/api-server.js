@@ -14082,10 +14082,17 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       return res.status(403).json({ error: 'You can only edit your own reservation requests' });
     }
 
-    // Status guard: only pending events can be edited this way
-    if (event.status !== 'pending') {
-      return res.status(400).json({ error: 'Only pending reservations can be edited' });
+    // Status guard: only pending and rejected events can be edited this way
+    if (!['pending', 'rejected'].includes(event.status)) {
+      return res.status(400).json({ error: 'Only pending or rejected reservations can be edited' });
     }
+
+    // For rejected events, check if resubmission is allowed
+    if (event.status === 'rejected' && event.roomReservationData?.resubmissionAllowed === false) {
+      return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
+    }
+
+    const isResubmitEdit = event.status === 'rejected';
 
     const {
       _version,
@@ -14217,7 +14224,13 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         'roomReservationData.phone': phone || '',
         // Metadata
         lastModified: now,
-        lastModifiedBy: userEmail
+        lastModifiedBy: userEmail,
+        // Resubmit-specific fields (transition rejected → pending)
+        ...(isResubmitEdit ? {
+          status: 'pending',
+          reviewedAt: null,
+          reviewedBy: null,
+        } : {})
       },
       $push: {
         statusHistory: {
@@ -14225,7 +14238,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
           changedAt: now,
           changedBy: userId,
           changedByEmail: userEmail,
-          reason: 'Edited by requester'
+          reason: isResubmitEdit ? 'Resubmitted with edits after rejection' : 'Edited by requester'
         }
       }
     };
@@ -14238,7 +14251,7 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         updateDoc,
         {
           expectedVersion: _version || null,
-          expectedStatus: 'pending',
+          expectedStatus: event.status,
           modifiedBy: userEmail,
           snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
@@ -14255,9 +14268,11 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       reservationId: new ObjectId(reservationId),
       userId: userId,
       userEmail: userEmail,
-      changeType: 'edit',
+      changeType: isResubmitEdit ? 'resubmit_with_edits' : 'edit',
       source: 'My Reservations',
-      changeSet: [{ field: 'event_data', from: 'previous', to: 'updated' }],
+      changeSet: isResubmitEdit
+        ? [{ field: 'status', from: 'rejected', to: 'pending' }, { field: 'event_data', from: 'previous', to: 'updated' }]
+        : [{ field: 'event_data', from: 'previous', to: 'updated' }],
       metadata: { editedFields: Object.keys(req.body).filter(k => k !== '_version') }
     });
 

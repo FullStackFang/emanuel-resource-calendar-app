@@ -141,7 +141,7 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .send({ ...editPayload, _version: draftEvent._version });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Only pending');
+      expect(res.body.error).toContain('Only pending or rejected');
     });
   });
 
@@ -156,12 +156,12 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .send({ ...editPayload, _version: publishedEvent._version });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Only pending');
+      expect(res.body.error).toContain('Only pending or rejected');
     });
   });
 
-  describe('PE-5: Cannot edit a rejected event', () => {
-    it('should return 400', async () => {
+  describe('PE-5: Rejected events are now editable (see rejectedEdit.test.js)', () => {
+    it('should return 200 for rejected events (edit + resubmit)', async () => {
       const rejectedEvent = createRejectedEvent({ requesterUser });
       await insertEvents(db, [rejectedEvent]);
 
@@ -170,8 +170,8 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({ ...editPayload, _version: rejectedEvent._version });
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Only pending');
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe('Reservation updated successfully');
     });
   });
 
@@ -186,7 +186,7 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .send({ ...editPayload, _version: deletedEvent._version });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Only pending');
+      expect(res.body.error).toContain('Only pending or rejected');
     });
   });
 

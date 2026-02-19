@@ -42,6 +42,8 @@ export default function MyReservations({ apiToken }) {
 
   // Local state for pending edit (owner editing pending events)
   const [savingPendingEdit, setSavingPendingEdit] = useState(false);
+  // Local state for rejected edit (owner editing rejected events + resubmitting)
+  const [savingRejectedEdit, setSavingRejectedEdit] = useState(false);
 
   // Local state for edit request mode (requester requesting edits on published events)
   const [isEditRequestMode, setIsEditRequestMode] = useState(false);
@@ -481,6 +483,91 @@ export default function MyReservations({ apiToken }) {
     }
   }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
 
+  // Save Rejected Edit (owner editing rejected events + resubmitting) — used by ReviewModal's onSaveRejectedEdit button
+  const handleSaveRejectedEdit = useCallback(async () => {
+    const item = reviewModal.currentItem;
+    const formData = reviewModal.editableData;
+    if (!item || !formData) return;
+
+    if (!formData.eventTitle?.trim()) {
+      showWarning('Event title is required');
+      return;
+    }
+    if (!formData.startDate || !formData.endDate) {
+      showWarning('Start date and end date are required');
+      return;
+    }
+    if (!formData.startTime || !formData.endTime) {
+      showWarning('Start time and end time are required');
+      return;
+    }
+
+    setSavingRejectedEdit(true);
+    try {
+      const payload = {
+        _version: reviewModal.eventVersion,
+        eventTitle: formData.eventTitle || '',
+        eventDescription: formData.eventDescription || '',
+        startDateTime: `${formData.startDate}T${formData.startTime}`,
+        endDateTime: `${formData.endDate}T${formData.endTime}`,
+        startDate: formData.startDate,
+        startTime: formData.startTime,
+        endDate: formData.endDate,
+        endTime: formData.endTime,
+        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        requestedRooms: formData.requestedRooms || formData.locations || [],
+        specialRequirements: formData.specialRequirements || '',
+        department: formData.department || '',
+        phone: formData.phone || '',
+        setupTime: formData.setupTime || null,
+        teardownTime: formData.teardownTime || null,
+        doorOpenTime: formData.doorOpenTime || null,
+        doorCloseTime: formData.doorCloseTime || null,
+        categories: formData.categories || [],
+        services: formData.services || {},
+        virtualMeetingUrl: formData.virtualMeetingUrl || null,
+        isOffsite: formData.isOffsite || false,
+        offsiteName: formData.offsiteName || '',
+        offsiteAddress: formData.offsiteAddress || '',
+      };
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === 'SchedulingConflict') {
+          showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+          return;
+        }
+        throw new Error(errorData.error || 'Conflict detected');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save changes');
+      }
+
+      showSuccess(`"${item.eventTitle}" updated and resubmitted for review`);
+      reviewModal.closeModal(true);
+      loadMyReservations();
+    } catch (err) {
+      logger.error('Error saving rejected edit:', err);
+      showError(err, { context: 'MyReservations.handleSaveRejectedEdit' });
+    } finally {
+      setSavingRejectedEdit(false);
+    }
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
     // Store the original data before enabling edit mode (for inline diff)
@@ -763,13 +850,13 @@ export default function MyReservations({ apiToken }) {
                 {/* Status Info (contextual) */}
                 <div className="mr-info-block">
                   <span className="mr-info-label">
-                    {isDraft ? 'Expires' : reservation.rejectionReason ? 'Reason' : 'Updated'}
+                    {isDraft ? 'Expires' : reservation.reviewNotes ? 'Reason' : 'Updated'}
                   </span>
                   <div className="mr-info-value mr-status-info">
                     {isDraft && reservation.draftCreatedAt ? (
                       <span className="mr-expires">in {getDaysUntilDelete(reservation.draftCreatedAt)} days</span>
-                    ) : reservation.rejectionReason ? (
-                      <span className="mr-rejection" title={reservation.rejectionReason}>{reservation.rejectionReason}</span>
+                    ) : reservation.reviewNotes ? (
+                      <span className="mr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
                     ) : reservation.actionDate && reservation.status !== 'pending' ? (
                       <span>{new Date(reservation.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     ) : (
@@ -879,6 +966,9 @@ export default function MyReservations({ apiToken }) {
         // Owner pending edit (requester editing their own pending event)
         onSavePendingEdit={isRequesterOnly && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
         savingPendingEdit={savingPendingEdit}
+        // Rejected edit props (editing rejected events + resubmitting)
+        onSaveRejectedEdit={isRequesterOnly && reviewModal.currentItem?.status === 'rejected' ? handleSaveRejectedEdit : null}
+        savingRejectedEdit={savingRejectedEdit}
         // Existing edit request props (viewing pending edit requests)
         existingEditRequest={existingEditRequest}
         isViewingEditRequest={isViewingEditRequest}
@@ -923,7 +1013,7 @@ export default function MyReservations({ apiToken }) {
             onDataChange={reviewModal.updateData}
             onFormDataReady={reviewModal.setFormDataGetter}
             onFormValidChange={reviewModal.setIsFormValid}
-            readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending'}
+            readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}
             editScope={reviewModal.editScope}
             onSchedulingConflictsChange={setHasSchedulingConflicts}
           />

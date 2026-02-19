@@ -1452,10 +1452,17 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'You can only edit your own reservation requests' });
       }
 
-      // Status guard: only pending events can be edited
-      if (event.status !== 'pending') {
-        return res.status(400).json({ error: 'Only pending reservations can be edited' });
+      // Status guard: only pending and rejected events can be edited
+      if (!['pending', 'rejected'].includes(event.status)) {
+        return res.status(400).json({ error: 'Only pending or rejected reservations can be edited' });
       }
+
+      // For rejected events, check if resubmission is allowed
+      if (event.status === 'rejected' && event.roomReservationData?.resubmissionAllowed === false) {
+        return res.status(400).json({ error: 'Resubmission has been disabled for this reservation' });
+      }
+
+      const isResubmitEdit = event.status === 'rejected';
 
       const { _version, eventTitle, startDate, startTime, endDate, endTime } = req.body;
 
@@ -1553,6 +1560,13 @@ function createTestApp(options = {}) {
       updateFields.lastModifiedBy = userEmail;
       updateFields._version = newVersion;
 
+      // Resubmit-specific fields (transition rejected → pending)
+      if (isResubmitEdit) {
+        updateFields.status = 'pending';
+        updateFields.reviewedAt = null;
+        updateFields.reviewedBy = null;
+      }
+
       await testCollections.events.updateOne(query, {
         $set: updateFields,
         $push: {
@@ -1561,7 +1575,7 @@ function createTestApp(options = {}) {
             changedAt: now,
             changedBy: userId,
             changedByEmail: userEmail,
-            reason: 'Edited by requester',
+            reason: isResubmitEdit ? 'Resubmitted with edits after rejection' : 'Edited by requester',
           },
         },
       });
@@ -1571,7 +1585,7 @@ function createTestApp(options = {}) {
       // Create audit log
       await createAuditLog({
         eventId: event.eventId,
-        action: 'edited',
+        action: isResubmitEdit ? 'resubmit_with_edits' : 'edited',
         performedBy: userId,
         performedByEmail: userEmail,
         previousState: event,

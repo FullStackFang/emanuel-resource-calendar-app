@@ -1075,7 +1075,7 @@ export default function RoomReservationFormBase({
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
   // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
   // Admins and users with canEditEvents permission can edit published/rejected events
-  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft');
+  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft' && reservationStatus !== 'rejected');
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
   // even on published events. Only respect isViewingEditRequest - readOnly doesn't apply
@@ -1178,6 +1178,17 @@ export default function RoomReservationFormBase({
                 <span className="edit-request-mode-banner-text">
                   Viewing pending edit request. Changed fields show the original value with strikethrough.
                 </span>
+              </div>
+            )}
+
+            {/* Rejection Reason Banner (read-only, shown when viewing rejected events) */}
+            {reservationStatus === 'rejected' && formData.reviewNotes && (
+              <div className="rejection-reason-banner">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <div className="rejection-reason-content">
+                  <span className="rejection-reason-label">Rejection Reason</span>
+                  <span className="rejection-reason-text">{formData.reviewNotes}</span>
+                </div>
               </div>
             )}
 

@@ -134,6 +134,9 @@ export default function ReviewModal({
   // Pending edit props (for editing pending events directly)
   onSavePendingEdit = null,
   savingPendingEdit = false,
+  // Rejected edit props (for editing rejected events + resubmitting)
+  onSaveRejectedEdit = null,
+  savingRejectedEdit = false,
   showDiscardDialog = false,
   onDiscardDialogDiscard = null,
   onDiscardDialogCancel = null,
@@ -472,8 +475,31 @@ export default function ReviewModal({
                 </div>
               )}
 
-              {/* Resubmit button — requester, rejected events */}
-              {isRequesterOnly && itemStatus === 'rejected' && onResubmit && !isEditRequestMode && !isViewingEditRequest && (
+              {/* Save & Resubmit button — requester, rejected events with changes */}
+              {isRequesterOnly && itemStatus === 'rejected' && onSaveRejectedEdit && hasChanges && !isEditRequestMode && !isViewingEditRequest && (
+                <div className="confirm-button-group">
+                  <button
+                    type="button"
+                    className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
+                    onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
+                    disabled={savingRejectedEdit || !isFormValid || hasSchedulingConflicts || (anyConfirming && localConfirming !== 'rejectedEdit')}
+                  >
+                    {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
+                  </button>
+                  {localConfirming === 'rejectedEdit' && (
+                    <button
+                      type="button"
+                      className="confirm-cancel-x publish-cancel-x"
+                      onClick={() => setLocalConfirming(null)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Resubmit button — requester, rejected events without changes */}
+              {isRequesterOnly && itemStatus === 'rejected' && onResubmit && !hasChanges && !isEditRequestMode && !isViewingEditRequest && (
                 <div className="confirm-button-group">
                   <button
                     type="button"
