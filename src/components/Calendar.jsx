@@ -248,7 +248,8 @@ import ConflictDialog from './shared/ConflictDialog';
       isAdmin: isSimulatedAdmin,
       isSimulating,
       simulatedRole,
-      isActualAdmin
+      isActualAdmin,
+      department: userDepartment
     } = usePermissions();
 
     // Timezone context initialized
@@ -371,6 +372,13 @@ import ConflictDialog from './shared/ConflictDialog';
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
     const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
 
+    // Department colleague edit state (for non-admin users editing pending/rejected events)
+    const [savingPendingEdit, setSavingPendingEdit] = useState(false);
+    const [savingRejectedEdit, setSavingRejectedEdit] = useState(false);
+    const [isResubmitting, setIsResubmitting] = useState(false);
+    // Ref to loadEvents (defined later) so handlers declared before it can call it
+    const loadEventsRef = useRef(null);
+
     // Recurring event scope dialog state
     const [recurringScopeDialog, setRecurringScopeDialog] = useState({
       isOpen: false,
@@ -428,6 +436,211 @@ import ConflictDialog from './shared/ConflictDialog';
     useEffect(() => {
       calendarDataService.setRoleSimulation(simulatedRole, isActualAdmin);
     }, [simulatedRole, isActualAdmin]);
+
+    // Per-event edit permission: considers ownership and department match
+    const canEditThisEvent = useMemo(() => {
+      if (canEditEvents || canApproveReservations) return true; // admin/approver
+      if (!reviewModal.currentItem) return false;
+
+      const item = reviewModal.currentItem;
+
+      // Check ownership
+      const requesterEmail = (
+        item.roomReservationData?.requestedBy?.email
+        || item.calendarData?.requesterEmail
+        || item.requesterEmail
+        || ''
+      ).toLowerCase();
+      const isOwner = currentUser?.email && requesterEmail === currentUser.email.toLowerCase();
+      if (isOwner) return true;
+
+      // Check department match (only for pending/rejected)
+      if (['pending', 'rejected'].includes(item.status)) {
+        const eventDept = (
+          item.roomReservationData?.requestedBy?.department
+          || item.calendarData?.department
+          || item.department
+          || ''
+        ).toLowerCase().trim();
+        const myDept = (userDepartment || '').toLowerCase().trim();
+        if (eventDept && myDept && eventDept === myDept) return true;
+      }
+
+      return false;
+    }, [canEditEvents, canApproveReservations, reviewModal.currentItem, currentUser?.email, userDepartment]);
+
+    // Whether the current user is a non-admin editor (owner or dept colleague)
+    const isNonAdminEditor = canEditThisEvent && !canEditEvents && !canApproveReservations;
+
+    // Save Pending Edit handler (for non-admin users editing pending events from calendar)
+    const handleSavePendingEdit = useCallback(async () => {
+      const item = reviewModal.currentItem;
+      const formData = reviewModal.editableData;
+      if (!item || !formData) return;
+
+      if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
+      if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
+      if (!formData.startTime || !formData.endTime) { showWarning('Start time and end time are required'); return; }
+
+      setSavingPendingEdit(true);
+      try {
+        const payload = {
+          _version: reviewModal.eventVersion,
+          eventTitle: formData.eventTitle || '',
+          eventDescription: formData.eventDescription || '',
+          startDateTime: `${formData.startDate}T${formData.startTime}`,
+          endDateTime: `${formData.endDate}T${formData.endTime}`,
+          startDate: formData.startDate,
+          startTime: formData.startTime,
+          endDate: formData.endDate,
+          endTime: formData.endTime,
+          attendeeCount: parseInt(formData.attendeeCount) || 0,
+          requestedRooms: formData.requestedRooms || formData.locations || [],
+          specialRequirements: formData.specialRequirements || '',
+          department: formData.department || '',
+          phone: formData.phone || '',
+          setupTime: formData.setupTime || null,
+          teardownTime: formData.teardownTime || null,
+          doorOpenTime: formData.doorOpenTime || null,
+          doorCloseTime: formData.doorCloseTime || null,
+          categories: formData.categories || [],
+          services: formData.services || {},
+          virtualMeetingUrl: formData.virtualMeetingUrl || null,
+          isOffsite: formData.isOffsite || false,
+          offsiteName: formData.offsiteName || '',
+          offsiteAddress: formData.offsiteAddress || '',
+        };
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        if (response.status === 409) {
+          const errorData = await response.json();
+          if (errorData.error === 'SchedulingConflict') {
+            showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+            return;
+          }
+          throw new Error(errorData.error || 'Conflict detected');
+        }
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to save changes');
+        }
+
+        showSuccess('Reservation updated successfully');
+        reviewModal.closeModal(true);
+        loadEventsRef.current?.(true);
+      } catch (err) {
+        logger.error('Error saving pending edit:', err);
+        showError(err, { context: 'Calendar.handleSavePendingEdit' });
+      } finally {
+        setSavingPendingEdit(false);
+      }
+    }, [reviewModal, apiToken, showWarning, showSuccess, showError]);
+
+    // Save Rejected Edit handler (for non-admin users editing and resubmitting rejected events from calendar)
+    const handleSaveRejectedEdit = useCallback(async () => {
+      const item = reviewModal.currentItem;
+      const formData = reviewModal.editableData;
+      if (!item || !formData) return;
+
+      if (!formData.eventTitle?.trim()) { showWarning('Event title is required'); return; }
+      if (!formData.startDate || !formData.endDate) { showWarning('Start date and end date are required'); return; }
+      if (!formData.startTime || !formData.endTime) { showWarning('Start time and end time are required'); return; }
+
+      setSavingRejectedEdit(true);
+      try {
+        const payload = {
+          _version: reviewModal.eventVersion,
+          eventTitle: formData.eventTitle || '',
+          eventDescription: formData.eventDescription || '',
+          startDateTime: `${formData.startDate}T${formData.startTime}`,
+          endDateTime: `${formData.endDate}T${formData.endTime}`,
+          startDate: formData.startDate,
+          startTime: formData.startTime,
+          endDate: formData.endDate,
+          endTime: formData.endTime,
+          attendeeCount: parseInt(formData.attendeeCount) || 0,
+          requestedRooms: formData.requestedRooms || formData.locations || [],
+          specialRequirements: formData.specialRequirements || '',
+          department: formData.department || '',
+          phone: formData.phone || '',
+          setupTime: formData.setupTime || null,
+          teardownTime: formData.teardownTime || null,
+          doorOpenTime: formData.doorOpenTime || null,
+          doorCloseTime: formData.doorCloseTime || null,
+          categories: formData.categories || [],
+          services: formData.services || {},
+          virtualMeetingUrl: formData.virtualMeetingUrl || null,
+          isOffsite: formData.isOffsite || false,
+          offsiteName: formData.offsiteName || '',
+          offsiteAddress: formData.offsiteAddress || '',
+        };
+
+        const response = await fetch(
+          `${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/edit`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        if (response.status === 409) {
+          const errorData = await response.json();
+          if (errorData.error === 'SchedulingConflict') {
+            showError(`Cannot save: ${errorData.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`);
+            return;
+          }
+          throw new Error(errorData.error || 'Conflict detected');
+        }
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to save changes');
+        }
+
+        showSuccess(`"${item.eventTitle}" updated and resubmitted for review`);
+        reviewModal.closeModal(true);
+        loadEventsRef.current?.(true);
+      } catch (err) {
+        logger.error('Error saving rejected edit:', err);
+        showError(err, { context: 'Calendar.handleSaveRejectedEdit' });
+      } finally {
+        setSavingRejectedEdit(false);
+      }
+    }, [reviewModal, apiToken, showWarning, showSuccess, showError]);
+
+    // Resubmit handler (for non-admin users resubmitting rejected events without changes)
+    const handleResubmitFromCalendar = useCallback(async () => {
+      const item = reviewModal.currentItem;
+      if (!item) return;
+
+      setIsResubmitting(true);
+      try {
+        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${item._id}/resubmit`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+          body: JSON.stringify({ _version: item._version || null })
+        });
+
+        if (!response.ok) throw new Error('Failed to resubmit reservation');
+
+        showSuccess(`"${item.eventTitle}" resubmitted for review`);
+        reviewModal.closeModal(true);
+        loadEventsRef.current?.(true);
+      } catch (err) {
+        logger.error('Error resubmitting reservation:', err);
+        showError(err, { context: 'Calendar.handleResubmitFromCalendar' });
+      } finally {
+        setIsResubmitting(false);
+      }
+    }, [reviewModal, apiToken, showSuccess, showError]);
 
     //---------------------------------------------------------------------------
     // SIMPLE UTILITY FUNCTIONS (no dependencies on other functions)
@@ -1540,6 +1753,7 @@ import ConflictDialog from './shared/ConflictDialog';
         throw error;
       }
     }, [isDemoMode, loadDemoEvents, loadEventsUnified]);
+    loadEventsRef.current = loadEvents;
 
     // Listen for AI chat calendar refresh events
     useEffect(() => {
@@ -6716,9 +6930,21 @@ import ConflictDialog from './shared/ConflictDialog';
           isApproving={reviewModal.isApproving}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
-          isRequesterOnly={!canEditEvents && !canApproveReservations}
+          isRequesterOnly={!canEditThisEvent}
           itemStatus={reviewModal.currentItem?.status || 'published'}
           eventVersion={reviewModal.eventVersion}
+          requesterName={
+            reviewModal.currentItem?.roomReservationData?.requestedBy?.name
+            || reviewModal.currentItem?.calendarData?.requesterName
+            || reviewModal.currentItem?.requesterName
+            || ''
+          }
+          requesterDepartment={
+            reviewModal.currentItem?.roomReservationData?.requestedBy?.department
+            || reviewModal.currentItem?.calendarData?.department
+            || reviewModal.currentItem?.department
+            || ''
+          }
           isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
           onCancelDelete={reviewModal.cancelDeleteConfirmation}
           isApproveConfirming={reviewModal.pendingApproveConfirmation}
@@ -6779,6 +7005,12 @@ import ConflictDialog from './shared/ConflictDialog';
           onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
           hasSchedulingConflicts={hasSchedulingConflicts}
+          onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
+          savingPendingEdit={savingPendingEdit}
+          onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleSaveRejectedEdit : null}
+          savingRejectedEdit={savingRejectedEdit}
+          onResubmit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleResubmitFromCalendar : null}
+          isResubmitting={isResubmitting}
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
@@ -6791,7 +7023,7 @@ import ConflictDialog from './shared/ConflictDialog';
               onIsNavigatingChange={setReviewModalIsNavigating}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={reviewModal.setIsFormValid}
-              readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft}
+              readOnly={!canEditThisEvent && !isEditRequestMode && !reviewModal.isDraft}
               editScope={reviewModal.editScope}
               onSchedulingConflictsChange={setHasSchedulingConflicts}
             />

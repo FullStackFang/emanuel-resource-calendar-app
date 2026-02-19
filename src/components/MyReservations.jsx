@@ -955,6 +955,18 @@ export default function MyReservations({ apiToken }) {
         isRequesterOnly={isRequesterOnly}
         itemStatus={reviewModal.currentItem?.status || null}
         eventVersion={reviewModal.eventVersion}
+        requesterName={
+          reviewModal.currentItem?.roomReservationData?.requestedBy?.name
+          || reviewModal.currentItem?.calendarData?.requesterName
+          || reviewModal.currentItem?.requesterName
+          || ''
+        }
+        requesterDepartment={
+          reviewModal.currentItem?.roomReservationData?.requestedBy?.department
+          || reviewModal.currentItem?.calendarData?.department
+          || reviewModal.currentItem?.department
+          || ''
+        }
         hasChanges={isEditRequestMode ? reviewModal.hasChanges : reviewModal.hasChanges}
         // Admin confirmation states from hook
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}

@@ -1442,14 +1442,28 @@ function createTestApp(options = {}) {
         return res.status(404).json({ error: 'Reservation not found' });
       }
 
-      // Ownership check
+      // Ownership + department check
       const isOwner =
         event.userId === userId ||
         event.roomReservationData?.requestedBy?.userId === userId ||
         event.roomReservationData?.requestedBy?.email === userEmail;
 
       if (!isOwner) {
-        return res.status(403).json({ error: 'You can only edit your own reservation requests' });
+        // Check if same department
+        const currentUserRecord = await testCollections.users.findOne({
+          $or: [{ userId }, { email: userEmail }]
+        });
+        const eventDepartment = (
+          event.roomReservationData?.requestedBy?.department
+          || event.calendarData?.department
+          || ''
+        ).toLowerCase().trim();
+        const userDepartment = (currentUserRecord?.department || '').toLowerCase().trim();
+        const isSameDepartment = eventDepartment && userDepartment && eventDepartment === userDepartment;
+
+        if (!isSameDepartment) {
+          return res.status(403).json({ error: 'You can only edit reservations from your own department' });
+        }
       }
 
       // Status guard: only pending and rejected events can be edited

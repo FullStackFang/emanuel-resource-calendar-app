@@ -203,7 +203,7 @@ describe('Rejected Edit Tests (RE-1 to RE-12)', () => {
         .send({ ...editPayload, _version: rejectedEvent._version });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain('only edit your own');
+      expect(res.body.error).toMatch(/only edit/i);
     });
   });
 

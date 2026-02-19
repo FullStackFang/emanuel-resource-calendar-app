@@ -123,7 +123,7 @@ describe('Pending Edit Tests (PE-1 to PE-12)', () => {
         .send({ ...editPayload, _version: pendingEvent._version });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toContain('only edit your own');
+      expect(res.body.error).toMatch(/only edit/i);
     });
   });
 

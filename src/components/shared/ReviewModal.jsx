@@ -147,7 +147,10 @@ export default function ReviewModal({
   onSavePublishedEdit = null,
   savingPublishedEdit = false,
   // Scheduling conflict state (from SchedulingAssistant)
-  hasSchedulingConflicts = false
+  hasSchedulingConflicts = false,
+  // Event owner info (displayed as pills in action bar)
+  requesterName = '',
+  requesterDepartment = ''
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -252,6 +255,18 @@ export default function ReviewModal({
             {eventVersion != null && (
               <span className="version-badge" title="Document version (for concurrency control)">
                 v{eventVersion}
+              </span>
+            )}
+
+            {/* Owner info pills */}
+            {requesterName && (
+              <span className="owner-pill" title={`Requested by ${requesterName}`}>
+                {requesterName}
+              </span>
+            )}
+            {requesterName && requesterDepartment && (
+              <span className="owner-pill owner-department-pill" title={`Department: ${requesterDepartment}`}>
+                {requesterDepartment}
               </span>
             )}
 

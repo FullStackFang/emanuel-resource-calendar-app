@@ -14077,9 +14077,23 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Reservation not found' });
     }
 
-    // Ownership check
-    if (event.roomReservationData?.requestedBy?.userId !== userId) {
-      return res.status(403).json({ error: 'You can only edit your own reservation requests' });
+    // Ownership + department check
+    const isOwner = event.roomReservationData?.requestedBy?.userId === userId;
+
+    if (!isOwner) {
+      // Check if same department
+      const currentUserRecord = await findUserByIdentity(usersCollection, userId, userEmail);
+      const eventDepartment = (
+        event.roomReservationData?.requestedBy?.department
+        || event.calendarData?.department
+        || ''
+      ).toLowerCase().trim();
+      const userDepartment = (currentUserRecord?.department || '').toLowerCase().trim();
+      const isSameDepartment = eventDepartment && userDepartment && eventDepartment === userDepartment;
+
+      if (!isSameDepartment) {
+        return res.status(403).json({ error: 'You can only edit reservations from your own department' });
+      }
     }
 
     // Status guard: only pending and rejected events can be edited this way

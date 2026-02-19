@@ -935,6 +935,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         showActionButtons={true}
         itemStatus={reviewModal.currentItem?.status}
         eventVersion={reviewModal.eventVersion}
+        requesterName={
+          reviewModal.currentItem?.roomReservationData?.requestedBy?.name
+          || reviewModal.currentItem?.calendarData?.requesterName
+          || reviewModal.currentItem?.requesterName
+          || ''
+        }
+        requesterDepartment={
+          reviewModal.currentItem?.roomReservationData?.requestedBy?.department
+          || reviewModal.currentItem?.calendarData?.department
+          || reviewModal.currentItem?.department
+          || ''
+        }
         hasChanges={reviewModal.hasChanges}
         // Confirmation states from hook
         isDeleteConfirming={reviewModal.pendingDeleteConfirmation}
