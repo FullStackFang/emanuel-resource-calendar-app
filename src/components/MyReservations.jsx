@@ -836,6 +836,20 @@ export default function MyReservations({ apiToken }) {
                   </div>
                 </div>
 
+                {/* Categories */}
+                <div className="mr-info-block">
+                  <span className="mr-info-label">Categories</span>
+                  <div className="mr-info-value mr-categories">
+                    {reservation.categories && reservation.categories.length > 0 ? (
+                      reservation.categories.map((cat, i) => (
+                        <span key={i} className="mr-category-tag">{cat}</span>
+                      ))
+                    ) : (
+                      <span className="mr-not-set">—</span>
+                    )}
+                  </div>
+                </div>
+
                 {/* Submitted/Saved */}
                 <div className="mr-info-block">
                   <span className="mr-info-label">{isDraft ? 'Saved' : 'Submitted'}</span>
@@ -850,15 +864,15 @@ export default function MyReservations({ apiToken }) {
                 {/* Status Info (contextual) */}
                 <div className="mr-info-block">
                   <span className="mr-info-label">
-                    {isDraft ? 'Expires' : reservation.reviewNotes ? 'Reason' : 'Updated'}
+                    {isDraft ? 'Expires' : reservation.reviewNotes ? 'Reason' : 'Last Modified'}
                   </span>
                   <div className="mr-info-value mr-status-info">
                     {isDraft && reservation.draftCreatedAt ? (
                       <span className="mr-expires">in {getDaysUntilDelete(reservation.draftCreatedAt)} days</span>
                     ) : reservation.reviewNotes ? (
                       <span className="mr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
-                    ) : reservation.actionDate && reservation.status !== 'pending' ? (
-                      <span>{new Date(reservation.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    ) : (reservation.actionDate || reservation.lastModifiedDateTime) ? (
+                      <span>{new Date(reservation.actionDate || reservation.lastModifiedDateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     ) : (
                       <span className="mr-not-set">&mdash;</span>
                     )}

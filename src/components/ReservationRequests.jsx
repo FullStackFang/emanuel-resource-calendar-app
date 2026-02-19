@@ -817,6 +817,20 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                   </div>
                 </div>
 
+                {/* Categories */}
+                <div className="rr-info-block">
+                  <span className="rr-info-label">Categories</span>
+                  <div className="rr-info-value rr-categories">
+                    {reservation.categories && reservation.categories.length > 0 ? (
+                      reservation.categories.map((cat, i) => (
+                        <span key={i} className="rr-category-tag">{cat}</span>
+                      ))
+                    ) : (
+                      <span className="rr-not-set">—</span>
+                    )}
+                  </div>
+                </div>
+
                 {/* Requested By */}
                 <div className="rr-info-block">
                   <span className="rr-info-label">Requested By</span>

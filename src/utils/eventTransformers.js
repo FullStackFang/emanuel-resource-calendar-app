@@ -234,6 +234,8 @@ export function transformEventToFlatStructure(event) {
     specialRequirements: event.roomReservationData?.specialRequirements || getField(event, 'specialRequirements', ''),
     status: event.status === 'room-reservation-request' ? 'pending' : event.status,
     submittedAt: event.roomReservationData?.submittedAt || event.lastModifiedDateTime,
+    actionDate: event.roomReservationData?.reviewedAt || null,
+    lastModifiedDateTime: event.lastModifiedDateTime || event.roomReservationData?.submittedAt || event.createdAt || null,
     changeKey: event.roomReservationData?.changeKey || event.changeKey,
 
     // Timing data with auto-calculated defaults

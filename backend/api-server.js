@@ -5537,7 +5537,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       sourceCalendars: 1, lastSyncedAt: 1,
       pendingEditRequest: 1, draftCreatedAt: 1, lastDraftSaved: 1,
       createdAt: 1, createdBy: 1, createdByEmail: 1,
-      _version: 1,
+      lastModifiedDateTime: 1, _version: 1,
       'graphData.subject': 1, 'graphData.start': 1, 'graphData.end': 1,
       'graphData.location': 1, 'graphData.categories': 1,
       'graphData.organizer': 1, 'graphData.bodyPreview': 1, 'graphData.id': 1
