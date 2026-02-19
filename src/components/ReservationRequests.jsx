@@ -56,6 +56,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
   const [loadingEditRequest, setLoadingEditRequest] = useState(false);
   const [originalEventData, setOriginalEventData] = useState(null);
+  // Transform originalEventData to flat structure for inline diff comparison
+  const flatOriginalEventData = useMemo(() =>
+    originalEventData ? transformEventToFlatStructure(originalEventData) : null,
+  [originalEventData]);
   const [isApprovingEditRequestInModal, setIsApprovingEditRequestInModal] = useState(false);
   const [isRejectingEditRequestInModal, setIsRejectingEditRequestInModal] = useState(false);
   const [modalEditRequestRejectionReason, setModalEditRequestRejectionReason] = useState('');
@@ -949,6 +953,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
         // Scheduling conflicts
         hasSchedulingConflicts={hasSchedulingConflicts}
+        // Inline diff data (flat-transformed for comparison with formData)
+        originalData={flatOriginalEventData}
         // Form toggle
         showFormToggle={true}
         useUnifiedForm={useUnifiedForm}

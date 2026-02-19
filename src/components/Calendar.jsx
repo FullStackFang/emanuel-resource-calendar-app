@@ -15,6 +15,7 @@
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
+  import { transformEventToFlatStructure } from '../utils/eventTransformers';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -336,6 +337,11 @@ import ConflictDialog from './shared/ConflictDialog';
     const [isEditRequestMode, setIsEditRequestMode] = useState(false);
     const [editRequestChangeReason, setEditRequestChangeReason] = useState('');
     const [originalEventData, setOriginalEventData] = useState(null);
+    // Transform originalEventData to flat structure for inline diff comparison
+    // (originalEventData is raw/nested, but formData in RoomReservationFormBase is flat)
+    const flatOriginalEventData = useMemo(() =>
+      originalEventData ? transformEventToFlatStructure(originalEventData) : null,
+    [originalEventData]);
     const [isSubmittingEditRequest, setIsSubmittingEditRequest] = useState(false);
     const [pendingEditRequestConfirmation, setPendingEditRequestConfirmation] = useState(false);
     // Existing edit request state (for viewing pending edit requests)
@@ -6741,7 +6747,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isSubmittingEditRequest={isSubmittingEditRequest}
           isEditRequestConfirming={pendingEditRequestConfirmation}
           onCancelEditRequestConfirm={cancelEditRequestConfirmation}
-          originalData={originalEventData}
+          originalData={flatOriginalEventData}
           detectedChanges={computeDetectedChanges()}
           hasChanges={isEditRequestMode ? computeDetectedChanges().length > 0 : reviewModal.hasChanges}
           // Edit request approval/rejection props (for admins)

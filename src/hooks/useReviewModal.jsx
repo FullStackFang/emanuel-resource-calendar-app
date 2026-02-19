@@ -129,9 +129,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    * @param {boolean} force - If true, close without showing draft dialog
    */
   const closeModal = useCallback(async (force = false) => {
-    // Show draft save dialog if there are unsaved changes (for new items, not drafts already being edited)
-    // Only prompt if not forcing close and has changes and not already a draft
-    if (!force && hasChanges && !isDraft) {
+    // Show draft save dialog only for NEW items (no existing status) with unsaved changes.
+    // Don't show for existing events (published, pending, etc.) — those can't become drafts.
+    if (!force && hasChanges && !isDraft && !currentItem?.status) {
       setShowDraftDialog(true);
       return;
     }
@@ -149,7 +149,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
-  }, [hasChanges, isDraft]);
+  }, [hasChanges, isDraft, currentItem]);
 
   /**
    * Update editable data

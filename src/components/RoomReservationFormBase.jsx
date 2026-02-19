@@ -858,8 +858,17 @@ export default function RoomReservationFormBase({
         if (newEndMins < 24 * 60) {
           const newEndTime = `${String(Math.floor(newEndMins / 60)).padStart(2, '0')}:${String(newEndMins % 60).padStart(2, '0')}`;
           updatedData.endTime = newEndTime;
-          // Cascade: doorCloseTime always syncs with endTime
-          updatedData.doorCloseTime = newEndTime;
+          // Cascade: only auto-update doorCloseTime if user hasn't customized it
+          if (!formData.doorCloseTime || formData.doorCloseTime === formData.endTime) {
+            updatedData.doorCloseTime = newEndTime;
+          } else {
+            // If user has a custom doorCloseTime, ensure it's still >= new endTime
+            const [dcH, dcM] = formData.doorCloseTime.split(':').map(Number);
+            const dcMins = dcH * 60 + dcM;
+            if (dcMins < newEndMins + 30) {
+              updatedData.doorCloseTime = newEndTime;
+            }
+          }
           // Cascade: push teardownTime if it's now at or before new endTime
           if (formData.teardownTime) {
             const [tdH, tdM] = formData.teardownTime.split(':').map(Number);
@@ -877,8 +886,20 @@ export default function RoomReservationFormBase({
 
     // Auto-populate doorCloseTime and teardownTime when endTime changes
     if (name === 'endTime' && value) {
-      // Always sync doorCloseTime with endTime
-      updatedData.doorCloseTime = value;
+      const oldEndTime = formData.endTime;
+      // Only auto-update doorCloseTime if user hasn't customized it
+      if (!formData.doorCloseTime || formData.doorCloseTime === oldEndTime) {
+        updatedData.doorCloseTime = value;
+      } else {
+        // If user has a custom doorCloseTime, ensure it's still >= new endTime
+        const [valH, valM] = value.split(':').map(Number);
+        const newEndMins = valH * 60 + valM;
+        const [dcH, dcM] = formData.doorCloseTime.split(':').map(Number);
+        const dcMins = dcH * 60 + dcM;
+        if (dcMins < newEndMins) {
+          updatedData.doorCloseTime = value;
+        }
+      }
 
       // Pre-populate teardownTime with endTime + 1 hour (only if currently empty)
       if (!formData.teardownTime) {
@@ -1721,18 +1742,24 @@ export default function RoomReservationFormBase({
                 <div className="help-text">When the event ends</div>
               </div>
 
-              <div className="form-group">
+              <div className={`form-group ${hasFieldChanged('doorCloseTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="doorCloseTime">Door Close Time</label>
+                {hasFieldChanged('doorCloseTime') && (
+                  <div className="inline-diff">
+                    <span className="diff-old">{formatTimeForDisplay(getOriginalValue('doorCloseTime'))}</span>
+                    <span className="diff-arrow">→</span>
+                  </div>
+                )}
                 <input
                   type="time"
                   id="doorCloseTime"
                   name="doorCloseTime"
                   value={formData.doorCloseTime}
-                  readOnly
-                  disabled
-                  className="readonly-field"
+                  onChange={handleInputChange}
+                  disabled={fieldsDisabled || formData.isAllDayEvent}
+                  className={hasFieldChanged('doorCloseTime') ? 'input-changed' : ''}
                 />
-                <div className="help-text">when doors will be locked at end of event</div>
+                <div className="help-text">When doors will be locked at end of event</div>
               </div>
 
               <div className={`form-group ${hasFieldChanged('teardownTime') ? 'field-changed' : ''}`}>

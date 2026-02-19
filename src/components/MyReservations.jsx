@@ -6,7 +6,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
-import { transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
@@ -52,6 +52,10 @@ export default function MyReservations({ apiToken }) {
   const [existingEditRequest, setExistingEditRequest] = useState(null);
   const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
   const [originalEventData, setOriginalEventData] = useState(null);
+  // Transform originalEventData to flat structure for inline diff comparison
+  const flatOriginalEventData = useMemo(() =>
+    originalEventData ? transformEventToFlatStructure(originalEventData) : null,
+  [originalEventData]);
   const [loadingEditRequest, setLoadingEditRequest] = useState(false);
 
   // Helper to get event field with calendarData fallback
@@ -479,8 +483,13 @@ export default function MyReservations({ apiToken }) {
 
   // Edit request handlers (requester requesting edits on published events)
   const handleRequestEdit = useCallback(() => {
+    // Store the original data before enabling edit mode (for inline diff)
+    const currentData = reviewModal.editableData;
+    if (currentData) {
+      setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
+    }
     setIsEditRequestMode(true);
-  }, []);
+  }, [reviewModal.editableData]);
 
   const handleCancelEditRequest = useCallback(() => {
     setIsEditRequestMode(false);
@@ -903,6 +912,8 @@ export default function MyReservations({ apiToken }) {
         onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
         // Scheduling conflicts
         hasSchedulingConflicts={hasSchedulingConflicts}
+        // Inline diff data (flat-transformed for comparison with formData)
+        originalData={flatOriginalEventData}
       >
         {reviewModal.currentItem && (
           <RoomReservationReview
