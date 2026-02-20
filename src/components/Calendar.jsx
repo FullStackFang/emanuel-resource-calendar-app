@@ -6918,10 +6918,10 @@ import ConflictDialog from './shared/ConflictDialog';
           isOpen={reviewModal.isOpen}
           title={`${reviewModal.currentItem?.status === 'pending' ? 'Review' : 'Edit'} ${reviewModal.editableData?.eventTitle || 'Event'}`}
           onClose={reviewModal.closeModal}
-          onApprove={reviewModal.handleApprove}
-          onReject={reviewModal.handleReject}
-          onSave={reviewModal.isDraft || reviewModal.currentItem?.status === 'pending' ? null : reviewModal.handleSave}
-          onDelete={reviewModal.handleDelete}
+          onApprove={canApproveReservations ? reviewModal.handleApprove : null}
+          onReject={canApproveReservations ? reviewModal.handleReject : null}
+          onSave={canApproveReservations && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' ? reviewModal.handleSave : null}
+          onDelete={canDeleteEvents ? reviewModal.handleDelete : null}
           mode={reviewModal.currentItem?.status === 'pending' ? 'review' : 'edit'}
           isPending={reviewModal.currentItem?.status === 'pending'}
           isFormValid={reviewModal.isFormValid}
@@ -6930,7 +6930,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isApproving={reviewModal.isApproving}
           isNavigating={reviewModalIsNavigating}
           showActionButtons={true}
-          isRequesterOnly={!canEditThisEvent}
+          isRequesterOnly={!canEditEvents && !canApproveReservations}
           itemStatus={reviewModal.currentItem?.status || 'published'}
           eventVersion={reviewModal.eventVersion}
           requesterName={
