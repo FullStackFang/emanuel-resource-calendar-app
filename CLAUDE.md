@@ -303,6 +303,23 @@ User: "Add a 'deleted' status tab to MyReservations"
 
 This ensures changes are verifiable and reduces back-and-forth debugging.
 
+### After Each Implementation
+
+Once a task is complete and verified, **always provide a ready-to-use git commit message**. Format:
+
+```
+<type>(<scope>): <short summary>
+
+- Key change 1
+- Key change 2
+- Tests: <count> new/updated, <total> passing
+```
+
+**Types**: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`, `perf`
+**Scope**: component or area affected (e.g., `MyReservations`, `api-server`, `calendar`)
+
+Keep the summary line under 72 chars. Body bullets should cover what changed and why, not how. Include test counts when tests were added or modified.
+
 ### State Management
 - Use React Context for global state (user preferences, timezone)
 - Pass data directly to avoid race conditions with async state updates
