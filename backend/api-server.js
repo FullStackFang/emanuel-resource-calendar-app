@@ -18237,10 +18237,11 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
     // Build changes array for audit log
     const changesArray = [];
+    const originalValues = pendingEditRequest.originalValues || {};
     for (const [field, newValue] of Object.entries(proposedChanges)) {
       changesArray.push({
         field,
-        oldValue: originalValues?.[field] || '',
+        oldValue: originalValues[field] || '',
         newValue
       });
     }

@@ -4,6 +4,7 @@
  * Provides automatic caching, background refetching, and error handling
  */
 
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import APP_CONFIG from '../config/config';
 
@@ -75,9 +76,13 @@ const fetchOutlookCategories = async (apiToken, userId) => {
  * @returns {object} Query result with data, isLoading, isError, refetch, etc.
  */
 export const useBaseCategoriesQuery = (apiToken) => {
+  // Use ref so queryFn always reads the latest token on background refetches
+  const tokenRef = useRef(apiToken);
+  tokenRef.current = apiToken;
+
   return useQuery({
     queryKey: BASE_CATEGORIES_QUERY_KEY,
-    queryFn: () => fetchBaseCategories(apiToken),
+    queryFn: () => fetchBaseCategories(tokenRef.current),
     staleTime: 30 * 60 * 1000, // 30 minutes - categories rarely change
     enabled: !!apiToken, // Only fetch when token is available
   });
@@ -91,9 +96,13 @@ export const useBaseCategoriesQuery = (apiToken) => {
  * @returns {object} Query result with data, isLoading, isError, refetch, etc.
  */
 export const useOutlookCategoriesQuery = (apiToken, userId) => {
+  // Use ref so queryFn always reads the latest token on background refetches
+  const tokenRef = useRef(apiToken);
+  tokenRef.current = apiToken;
+
   return useQuery({
     queryKey: [...OUTLOOK_CATEGORIES_QUERY_KEY, userId],
-    queryFn: () => fetchOutlookCategories(apiToken, userId),
+    queryFn: () => fetchOutlookCategories(tokenRef.current, userId),
     staleTime: 30 * 60 * 1000, // 30 minutes - Outlook categories rarely change
     enabled: !!apiToken && !!userId, // Only fetch when both token and userId are available
   });

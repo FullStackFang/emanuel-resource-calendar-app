@@ -4,6 +4,7 @@
  * Provides automatic caching, background refetching, and error handling
  */
 
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import APP_CONFIG from '../config/config';
 
@@ -39,9 +40,13 @@ const fetchLocations = async (apiToken) => {
  * @returns {object} Query result with data, isLoading, isError, refetch, etc.
  */
 export const useLocationsQuery = (apiToken) => {
+  // Use ref so queryFn always reads the latest token on background refetches
+  const tokenRef = useRef(apiToken);
+  tokenRef.current = apiToken;
+
   return useQuery({
     queryKey: LOCATIONS_QUERY_KEY,
-    queryFn: () => fetchLocations(apiToken),
+    queryFn: () => fetchLocations(tokenRef.current),
     staleTime: 30 * 60 * 1000, // 30 minutes - locations rarely change
     // No token required for locations endpoint
     enabled: true,

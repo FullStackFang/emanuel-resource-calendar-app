@@ -5280,7 +5280,7 @@ import ConflictDialog from './shared/ConflictDialog';
         const eventId = currentItem._id || currentItem.eventId;
 
         const response = await fetch(
-          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-edit`,
+          `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
           {
             method: 'PUT',
             headers: {

@@ -54,6 +54,13 @@ export default function MyReservations({ apiToken }) {
   const [existingEditRequest, setExistingEditRequest] = useState(null);
   const [isViewingEditRequest, setIsViewingEditRequest] = useState(false);
   const [originalEventData, setOriginalEventData] = useState(null);
+
+  // Edit request approval/rejection state (for approvers/admins viewing edit requests)
+  const [isApprovingEditRequest, setIsApprovingEditRequest] = useState(false);
+  const [isRejectingEditRequest, setIsRejectingEditRequest] = useState(false);
+  const [editRequestRejectionReason, setEditRequestRejectionReason] = useState('');
+  const [isEditRequestApproveConfirming, setIsEditRequestApproveConfirming] = useState(false);
+  const [isEditRequestRejectConfirming, setIsEditRequestRejectConfirming] = useState(false);
   // Transform originalEventData to flat structure for inline diff comparison
   const flatOriginalEventData = useMemo(() =>
     originalEventData ? transformEventToFlatStructure(originalEventData) : null,
@@ -165,6 +172,11 @@ export default function MyReservations({ apiToken }) {
       setHasSchedulingConflicts(false);
       setSavingPendingEdit(false);
       setSubmittingEditRequest(false);
+      setIsApprovingEditRequest(false);
+      setIsRejectingEditRequest(false);
+      setEditRequestRejectionReason('');
+      setIsEditRequestApproveConfirming(false);
+      setIsEditRequestRejectConfirming(false);
     }
   }, [reviewModal.isOpen]);
 
@@ -209,6 +221,121 @@ export default function MyReservations({ apiToken }) {
     window.addEventListener('refresh-my-reservations', handleRefresh);
     return () => window.removeEventListener('refresh-my-reservations', handleRefresh);
   }, [loadMyReservations]);
+
+  // Handle approving an edit request (approver/admin)
+  const handleApproveEditRequest = useCallback(async () => {
+    if (!isEditRequestApproveConfirming) {
+      setIsEditRequestApproveConfirming(true);
+      return;
+    }
+
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      logger.error('No edit request to approve');
+      return;
+    }
+
+    try {
+      setIsApprovingEditRequest(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({ notes: '' })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to approve edit request');
+      }
+
+      setIsEditRequestApproveConfirming(false);
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+      reviewModal.closeModal();
+      loadMyReservations();
+      showSuccess('Edit request approved. Changes have been applied.');
+    } catch (error) {
+      logger.error('Error approving edit request:', error);
+      showError(error, { context: 'MyReservations.handleApproveEditRequest' });
+    } finally {
+      setIsApprovingEditRequest(false);
+      setIsEditRequestApproveConfirming(false);
+    }
+  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, loadMyReservations, showSuccess, showError]);
+
+  // Handle rejecting an edit request (approver/admin)
+  const handleRejectEditRequest = useCallback(async () => {
+    if (!isEditRequestRejectConfirming) {
+      setIsEditRequestRejectConfirming(true);
+      return;
+    }
+
+    if (!editRequestRejectionReason.trim()) {
+      showWarning('Please provide a reason for rejecting the edit request.');
+      return;
+    }
+
+    const currentItem = reviewModal.currentItem;
+    if (!currentItem || !existingEditRequest) {
+      logger.error('No edit request to reject');
+      return;
+    }
+
+    try {
+      setIsRejectingEditRequest(true);
+      const eventId = currentItem._id || currentItem.eventId;
+
+      const response = await fetch(
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/reject-edit`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`
+          },
+          body: JSON.stringify({ reason: editRequestRejectionReason.trim() })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to reject edit request');
+      }
+
+      setIsEditRequestRejectConfirming(false);
+      setEditRequestRejectionReason('');
+      setIsViewingEditRequest(false);
+      setExistingEditRequest(null);
+      setOriginalEventData(null);
+      reviewModal.closeModal();
+      loadMyReservations();
+      showSuccess('Edit request rejected.');
+    } catch (error) {
+      logger.error('Error rejecting edit request:', error);
+      showError(error, { context: 'MyReservations.handleRejectEditRequest' });
+    } finally {
+      setIsRejectingEditRequest(false);
+      setIsEditRequestRejectConfirming(false);
+    }
+  }, [isEditRequestRejectConfirming, editRequestRejectionReason, reviewModal, existingEditRequest, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+
+  const cancelEditRequestApproveConfirmation = useCallback(() => {
+    setIsEditRequestApproveConfirming(false);
+  }, []);
+
+  const cancelEditRequestRejectConfirmation = useCallback(() => {
+    setIsEditRequestRejectConfirming(false);
+    setEditRequestRejectionReason('');
+  }, []);
 
   // Client-side filtering with memoization
   const filteredReservations = useMemo(() => {
@@ -1001,6 +1128,17 @@ export default function MyReservations({ apiToken }) {
         loadingEditRequest={loadingEditRequest}
         onViewEditRequest={handleViewEditRequest}
         onViewOriginalEvent={handleViewOriginalEvent}
+        // Edit request approval/rejection props (for approvers/admins)
+        onApproveEditRequest={canApproveReservations ? handleApproveEditRequest : null}
+        onRejectEditRequest={canApproveReservations ? handleRejectEditRequest : null}
+        isApprovingEditRequest={isApprovingEditRequest}
+        isRejectingEditRequest={isRejectingEditRequest}
+        editRequestRejectionReason={editRequestRejectionReason}
+        onEditRequestRejectionReasonChange={setEditRequestRejectionReason}
+        isEditRequestApproveConfirming={isEditRequestApproveConfirming}
+        isEditRequestRejectConfirming={isEditRequestRejectConfirming}
+        onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
+        onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
         // Edit request props (requester requesting edits on published events)
         canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && !reviewModal.currentItem?.pendingEditRequest?.status && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}

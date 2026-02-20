@@ -1,8 +1,6 @@
 // src/components/EventSearch.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  QueryClient,
-  QueryClientProvider,
   useQuery,
   useMutation,
   useQueryClient
@@ -21,9 +19,6 @@ import {
   formatDateTimeWithTimezone,
   formatEventTime
 } from '../utils/timezoneUtils';
-
-// Create a client
-const queryClient = new QueryClient();
 
 // Helper function to format time values as "9:30 AM" or show placeholder
 const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
@@ -252,8 +247,7 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
   }
 }
 
-// The internal component that uses the query hooks
-function EventSearchInner({
+function EventSearch({
   graphToken,
   apiToken,
   onEventSelect,
@@ -311,90 +305,102 @@ function EventSearchInner({
   const queryClient = useQueryClient();
   
   // Use Tanstack Query for fetching data
-  const { 
-    data: searchData, 
-    isLoading, 
-    error, 
+  // queryFn returns { results, totalCount, totalCapped, hasNextPage } — side effects handled in useEffect
+  const {
+    data: searchData,
+    isLoading,
+    error,
     refetch,
     isFetching
   } = useQuery({
     queryKey: searchQueryKey,
     queryFn: async () => {
-      setLoadingStatus('Searching...');
-      try {
-        let result;
+      // Look up the calendar owner email from availableCalendars
+      // The dropdown uses calendar.id (Graph calendarId) as value
+      // We need to find that calendar and get owner.address (email) for backend filtering
+      const selectedCalendar = searchCalendarId
+        ? availableCalendars?.find(cal => cal.id === searchCalendarId)
+        : null;
+      const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
-        // Look up the calendar owner email from availableCalendars
-        // The dropdown uses calendar.id (Graph calendarId) as value
-        // We need to find that calendar and get owner.address (email) for backend filtering
-        const selectedCalendar = searchCalendarId
-          ? availableCalendars?.find(cal => cal.id === searchCalendarId)
-          : null;
-        const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
+      logger.debug(`EventSearch: Looking up calendar by ID: ${searchCalendarId?.substring(0, 30)}...`);
+      logger.debug(`EventSearch: Selected calendar:`, selectedCalendar ? {
+        name: selectedCalendar.name,
+        ownerName: selectedCalendar.owner?.name,
+        ownerEmail: selectedCalendar.owner?.address
+      } : 'none');
+      logger.debug(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
 
-        logger.debug(`EventSearch: Looking up calendar by ID: ${searchCalendarId?.substring(0, 30)}...`);
-        logger.debug(`EventSearch: Selected calendar:`, selectedCalendar ? {
-          name: selectedCalendar.name,
-          ownerName: selectedCalendar.owner?.name,
-          ownerEmail: selectedCalendar.owner?.address
-        } : 'none');
-        logger.debug(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
+      const result = await searchEvents(
+        apiToken,
+        searchTerm,
+        dateRange,
+        selectedCategories,
+        selectedLocations,
+        1, // Start with page 1
+        100, // Load first 100 results; user clicks Load More for next batch
+        calendarOwnerEmail, // Pass calendar owner email instead of calendarId
+        userTimezone // Use shared timezone
+      );
 
-        result = await searchEvents(
-          apiToken,
-          searchTerm,
-          dateRange,
-          selectedCategories,
-          selectedLocations,
-          1, // Start with page 1
-          100, // Load first 100 results; user clicks Load More for next batch
-          calendarOwnerEmail, // Pass calendar owner email instead of calendarId
-          userTimezone // Use shared timezone
-        );
+      // Sort results by start date (latest first)
+      const sortedResults = [...result.results].sort((a, b) => {
+        const aStartTime = new Date(a.start.dateTime);
+        const bStartTime = new Date(b.start.dateTime);
+        return bStartTime - aStartTime;
+      });
 
-        // Set the total count if available
-        if (result.totalCount !== null) {
-          setTotalAvailableEvents(result.totalCount);
-          const countDisplay = result.totalCapped ? `${result.totalCount}+` : result.totalCount;
-          setLoadingStatus(`Found ${countDisplay} events. Showing first ${Math.min(result.results.length, 100)}.`);
-        }
-        
-        setHasNextPage(result.nextLink !== null);
-        setCurrentPage(1); // Reset to page 1 for new search
+      logger.debug("Query function returning:", {
+        resultsCount: sortedResults.length,
+        sampleTitles: sortedResults.slice(0, 3).map(r => r.subject)
+      });
 
-        // Sort results by start date (latest first)
-        const sortedResults = [...result.results].sort((a, b) => {
-          const aStartTime = new Date(a.start.dateTime);
-          const bStartTime = new Date(b.start.dateTime);
-
-          // For descending order: latest first (b - a)
-          return bStartTime - aStartTime;
-        });
-        
-        logger.debug("Query function returning:", {
-          resultsCount: sortedResults.length,
-          sampleTitles: sortedResults.slice(0, 3).map(r => r.subject)
-        });
-        
-        return sortedResults;
-      } finally {
-        if (!autoLoadMore) {
-          setLoadingStatus('');
-        }
-      }
+      // Return results with metadata — side effects applied in useEffect below
+      return {
+        results: sortedResults,
+        totalCount: result.totalCount,
+        totalCapped: result.totalCapped,
+        hasNextPage: result.nextLink !== null
+      };
     },
     enabled: shouldRunSearch && !!apiToken,
     staleTime: 5 * 60 * 1000,
     retry: (failureCount, error) => {
       // Don't retry token expiration errors
-      if (error.message && (error.message.includes('token is expired') || 
+      if (error.message && (error.message.includes('token is expired') ||
                              error.message.includes('Lifetime validation failed'))) {
         return false;
       }
       return failureCount < 3;
     },
-    onError: (error) => {
-      if (error.message && (error.message.includes('token is expired') || 
+  });
+
+  // Handle query success — replaces deprecated v5 onSuccess callback
+  useEffect(() => {
+    if (searchData && shouldRunSearch) {
+      const { totalCount, totalCapped, hasNextPage: hasMore, results } = searchData;
+
+      if (totalCount !== null && totalCount !== undefined) {
+        setTotalAvailableEvents(totalCount);
+        const countDisplay = totalCapped ? `${totalCount}+` : totalCount;
+        setLoadingStatus(`Found ${countDisplay} events. Showing first ${Math.min(results.length, 100)}.`);
+      }
+
+      setHasNextPage(hasMore);
+      setCurrentPage(1);
+      setShouldRunSearch(false);
+
+      // Clear loading status after a brief display
+      if (!autoLoadMore) {
+        setTimeout(() => setLoadingStatus(''), 2000);
+      }
+    }
+  }, [searchData, shouldRunSearch, autoLoadMore]);
+
+  // Handle query error — replaces deprecated v5 onError callback
+  useEffect(() => {
+    if (error) {
+      if (error.message && (error.message.includes('token is expired') ||
                              error.message.includes('Lifetime validation failed'))) {
         setSearchError('Your session has expired. Please refresh the page to continue.');
       } else {
@@ -402,16 +408,8 @@ function EventSearchInner({
       }
       setLoadingStatus('');
       setShouldRunSearch(false);
-    },
-    onSuccess: (data) => {
-      // Reset search flag after successful search to prevent re-fetching on every keystroke
-      setShouldRunSearch(false);
-      // Don't clear loading status immediately to maintain smooth transitions
-      if (!autoLoadMore && !nextLink) {
-        setTimeout(() => setLoadingStatus(''), 2000);
-      }
-    },
-  });
+    }
+  }, [error]);
   
   // Setup mutation for updating events
   const updateEventMutation = useMutation({
@@ -430,11 +428,10 @@ function EventSearchInner({
     }
   });
   
-  // Calculate total results
-  const searchResults = searchData || [];
+  // Calculate total results — searchData is now { results, totalCount, ... }
+  const searchResults = searchData?.results || [];
   
   logger.debug("React Query Result:", {
-    searchData: searchData,
     searchResultsLength: searchResults.length,
     isLoading,
     isFetching,
@@ -481,23 +478,23 @@ function EventSearchInner({
       
       // Append new results to existing ones
       queryClient.setQueryData(searchQueryKey, oldData => {
-        const oldDataArray = oldData || [];
-        const combinedResults = [...oldDataArray, ...result.results];
-        
+        const oldResults = oldData?.results || [];
+        const combinedResults = [...oldResults, ...result.results];
+
         const sortedResults = combinedResults.sort((a, b) => {
           const aStartTime = new Date(a.start.dateTime);
           const bStartTime = new Date(b.start.dateTime);
           return bStartTime - aStartTime;
         });
-        
+
         if (totalAvailableEvents) {
           const percentLoaded = Math.round((sortedResults.length / totalAvailableEvents) * 100);
           setLoadingStatus(`Loaded ${sortedResults.length} of ${totalAvailableEvents} events (${percentLoaded}%)`);
         } else {
           setLoadingStatus(`Loaded ${sortedResults.length} events`);
         }
-        
-        return sortedResults;
+
+        return { ...oldData, results: sortedResults };
       });
       
       if (!result.nextLink) {
@@ -541,7 +538,7 @@ function EventSearchInner({
     }
     
     const baseDelay = 300;
-    const currentResultsSize = (searchData || []).length;
+    const currentResultsSize = searchResults.length;
     let dynamicDelay = baseDelay;
     
     if (currentResultsSize > 200) {
@@ -553,7 +550,7 @@ function EventSearchInner({
         loadMoreResults();
       }
     }, dynamicDelay);
-  }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchData, loadMoreResults]);
+  }, [autoLoadMore, hasNextPage, isLoadingMore, isLoading, isFetching, searchResults, loadMoreResults]);
   
   // Handle search execution - only triggered by button click
   const handleSearch = () => {
@@ -1090,15 +1087,6 @@ function EventSearchInner({
         </div>
       </div>
     </div>
-  );
-}
-
-// Wrapper component that provides the QueryClient
-function EventSearch(props) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <EventSearchInner {...props} />
-    </QueryClientProvider>
   );
 }
 
