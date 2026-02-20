@@ -297,6 +297,9 @@ export function transformEventToFlatStructure(event) {
     // Preserve full graphData for fallback access
     graphData: event.graphData || null,
 
+    // Preserve calendarData for edit request comparison (original values)
+    calendarData: event.calendarData || null,
+
     // Optimistic concurrency control
     _version: event._version || null,
 

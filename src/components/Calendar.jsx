@@ -5149,7 +5149,6 @@ import ConflictDialog from './shared/ConflictDialog';
             requestedBy: pendingReq.requestedBy,
             changeReason: pendingReq.changeReason,
             proposedChanges: pendingReq.proposedChanges,
-            originalValues: pendingReq.originalValues,
             reviewedBy: pendingReq.reviewedBy,
             reviewedAt: pendingReq.reviewedAt,
             reviewNotes: pendingReq.reviewNotes,
@@ -5242,8 +5241,17 @@ import ConflictDialog from './shared/ConflictDialog';
         if (currentData) {
           setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
         }
-        // Load the edit request data into the form
-        reviewModal.updateData(existingEditRequest);
+        // Spread proposed changes into calendarData so getField() in
+        // transformEventToFlatStructure picks up proposed values (it
+        // prioritizes calendarData over top-level fields)
+        const proposedChanges = existingEditRequest.proposedChanges || {};
+        reviewModal.updateData({
+          ...existingEditRequest,
+          calendarData: {
+            ...(currentData?.calendarData || {}),
+            ...proposedChanges
+          }
+        });
         setIsViewingEditRequest(true);
       }
     }, [existingEditRequest, reviewModal]);

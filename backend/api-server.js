@@ -17589,51 +17589,41 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
     const editRequestId = `edit-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Calculate proposed changes (delta - only fields that are different)
+    // Read original values from calendarData (authoritative source for calendar fields)
+    // since the event document isn't modified until the edit is approved.
     const proposedChanges = {};
-    const originalValues = {};
     const changesArray = []; // For audit logging
+    const cd = originalEvent.calendarData || {};
 
     const fieldsToCompare = [
-      { key: 'eventTitle', originalKey: 'eventTitle' },
-      { key: 'eventDescription', originalKey: 'eventDescription' },
-      { key: 'startDateTime', originalKey: 'startDateTime' },
-      { key: 'endDateTime', originalKey: 'endDateTime' },
-      { key: 'attendeeCount', originalKey: 'attendeeCount' },
-      { key: 'setupTimeMinutes', originalKey: 'setupTimeMinutes' },
-      { key: 'teardownTimeMinutes', originalKey: 'teardownTimeMinutes' },
-      { key: 'setupTime', originalKey: 'setupTime' },
-      { key: 'teardownTime', originalKey: 'teardownTime' },
-      { key: 'doorOpenTime', originalKey: 'doorOpenTime' },
-      { key: 'doorCloseTime', originalKey: 'doorCloseTime' },
-      { key: 'setupNotes', originalKey: 'setupNotes' },
-      { key: 'doorNotes', originalKey: 'doorNotes' },
-      { key: 'eventNotes', originalKey: 'eventNotes' },
-      { key: 'specialRequirements', originalKey: 'specialRequirements' },
-      { key: 'isOffsite', originalKey: 'isOffsite' },
-      { key: 'offsiteName', originalKey: 'offsiteName' },
-      { key: 'offsiteAddress', originalKey: 'offsiteAddress' },
-      { key: 'offsiteLat', originalKey: 'offsiteLat' },
-      { key: 'offsiteLon', originalKey: 'offsiteLon' }
+      'eventTitle', 'eventDescription',
+      'startDateTime', 'endDateTime',
+      'attendeeCount',
+      'setupTimeMinutes', 'teardownTimeMinutes',
+      'setupTime', 'teardownTime',
+      'doorOpenTime', 'doorCloseTime',
+      'setupNotes', 'doorNotes', 'eventNotes',
+      'specialRequirements',
+      'isOffsite', 'offsiteName', 'offsiteAddress', 'offsiteLat', 'offsiteLon'
     ];
 
     for (const field of fieldsToCompare) {
-      const newValue = req.body[field.key];
-      const oldValue = originalEvent[field.originalKey];
+      const newValue = req.body[field];
+      const oldValue = cd[field];
       // Only include if value was provided and is different
       if (newValue !== undefined && newValue !== oldValue) {
-        proposedChanges[field.key] = newValue;
-        originalValues[field.key] = oldValue;
+        proposedChanges[field] = newValue;
         changesArray.push({
-          field: field.key,
+          field,
           oldValue: oldValue || '',
           newValue: newValue
         });
       }
     }
 
-    // Handle requestedRooms/locations comparison
+    // Handle requestedRooms/locations comparison (read from calendarData)
     const newRooms = requestedRooms || [];
-    const oldRooms = originalEvent.requestedRooms || originalEvent.locations || [];
+    const oldRooms = cd.locations || [];
 
     // Normalize both to string format for accurate comparison
     const normalizedNewRooms = newRooms.map(id => id?.toString?.() || String(id)).sort();
@@ -17658,22 +17648,18 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       proposedChanges.requestedRooms = normalizedLocationIds;
       proposedChanges.locations = normalizedLocationIds;
       proposedChanges.locationDisplayNames = locationDisplayName;
-      originalValues.requestedRooms = oldRooms;
-      originalValues.locations = originalEvent.locations;
-      originalValues.locationDisplayNames = originalEvent.locationDisplayNames;
       changesArray.push({
         field: 'locations',
-        oldValue: originalEvent.locationDisplayNames || '',
+        oldValue: cd.locationDisplayNames || '',
         newValue: locationDisplayName
       });
     }
 
-    // Handle categories comparison
+    // Handle categories comparison (read from calendarData)
     const newCategories = categories || [];
-    const oldCategories = originalEvent.categories || [];
+    const oldCategories = cd.categories || [];
     if (categories !== undefined && JSON.stringify(newCategories.sort()) !== JSON.stringify(oldCategories.sort())) {
       proposedChanges.categories = categories;
-      originalValues.categories = oldCategories;
       changesArray.push({
         field: 'categories',
         oldValue: oldCategories.join(', '),
@@ -17681,13 +17667,12 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       });
     }
 
-    // Handle services comparison
-    if (services !== undefined && JSON.stringify(services) !== JSON.stringify(originalEvent.services || {})) {
+    // Handle services comparison (read from calendarData)
+    if (services !== undefined && JSON.stringify(services) !== JSON.stringify(cd.services || {})) {
       proposedChanges.services = services;
-      originalValues.services = originalEvent.services || {};
       changesArray.push({
         field: 'services',
-        oldValue: JSON.stringify(originalEvent.services || {}),
+        oldValue: JSON.stringify(cd.services || {}),
         newValue: JSON.stringify(services)
       });
     }
@@ -17697,9 +17682,6 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       proposedChanges.isOnBehalfOf = isOnBehalfOf;
       proposedChanges.contactName = contactName;
       proposedChanges.contactEmail = contactEmail;
-      originalValues.isOnBehalfOf = originalEvent.isOnBehalfOf;
-      originalValues.contactName = originalEvent.contactName || originalEvent.roomReservationData?.contactPerson?.name;
-      originalValues.contactEmail = originalEvent.contactEmail || originalEvent.roomReservationData?.contactPerson?.email;
     }
 
     // Get requester name (from original event or user email)
@@ -17719,7 +17701,6 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       },
       changeReason: changeReason?.trim() || '',
       proposedChanges,
-      originalValues,
       // Review tracking (null until reviewed)
       reviewedBy: null,
       reviewedAt: null,
@@ -17863,7 +17844,6 @@ app.get('/api/events/:id/edit-requests', verifyToken, async (req, res) => {
         requestedBy: event.pendingEditRequest.requestedBy,
         changeReason: event.pendingEditRequest.changeReason,
         proposedChanges: event.pendingEditRequest.proposedChanges,
-        originalValues: event.pendingEditRequest.originalValues,
         reviewedBy: event.pendingEditRequest.reviewedBy,
         reviewedAt: event.pendingEditRequest.reviewedAt,
         reviewNotes: event.pendingEditRequest.reviewNotes,
@@ -17980,11 +17960,9 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
         editRequestData: {
           changeReason: event.pendingEditRequest.changeReason,
           proposedChanges: event.pendingEditRequest.proposedChanges,
-          originalSnapshot: event.pendingEditRequest.originalValues
         },
         changeReason: event.pendingEditRequest.changeReason,
         proposedChanges: event.pendingEditRequest.proposedChanges,
-        originalValues: event.pendingEditRequest.originalValues,
         reviewedBy: event.pendingEditRequest.reviewedBy,
         reviewedAt: event.pendingEditRequest.reviewedAt,
         reviewNotes: event.pendingEditRequest.reviewNotes,
@@ -18235,13 +18213,13 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
     }
 
-    // Build changes array for audit log
+    // Build changes array for audit log (read originals from calendarData)
     const changesArray = [];
-    const originalValues = pendingEditRequest.originalValues || {};
+    const cd = event.calendarData || {};
     for (const [field, newValue] of Object.entries(proposedChanges)) {
       changesArray.push({
         field,
-        oldValue: originalValues[field] || '',
+        oldValue: cd[field] || '',
         newValue
       });
     }

@@ -224,8 +224,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         status: req.status,
         submittedAt: req.roomReservationData?.submittedAt || req.createdAt,
         changeReason: req.editRequestData?.changeReason || '',
-        proposedChanges: req.editRequestData?.proposedChanges || [],
-        originalSnapshot: req.editRequestData?.originalSnapshot || {},
+        proposedChanges: req.editRequestData?.proposedChanges || {},
         reviewNotes: req.roomReservationData?.reviewNotes || '',
         _isEditRequest: true,
         _fullData: req // Keep full data for approval
@@ -401,7 +400,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           requestedBy: pendingReq.requestedBy,
           changeReason: pendingReq.changeReason,
           proposedChanges: pendingReq.proposedChanges,
-          originalValues: pendingReq.originalValues,
           reviewedBy: pendingReq.reviewedBy,
           reviewedAt: pendingReq.reviewedAt,
           reviewNotes: pendingReq.reviewNotes,
@@ -463,7 +461,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       if (currentData) {
         setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
       }
-      reviewModal.updateData(existingEditRequest);
+      // Spread proposed changes into calendarData so getField() in
+      // transformEventToFlatStructure picks up proposed values (it
+      // prioritizes calendarData over top-level fields)
+      const proposedChanges = existingEditRequest.proposedChanges || {};
+      reviewModal.updateData({
+        ...existingEditRequest,
+        calendarData: {
+          ...(currentData?.calendarData || {}),
+          ...proposedChanges
+        }
+      });
       setIsViewingEditRequest(true);
     }
   }, [existingEditRequest, reviewModal]);
@@ -907,6 +915,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       {showEditRequestModal && selectedEditRequest && (
         <EditRequestComparison
           editRequest={selectedEditRequest}
+          eventCalendarData={selectedEditRequest._fullData?.calendarData}
           onClose={closeEditRequestModal}
           onApprove={handleApproveEditRequest}
           onReject={handleRejectEditRequest}

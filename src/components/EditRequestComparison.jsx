@@ -8,6 +8,7 @@ import './EditRequestComparison.css';
  */
 export default function EditRequestComparison({
   editRequest,
+  eventCalendarData,
   onClose,
   onApprove,
   onReject,
@@ -34,40 +35,42 @@ export default function EditRequestComparison({
     });
   };
 
-  // Get the original snapshot data
-  const originalSnapshot = editRequest?.originalSnapshot || {};
+  // Original values come from calendarData (the event's unmodified state)
+  const cd = eventCalendarData || {};
+  // Proposed changes from the edit request (only fields that changed)
+  const proposed = editRequest?.proposedChanges || {};
 
-  // Build comparison data
+  // Build comparison data: original from calendarData, proposed from proposedChanges
   const comparisonFields = [
     {
       label: 'Event Title',
-      original: originalSnapshot.eventTitle || 'N/A',
-      proposed: editRequest?.eventTitle || 'N/A',
-      changed: originalSnapshot.eventTitle !== editRequest?.eventTitle
+      original: cd.eventTitle || 'N/A',
+      proposed: proposed.eventTitle || cd.eventTitle || 'N/A',
+      changed: proposed.eventTitle !== undefined && proposed.eventTitle !== cd.eventTitle
     },
     {
       label: 'Start Date/Time',
-      original: formatDateTime(originalSnapshot.startDateTime),
-      proposed: formatDateTime(editRequest?.startDateTime),
-      changed: originalSnapshot.startDateTime !== editRequest?.startDateTime
+      original: formatDateTime(cd.startDateTime),
+      proposed: formatDateTime(proposed.startDateTime || cd.startDateTime),
+      changed: proposed.startDateTime !== undefined && proposed.startDateTime !== cd.startDateTime
     },
     {
       label: 'End Date/Time',
-      original: formatDateTime(originalSnapshot.endDateTime),
-      proposed: formatDateTime(editRequest?.endDateTime),
-      changed: originalSnapshot.endDateTime !== editRequest?.endDateTime
+      original: formatDateTime(cd.endDateTime),
+      proposed: formatDateTime(proposed.endDateTime || cd.endDateTime),
+      changed: proposed.endDateTime !== undefined && proposed.endDateTime !== cd.endDateTime
     },
     {
       label: 'Location',
-      original: originalSnapshot.locationDisplayNames || 'N/A',
-      proposed: editRequest?.locationDisplayNames || 'N/A',
-      changed: originalSnapshot.locationDisplayNames !== editRequest?.locationDisplayNames
+      original: cd.locationDisplayNames || 'N/A',
+      proposed: proposed.locationDisplayNames || cd.locationDisplayNames || 'N/A',
+      changed: proposed.locationDisplayNames !== undefined && proposed.locationDisplayNames !== cd.locationDisplayNames
     },
     {
       label: 'Attendee Count',
-      original: originalSnapshot.attendeeCount?.toString() || 'N/A',
-      proposed: editRequest?.attendeeCount?.toString() || 'N/A',
-      changed: originalSnapshot.attendeeCount !== editRequest?.attendeeCount
+      original: cd.attendeeCount?.toString() || 'N/A',
+      proposed: (proposed.attendeeCount ?? cd.attendeeCount)?.toString() || 'N/A',
+      changed: proposed.attendeeCount !== undefined && proposed.attendeeCount !== cd.attendeeCount
     }
   ];
 

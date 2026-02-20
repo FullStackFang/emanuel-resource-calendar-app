@@ -91,7 +91,6 @@ export default function MyReservations({ apiToken }) {
           requestedBy: pendingReq.requestedBy,
           changeReason: pendingReq.changeReason,
           proposedChanges: pendingReq.proposedChanges,
-          originalValues: pendingReq.originalValues,
           reviewedBy: pendingReq.reviewedBy,
           reviewedAt: pendingReq.reviewedAt,
           reviewNotes: pendingReq.reviewNotes,
