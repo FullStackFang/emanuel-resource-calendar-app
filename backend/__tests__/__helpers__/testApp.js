@@ -1755,7 +1755,7 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'Can only request edits on published events' });
       }
 
-      if (event.pendingEditRequest) {
+      if (event.pendingEditRequest && (!event.pendingEditRequest.status || event.pendingEditRequest.status === 'pending')) {
         return res.status(400).json({ error: 'An edit request already exists for this event' });
       }
 

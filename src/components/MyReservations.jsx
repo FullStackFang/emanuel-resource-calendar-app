@@ -1139,7 +1139,7 @@ export default function MyReservations({ apiToken }) {
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
         // Edit request props (requester requesting edits on published events)
-        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && !reviewModal.currentItem?.pendingEditRequest?.status && !isEditRequestMode && !isViewingEditRequest}
+        canRequestEdit={isRequesterOnly && reviewModal.currentItem?.status === 'published' && reviewModal.currentItem?.pendingEditRequest?.status !== 'pending' && !isEditRequestMode && !isViewingEditRequest}
         onRequestEdit={handleRequestEdit}
         isEditRequestMode={isEditRequestMode}
         editRequestChangeReason={editRequestChangeReason}
