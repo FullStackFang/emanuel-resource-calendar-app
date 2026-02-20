@@ -646,8 +646,16 @@
 
 /* Submitted date */
 .rr-submitted {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.rr-submitted-time {
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Card Description - with label */

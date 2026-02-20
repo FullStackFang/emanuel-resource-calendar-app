@@ -980,10 +980,14 @@ export default function MyReservations({ apiToken }) {
                 <div className="mr-info-block">
                   <span className="mr-info-label">{isDraft ? 'Saved' : 'Submitted'}</span>
                   <div className="mr-info-value mr-submitted">
-                    {new Date(isDraft
+                    <span>{new Date(isDraft
                       ? (reservation.lastDraftSaved || reservation.submittedAt)
                       : reservation.submittedAt
-                    ).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    ).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span className="mr-submitted-time">{new Date(isDraft
+                      ? (reservation.lastDraftSaved || reservation.submittedAt)
+                      : reservation.submittedAt
+                    ).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                   </div>
                 </div>
 
@@ -998,7 +1002,10 @@ export default function MyReservations({ apiToken }) {
                     ) : reservation.reviewNotes ? (
                       <span className="mr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
                     ) : (reservation.actionDate || reservation.lastModifiedDateTime) ? (
-                      <span>{new Date(reservation.actionDate || reservation.lastModifiedDateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      <span className="mr-last-modified">
+                        <span>{new Date(reservation.actionDate || reservation.lastModifiedDateTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <span className="mr-submitted-time">{new Date(reservation.actionDate || reservation.lastModifiedDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                      </span>
                     ) : (
                       <span className="mr-not-set">&mdash;</span>
                     )}

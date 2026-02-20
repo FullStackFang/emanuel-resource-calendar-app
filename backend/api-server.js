@@ -12185,50 +12185,46 @@ app.get('/api/rooms/availability', async (req, res) => {
         filteredCalendarEvents: roomEvents.length
       });
 
+      // Helper: convert Date to local-time ISO string (no Z suffix)
+      const pad = (n) => String(n).padStart(2, '0');
+      const toLocalISOString = (d) =>
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
       // Return detailed reservation data (frontend will calculate conflicts dynamically)
+      // All effectiveStart/effectiveEnd are local-time strings (no Z suffix) to avoid UTC shift
       const detailedReservationConflicts = roomReservations.map(res => {
-        let effectiveStart, effectiveEnd;
         const cd = res.calendarData || {};
+        const startDate = (cd.startDateTime || '').split('T')[0];
+        const endDate = (cd.endDateTime || '').split('T')[0];
 
-        // Smart calculation: Try stored values first, then time-based, then minutes-based
-        if (res.effectiveStart && res.effectiveEnd) {
-          // New reservations have these stored (post time-blocking update)
-          effectiveStart = res.effectiveStart;
-          effectiveEnd = res.effectiveEnd;
-        } else if (cd.setupTime || cd.teardownTime) {
-          // Calculate from time-based fields
-          const baseStart = new Date(cd.startDateTime);
-          const baseEnd = new Date(cd.endDateTime);
+        // Compute blocking window from calendarData fields only (local-time strings)
+        let effectiveStart, effectiveEnd;
 
-          if (cd.setupTime) {
-            const [setupHours, setupMinutes] = cd.setupTime.split(':').map(Number);
-            effectiveStart = new Date(baseStart);
-            effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
-          } else {
-            effectiveStart = baseStart;
-          }
-
-          if (cd.teardownTime) {
-            const [teardownHours, teardownMinutes] = cd.teardownTime.split(':').map(Number);
-            effectiveEnd = new Date(baseEnd);
-            effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
-          } else {
-            effectiveEnd = baseEnd;
-          }
+        if (cd.setupTime) {
+          effectiveStart = `${startDate}T${cd.setupTime}:00`;
+        } else if (cd.setupTimeMinutes) {
+          const start = new Date(cd.startDateTime);
+          start.setMinutes(start.getMinutes() - cd.setupTimeMinutes);
+          effectiveStart = toLocalISOString(start);
         } else {
-          // Fall back to minutes-based calculation (old reservations)
-          const resSetupMinutes = cd.setupTimeMinutes || 0;
-          const resTeardownMinutes = cd.teardownTimeMinutes || 0;
-          const startDT = new Date(cd.startDateTime);
-          const endDT = new Date(cd.endDateTime);
-          effectiveStart = new Date(startDT.getTime() - (resSetupMinutes * 60 * 1000));
-          effectiveEnd = new Date(endDT.getTime() + (resTeardownMinutes * 60 * 1000));
+          effectiveStart = cd.startDateTime;
+        }
+
+        if (cd.teardownTime) {
+          effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
+        } else if (cd.teardownTimeMinutes) {
+          const end = new Date(cd.endDateTime);
+          end.setMinutes(end.getMinutes() + cd.teardownTimeMinutes);
+          effectiveEnd = toLocalISOString(end);
+        } else {
+          effectiveEnd = cd.endDateTime;
         }
 
         return {
           id: res._id,
           eventTitle: cd.eventTitle,
           requesterName: res.roomReservationData?.requestedBy?.name || cd.requesterName || '',
+          requesterEmail: res.roomReservationData?.requestedBy?.email || cd.requesterEmail || '',
           status: res.status,
           originalStart: cd.startDateTime,
           originalEnd: cd.endDateTime,
@@ -12241,44 +12237,43 @@ app.get('/api/rooms/availability', async (req, res) => {
       });
 
       // Return detailed event data (frontend will calculate conflicts dynamically)
+      // All effectiveStart/effectiveEnd are local-time strings (no Z suffix) to avoid UTC shift
       const detailedEventConflicts = roomEvents.map(event => {
-        let effectiveStart, effectiveEnd;
         const cd = event.calendarData || {};
-        const baseStart = new Date(cd.startDateTime || cd.startTime);
-        const baseEnd = new Date(cd.endDateTime || cd.endTime);
+        const startDT = cd.startDateTime || cd.startTime;
+        const endDT = cd.endDateTime || cd.endTime;
+        const startDate = (startDT || '').split('T')[0];
+        const endDate = (endDT || '').split('T')[0];
 
-        // Calculate effective blocking times using same logic as reservations
-        if (cd.setupTime || cd.teardownTime) {
-          // Calculate from time-based fields (HH:MM format)
-          if (cd.setupTime) {
-            const [setupHours, setupMinutes] = cd.setupTime.split(':').map(Number);
-            effectiveStart = new Date(baseStart);
-            effectiveStart.setHours(setupHours, setupMinutes, 0, 0);
-          } else {
-            effectiveStart = baseStart;
-          }
+        // Compute blocking window from calendarData fields only (local-time strings)
+        let effectiveStart, effectiveEnd;
 
-          if (cd.teardownTime) {
-            const [teardownHours, teardownMinutes] = cd.teardownTime.split(':').map(Number);
-            effectiveEnd = new Date(baseEnd);
-            effectiveEnd.setHours(teardownHours, teardownMinutes, 0, 0);
-          } else {
-            effectiveEnd = baseEnd;
-          }
+        if (cd.setupTime) {
+          effectiveStart = `${startDate}T${cd.setupTime}:00`;
+        } else if (cd.setupTimeMinutes) {
+          const start = new Date(startDT);
+          start.setMinutes(start.getMinutes() - cd.setupTimeMinutes);
+          effectiveStart = toLocalISOString(start);
         } else {
-          // Fall back to minutes-based calculation or use base times
-          const setupMinutes = cd.setupTimeMinutes || 0;
-          const teardownMinutes = cd.teardownTimeMinutes || 0;
-          effectiveStart = new Date(baseStart.getTime() - (setupMinutes * 60 * 1000));
-          effectiveEnd = new Date(baseEnd.getTime() + (teardownMinutes * 60 * 1000));
+          effectiveStart = startDT;
+        }
+
+        if (cd.teardownTime) {
+          effectiveEnd = `${endDate}T${cd.teardownTime}:00`;
+        } else if (cd.teardownTimeMinutes) {
+          const end = new Date(endDT);
+          end.setMinutes(end.getMinutes() + cd.teardownTimeMinutes);
+          effectiveEnd = toLocalISOString(end);
+        } else {
+          effectiveEnd = endDT;
         }
 
         return {
           id: event._id,
           subject: cd.eventTitle || event.graphData?.subject,
           organizer: event.graphData?.organizer?.emailAddress?.name || 'Unknown',
-          start: cd.startDateTime || cd.startTime,
-          end: cd.endDateTime || cd.endTime,
+          start: startDT,
+          end: endDT,
           effectiveStart,
           effectiveEnd,
           setupTimeMinutes: cd.setupTimeMinutes || 0,

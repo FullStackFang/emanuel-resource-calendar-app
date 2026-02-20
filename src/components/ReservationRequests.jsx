@@ -855,7 +855,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                 <div className="rr-info-block">
                   <span className="rr-info-label">Submitted</span>
                   <div className="rr-info-value rr-submitted">
-                    {new Date(reservation.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    <span>{new Date(reservation.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span className="rr-submitted-time">{new Date(reservation.submittedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                   </div>
                 </div>
               </div>
