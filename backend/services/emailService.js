@@ -429,6 +429,32 @@ async function sendResubmissionConfirmation(reservation) {
 }
 
 /**
+ * Send event updated notification to requester
+ * Sent when an admin directly edits a published event's key fields
+ * @param {Object} reservation - Reservation data
+ * @param {Array} reviewChanges - Formatted changes from formatChangesForEmail()
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendEventUpdatedNotification(reservation, reviewChanges = []) {
+  const reqData = reservation.roomReservationData || {};
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+
+  if (!recipientEmail) {
+    logger.warn('No requester email for event updated notification', {
+      reservationId: reservation._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const { subject, html } = await emailTemplates.generateEventUpdatedNotification(reservation, reviewChanges);
+
+  return sendEmail(recipientEmail, subject, html, {
+    reservationId: reservation._id?.toString()
+  });
+}
+
+/**
  * Send review started notification to requester (optional)
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
@@ -511,7 +537,7 @@ async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPa
  * @param {string} adminNotes - Optional notes from admin
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendEditRequestApprovedNotification(editRequest, adminNotes = '') {
+async function sendEditRequestApprovedNotification(editRequest, adminNotes = '', reviewChanges = []) {
   const reqData = editRequest.roomReservationData || {};
   const requestedBy = reqData.requestedBy || {};
   const recipientEmail = requestedBy.email || editRequest.requesterEmail;
@@ -523,7 +549,7 @@ async function sendEditRequestApprovedNotification(editRequest, adminNotes = '')
     return { success: false, error: 'No recipient email' };
   }
 
-  const { subject, html } = await emailTemplates.generateEditRequestApprovedNotification(editRequest, adminNotes);
+  const { subject, html } = await emailTemplates.generateEditRequestApprovedNotification(editRequest, adminNotes, reviewChanges);
 
   return sendEmail(recipientEmail, subject, html, {
     editRequestId: editRequest._id?.toString()
@@ -678,6 +704,7 @@ module.exports = {
   sendRejectionNotification,
   sendResubmissionConfirmation,
   sendReviewStartedNotification,
+  sendEventUpdatedNotification,
   recordEmailInHistory,
 
   // Edit request notification helpers

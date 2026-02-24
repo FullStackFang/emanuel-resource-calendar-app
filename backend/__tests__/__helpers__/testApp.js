@@ -18,6 +18,24 @@ const graphApiMock = require('./graphApiMock');
 let testDb = null;
 let testCollections = {};
 
+// Track sent email notifications for test assertions
+let sentEmailNotifications = [];
+
+/**
+ * Get all sent email notifications (for test assertions)
+ * @returns {Array} Array of sent notification records
+ */
+function getSentEmailNotifications() {
+  return sentEmailNotifications;
+}
+
+/**
+ * Clear sent email notifications (call in beforeEach)
+ */
+function clearSentEmailNotifications() {
+  sentEmailNotifications = [];
+}
+
 /**
  * Set the test database reference
  * @param {Db} db - MongoDB database instance from test setup
@@ -1834,6 +1852,18 @@ function createTestApp(options = {}) {
       const changes = event.pendingEditRequest.requestedChanges;
       const now = new Date();
 
+      // Detect key field changes before applying (compare original event vs proposed changes)
+      let editRequestChanges = null;
+      try {
+        const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
+        const detected = detectEventChanges(event, changes, { includeFields: KEY_FIELDS });
+        if (detected.length > 0) {
+          editRequestChanges = formatChangesForEmail(detected);
+        }
+      } catch (changeErr) {
+        // Non-blocking
+      }
+
       await testCollections.events.updateOne(query, {
         $set: {
           ...changes,
@@ -1857,6 +1887,21 @@ function createTestApp(options = {}) {
         newState: updatedEvent,
         changes,
       });
+
+      // Track edit request approved email notification
+      const requestedByEmail = event.pendingEditRequest.requestedBy?.email
+        || event.pendingEditRequest.requestedBy
+        || event.roomReservationData?.requestedBy?.email;
+      if (requestedByEmail) {
+        const cd = event.calendarData || {};
+        sentEmailNotifications.push({
+          type: 'edit_request_approved',
+          to: requestedByEmail,
+          eventTitle: changes.eventTitle || cd.eventTitle || event.eventTitle,
+          changes: editRequestChanges || [],
+          eventId: String(event._id),
+        });
+      }
 
       res.json({
         success: true,
@@ -2088,9 +2133,60 @@ function createTestApp(options = {}) {
         }
       }
 
+      // Detect key field changes on published events for requester notification
+      let publishedEventChanges = null;
+      if (event.status === 'published') {
+        try {
+          const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
+          const changes = detectEventChanges(event, mongoUpdate, { includeFields: KEY_FIELDS });
+          if (changes.length > 0) {
+            publishedEventChanges = formatChangesForEmail(changes);
+          }
+        } catch (changeErr) {
+          // Non-blocking
+        }
+      }
+
+      // Merge approver edits into pending edit request's requestedChanges
+      if (event.status === 'published' && event.pendingEditRequest?.requestedChanges) {
+        const currentRequested = { ...(event.pendingEditRequest.requestedChanges || {}) };
+        const originalCount = Object.keys(currentRequested).length;
+
+        const approverModifiedLocations = mongoUpdate.locations !== undefined
+          || updates.requestedRooms !== undefined;
+
+        for (const field of Object.keys(currentRequested)) {
+          const approverTouched = mongoUpdate[field] !== undefined;
+          const isLocationField = ['locations', 'requestedRooms', 'locationDisplayNames'].includes(field);
+          if (approverTouched || (isLocationField && approverModifiedLocations)) {
+            delete currentRequested[field];
+          }
+        }
+
+        if (Object.keys(currentRequested).length < originalCount) {
+          mongoUpdate['pendingEditRequest.requestedChanges'] = currentRequested;
+        }
+      }
+
       await testCollections.events.updateOne(query, { $set: mongoUpdate });
 
       const updatedEvent = await testCollections.events.findOne(query);
+
+      // Send event updated notification for published events (track for test assertions)
+      if (publishedEventChanges && publishedEventChanges.length > 0) {
+        const requestedBy = event.roomReservationData?.requestedBy || {};
+        const recipientEmail = requestedBy.email;
+        if (recipientEmail) {
+          const cd = event.calendarData || {};
+          sentEmailNotifications.push({
+            type: 'event_updated',
+            to: recipientEmail,
+            eventTitle: mongoUpdate.eventTitle || cd.eventTitle || event.eventTitle,
+            changes: publishedEventChanges,
+            eventId: String(event._id),
+          });
+        }
+      }
 
       res.json({
         success: true,
@@ -2374,4 +2470,6 @@ module.exports = {
   getTestCollections,
   createTestAuthMiddleware,
   createAuditLog,
+  getSentEmailNotifications,
+  clearSentEmailNotifications,
 };

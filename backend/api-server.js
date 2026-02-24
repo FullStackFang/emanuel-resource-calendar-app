@@ -17821,18 +17821,18 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
       changesCount: Object.keys(proposedChanges).length
     });
 
-    // Prepare email data
+    // Prepare email data (fall back to calendarData for admin-created events that lack top-level fields)
     const editRequestForEmail = {
       _id: originalEvent._id,
       eventId: originalEvent.eventId,
-      eventTitle: proposedChanges.eventTitle || originalEvent.eventTitle,
-      startDateTime: proposedChanges.startDateTime || originalEvent.startDateTime,
-      endDateTime: proposedChanges.endDateTime || originalEvent.endDateTime,
+      eventTitle: proposedChanges.eventTitle || originalEvent.eventTitle || cd.eventTitle,
+      startDateTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
+      endDateTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
       requesterName,
       requesterEmail: userEmail,
-      startTime: proposedChanges.startDateTime || originalEvent.startDateTime,
-      endTime: proposedChanges.endDateTime || originalEvent.endDateTime,
-      locationDisplayNames: proposedChanges.locationDisplayNames || originalEvent.locationDisplayNames || locationDisplayName,
+      startTime: proposedChanges.startDateTime || originalEvent.startDateTime || cd.startDateTime,
+      endTime: proposedChanges.endDateTime || originalEvent.endDateTime || cd.endDateTime,
+      locationDisplayNames: proposedChanges.locationDisplayNames || originalEvent.locationDisplayNames || cd.locationDisplayNames || locationDisplayName,
       proposedChanges: changesArray
     };
 
@@ -18314,6 +18314,39 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       changesApplied: Object.keys(proposedChanges).length
     });
 
+    // Detect key field changes for the edit request approval email
+    let editRequestChanges = [];
+    try {
+      const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
+      const editChanges = detectEventChanges(event, proposedChanges, { includeFields: KEY_FIELDS });
+      if (editChanges.length > 0) {
+        let locationMap = {};
+        const locationsChanged = editChanges.some(c => c.field === 'locations');
+        if (locationsChanged) {
+          const allLocationIds = new Set();
+          for (const c of editChanges.filter(ch => ch.field === 'locations')) {
+            (Array.isArray(c.oldValue) ? c.oldValue : []).forEach(lid => allLocationIds.add(String(lid)));
+            (Array.isArray(c.newValue) ? c.newValue : []).forEach(lid => allLocationIds.add(String(lid)));
+          }
+          if (allLocationIds.size > 0) {
+            try {
+              const locationDocs = await locationsCollection.find({
+                _id: { $in: [...allLocationIds].map(lid => new ObjectId(lid)) }
+              }).toArray();
+              for (const loc of locationDocs) {
+                locationMap[String(loc._id)] = loc.name || loc.displayName || String(loc._id);
+              }
+            } catch (locErr) {
+              logger.warn('Could not resolve location names for edit request notification:', locErr.message);
+            }
+          }
+        }
+        editRequestChanges = formatChangesForEmail(editChanges, { locationMap });
+      }
+    } catch (changeErr) {
+      logger.warn('Failed to detect edit request changes (non-blocking):', changeErr.message);
+    }
+
     // Send edit request published notification email (non-blocking)
     try {
       const cd = event.calendarData || {};
@@ -18332,7 +18365,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
       const emailResult = await emailService.sendEditRequestApprovedNotification(
         editRequestForEmail,
-        notes || ''
+        notes || '',
+        editRequestChanges
       );
       logger.info('Edit request publish email sent', { correlationId: emailResult.correlationId });
     } catch (emailError) {
@@ -19215,6 +19249,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       _isNewUnifiedEvent: _isNew, // Frontend-only flag
       _isPreProcessed: _isPreProcessed, // Frontend-only flag
       changeKey: _changeKey, // Generated server-side
+      pendingEditRequest: _pendingEditRequest, // Managed by dedicated endpoints (request-edit, publish-edit, reject-edit)
       ...safeUpdates
     } = updates;
 
@@ -19449,6 +19484,80 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // Detect key field changes on published events for requester notification.
+    // Only title, date/time, and location fields trigger an email.
+    let publishedEventChanges = null;
+    if (event.status === 'published') {
+      try {
+        const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
+        const changes = detectEventChanges(event, updateOperations, { includeFields: KEY_FIELDS });
+        if (changes.length > 0) {
+          let locationMap = {};
+          const locationsChanged = changes.some(c => c.field === 'locations');
+          if (locationsChanged) {
+            const allLocationIds = new Set();
+            for (const c of changes.filter(ch => ch.field === 'locations')) {
+              (Array.isArray(c.oldValue) ? c.oldValue : []).forEach(lid => allLocationIds.add(String(lid)));
+              (Array.isArray(c.newValue) ? c.newValue : []).forEach(lid => allLocationIds.add(String(lid)));
+            }
+            if (allLocationIds.size > 0) {
+              try {
+                const locationDocs = await locationsCollection.find({
+                  _id: { $in: [...allLocationIds].map(lid => new ObjectId(lid)) }
+                }).toArray();
+                for (const loc of locationDocs) {
+                  locationMap[String(loc._id)] = loc.name || loc.displayName || String(loc._id);
+                }
+              } catch (locErr) {
+                logger.warn('Could not resolve location names for update notification:', locErr.message);
+              }
+            }
+          }
+          publishedEventChanges = formatChangesForEmail(changes, { locationMap });
+          logger.info('Detected key field changes on published event:', {
+            eventId: id,
+            changeCount: changes.length,
+            fields: changes.map(c => c.field)
+          });
+        }
+      } catch (changeErr) {
+        logger.warn('Failed to detect published event changes (non-blocking):', changeErr.message);
+      }
+    }
+
+    // Merge approver edits into pending edit request's proposedChanges.
+    // Remove fields the approver has addressed so publish-edit won't revert them.
+    if (event.status === 'published' && event.pendingEditRequest?.status === 'pending') {
+      try {
+        const currentProposed = { ...(event.pendingEditRequest.proposedChanges || {}) };
+        const originalCount = Object.keys(currentProposed).length;
+
+        const approverModifiedLocations = updateOperations.locations !== undefined
+          || updateOperations.requestedRooms !== undefined;
+
+        for (const field of Object.keys(currentProposed)) {
+          const approverTouched = updateOperations[field] !== undefined;
+          const isLocationField = ['locations', 'requestedRooms', 'locationDisplayNames'].includes(field);
+          if (approverTouched || (isLocationField && approverModifiedLocations)) {
+            delete currentProposed[field];
+          }
+        }
+
+        if (Object.keys(currentProposed).length < originalCount) {
+          // Remove whole-object key to avoid MongoDB ConflictingUpdateOperators
+          delete finalUpdateOperations.pendingEditRequest;
+          finalUpdateOperations['pendingEditRequest.proposedChanges'] = currentProposed;
+          logger.info('Updated pendingEditRequest.proposedChanges after approver edit:', {
+            eventId: id,
+            removedCount: originalCount - Object.keys(currentProposed).length,
+            remainingFields: Object.keys(currentProposed),
+          });
+        }
+      } catch (mergeErr) {
+        logger.warn('Failed to merge approver edits into proposedChanges (non-blocking):', mergeErr.message);
+      }
+    }
+
     // Atomically update with version guard
     let updatedEventDoc;
     try {
@@ -19479,6 +19588,55 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       mongoId: id,
       updatedBy: userEmail
     });
+
+    // Send event updated notification for published events with key field changes (non-blocking)
+    if (publishedEventChanges && publishedEventChanges.length > 0) {
+      try {
+        const cd = event.calendarData || {};
+        const requestedBy = event.roomReservationData?.requestedBy || {};
+        // Use the NEW values (from updateOperations) for the email details, falling back to existing
+        let emailLocationNames = updateOperations.locationDisplayNames || cd.locationDisplayNames;
+        if (!emailLocationNames && (updateOperations.locations || cd.locations)) {
+          try {
+            emailLocationNames = await calculateLocationDisplayNames(updateOperations.locations || cd.locations, db);
+          } catch (err) {
+            logger.warn('Could not resolve location names for update email:', err.message);
+          }
+        }
+        const reservationForEmail = {
+          _id: event._id,
+          eventTitle: updateOperations.eventTitle || cd.eventTitle || event.eventTitle,
+          requesterName: requestedBy.name,
+          requesterEmail: requestedBy.email,
+          contactEmail: event.roomReservationData?.contactPerson?.email,
+          startDateTime: updateOperations.startDateTime || cd.startDateTime || event.startDateTime,
+          endDateTime: updateOperations.endDateTime || cd.endDateTime || event.endDateTime,
+          locationDisplayNames: emailLocationNames
+            ? (Array.isArray(emailLocationNames) ? emailLocationNames : [emailLocationNames])
+            : [],
+          roomReservationData: event.roomReservationData
+        };
+
+        const emailResult = await emailService.sendEventUpdatedNotification(reservationForEmail, publishedEventChanges);
+        logger.info('Event updated notification email sent', {
+          eventId: event.eventId,
+          correlationId: emailResult.correlationId,
+          skipped: emailResult.skipped
+        });
+
+        // Record in communication history
+        await emailService.recordEmailInHistory(
+          unifiedEventsCollection,
+          event._id,
+          emailResult,
+          'event_updated_notification',
+          [reservationForEmail.requesterEmail],
+          `Event Updated: ${reservationForEmail.eventTitle}`
+        );
+      } catch (emailErr) {
+        logger.warn('Failed to send event updated notification (non-blocking):', emailErr.message);
+      }
+    }
 
     res.json({
       success: true,

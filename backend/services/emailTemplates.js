@@ -33,6 +33,8 @@ const TEMPLATE_IDS = {
   ADMIN_EDIT_REQUEST_ALERT: 'admin-edit-request-alert',
   EDIT_REQUEST_APPROVED: 'edit-request-approved',
   EDIT_REQUEST_REJECTED: 'edit-request-rejected',
+  // Event update notification
+  EVENT_UPDATED: 'event-updated',
   // Error notification templates
   ERROR_NOTIFICATION: 'error-notification',
   USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
@@ -492,6 +494,16 @@ const DEFAULT_TEMPLATES = {
   </table>
 </div>
 
+{{#reviewChanges}}
+<div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Changes Applied:</h4>
+  <p style="margin: 0 0 10px 0; color: #4a5568; font-size: 14px; font-style: italic;">
+    The following changes were made to your event. The details above reflect the final values.
+  </p>
+  {{changesTable}}
+</div>
+{{/reviewChanges}}
+
 {{#adminNotes}}
 <div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
   <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from Admin:</h4>
@@ -506,7 +518,7 @@ const DEFAULT_TEMPLATES = {
 <p style="color: #718096; font-size: 14px; margin-top: 30px;">
   Thank you for using Temple Emanuel's reservation system.
 </p>`,
-    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes']
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
   },
 
   [TEMPLATE_IDS.EDIT_REQUEST_REJECTED]: {
@@ -561,6 +573,70 @@ const DEFAULT_TEMPLATES = {
   Thank you for your understanding.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+  },
+
+  // =========================================================================
+  // EVENT UPDATE NOTIFICATION TEMPLATE
+  // =========================================================================
+
+  [TEMPLATE_IDS.EVENT_UPDATED]: {
+    id: TEMPLATE_IDS.EVENT_UPDATED,
+    name: 'Event Updated Notification',
+    description: 'Sent to requester when an admin directly edits their published event',
+    subject: 'Event Updated: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #2b6cb0;">
+  <span style="background-color: #bee3f8; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">UPDATED</span>
+  Your Event Has Been Updated
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  An administrator has updated the following details for your event. Please review the changes below.
+</p>
+
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Updated Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+{{#reviewChanges}}
+<div style="background-color: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Changes Made:</h4>
+  {{changesTable}}
+</div>
+{{/reviewChanges}}
+
+{{#adminNotes}}
+<div style="background-color: #f7fafc; border-left: 4px solid #718096; padding: 15px 20px; margin: 20px 0;">
+  <h4 style="margin: 0 0 10px 0; color: #2d3748;">Notes from Admin:</h4>
+  <p style="margin: 0; color: #4a5568;">{{adminNotes}}</p>
+</div>
+{{/adminNotes}}
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  If you have any questions about these changes, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for using Temple Emanuel's reservation system.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations', 'adminNotes', 'reviewChanges', 'changesTable']
   },
 
   // =========================================================================
@@ -1050,6 +1126,23 @@ async function generateReviewStartedNotification(reservation) {
   return generateFromTemplate(TEMPLATE_IDS.REVIEW_STARTED, variables);
 }
 
+/**
+ * Generate event updated notification email
+ * Sent to requester when an admin directly edits a published event
+ */
+async function generateEventUpdatedNotification(reservation, reviewChanges = []) {
+  const extras = {};
+
+  // Build review changes HTML table if there are changes
+  if (reviewChanges && reviewChanges.length > 0) {
+    extras.reviewChanges = 'true'; // Truthy string to enable conditional block
+    extras.changesTable = buildChangesTableHtml(reviewChanges);
+  }
+
+  const variables = extractVariables(reservation, extras);
+  return generateFromTemplate(TEMPLATE_IDS.EVENT_UPDATED, variables);
+}
+
 // =============================================================================
 // EDIT REQUEST GENERATOR FUNCTIONS
 // =============================================================================
@@ -1078,10 +1171,18 @@ async function generateAdminEditRequestAlert(editRequest, changeReason = '', adm
 /**
  * Generate edit request approved notification email
  */
-async function generateEditRequestApprovedNotification(editRequest, adminNotes = '') {
-  const variables = extractVariables(editRequest, {
+async function generateEditRequestApprovedNotification(editRequest, adminNotes = '', reviewChanges = []) {
+  const extras = {
     adminNotes: adminNotes ? escapeHtml(adminNotes) : ''
-  });
+  };
+
+  // Build review changes HTML table if there are changes
+  if (reviewChanges && reviewChanges.length > 0) {
+    extras.reviewChanges = 'true'; // Truthy string to enable conditional block
+    extras.changesTable = buildChangesTableHtml(reviewChanges);
+  }
+
+  const variables = extractVariables(editRequest, extras);
   return generateFromTemplate(TEMPLATE_IDS.EDIT_REQUEST_APPROVED, variables);
 }
 
@@ -1227,6 +1328,7 @@ module.exports = {
   generateRejectionNotification,
   generateResubmissionConfirmation,
   generateReviewStartedNotification,
+  generateEventUpdatedNotification,
   generateFromTemplate,
 
   // Edit request generator functions
