@@ -19,7 +19,12 @@ const ROLES = {
 const DEPARTMENTS = {
   '': { name: 'None', description: 'No department-specific edit access' },
   security: { name: 'Security', description: 'Can edit door times on events' },
-  maintenance: { name: 'Maintenance', description: 'Can edit setup/teardown times' }
+  maintenance: { name: 'Maintenance', description: 'Can edit setup/teardown times' },
+  it: { name: 'IT', description: 'Information Technology' },
+  clergy: { name: 'Clergy', description: 'Clergy staff' },
+  membership: { name: 'Membership', description: 'Membership department' },
+  communications: { name: 'Communications', description: 'Communications department' },
+  streicker: { name: 'Streicker', description: 'Streicker Center' }
 };
 
 // Derive role from legacy fields for backward compatibility

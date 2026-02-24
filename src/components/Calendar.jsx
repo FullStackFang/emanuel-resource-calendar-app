@@ -455,19 +455,39 @@ import ConflictDialog from './shared/ConflictDialog';
       if (isOwner) return true;
 
       // Check department match (only for pending/rejected)
+      // Uses creator's user profile department, not event's stored fields
       if (['pending', 'rejected'].includes(item.status)) {
-        const eventDept = (
-          item.roomReservationData?.requestedBy?.department
-          || item.calendarData?.department
-          || item.department
-          || ''
-        ).toLowerCase().trim();
+        const ownerDept = (item.creatorDepartment || '').toLowerCase().trim();
         const myDept = (userDepartment || '').toLowerCase().trim();
-        if (eventDept && myDept && eventDept === myDept) return true;
+        if (myDept && ownerDept === myDept) return true;
       }
 
       return false;
     }, [canEditEvents, canApproveReservations, reviewModal.currentItem, currentUser?.email, userDepartment]);
+
+    // Whether the current user can request edits on the current published event (owner OR same department)
+    const canRequestEditThisEvent = useMemo(() => {
+      if (!reviewModal.currentItem || !currentUser?.email) return false;
+      const item = reviewModal.currentItem;
+
+      // Check ownership
+      const requesterEmail = (
+        item.roomReservationData?.requestedBy?.email
+        || item.createdByEmail
+        || ''
+      ).toLowerCase();
+      if (requesterEmail === currentUser.email.toLowerCase()) return true;
+
+      // Check department match — uses the creator's user profile department
+      // (enriched by backend as creatorDepartment), not the event's stored fields
+      const myDept = (userDepartment || '').toLowerCase().trim();
+      if (!myDept) return false;
+
+      const ownerDept = (item.creatorDepartment || '').toLowerCase().trim();
+      if (ownerDept === myDept) return true;
+
+      return false;
+    }, [reviewModal.currentItem, currentUser?.email, userDepartment]);
 
     // Whether the current user is a non-admin editor (owner or dept colleague)
     const isNonAdminEditor = canEditThisEvent && !canEditEvents && !canApproveReservations;
@@ -2963,7 +2983,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * - createdByEmail
      */
     const isEventOwner = useCallback((event) => {
-      if (!currentUser?.email) return false;
+      if (!event || !currentUser?.email) return false;
       const userEmail = currentUser.email.toLowerCase();
 
       const requesterEmail = (
@@ -6965,7 +6985,7 @@ import ConflictDialog from './shared/ConflictDialog';
           isSaveConfirming={reviewModal.pendingSaveConfirmation}
           onCancelSave={reviewModal.cancelSaveConfirmation}
           onRequestEdit={handleRequestEdit}
-          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest}
+          canRequestEdit={canSubmitReservation && !canEditEvents && !canApproveReservations && !isEditRequestMode && !isViewingEditRequest && canRequestEditThisEvent}
           // Existing edit request props (for viewing pending edit requests)
           existingEditRequest={existingEditRequest}
           isViewingEditRequest={isViewingEditRequest}

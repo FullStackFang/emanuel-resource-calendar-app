@@ -175,8 +175,13 @@ export default function ReviewModal({
     if (!status) return 'Unknown';
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
-  // Tab state
+  // Tab state - reset to 'details' whenever modal opens
   const [activeTab, setActiveTab] = useState('details');
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab('details');
+    }
+  }, [isOpen]);
 
   // Local confirmation state for buttons without external confirmation management.
   // Tracks which button is in "Confirm?" state: 'submitDraft' | 'pendingEdit' | 'publishedEdit' | 'editRequestModal' | null

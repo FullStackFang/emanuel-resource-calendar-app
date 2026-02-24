@@ -4420,9 +4420,35 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       });
     logger.debug(`Found ${events.length} displayable events for ${calendarOwner || userId}`);
 
+    // Batch lookup creator departments from user profiles
+    // Collect unique creator emails, then fetch their departments in one query
+    const creatorEmails = [...new Set(events
+      .map(e => (e.roomReservationData?.requestedBy?.email || e.createdByEmail || '').toLowerCase())
+      .filter(Boolean)
+    )];
+    const creatorDeptMap = {};
+    if (creatorEmails.length > 0) {
+      try {
+        const creators = await usersCollection.find(
+          { email: { $in: creatorEmails.map(e => new RegExp(`^${e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) } },
+          { projection: { email: 1, department: 1 } }
+        ).toArray();
+        for (const creator of creators) {
+          creatorDeptMap[creator.email.toLowerCase()] = creator.department || '';
+        }
+      } catch (err) {
+        logger.warn('Could not batch-lookup creator departments:', err.message);
+      }
+    }
+
     // Normalize events to ensure start/end are populated from calendarData
     // Frontend (Calendar.jsx) expects event.start.dateTime at top level
     const normalizedEvents = events.map(event => {
+      // Enrich with creator's department from user profile
+      const creatorEmail = (event.roomReservationData?.requestedBy?.email || event.createdByEmail || '').toLowerCase();
+      if (creatorEmail && creatorDeptMap[creatorEmail] !== undefined) {
+        event.creatorDepartment = creatorDeptMap[creatorEmail];
+      }
       // CRITICAL: Populate top-level start/end from calendarData
       // Frontend Calendar.jsx checks event.start.dateTime, not graphData.start.dateTime
       if (!event.start?.dateTime && event.calendarData?.startDateTime) {
@@ -12378,6 +12404,13 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
       locationDisplayNames = `${offsiteName} (Offsite)`;
     }
 
+    // Look up user's department from profile if not provided in form
+    let effectiveDepartment = department || '';
+    if (!effectiveDepartment) {
+      const userRecord = await findUserByIdentity(usersCollection, userId, userEmail);
+      effectiveDepartment = userRecord?.department || '';
+    }
+
     // Create draft event record in unified events collection with calendarData structure
     const draft = {
       // Event identification
@@ -12396,7 +12429,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
           userId: userId,
           name: req.user.name || userEmail,
           email: userEmail,
-          department: department || '',
+          department: effectiveDepartment,
           phone: phone || ''
         },
         contactPerson: isOnBehalfOf ? {
@@ -16670,6 +16703,13 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
     // Generate unique event ID
     const eventId = `evt-request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+    // Look up user's department from profile if not provided in form
+    let effectiveDepartment = department || '';
+    if (!effectiveDepartment) {
+      const userRecord = await findUserByIdentity(usersCollection, userId, userEmail);
+      effectiveDepartment = userRecord?.department || '';
+    }
+
     // Create event document with room reservation data
     const eventDoc = {
       eventId,
@@ -16695,7 +16735,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
           userId,
           name: requesterName || userEmail,
           email: requesterEmail || userEmail,
-          department: department || '',
+          department: effectiveDepartment,
           phone: phone || ''
         },
         contactPerson: isOnBehalfOf ? {
@@ -17531,9 +17571,41 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
                     originalEvent.roomReservationData?.requestedBy?.userId === userId ||
                     originalEvent.roomReservationData?.requestedBy?.email === userEmail;
 
+    // Check if user is in the same department as the event creator
+    let isSameDepartment = false;
     if (!isOwner) {
+      // Look up requesting user's department
+      const requestingUser = await findUserByIdentity(usersCollection, userId, userEmail);
+      const myDept = (requestingUser?.department || '').toLowerCase().trim();
+
+      if (myDept) {
+        // Check event's stored department first
+        const eventDept = (
+          originalEvent.roomReservationData?.requestedBy?.department ||
+          originalEvent.calendarData?.department ||
+          ''
+        ).toLowerCase().trim();
+
+        if (eventDept && eventDept === myDept) {
+          isSameDepartment = true;
+        } else {
+          // Event department may be empty — look up the creator's user record
+          const creatorUserId = originalEvent.roomReservationData?.requestedBy?.userId || originalEvent.createdBy;
+          const creatorEmail = originalEvent.roomReservationData?.requestedBy?.email || originalEvent.createdByEmail;
+          if (creatorUserId || creatorEmail) {
+            const creatorUser = await findUserByIdentity(usersCollection, creatorUserId, creatorEmail);
+            const creatorDept = (creatorUser?.department || '').toLowerCase().trim();
+            if (creatorDept && creatorDept === myDept) {
+              isSameDepartment = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (!isOwner && !isSameDepartment) {
       return res.status(403).json({
-        error: 'Only the original event owner can request edits'
+        error: 'Only the event owner or users in the same department can request edits'
       });
     }
 
