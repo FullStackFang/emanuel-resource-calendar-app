@@ -377,7 +377,7 @@ export default function MySettings({ apiToken }) {
 
             <div className="notification-section full-width">
               <div className="notification-section-title">My Reservations</div>
-              <div className="form-group full-width">
+              <div className="notification-toggle-item">
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -388,7 +388,7 @@ export default function MySettings({ apiToken }) {
                 </label>
                 <small>Receive a confirmation when you submit, resubmit, or request an edit.</small>
               </div>
-              <div className="form-group full-width">
+              <div className="notification-toggle-item">
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -399,7 +399,7 @@ export default function MySettings({ apiToken }) {
                 </label>
                 <small>Notified when your event is published, rejected, or under review.</small>
               </div>
-              <div className="form-group full-width">
+              <div className="notification-toggle-item">
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -415,7 +415,7 @@ export default function MySettings({ apiToken }) {
             {canApproveReservations && (
               <div className="notification-section full-width">
                 <div className="notification-section-title">Review Queue</div>
-                <div className="form-group full-width">
+                <div className="notification-toggle-item">
                   <label className="toggle-label">
                     <input
                       type="checkbox"
@@ -426,7 +426,7 @@ export default function MySettings({ apiToken }) {
                   </label>
                   <small>Receive an alert when a reservation is submitted or resubmitted.</small>
                 </div>
-                <div className="form-group full-width">
+                <div className="notification-toggle-item">
                   <label className="toggle-label">
                     <input
                       type="checkbox"
