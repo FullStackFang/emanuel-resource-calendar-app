@@ -1925,15 +1925,19 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'No pending edit request for this event' });
       }
 
-      // Apply the requested changes
-      const changes = event.pendingEditRequest.requestedChanges;
+      // Apply the requested changes, merging with any approver overrides
+      const { approverChanges } = req.body;
+      const proposedChanges = event.pendingEditRequest.requestedChanges;
+      const finalChanges = approverChanges
+        ? { ...proposedChanges, ...approverChanges }
+        : proposedChanges;
       const now = new Date();
 
-      // Detect key field changes before applying (compare original event vs proposed changes)
+      // Detect key field changes before applying (compare original event vs final changes)
       let editRequestChanges = null;
       try {
         const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
-        const detected = detectEventChanges(event, changes, { includeFields: KEY_FIELDS });
+        const detected = detectEventChanges(event, finalChanges, { includeFields: KEY_FIELDS });
         if (detected.length > 0) {
           editRequestChanges = formatChangesForEmail(detected);
         }
@@ -1943,7 +1947,7 @@ function createTestApp(options = {}) {
 
       await testCollections.events.updateOne(query, {
         $set: {
-          ...changes,
+          ...finalChanges,
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
         },
@@ -1962,7 +1966,13 @@ function createTestApp(options = {}) {
         performedByEmail: userEmail,
         previousState: event,
         newState: updatedEvent,
-        changes,
+        changes: finalChanges,
+        ...(approverChanges && {
+          metadata: {
+            approverChanges,
+            originalProposedChanges: proposedChanges,
+          },
+        }),
       });
 
       // Track edit request approved email notification
@@ -1974,7 +1984,7 @@ function createTestApp(options = {}) {
         sentEmailNotifications.push({
           type: 'edit_request_approved',
           to: requestedByEmail,
-          eventTitle: changes.eventTitle || cd.eventTitle || event.eventTitle,
+          eventTitle: finalChanges.eventTitle || cd.eventTitle || event.eventTitle,
           changes: editRequestChanges || [],
           eventId: String(event._id),
         });

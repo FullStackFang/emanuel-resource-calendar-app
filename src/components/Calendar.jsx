@@ -16,6 +16,7 @@
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure } from '../utils/eventTransformers';
+  import { computeApproverChanges } from '../utils/editRequestUtils';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
   import './DayEventPanel.css';
@@ -5307,6 +5308,9 @@ import ConflictDialog from './shared/ConflictDialog';
         setIsApprovingEditRequest(true);
         const eventId = currentItem._id || currentItem.eventId;
 
+        // Compute approver's modifications (compares current form state against original published event)
+        const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
+
         const response = await fetch(
           `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
           {
@@ -5317,7 +5321,8 @@ import ConflictDialog from './shared/ConflictDialog';
             },
             body: JSON.stringify({
               notes: '',
-              graphToken
+              graphToken,
+              ...(approverChanges && { approverChanges })
             })
           }
         );

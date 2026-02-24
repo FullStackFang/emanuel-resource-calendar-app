@@ -18214,7 +18214,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { notes, graphToken, _version } = req.body;
+    const { notes, graphToken, _version, approverChanges } = req.body;
 
     // Get the event with pending edit request
     let event;
@@ -18243,9 +18243,14 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const pendingEditRequest = event.pendingEditRequest;
     const proposedChanges = pendingEditRequest.proposedChanges;
 
+    // Merge approver changes with proposed changes (approver overrides take precedence)
+    const finalChanges = approverChanges
+      ? { ...proposedChanges, ...approverChanges }
+      : proposedChanges;
+
     // Concurrent modification check is now handled atomically via _version
 
-    // Build update object - apply proposed changes to calendarData
+    // Build update object - apply final changes to calendarData
     const updateFields = {};
 
     // Fields that belong in calendarData (not top-level)
@@ -18266,8 +18271,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes'
     ];
 
-    // Apply all proposed changes to the event (writing to calendarData for calendar fields)
-    for (const [field, value] of Object.entries(proposedChanges)) {
+    // Apply all final changes to the event (writing to calendarData for calendar fields)
+    for (const [field, value] of Object.entries(finalChanges)) {
       // Write calendar fields to calendarData, other fields to top level
       if (CALENDAR_DATA_FIELDS.includes(field)) {
         updateFields[`calendarData.${field}`] = value;
@@ -18348,32 +18353,32 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       try {
         const graphUpdate = {};
 
-        if (proposedChanges.eventTitle) {
-          graphUpdate.subject = proposedChanges.eventTitle;
+        if (finalChanges.eventTitle) {
+          graphUpdate.subject = finalChanges.eventTitle;
         }
-        if (proposedChanges.startDateTime) {
+        if (finalChanges.startDateTime) {
           graphUpdate.start = {
-            dateTime: proposedChanges.startDateTime.replace(/Z$/, ''),
+            dateTime: finalChanges.startDateTime.replace(/Z$/, ''),
             timeZone: 'America/New_York'
           };
         }
-        if (proposedChanges.endDateTime) {
+        if (finalChanges.endDateTime) {
           graphUpdate.end = {
-            dateTime: proposedChanges.endDateTime.replace(/Z$/, ''),
+            dateTime: finalChanges.endDateTime.replace(/Z$/, ''),
             timeZone: 'America/New_York'
           };
         }
-        if (proposedChanges.eventDescription) {
+        if (finalChanges.eventDescription) {
           graphUpdate.body = {
             contentType: 'HTML',
-            content: proposedChanges.eventDescription
+            content: finalChanges.eventDescription
           };
         }
-        if (proposedChanges.categories) {
-          graphUpdate.categories = proposedChanges.categories;
+        if (finalChanges.categories) {
+          graphUpdate.categories = finalChanges.categories;
         }
-        if (proposedChanges.locationDisplayNames) {
-          graphUpdate.location = { displayName: proposedChanges.locationDisplayNames };
+        if (finalChanges.locationDisplayNames) {
+          graphUpdate.location = { displayName: finalChanges.locationDisplayNames };
         }
 
         if (Object.keys(graphUpdate).length > 0) {
@@ -18409,7 +18414,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     // Build changes array for audit log (read originals from calendarData)
     const changesArray = [];
     const cd = event.calendarData || {};
-    for (const [field, newValue] of Object.entries(proposedChanges)) {
+    for (const [field, newValue] of Object.entries(finalChanges)) {
       changesArray.push({
         field,
         oldValue: cd[field] || '',
@@ -18429,7 +18434,9 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       metadata: {
         editRequestId: pendingEditRequest.id,
         requestedBy: pendingEditRequest.requestedBy?.email,
-        approvalNotes: notes || ''
+        approvalNotes: notes || '',
+        ...(approverChanges && { approverChanges }),
+        ...(approverChanges && { originalProposedChanges: proposedChanges })
       }
     });
 
@@ -18437,14 +18444,15 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       eventId: event.eventId,
       editRequestId: pendingEditRequest.id,
       publishedBy: userEmail,
-      changesApplied: Object.keys(proposedChanges).length
+      changesApplied: Object.keys(finalChanges).length,
+      approverModified: !!approverChanges
     });
 
     // Detect key field changes for the edit request approval email
     let editRequestChanges = [];
     try {
       const KEY_FIELDS = ['eventTitle', 'startDateTime', 'endDateTime', 'locations', 'locationDisplayNames'];
-      const editChanges = detectEventChanges(event, proposedChanges, { includeFields: KEY_FIELDS });
+      const editChanges = detectEventChanges(event, finalChanges, { includeFields: KEY_FIELDS });
       if (editChanges.length > 0) {
         let locationMap = {};
         const locationsChanged = editChanges.some(c => c.field === 'locations');
@@ -18479,14 +18487,14 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       const editRequestForEmail = {
         _id: event._id,
         eventId: event.eventId,
-        eventTitle: proposedChanges.eventTitle || cd.eventTitle,
-        startDateTime: proposedChanges.startDateTime || cd.startDateTime,
-        endDateTime: proposedChanges.endDateTime || cd.endDateTime,
+        eventTitle: finalChanges.eventTitle || cd.eventTitle,
+        startDateTime: finalChanges.startDateTime || cd.startDateTime,
+        endDateTime: finalChanges.endDateTime || cd.endDateTime,
         requesterName: pendingEditRequest.requestedBy?.name,
         requesterEmail: pendingEditRequest.requestedBy?.email,
-        startTime: proposedChanges.startDateTime || cd.startDateTime,
-        endTime: proposedChanges.endDateTime || cd.endDateTime,
-        locationDisplayNames: proposedChanges.locationDisplayNames || cd.locationDisplayNames
+        startTime: finalChanges.startDateTime || cd.startDateTime,
+        endTime: finalChanges.endDateTime || cd.endDateTime,
+        locationDisplayNames: finalChanges.locationDisplayNames || cd.locationDisplayNames
       };
 
       const emailResult = await emailService.sendEditRequestApprovedNotification(
@@ -18504,7 +18512,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       message: 'Edit request published and changes applied',
       eventId: event.eventId,
       _version: publishedEditEvent._version,
-      changesApplied: proposedChanges
+      changesApplied: finalChanges
     });
 
   } catch (error) {

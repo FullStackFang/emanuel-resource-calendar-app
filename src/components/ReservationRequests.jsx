@@ -8,6 +8,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { computeApproverChanges } from '../utils/editRequestUtils';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
@@ -294,7 +295,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setApprovingEditRequest(true);
 
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/approve-edit`,
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${selectedEditRequest._id}/publish-edit`,
         {
           method: 'PUT',
           headers: {
@@ -303,7 +304,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           },
           body: JSON.stringify({
             notes,
-            graphToken // Pass Graph token for calendar update
+            graphToken
           })
         }
       );
@@ -512,15 +513,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsApprovingEditRequestInModal(true);
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Compute approver's modifications (compares current form state against original published event)
+      const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
+
       const response = await fetch(
-        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/approve-edit`,
+        `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
         {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`
           },
-          body: JSON.stringify({ notes: '', graphToken })
+          body: JSON.stringify({ notes: '', graphToken, ...(approverChanges && { approverChanges }) })
         }
       );
 
@@ -543,7 +547,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setIsApprovingEditRequestInModal(false);
       setIsEditRequestApproveConfirming(false);
     }
-  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, apiToken, graphToken, loadReservations, showSuccess, showError]);
+  }, [isEditRequestApproveConfirming, reviewModal, existingEditRequest, originalEventData, apiToken, graphToken, loadReservations, showSuccess, showError]);
 
   // Reject edit request from within ReviewModal (admin only)
   const handleRejectEditRequestInModal = useCallback(async () => {

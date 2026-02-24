@@ -1073,14 +1073,15 @@ export default function RoomReservationFormBase({
 
   // Determine if fields should be disabled
   // In edit request mode, allow editing even if readOnly is true (for requesters to propose changes)
-  // In viewing edit request mode, keep fields disabled (read-only view of proposed changes)
+  // In viewing edit request mode, keep fields disabled UNLESS user is admin/approver (they can modify proposed changes)
   // Admins and users with canEditEvents permission can edit published/rejected events
-  const fieldsDisabled = isViewingEditRequest || (readOnly && !isEditRequestMode) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft' && reservationStatus !== 'rejected');
+  const isApproverViewingEditRequest = isViewingEditRequest && (isAdmin || canEditEvents);
+  const fieldsDisabled = (isViewingEditRequest && !isAdmin && !canEditEvents) || (readOnly && !isEditRequestMode && !isApproverViewingEditRequest) || (!isAdmin && !canEditEvents && !isEditRequestMode && reservationStatus && reservationStatus !== 'pending' && reservationStatus !== 'draft' && reservationStatus !== 'rejected');
 
   // For Internal Notes fields: department users (Security/Maintenance) can edit their fields
-  // even on published events. Only respect isViewingEditRequest - readOnly doesn't apply
+  // even on published events. Only respect isViewingEditRequest for non-admin/non-approver users.
   // because department-based editing is a special override for these specific fields.
-  const internalNotesBaseDisabled = isViewingEditRequest;
+  const internalNotesBaseDisabled = isViewingEditRequest && !isAdmin && !canEditEvents;
 
   // Whether to show diff highlighting (both edit request mode and viewing edit request)
   const showDiffMode = isEditRequestMode || isViewingEditRequest;

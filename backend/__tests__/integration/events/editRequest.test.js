@@ -343,4 +343,120 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       expect(res.body.error).toMatch(/only.*published/i);
     });
   });
+
+  describe('Approver changes on edit requests', () => {
+    it('should merge approver changes with proposed changes', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Original Title',
+        eventDescription: 'Original description',
+        requestedChanges: {
+          eventTitle: 'Requester Title',
+          eventDescription: 'Requester description',
+        },
+        editReason: 'Need to update',
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({
+          approverChanges: {
+            eventTitle: 'Approver Title',
+          },
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      // Approver's title override should take effect
+      expect(res.body.event.eventTitle).toBe('Approver Title');
+      // Requester's description change should still be applied
+      expect(res.body.event.eventDescription).toBe('Requester description');
+    });
+
+    it('should work without approver changes (backward compatible)', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Original Title',
+        requestedChanges: {
+          eventTitle: 'Requester Title',
+        },
+        editReason: 'Need to update',
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.eventTitle).toBe('Requester Title');
+    });
+
+    it('should allow approver to add fields not in original request', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Original Title',
+        requestedChanges: {
+          eventTitle: 'Requester Title',
+        },
+        editReason: 'Need to update',
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({
+          approverChanges: {
+            eventDescription: 'Approver added description',
+          },
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      // Requester's title change should still apply
+      expect(res.body.event.eventTitle).toBe('Requester Title');
+      // Approver's additional field should apply
+      expect(res.body.event.eventDescription).toBe('Approver added description');
+    });
+
+    it('should record approver changes in audit log', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Original Title',
+        requestedChanges: {
+          eventTitle: 'Requester Title',
+        },
+        editReason: 'Need to update',
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      await request(app)
+        .put(`/api/admin/events/${savedEvent._id}/publish-edit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .send({
+          approverChanges: {
+            eventTitle: 'Approver Title',
+          },
+        })
+        .expect(200);
+
+      const audit = await db.collection(COLLECTIONS.AUDIT_HISTORY).findOne({
+        eventId: savedEvent.eventId,
+        action: 'edit_approved',
+      });
+
+      expect(audit).toBeTruthy();
+      expect(audit.metadata).toBeDefined();
+      expect(audit.metadata.approverChanges).toEqual({ eventTitle: 'Approver Title' });
+      expect(audit.metadata.originalProposedChanges).toEqual({ eventTitle: 'Requester Title' });
+    });
+  });
 });

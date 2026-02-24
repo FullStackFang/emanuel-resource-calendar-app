@@ -7,6 +7,7 @@ import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
+import { computeApproverChanges } from '../utils/editRequestUtils';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
@@ -238,6 +239,9 @@ export default function MyReservations({ apiToken }) {
       setIsApprovingEditRequest(true);
       const eventId = currentItem._id || currentItem.eventId;
 
+      // Compute approver's modifications (compares current form state against original published event)
+      const approverChanges = computeApproverChanges(reviewModal.editableData, originalEventData);
+
       const response = await fetch(
         `${APP_CONFIG.API_BASE_URL}/admin/events/${eventId}/publish-edit`,
         {
@@ -246,7 +250,7 @@ export default function MyReservations({ apiToken }) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`
           },
-          body: JSON.stringify({ notes: '' })
+          body: JSON.stringify({ notes: '', ...(approverChanges && { approverChanges }) })
         }
       );
 
