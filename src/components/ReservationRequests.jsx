@@ -27,6 +27,11 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
+  // Search & date filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
   const [createCalendarEvent, setCreateCalendarEvent] = useState(true);
@@ -161,46 +166,75 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
   usePolling(silentRefresh, 60_000, !!apiToken);
 
-  // Client-side filtering based on active tab
+  // Stage 1: Apply search + date filters against all reservations
+  const searchFiltered = useMemo(() => {
+    let results = allReservations;
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      results = results.filter(r =>
+        (r.eventTitle || '').toLowerCase().includes(term) ||
+        (r.requesterName || '').toLowerCase().includes(term) ||
+        (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
+        (r.department || '').toLowerCase().includes(term) ||
+        (r.roomReservationData?.requestedBy?.department || '').toLowerCase().includes(term) ||
+        (r.locationDisplayNames || '').toLowerCase().includes(term) ||
+        (r.eventDescription || '').toLowerCase().includes(term)
+      );
+    }
+
+    if (dateFrom) {
+      results = results.filter(r => r.startDate >= dateFrom);
+    }
+    if (dateTo) {
+      results = results.filter(r => r.startDate <= dateTo);
+    }
+
+    return results;
+  }, [allReservations, searchTerm, dateFrom, dateTo]);
+
+  // Stage 2: Apply tab status filter
   const filteredReservations = useMemo(() => {
     if (activeTab === 'all') {
-      return allReservations;
+      return searchFiltered;
     }
     if (activeTab === 'pending') {
-      return allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
+      return searchFiltered.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
     }
     if (activeTab === 'published') {
-      return allReservations.filter(r =>
+      return searchFiltered.filter(r =>
         r.status === 'published' &&
         (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
       );
     }
     if (activeTab === 'published_edit') {
-      return allReservations.filter(r =>
+      return searchFiltered.filter(r =>
         r.status === 'published' &&
         r.pendingEditRequest?.status === 'pending'
       );
     }
     if (activeTab === 'rejected') {
-      return allReservations.filter(r => r.status === 'rejected');
+      return searchFiltered.filter(r => r.status === 'rejected');
     }
-    return allReservations.filter(r => r.status === activeTab);
-  }, [allReservations, activeTab]);
+    return searchFiltered.filter(r => r.status === activeTab);
+  }, [searchFiltered, activeTab]);
 
-  // Compute tab counts client-side
+  // Compute tab counts from search-filtered results (counts reflect active search/date filters)
   const statusCounts = useMemo(() => ({
-    all: allReservations.length,
-    pending: allReservations.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
-    published: allReservations.filter(r =>
+    all: searchFiltered.length,
+    pending: searchFiltered.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
+    published: searchFiltered.filter(r =>
       r.status === 'published' &&
       (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
     ).length,
-    published_edit: allReservations.filter(r =>
+    published_edit: searchFiltered.filter(r =>
       r.status === 'published' &&
       r.pendingEditRequest?.status === 'pending'
     ).length,
-    rejected: allReservations.filter(r => r.status === 'rejected').length,
-  }), [allReservations]);
+    rejected: searchFiltered.filter(r => r.status === 'rejected').length,
+  }), [searchFiltered]);
+
+  const hasActiveFilters = searchTerm || dateFrom || dateTo;
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -267,6 +301,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Handle page changes - no API call, pagination is client-side
   const handlePageChange = useCallback((newPage) => {
     setPage(newPage);
+  }, []);
+
+  // Reset to page 1 when search/date filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, dateFrom, dateTo]);
+
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    setDateFrom('');
+    setDateTo('');
   }, []);
 
   // =========================================================================
@@ -782,6 +827,51 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         </div>
       </div>
 
+      {/* Search & Date Filters */}
+      <div className="rr-filter-bar">
+        <div className="rr-search-container">
+          <svg className="rr-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            className="rr-search-input"
+            placeholder="Search by title, requester, room, or description..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button className="rr-search-clear" onClick={() => setSearchTerm('')} title="Clear search">
+              &times;
+            </button>
+          )}
+        </div>
+        <div className="rr-filter-divider" />
+        <div className="rr-date-filters">
+          <label>From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+          <label>To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        {hasActiveFilters && (
+          <>
+            <button className="rr-clear-filters" onClick={clearFilters}>Clear</button>
+            <span className="rr-filter-results">
+              Showing {filteredReservations.length} of {allReservations.length}
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Reservations List */}
       <div className="rr-reservations-list">
         {paginatedReservations.map(reservation => {
@@ -889,11 +979,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         {paginatedReservations.length === 0 && !loading && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
-              {activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : '📁'}
+              {hasActiveFilters ? '🔍' : activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : '📁'}
             </div>
-            <h3>No {activeTab === 'all' ? '' : activeTab} requests</h3>
+            <h3>{hasActiveFilters ? 'No matching requests' : `No ${activeTab === 'all' ? '' : activeTab} requests`}</h3>
             <p>
-              {activeTab === 'pending'
+              {hasActiveFilters
+                ? 'Try adjusting your search or date filters.'
+                : activeTab === 'pending'
                 ? 'All caught up! No pending requests to review.'
                 : activeTab === 'published'
                 ? 'No published reservations yet.'

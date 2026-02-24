@@ -376,6 +376,150 @@
 }
 
 /* ==========================================================================
+   FILTER BAR - Search & Date Filters
+   ========================================================================== */
+
+.rr-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.rr-search-container {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.rr-search-icon {
+  position: absolute;
+  left: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.rr-search-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-8) var(--space-3) var(--space-10);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--bg-primary);
+  transition: var(--transition-all);
+  box-sizing: border-box;
+}
+
+.rr-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.rr-search-input:hover {
+  border-color: var(--border-strong);
+}
+
+.rr-search-input:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.rr-search-clear {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: var(--text-lg);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  line-height: 1;
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+}
+
+.rr-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--color-neutral-100);
+}
+
+.rr-filter-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border-default);
+  flex-shrink: 0;
+}
+
+.rr-date-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.rr-date-filters label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rr-date-filters input[type="date"] {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  transition: var(--transition-all);
+  color: var(--text-primary);
+}
+
+.rr-date-filters input[type="date"]:hover {
+  border-color: var(--border-strong);
+}
+
+.rr-date-filters input[type="date"]:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
+.rr-clear-filters {
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-primary-500);
+  cursor: pointer;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  transition: var(--transition-all);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rr-clear-filters:hover {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.rr-filter-results {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
    RESERVATIONS LIST - Card Layout
    ========================================================================== */
 
@@ -712,6 +856,49 @@
   font-size: var(--text-sm);
   color: var(--text-tertiary);
   margin: 0;
+}
+
+/* ==========================================================================
+   RESPONSIVE - Filter Bar
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .rr-filter-bar {
+    flex-wrap: wrap;
+  }
+
+  .rr-search-container {
+    flex: 1 1 100%;
+  }
+
+  .rr-filter-divider {
+    display: none;
+  }
+
+  .rr-date-filters {
+    flex: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .rr-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .rr-date-filters {
+    flex-wrap: wrap;
+  }
+
+  .rr-date-filters input[type="date"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rr-filter-results {
+    text-align: center;
+  }
 }
 
 /* ==========================================================================
