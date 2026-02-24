@@ -18,59 +18,40 @@ export default function Navigation({ apiToken }) {
   const location = useLocation();
   const dropdownRef = useRef(null);
 
-  // Fetch pending reservations count (My Reservations badge)
-  const fetchPendingCount = useCallback(async () => {
+  // Fetch all badge counts sequentially to avoid Cosmos DB rate limiting
+  const fetchBadgeCounts = useCallback(async () => {
+    if (!apiToken) return;
     try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=my-events`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPendingCount(data.pending || 0);
+      if (canSubmitReservation) {
+        const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=my-events`, {
+          headers: { 'Authorization': `Bearer ${apiToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setPendingCount(data.pending || 0);
+        }
+      }
+      if (canApproveReservations) {
+        const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`, {
+          headers: { 'Authorization': `Bearer ${apiToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setApprovalCount((data.pending || 0) + (data.published_edit || 0));
+        }
       }
     } catch (err) {
-      // Silently fail - badge just won't show
+      // Silently fail - badges just won't show
     }
-  }, [apiToken]);
+  }, [apiToken, canSubmitReservation, canApproveReservations]);
 
-  // Fetch approval queue count (Approval Queue badge)
-  const fetchApprovalCount = useCallback(async () => {
-    try {
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`, {
-        headers: { 'Authorization': `Bearer ${apiToken}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        // Items needing action: pending requests + published events with pending edit requests
-        setApprovalCount((data.pending || 0) + (data.published_edit || 0));
-      }
-    } catch (err) {
-      // Silently fail - badge just won't show
-    }
-  }, [apiToken]);
-
-  // Initial fetch on mount
+  // Fetch on mount + when permissions resolve + on navigation
   useEffect(() => {
-    if (apiToken && canSubmitReservation) fetchPendingCount();
-  }, [apiToken, canSubmitReservation, fetchPendingCount]);
+    fetchBadgeCounts();
+  }, [fetchBadgeCounts, location.pathname]);
 
-  useEffect(() => {
-    if (apiToken && canApproveReservations) fetchApprovalCount();
-  }, [apiToken, canApproveReservations, fetchApprovalCount]);
-
-  // Refresh counts on navigation (user may have taken action)
-  useEffect(() => {
-    if (apiToken && canSubmitReservation && !location.pathname.includes('my-reservations')) {
-      fetchPendingCount();
-    }
-    if (apiToken && canApproveReservations && !location.pathname.includes('reservation-requests')) {
-      fetchApprovalCount();
-    }
-  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Poll both badges every 60s
-  usePolling(fetchPendingCount, 60_000, !!apiToken && canSubmitReservation);
-  usePolling(fetchApprovalCount, 60_000, !!apiToken && canApproveReservations);
+  // Poll badges every 2 min
+  usePolling(fetchBadgeCounts, 120_000, !!apiToken && (canSubmitReservation || canApproveReservations));
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {

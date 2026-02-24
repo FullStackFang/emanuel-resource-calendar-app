@@ -5647,63 +5647,68 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     }
 
     if (view === 'my-events') {
-      // Counts for user's own reservations - always scoped to logged-in user
-      const baseQuery = {
-        roomReservationData: { $exists: true, $ne: null },
-        'roomReservationData.requestedBy.email': userEmail,
-      };
+      // Single aggregation instead of 7 parallel countDocuments (avoids Cosmos DB rate limits)
+      const pipeline = [
+        { $match: { roomReservationData: { $exists: true, $ne: null }, 'roomReservationData.requestedBy.email': userEmail } },
+        { $group: {
+          _id: null,
+          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
+          published: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'published'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'rejected'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          cancelled: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'cancelled'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          draft: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'draft'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          deleted: { $sum: { $cond: [{ $or: [{ $eq: ['$status', 'deleted'] }, { $eq: ['$isDeleted', true] }] }, 1, 0] } }
+        }}
+      ];
 
-      const [all, pending, published, rejected, cancelled, draft, deleted] = await Promise.all([
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $nin: ['deleted'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'cancelled' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'draft' }),
-        unifiedEventsCollection.countDocuments({
-          'roomReservationData.requestedBy.email': userEmail,
-          roomReservationData: { $exists: true, $ne: null },
-          $or: [{ status: 'deleted' }, { isDeleted: true }]
-        })
-      ]);
-
-      res.json({ all, pending, published, rejected, cancelled, draft, deleted });
+      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
+      const counts = result || { pending: 0, published: 0, rejected: 0, cancelled: 0, draft: 0, deleted: 0 };
+      const all = counts.pending + counts.published + counts.rejected + counts.cancelled + counts.draft;
+      res.json({ all, ...counts });
 
     } else if (view === 'approval-queue') {
-      const baseQuery = {
-        isDeleted: { $ne: true },
-        roomReservationData: { $exists: true, $ne: null },
-        status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] }
-      };
+      // Single aggregation instead of 5 parallel countDocuments
+      const pipeline = [
+        { $match: {
+          isDeleted: { $ne: true },
+          roomReservationData: { $exists: true, $ne: null },
+          status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] }
+        }},
+        { $group: {
+          _id: null,
+          all: { $sum: 1 },
+          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
+          publishedTotal: { $sum: { $cond: [{ $eq: ['$status', 'published'] }, 1, 0] } },
+          published_edit: { $sum: { $cond: [{ $and: [
+            { $eq: ['$status', 'published'] },
+            { $eq: ['$pendingEditRequest.status', 'pending'] }
+          ]}, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } }
+        }}
+      ];
 
-      const [all, pending, publishedTotal, rejected] = await Promise.all([
-        unifiedEventsCollection.countDocuments(baseQuery),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: { $in: ['pending', 'room-reservation-request'] } }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ ...baseQuery, status: 'rejected' })
-      ]);
-
-      const published_edit = await unifiedEventsCollection.countDocuments({
-        ...baseQuery,
-        status: 'published',
-        'pendingEditRequest.status': 'pending'
-      });
-      const published = publishedTotal - published_edit;
-
-      res.json({ all, pending, published, published_edit, rejected });
+      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
+      const counts = result || { all: 0, pending: 0, publishedTotal: 0, published_edit: 0, rejected: 0 };
+      const published = counts.publishedTotal - counts.published_edit;
+      res.json({ all: counts.all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected });
 
     } else if (view === 'admin-browse') {
-      const [total, pending, publishedCount, rejected, deleted, draft] = await Promise.all([
-        unifiedEventsCollection.countDocuments({}),
-        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'pending' }),
-        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'published' }),
-        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'rejected' }),
-        unifiedEventsCollection.countDocuments({ isDeleted: true }),
-        unifiedEventsCollection.countDocuments({ isDeleted: { $ne: true }, status: 'draft' }),
-      ]);
+      // Single aggregation instead of 6 parallel countDocuments
+      const pipeline = [
+        { $group: {
+          _id: null,
+          total: { $sum: 1 },
+          pending: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'pending'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          published: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'published'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'rejected'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } },
+          deleted: { $sum: { $cond: [{ $eq: ['$isDeleted', true] }, 1, 0] } },
+          draft: { $sum: { $cond: [{ $and: [{ $eq: ['$status', 'draft'] }, { $ne: ['$isDeleted', true] }] }, 1, 0] } }
+        }}
+      ];
 
-      const published = publishedCount;
-      res.json({ total, published, pending, rejected, deleted, draft });
+      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
+      const counts = result || { total: 0, pending: 0, published: 0, rejected: 0, deleted: 0, draft: 0 };
+      res.json(counts);
     }
 
   } catch (error) {

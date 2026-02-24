@@ -93,10 +93,6 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll for new reservations every 30s (silent — no loading spinner)
-  const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
-  usePolling(silentRefresh, 30_000, !!apiToken);
-
   const loadCalendarSettings = async () => {
     try {
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-settings`, {
@@ -159,6 +155,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       }
     }
   }, [apiToken]);
+
+  // Poll for new reservations every 60s (silent — no loading spinner)
+  const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
+  usePolling(silentRefresh, 60_000, !!apiToken);
 
   // Client-side filtering based on active tab
   const filteredReservations = useMemo(() => {
