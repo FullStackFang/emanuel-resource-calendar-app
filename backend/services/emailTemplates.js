@@ -817,6 +817,20 @@ function getDefaultTemplates() {
  * @param {Object} variables - Key-value pairs of variable replacements
  * @returns {string} Rendered template
  */
+/**
+ * Decode HTML entities back to plain text (for email subjects)
+ */
+function decodeHtmlEntities(str) {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#x2F;/g, '/');
+}
+
 function renderTemplate(template, variables) {
   let result = template;
 
@@ -957,7 +971,8 @@ async function generateFromTemplate(templateId, variables) {
     throw new Error(`Template not found: ${templateId}`);
   }
 
-  const subject = renderTemplate(template.subject, variables);
+  // Subject is plain text — decode HTML entities so "Rodney&#39;s" becomes "Rodney's"
+  const subject = decodeHtmlEntities(renderTemplate(template.subject, variables));
   const body = renderTemplate(template.body, variables);
 
   return {
@@ -1147,7 +1162,7 @@ async function previewTemplate(templateId, customSubject = null, customBody = nu
   const bodyToRender = customBody || template.body;
 
   return {
-    subject: renderTemplate(subjectToRender, sampleData),
+    subject: decodeHtmlEntities(renderTemplate(subjectToRender, sampleData)),
     html: wrapEmailTemplate(renderTemplate(bodyToRender, sampleData)),
     sampleData
   };
