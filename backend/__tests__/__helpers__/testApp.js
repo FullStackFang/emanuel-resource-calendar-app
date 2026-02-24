@@ -8,8 +8,9 @@
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
-const { getPermissions, isAdmin, canViewAllReservations, hasRole } = require('../../utils/authUtils');
+const { getPermissions, isAdmin, canViewAllReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
+const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
 const graphApiMock = require('./graphApiMock');
@@ -34,6 +35,35 @@ function getSentEmailNotifications() {
  */
 function clearSentEmailNotifications() {
   sentEmailNotifications = [];
+}
+
+/**
+ * Get reviewer emails (approvers + admins) from test database,
+ * respecting per-user notification opt-out preferences.
+ * Mirrors emailService.getReviewerEmails().
+ * @param {string} preferenceKey - Preference key to check for opt-out (default: 'emailOnNewRequests')
+ * @returns {Promise<string[]>} Array of reviewer email addresses
+ */
+async function getTestReviewerEmails(preferenceKey = 'emailOnNewRequests') {
+  if (!testCollections.users) return [];
+  const reviewers = await testCollections.users.find({
+    $or: [
+      { role: 'approver' },
+      { role: 'admin' },
+      { isAdmin: true }
+    ]
+  }).toArray();
+
+  const emails = reviewers
+    .filter(user => {
+      const prefs = user.notificationPreferences;
+      if (prefs && prefs[preferenceKey] === false) return false;
+      return true;
+    })
+    .map(user => user.email || user.odataId)
+    .filter(email => email && email.includes('@'));
+
+  return [...new Set(emails)];
 }
 
 /**
@@ -593,6 +623,17 @@ function createTestApp(options = {}) {
           newState: submittedEvent,
           changes: { status: { from: 'draft', to: 'pending' } },
         });
+
+        // Track reviewer notification
+        const reviewerEmails = await getTestReviewerEmails();
+        if (reviewerEmails.length > 0) {
+          sentEmailNotifications.push({
+            type: 'new_request_alert',
+            to: reviewerEmails,
+            eventTitle: cd.eventTitle,
+            eventId: draft.eventId,
+          });
+        }
 
         res.json({
           success: true,
@@ -1430,6 +1471,18 @@ function createTestApp(options = {}) {
         changes: { status: { from: 'rejected', to: 'pending' } },
       });
 
+      // Track reviewer notification
+      const reviewerEmails = await getTestReviewerEmails();
+      if (reviewerEmails.length > 0) {
+        const cd = updatedEvent.calendarData || {};
+        sentEmailNotifications.push({
+          type: 'new_request_alert',
+          to: reviewerEmails,
+          eventTitle: cd.eventTitle || 'Untitled Event',
+          eventId: event.eventId,
+        });
+      }
+
       res.json({
         message: 'Reservation resubmitted successfully',
         reservation: updatedEvent,
@@ -1625,6 +1678,20 @@ function createTestApp(options = {}) {
         changes: updateFields,
       });
 
+      // Track reviewer notification for resubmit edits
+      if (isResubmitEdit) {
+        const reviewerEmails = await getTestReviewerEmails();
+        if (reviewerEmails.length > 0) {
+          const cd = updatedEvent.calendarData || {};
+          sentEmailNotifications.push({
+            type: 'new_request_alert',
+            to: reviewerEmails,
+            eventTitle: cd.eventTitle || 'Untitled Event',
+            eventId: event.eventId,
+          });
+        }
+      }
+
       res.json({
         message: 'Reservation updated successfully',
         reservation: updatedEvent,
@@ -1804,6 +1871,16 @@ function createTestApp(options = {}) {
         newState: updatedEvent,
         changes: { pendingEditRequest: requestedChanges, reason },
       });
+
+      // Send edit request alert to reviewers (approvers + admins)
+      const reviewerEmails = await getTestReviewerEmails('emailOnEditRequests');
+      if (reviewerEmails.length > 0) {
+        sentEmailNotifications.push({
+          type: 'edit_request_alert',
+          to: reviewerEmails,
+          eventId: event.eventId || String(event._id),
+        });
+      }
 
       res.json({
         success: true,
@@ -2454,6 +2531,65 @@ function createTestApp(options = {}) {
     }
   });
 
+  // ============================================
+  // NOTIFICATION PREFERENCE ENDPOINTS
+  // ============================================
+
+  /**
+   * PATCH /api/users/current/notification-preferences - Update notification prefs (requester+ role-based)
+   */
+  app.patch('/api/users/current/notification-preferences', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+
+      if (!userDoc) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Role-gate: at least requester role required (block viewers)
+      if (!hasRole(userDoc, userEmail, 'requester')) {
+        return res.status(403).json({ error: 'Insufficient permissions to manage notification preferences' });
+      }
+
+      // Determine allowed keys based on user's role
+      const effectiveRole = getEffectiveRole(userDoc, userEmail);
+      const allowedKeys = getAllowedNotifKeys(effectiveRole);
+
+      const updates = req.body;
+      const invalidKeys = Object.keys(updates).filter(k => !allowedKeys.includes(k));
+      if (invalidKeys.length > 0) {
+        return res.status(400).json({ error: `Invalid preference keys: ${invalidKeys.join(', ')}` });
+      }
+
+      const setFields = {};
+      for (const key of allowedKeys) {
+        if (updates[key] !== undefined) {
+          setFields[`notificationPreferences.${key}`] = updates[key];
+        }
+      }
+
+      if (Object.keys(setFields).length === 0) {
+        return res.status(400).json({ error: 'No valid preferences to update' });
+      }
+
+      await testCollections.users.updateOne(
+        { _id: userDoc._id },
+        { $set: { ...setFields, updatedAt: new Date() } }
+      );
+
+      const updatedUser = await testCollections.users.findOne({ _id: userDoc._id });
+      res.json(updatedUser);
+    } catch (error) {
+      console.error('Error updating notification preferences:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Error handling middleware
   app.use((err, req, res, next) => {
     console.error('Test app error:', err);
@@ -2472,4 +2608,5 @@ module.exports = {
   createAuditLog,
   getSentEmailNotifications,
   clearSentEmailNotifications,
+  getTestReviewerEmails,
 };

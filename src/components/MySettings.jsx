@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
+import { usePermissions } from '../hooks/usePermissions';
 import './Settings.css';
 import APP_CONFIG from '../config/config';
 
@@ -31,10 +32,18 @@ const defaultPreferences = {
 
 export default function MySettings({ apiToken }) {
     const { accounts } = useMsal();
+    const { canSubmitReservation, canApproveReservations, isAdmin } = usePermissions();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState('');
     const [userProfile, setUserProfile] = useState(null);
+    const [notifPrefs, setNotifPrefs] = useState({
+        emailOnConfirmations: true,
+        emailOnStatusUpdates: true,
+        emailOnAdminChanges: true,
+        emailOnNewRequests: true,
+        emailOnEditRequests: true,
+    });
     const [formData, setFormData] = useState({
         displayName: '',
         email: '',
@@ -97,6 +106,14 @@ export default function MySettings({ apiToken }) {
         try {
           const createdUser = await createNewUser(newUserData);
           setUserProfile(createdUser);
+          const np = createdUser.notificationPreferences || {};
+          setNotifPrefs({
+            emailOnConfirmations: np.emailOnConfirmations !== false,
+            emailOnStatusUpdates: np.emailOnStatusUpdates !== false,
+            emailOnAdminChanges: np.emailOnAdminChanges !== false,
+            emailOnNewRequests: np.emailOnNewRequests !== false,
+            emailOnEditRequests: np.emailOnEditRequests !== false,
+          });
           setFormData({
             displayName: createdUser.displayName || '',
             email: createdUser.email || '',
@@ -118,6 +135,14 @@ export default function MySettings({ apiToken }) {
       
       const data = await response.json();
       setUserProfile(data);
+      const np2 = data.notificationPreferences || {};
+      setNotifPrefs({
+        emailOnConfirmations: np2.emailOnConfirmations !== false,
+        emailOnStatusUpdates: np2.emailOnStatusUpdates !== false,
+        emailOnAdminChanges: np2.emailOnAdminChanges !== false,
+        emailOnNewRequests: np2.emailOnNewRequests !== false,
+        emailOnEditRequests: np2.emailOnEditRequests !== false,
+      });
       setFormData({
         displayName: data.displayName || '',
         email: data.email || '',
@@ -158,6 +183,32 @@ export default function MySettings({ apiToken }) {
       }));
     }
   }, []);
+
+  // Handle notification preference toggle (immediate save, not bundled with main form)
+  const handleNotifPrefToggle = useCallback(async (key) => {
+    if (!apiToken) return;
+    const newValue = !notifPrefs[key];
+    setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/current/notification-preferences`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({ [key]: newValue })
+      });
+      if (!response.ok) {
+        // Revert on failure
+        setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
+        throw new Error('Failed to update notification preference');
+      }
+    } catch (err) {
+      setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
+      setError('Failed to update notification preference. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    }
+  }, [apiToken, notifPrefs]);
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -320,6 +371,83 @@ export default function MySettings({ apiToken }) {
           />
         </div>
                 
+        {canSubmitReservation && (
+          <>
+            <h3>Email Notifications</h3>
+
+            <div className="notification-section full-width">
+              <div className="notification-section-title">My Reservations</div>
+              <div className="form-group full-width">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.emailOnConfirmations}
+                    onChange={() => handleNotifPrefToggle('emailOnConfirmations')}
+                  />
+                  <span>Confirmation emails when I submit requests</span>
+                </label>
+                <small>Receive a confirmation when you submit, resubmit, or request an edit.</small>
+              </div>
+              <div className="form-group full-width">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.emailOnStatusUpdates}
+                    onChange={() => handleNotifPrefToggle('emailOnStatusUpdates')}
+                  />
+                  <span>Status update emails for my events</span>
+                </label>
+                <small>Notified when your event is published, rejected, or under review.</small>
+              </div>
+              <div className="form-group full-width">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={notifPrefs.emailOnAdminChanges}
+                    onChange={() => handleNotifPrefToggle('emailOnAdminChanges')}
+                  />
+                  <span>Notification when an admin updates my event</span>
+                </label>
+                <small>Notified when an approver modifies your published event.</small>
+              </div>
+            </div>
+
+            {canApproveReservations && (
+              <div className="notification-section full-width">
+                <div className="notification-section-title">Review Queue</div>
+                <div className="form-group full-width">
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs.emailOnNewRequests}
+                      onChange={() => handleNotifPrefToggle('emailOnNewRequests')}
+                    />
+                    <span>Alert when new requests are submitted</span>
+                  </label>
+                  <small>Receive an alert when a reservation is submitted or resubmitted.</small>
+                </div>
+                <div className="form-group full-width">
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={notifPrefs.emailOnEditRequests}
+                      onChange={() => handleNotifPrefToggle('emailOnEditRequests')}
+                    />
+                    <span>Alert when edit requests need review</span>
+                  </label>
+                  <small>Receive an alert when a requester submits an edit request.</small>
+                </div>
+              </div>
+            )}
+
+            {isAdmin && (
+              <div className="notification-section-note full-width">
+                System error notifications are always enabled.
+              </div>
+            )}
+          </>
+        )}
+
         <div className="form-actions">
           <button type="submit" className="save-button" disabled={loading}>
             {loading ? 'Saving...' : 'Save Changes'}

@@ -13,7 +13,8 @@ const { Readable } = require('stream');
 const logger = require('./utils/logger');
 const csvUtils = require('./utils/csvUtils');
 const { initializeLocationFields, parseLocationString, normalizeLocationString, calculateLocationDisplayNames, calculateLocationCodes, isVirtualLocation, getVirtualPlatform } = require('./utils/locationUtils');
-const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
+const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
+const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
@@ -11595,6 +11596,59 @@ app.patch('/api/users/current/preferences', verifyToken, async (req, res) => {
   }
 });
 
+// Update notification preferences (requester+ role-based)
+app.patch('/api/users/current/notification-preferences', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userEmail = req.user.email;
+
+    // Find user
+    const user = await findUserByIdentity(usersCollection, userId, userEmail);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Role-gate: at least requester role required (block viewers)
+    if (!canSubmitReservation(user, userEmail)) {
+      return res.status(403).json({ error: 'Insufficient permissions to manage notification preferences' });
+    }
+
+    // Determine allowed keys based on user's role
+    const effectiveRole = getEffectiveRole(user, userEmail);
+    const allowedKeys = getAllowedNotifKeys(effectiveRole);
+
+    // Validate keys in request body
+    const updates = req.body;
+    const invalidKeys = Object.keys(updates).filter(k => !allowedKeys.includes(k));
+    if (invalidKeys.length > 0) {
+      return res.status(400).json({ error: `Invalid preference keys: ${invalidKeys.join(', ')}` });
+    }
+
+    // Build $set update for notificationPreferences
+    const setFields = {};
+    for (const key of allowedKeys) {
+      if (updates[key] !== undefined) {
+        setFields[`notificationPreferences.${key}`] = updates[key];
+      }
+    }
+
+    if (Object.keys(setFields).length === 0) {
+      return res.status(400).json({ error: 'No valid preferences to update' });
+    }
+
+    await usersCollection.updateOne(
+      { _id: user._id },
+      { $set: { ...setFields, updatedAt: new Date() } }
+    );
+
+    const updatedUser = await usersCollection.findOne({ _id: user._id });
+    res.json(updatedUser);
+  } catch (error) {
+    logger.error('Error updating notification preferences:', error);
+    res.status(500).json({ error: 'Failed to update notification preferences' });
+  }
+});
+
 // Get all users - NOW PROTECTED
 app.get('/api/users', verifyToken, async (req, res) => {
   try {
@@ -12938,11 +12992,11 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         // Send confirmation to requester
         await emailService.sendSubmissionConfirmation(reservationForEmail);
 
-        // Send alert to admins
-        const adminEmails = await emailService.getAdminEmails(db);
-        if (adminEmails.length > 0) {
+        // Send alert to reviewers (approvers + admins)
+        const reviewerEmails = await emailService.getReviewerEmails(db);
+        if (reviewerEmails.length > 0) {
           const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
-          await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
+          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
         }
 
         // Record in communication history
@@ -13746,6 +13800,27 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
       rooms: requestedRooms
     });
 
+    // Send reviewer notification (non-blocking)
+    try {
+      const reservationForEmail = {
+        _id: result.insertedId,
+        eventTitle,
+        requesterName: requesterName || requesterEmail,
+        requesterEmail,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        locationDisplayNames: 'TBD',
+        attendeeCount: attendeeCount || 0
+      };
+      const reviewerEmails = await emailService.getReviewerEmails(db);
+      if (reviewerEmails.length > 0) {
+        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+      }
+    } catch (emailError) {
+      logger.error('Email notification failed (reservation still created):', { error: emailError.message });
+    }
+
     res.status(201).json(createdReservation);
   } catch (error) {
     logger.error('Error submitting guest room reservation:', error);
@@ -14078,6 +14153,28 @@ app.put('/api/room-reservations/:id/resubmit', verifyToken, async (req, res) => 
       resubmittedBy: userEmail
     });
 
+    // Send reviewer notification (non-blocking)
+    try {
+      const cd = resubmittedEvent.calendarData || {};
+      const reservationForEmail = {
+        _id: resubmittedEvent._id,
+        eventTitle: cd.eventTitle || 'Untitled Event',
+        requesterName: resubmittedEvent.roomReservationData?.requestedBy?.name || userEmail,
+        requesterEmail: resubmittedEvent.roomReservationData?.requestedBy?.email || userEmail,
+        startTime: cd.startDateTime,
+        endTime: cd.endDateTime,
+        locationDisplayNames: cd.locationDisplayNames || 'TBD',
+        attendeeCount: cd.attendeeCount || 0
+      };
+      const reviewerEmails = await emailService.getReviewerEmails(db);
+      if (reviewerEmails.length > 0) {
+        const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+        await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+      }
+    } catch (emailError) {
+      logger.error('Email notification failed (resubmission still completed):', { error: emailError.message });
+    }
+
     res.json({
       message: 'Reservation resubmitted successfully',
       reservation: resubmittedEvent,
@@ -14327,6 +14424,30 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
       reservationId,
       editedBy: userEmail
     });
+
+    // Send reviewer notification when resubmitting with edits (non-blocking)
+    if (isResubmitEdit) {
+      try {
+        const updatedCd = updatedEvent.calendarData || {};
+        const reservationForEmail = {
+          _id: updatedEvent._id,
+          eventTitle: updatedCd.eventTitle || 'Untitled Event',
+          requesterName: updatedEvent.roomReservationData?.requestedBy?.name || userEmail,
+          requesterEmail: updatedEvent.roomReservationData?.requestedBy?.email || userEmail,
+          startTime: updatedCd.startDateTime,
+          endTime: updatedCd.endDateTime,
+          locationDisplayNames: updatedCd.locationDisplayNames || 'TBD',
+          attendeeCount: updatedCd.attendeeCount || 0
+        };
+        const reviewerEmails = await emailService.getReviewerEmails(db);
+        if (reviewerEmails.length > 0) {
+          const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
+          await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+        }
+      } catch (emailError) {
+        logger.error('Email notification failed (edit still saved):', { error: emailError.message });
+      }
+    }
 
     res.json({
       message: 'Reservation updated successfully',
@@ -16893,16 +17014,16 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         skipped: confirmResult.skipped
       });
 
-      // Send alert to admins
-      const adminEmails = await emailService.getAdminEmails(db);
-      if (adminEmails.length > 0) {
+      // Send alert to reviewers (approvers + admins)
+      const reviewerEmails = await emailService.getReviewerEmails(db);
+      if (reviewerEmails.length > 0) {
         const adminPanelUrl = `${process.env.FRONTEND_URL || 'https://localhost:5173'}/admin/reservation-requests`;
-        const adminResult = await emailService.sendAdminNewRequestAlert(reservationForEmail, adminEmails, adminPanelUrl);
-        logger.info('Admin alert email sent', {
+        const reviewerResult = await emailService.sendNewRequestAlert(reservationForEmail, reviewerEmails, adminPanelUrl);
+        logger.info('Reviewer alert email sent', {
           eventId: eventDoc.eventId,
-          correlationId: adminResult.correlationId,
-          adminCount: adminEmails.length,
-          skipped: adminResult.skipped
+          correlationId: reviewerResult.correlationId,
+          reviewerCount: reviewerEmails.length,
+          skipped: reviewerResult.skipped
         });
       }
 

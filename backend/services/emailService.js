@@ -287,6 +287,31 @@ function getEmailConfig() {
 // =============================================================================
 
 /**
+ * Check if a notification should be sent to a specific recipient,
+ * based on their notification preference for the given key.
+ * @param {string} recipientEmail - Recipient's email address
+ * @param {string} preferenceKey - Notification preference key (e.g., 'emailOnConfirmations')
+ * @returns {Promise<boolean>} True if the notification should be sent
+ */
+async function shouldSendNotification(recipientEmail, preferenceKey) {
+  if (!recipientEmail || !preferenceKey) return true;
+  const conn = dbConnection;
+  if (!conn) return true;
+  try {
+    const user = await conn.collection('templeEvents__Users').findOne({
+      $or: [{ email: recipientEmail }, { userId: recipientEmail }]
+    });
+    if (!user) return true;
+    const prefs = user.notificationPreferences;
+    if (prefs && prefs[preferenceKey] === false) return false;
+    return true;
+  } catch (error) {
+    logger.warn('Error checking notification preference, defaulting to send:', error.message);
+    return true;
+  }
+}
+
+/**
  * Get admin email addresses from database
  * @param {Object} db - MongoDB database connection
  * @returns {Promise<string[]>} Array of admin email addresses
@@ -308,6 +333,54 @@ async function getAdminEmails(db) {
 }
 
 /**
+ * Get reviewer email addresses (approvers + admins) from database,
+ * respecting per-user notification opt-out preferences.
+ * @param {Object} db - MongoDB database connection (falls back to module-level dbConnection)
+ * @param {string} preferenceKey - Preference key to check for opt-out (default: 'emailOnNewRequests')
+ * @returns {Promise<string[]>} Array of reviewer email addresses
+ */
+async function getReviewerEmails(db, preferenceKey = 'emailOnNewRequests') {
+  const conn = db || dbConnection;
+  if (!conn) {
+    logger.warn('No database connection for getReviewerEmails');
+    return [];
+  }
+  try {
+    const usersCollection = conn.collection('templeEvents__Users');
+    // Find users who are approvers, admins, or have isAdmin flag
+    const reviewers = await usersCollection.find({
+      $or: [
+        { role: 'approver' },
+        { role: 'admin' },
+        { isAdmin: true }
+      ]
+    }).toArray();
+
+    const emails = reviewers
+      .filter(user => {
+        // Respect opt-out: exclude users who explicitly set the preference key to false
+        // Default is opted-in (undefined/null/true all count as opted-in)
+        const prefs = user.notificationPreferences;
+        if (prefs && prefs[preferenceKey] === false) {
+          return false;
+        }
+        return true;
+      })
+      .map(user => user.email || user.userId)
+      .filter(email => validateEmail(email));
+
+    // Deduplicate
+    const uniqueEmails = [...new Set(emails)];
+
+    logger.debug('Found reviewer emails', { count: uniqueEmails.length, preferenceKey });
+    return uniqueEmails;
+  } catch (error) {
+    logger.error('Error fetching reviewer emails:', error);
+    return [];
+  }
+}
+
+/**
  * Send submission confirmation to requester
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
@@ -324,6 +397,9 @@ async function sendSubmissionConfirmation(reservation) {
     return { success: false, error: 'No recipient email' };
   }
 
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnConfirmations');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
   const { subject, html } = await emailTemplates.generateSubmissionConfirmation(reservation);
 
   return sendEmail(recipientEmail, subject, html, {
@@ -332,27 +408,30 @@ async function sendSubmissionConfirmation(reservation) {
 }
 
 /**
- * Send new request alert to all admins (single email, multiple recipients)
+ * Send new request alert to all reviewers (approvers + admins) as a single email
  * @param {Object} reservation - Reservation data
- * @param {string[]} adminEmails - Array of admin email addresses
+ * @param {string[]} reviewerEmails - Array of reviewer email addresses
  * @param {string} adminPanelUrl - Optional URL to admin review panel
  * @returns {Promise<Object>} Send result with correlationId
  */
-async function sendAdminNewRequestAlert(reservation, adminEmails, adminPanelUrl = '') {
-  if (!adminEmails || adminEmails.length === 0) {
-    logger.warn('No admin emails for new request alert', {
+async function sendNewRequestAlert(reservation, reviewerEmails, adminPanelUrl = '') {
+  if (!reviewerEmails || reviewerEmails.length === 0) {
+    logger.warn('No reviewer emails for new request alert', {
       reservationId: reservation._id
     });
-    return { success: false, error: 'No admin recipients' };
+    return { success: false, error: 'No reviewer recipients' };
   }
 
   const { subject, html } = await emailTemplates.generateAdminNewRequestAlert(reservation, adminPanelUrl);
 
-  // Send single email to all admins (not multiple emails)
-  return sendEmail(adminEmails, subject, html, {
+  // Send single email to all reviewers (not multiple emails)
+  return sendEmail(reviewerEmails, subject, html, {
     reservationId: reservation._id?.toString()
   });
 }
+
+// Backward-compatible alias
+const sendAdminNewRequestAlert = sendNewRequestAlert;
 
 /**
  * Send publish notification to requester
@@ -371,6 +450,9 @@ async function sendPublishNotification(reservation, adminNotes = '', reviewChang
     });
     return { success: false, error: 'No recipient email' };
   }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
   const { subject, html } = await emailTemplates.generateApprovalNotification(reservation, adminNotes, reviewChanges);
 
@@ -397,6 +479,9 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
     return { success: false, error: 'No recipient email' };
   }
 
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
   const { subject, html } = await emailTemplates.generateRejectionNotification(reservation, rejectionReason);
 
   return sendEmail(recipientEmail, subject, html, {
@@ -420,6 +505,9 @@ async function sendResubmissionConfirmation(reservation) {
     });
     return { success: false, error: 'No recipient email' };
   }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnConfirmations');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
   const { subject, html } = await emailTemplates.generateResubmissionConfirmation(reservation);
 
@@ -447,6 +535,9 @@ async function sendEventUpdatedNotification(reservation, reviewChanges = []) {
     return { success: false, error: 'No recipient email' };
   }
 
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnAdminChanges');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
   const { subject, html } = await emailTemplates.generateEventUpdatedNotification(reservation, reviewChanges);
 
   return sendEmail(recipientEmail, subject, html, {
@@ -470,6 +561,9 @@ async function sendReviewStartedNotification(reservation) {
     });
     return { success: false, error: 'No recipient email' };
   }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
   const { subject, html } = await emailTemplates.generateReviewStartedNotification(reservation);
 
@@ -500,6 +594,9 @@ async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = 
     return { success: false, error: 'No recipient email' };
   }
 
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnConfirmations');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
   const { subject, html } = await emailTemplates.generateEditRequestSubmittedConfirmation(editRequest, changeReason);
 
   return sendEmail(recipientEmail, subject, html, {
@@ -515,18 +612,18 @@ async function sendEditRequestSubmittedConfirmation(editRequest, changeReason = 
  * @returns {Promise<Object>} Send result with correlationId
  */
 async function sendAdminEditRequestAlert(editRequest, changeReason = '', adminPanelUrl = '') {
-  const adminEmails = await getAdminEmails();
+  const reviewerEmails = await getReviewerEmails(dbConnection, 'emailOnEditRequests');
 
-  if (adminEmails.length === 0) {
-    logger.warn('No admin emails configured for edit request alert', {
+  if (reviewerEmails.length === 0) {
+    logger.warn('No reviewer emails configured for edit request alert', {
       editRequestId: editRequest._id
     });
-    return { success: false, error: 'No admin emails configured' };
+    return { success: false, error: 'No reviewer emails configured' };
   }
 
   const { subject, html } = await emailTemplates.generateAdminEditRequestAlert(editRequest, changeReason, adminPanelUrl);
 
-  return sendEmail(adminEmails, subject, html, {
+  return sendEmail(reviewerEmails, subject, html, {
     editRequestId: editRequest._id?.toString()
   });
 }
@@ -548,6 +645,9 @@ async function sendEditRequestApprovedNotification(editRequest, adminNotes = '',
     });
     return { success: false, error: 'No recipient email' };
   }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
   const { subject, html } = await emailTemplates.generateEditRequestApprovedNotification(editRequest, adminNotes, reviewChanges);
 
@@ -573,6 +673,9 @@ async function sendEditRequestRejectedNotification(editRequest, rejectionReason 
     });
     return { success: false, error: 'No recipient email' };
   }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
 
   const { subject, html } = await emailTemplates.generateEditRequestRejectedNotification(editRequest, rejectionReason);
 
@@ -697,8 +800,11 @@ module.exports = {
   getEffectiveSettings,
 
   // Notification helpers
+  shouldSendNotification,
   getAdminEmails,
+  getReviewerEmails,
   sendSubmissionConfirmation,
+  sendNewRequestAlert,
   sendAdminNewRequestAlert,
   sendPublishNotification,
   sendRejectionNotification,
