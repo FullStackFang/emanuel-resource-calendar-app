@@ -463,6 +463,23 @@ export default function ServicesSelectorModal({
               renderSection(key, section)
             )}
           </div>
+
+          {/* Additional needs */}
+          <div className={`services-notes-section ${services.serviceNotes ? 'has-content' : ''}`}>
+            <div className="services-notes-header">
+              <span className="services-section-icon">📝</span>
+              <label className="services-notes-label" htmlFor="serviceNotes">Additional Needs</label>
+              {services.serviceNotes && <span className="services-section-check">✓</span>}
+            </div>
+            <textarea
+              id="serviceNotes"
+              className="services-notes-textarea"
+              value={services.serviceNotes || ''}
+              onChange={(e) => handleTextChange('serviceNotes', e.target.value)}
+              placeholder="List any other needs not covered above — e.g., special lighting, additional furniture, accessibility requirements..."
+              rows={3}
+            />
+          </div>
         </div>
 
         {/* Footer */}

@@ -437,6 +437,68 @@
 }
 
 /* ==========================================================================
+   SERVICE NOTES (Additional Needs)
+   ========================================================================== */
+
+.services-notes-section {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: var(--transition-all);
+}
+
+.services-notes-section.has-content {
+  border-color: var(--color-success-500);
+  border-left-width: 4px;
+}
+
+.services-notes-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+}
+
+.services-notes-section.has-content .services-notes-header {
+  background: var(--color-success-50);
+}
+
+.services-notes-label {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  flex: 1;
+  cursor: default;
+}
+
+.services-notes-textarea {
+  display: block;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-top: 1px solid var(--border-default);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  outline: none;
+  transition: var(--transition-all);
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+}
+
+.services-notes-textarea:focus {
+  background: var(--color-primary-50);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.services-notes-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
    MODAL FOOTER
    ========================================================================== */
 
