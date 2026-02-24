@@ -6,6 +6,7 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
+import { usePolling } from '../hooks/usePolling';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RoomReservationReview from './RoomReservationReview';
@@ -92,6 +93,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   }, [apiToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll for new reservations every 30s (silent — no loading spinner)
+  const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
+  usePolling(silentRefresh, 30_000, !!apiToken);
+
   const loadCalendarSettings = async () => {
     try {
       const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/calendar-settings`, {
@@ -112,10 +117,12 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     }
   };
 
-  const loadReservations = useCallback(async () => {
+  const loadReservations = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
-      setError('');
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
 
       // Load all reservations at once (small dataset, <100 items typically)
       const response = await fetch(
@@ -143,9 +150,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setAllReservations(transformedEvents);
     } catch (err) {
       logger.error('Error loading reservations:', err);
-      setError('Failed to load reservation requests');
+      if (!silent) {
+        setError('Failed to load reservation requests');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [apiToken]);
 

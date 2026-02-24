@@ -1,7 +1,8 @@
 // src/components/Navigation.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
+import { usePolling } from '../hooks/usePolling';
 import APP_CONFIG from '../config/config';
 import './Navigation.css';
 
@@ -13,41 +14,63 @@ export default function Navigation({ apiToken }) {
   } = usePermissions();
   const [adminExpanded, setAdminExpanded] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  const [approvalCount, setApprovalCount] = useState(0);
   const location = useLocation();
   const dropdownRef = useRef(null);
 
-  // Fetch pending reservations count
-  useEffect(() => {
-    if (apiToken && canSubmitReservation) {
-      fetchPendingCount();
-    }
-  }, [apiToken, canSubmitReservation]);
-
-  // Refresh count when navigating away from my-reservations (user may have taken action)
-  useEffect(() => {
-    if (apiToken && canSubmitReservation && !location.pathname.includes('my-reservations')) {
-      fetchPendingCount();
-    }
-  }, [location.pathname]);
-
-  const fetchPendingCount = async () => {
+  // Fetch pending reservations count (My Reservations badge)
+  const fetchPendingCount = useCallback(async () => {
     try {
-      // Use pagination endpoint with limit=1 to efficiently get just the count
-      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&status=pending&limit=1`, {
-        headers: {
-          'Authorization': `Bearer ${apiToken}`
-        }
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=my-events`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
       });
       if (response.ok) {
         const data = await response.json();
-        // Use totalCount from pagination metadata if available, otherwise count from array
-        const pending = data.pagination?.totalCount ?? (data.events || []).length;
-        setPendingCount(pending);
+        setPendingCount(data.pending || 0);
       }
     } catch (err) {
       // Silently fail - badge just won't show
     }
-  };
+  }, [apiToken]);
+
+  // Fetch approval queue count (Approval Queue badge)
+  const fetchApprovalCount = useCallback(async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=approval-queue`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Items needing action: pending requests + published events with pending edit requests
+        setApprovalCount((data.pending || 0) + (data.published_edit || 0));
+      }
+    } catch (err) {
+      // Silently fail - badge just won't show
+    }
+  }, [apiToken]);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    if (apiToken && canSubmitReservation) fetchPendingCount();
+  }, [apiToken, canSubmitReservation, fetchPendingCount]);
+
+  useEffect(() => {
+    if (apiToken && canApproveReservations) fetchApprovalCount();
+  }, [apiToken, canApproveReservations, fetchApprovalCount]);
+
+  // Refresh counts on navigation (user may have taken action)
+  useEffect(() => {
+    if (apiToken && canSubmitReservation && !location.pathname.includes('my-reservations')) {
+      fetchPendingCount();
+    }
+    if (apiToken && canApproveReservations && !location.pathname.includes('reservation-requests')) {
+      fetchApprovalCount();
+    }
+  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll both badges every 60s
+  usePolling(fetchPendingCount, 60_000, !!apiToken && canSubmitReservation);
+  usePolling(fetchApprovalCount, 60_000, !!apiToken && canApproveReservations);
 
   // Close dropdowns when location changes (user navigates to a new page)
   useEffect(() => {
@@ -104,6 +127,9 @@ export default function Navigation({ apiToken }) {
           <li>
             <NavLink to="/admin/reservation-requests" className={({ isActive }) => isActive ? 'active' : ''}>
               Approval Queue
+              {approvalCount > 0 && (
+                <span className="nav-badge approval">{approvalCount}</span>
+              )}
             </NavLink>
           </li>
         )}

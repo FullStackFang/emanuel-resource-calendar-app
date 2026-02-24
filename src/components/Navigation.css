@@ -201,6 +201,12 @@
   animation: badgePulse 2s ease-in-out infinite;
 }
 
+.nav-badge.approval {
+  background: var(--color-error-500);
+  color: var(--text-inverse);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
 @keyframes badgePulse {
   0%, 100% {
     transform: scale(1);
@@ -214,6 +220,11 @@
 .nav-list a:hover .nav-badge.pending,
 .nav-list a.active .nav-badge.pending {
   background: var(--color-warning-600);
+}
+
+.nav-list a:hover .nav-badge.approval,
+.nav-list a.active .nav-badge.approval {
+  background: var(--color-error-600);
 }
 
 /* ==========================================================================
