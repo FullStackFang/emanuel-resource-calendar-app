@@ -13,7 +13,7 @@ const EMAIL_FROM_ADDRESS = process.env.EMAIL_FROM_ADDRESS || 'templeEventsSandbo
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Temple Emanuel Reservations';
 const ENV_EMAIL_REDIRECT_TO = process.env.EMAIL_REDIRECT_TO || null; // For testing - redirect all emails
 
-// Use same fallbacks as api-server.js for consistency
+// Azure AD Configuration
 const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
 const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
 
@@ -85,6 +85,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // MSAL Configuration for Client Credentials Flow
 let cca = null;
 
+// Token cache (same pattern as graphApiService.js)
+let cachedToken = null;
+let tokenExpiry = null;
+
 /**
  * Initialize MSAL client (lazy initialization)
  */
@@ -121,14 +125,26 @@ function generateCorrelationId() {
 
 /**
  * Acquire access token using client credentials flow
+ * Includes caching with 5-minute buffer to avoid Azure AD throttling
  * @returns {Promise<string>} Access token
  */
 async function getAppAccessToken() {
+  // Check cache first (with 5 minute buffer before expiry)
+  const now = Date.now();
+  if (cachedToken && tokenExpiry && (tokenExpiry - now) > 300000) {
+    return cachedToken;
+  }
+
   const client = getMsalClient();
   const result = await client.acquireTokenByClientCredential({
     scopes: ['https://graph.microsoft.com/.default']
   });
-  return result.accessToken;
+
+  // Cache the token
+  cachedToken = result.accessToken;
+  tokenExpiry = now + (result.expiresOn ? (result.expiresOn.getTime() - now) : 3600000);
+
+  return cachedToken;
 }
 
 /**

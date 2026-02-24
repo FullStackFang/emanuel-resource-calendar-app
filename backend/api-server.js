@@ -4,6 +4,7 @@ const express = require('express');
 const Sentry = require('@sentry/node');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const cors = require('cors');
+const compression = require('compression');
 const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
@@ -16,7 +17,7 @@ const { initializeLocationFields, parseLocationString, normalizeLocationString, 
 const { isAdmin, canViewAllReservations, canGenerateReservationTokens, canApproveReservations, canSubmitReservation, getPermissions, getDepartmentEditableFields, getEffectiveRole } = require('./utils/authUtils');
 const { getAllowedKeys: getAllowedNotifKeys } = require('./utils/notificationPreferenceKeys');
 const { standardLimiter, publicLimiter, sensitiveLimiter } = require('./middleware/rateLimiter');
-const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const { errorHandler, notFoundHandler, asyncHandler } = require('./middleware/errorHandler');
 const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
@@ -147,9 +148,15 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const webAppURL = 'https://emanuel-resourcescheduler-d4echehehaf3dxfg.canadacentral-01.azurewebsites.net';
 
-// Use the same App ID for both frontend and backend
+// Azure AD configuration
 const APP_ID = process.env.APP_ID || 'c2187009-796d-4fea-b58c-f83f7a89589e';
 const TENANT_ID = process.env.TENANT_ID || 'fcc71126-2b16-4653-b639-0f1ef8332302';
+if (!process.env.APP_ID || !process.env.TENANT_ID) {
+  console.warn('⚠️  APP_ID and/or TENANT_ID not set in environment — using hardcoded defaults. Set these in .env for production.');
+}
+
+// Valid roles for X-Simulated-Role header validation
+const VALID_ROLES = ['viewer', 'requester', 'approver', 'admin'];
 
 // Calendar configuration for room reservations
 const CALENDAR_CONFIG = {
@@ -173,6 +180,7 @@ function getDefaultCalendarOwner() {
 
 
 // Middleware
+app.use(compression({ threshold: 1024 })); // Compress responses > 1KB
 // Updated CORS configuration to allow requests from your deployed app domain
 app.use(cors({
   origin: [
@@ -208,6 +216,15 @@ app.get('/api/warmup', (req, res) => {
 });
 
 // Note: Sentry v8+ automatically instruments Express - no manual request handler needed
+
+// DB readiness gate — return 503 for all API routes when MongoDB is not connected.
+// Exempts /api/health and /api/warmup which must respond even when DB is down.
+app.use('/api', (req, res, next) => {
+  if (!db && req.path !== '/health' && req.path !== '/warmup' && req.path !== '/config') {
+    return res.status(503).json({ error: 'Service unavailable', code: 'DB_NOT_READY' });
+  }
+  next();
+});
 
 // Request ID middleware - adds unique ID to each request for tracking
 app.use((req, res, next) => {
@@ -262,15 +279,9 @@ const attachmentUpload = multer({
   }
 });
 
-// Handle preflight requests explicitly
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin);
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Graph-Token, If-Match, X-Simulated-Role');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Expose-Headers', 'Authorization, ETag');
-  res.sendStatus(204);
-});
+// Preflight requests are handled by the cors() middleware above (lines 177-192).
+// Do NOT add a manual app.options('*') handler — it would override cors() and
+// reflect any Origin with credentials, creating a CORS bypass vulnerability.
 
 // Log all incoming requests for debugging
 app.use((req, res, next) => {
@@ -295,9 +306,14 @@ app.use((req, res, next) => {
 
 // MongoDB Connection
 const connectionString = process.env.MONGODB_CONNECTION_STRING;
+if (!connectionString) {
+  console.error('FATAL: MONGODB_CONNECTION_STRING environment variable is not set. Server cannot start.');
+  process.exit(1);
+}
 const client = new MongoClient(connectionString, {
   serverSelectionTimeoutMS: 5000,
-  maxPoolSize: 10
+  maxPoolSize: 50,
+  minPoolSize: 5
 });
 let db;
 let usersCollection;
@@ -595,8 +611,11 @@ async function createRoomReservationIndexes() {
       { name: "reservation_status_date", background: true, sparse: true }
     );
 
-    // Index for finding reservations by date range (unified events already have this)
-    // No additional index needed - existing startDateTime/endDateTime indexes work
+    // Compound index for primary calendar view query (calendarOwner + status + date range)
+    await unifiedEventsCollection.createIndex(
+      { calendarOwner: 1, status: 1, startDateTime: 1, endDateTime: 1 },
+      { name: "calendar_view_owner_status_dates", background: true }
+    );
 
     // Index for finding reservations by room (roomReservationData.requestedRooms)
     await unifiedEventsCollection.createIndex(
@@ -1941,8 +1960,6 @@ const verifyToken = async (req, res, next) => {
         APP_ID,                                 // Our app
         `api://${APP_ID}`,                      // Our app as an API
         `api://${APP_ID}/access_as_user`,       // Our app with scope
-        'https://graph.microsoft.com',          // Microsoft Graph
-        '00000003-0000-0000-c000-000000000000'  // Microsoft Graph AppID
       ],
       issuer: [
         `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
@@ -2231,7 +2248,7 @@ app.get('/api/graph/events', verifyToken, async (req, res) => {
     });
 
     const actualRole = getEffectiveRole(user, userEmail);
-    const effectiveRole = (simulatedRole && actualRole === 'admin') ? simulatedRole : actualRole;
+    const effectiveRole = (simulatedRole && actualRole === 'admin' && VALID_ROLES.includes(simulatedRole)) ? simulatedRole : actualRole;
     const roleInfo = { role: effectiveRole, userEmail };
 
     // Get pending events from unified collection based on role
@@ -4535,8 +4552,8 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
     // Determine effective role
     const actualRole = getEffectiveRole(user, userEmail);
 
-    // Allow role simulation only if actual role is admin
-    if (simulatedRole && actualRole === 'admin') {
+    // Allow role simulation only if actual role is admin and simulated role is valid
+    if (simulatedRole && actualRole === 'admin' && VALID_ROLES.includes(simulatedRole)) {
       effectiveRole = simulatedRole;
       logger.debug(`Admin simulating role: ${simulatedRole}`);
     } else {
@@ -11378,9 +11395,18 @@ app.get('/api/public/mec-categories', async (req, res) => {
   }
 });
 
-// Simple test route that doesn't require authentication
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'API is running' });
+// Health check — verifies MongoDB connectivity for Azure App Service probes
+app.get('/api/health', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(503).json({ status: 'degraded', reason: 'Database not connected' });
+    }
+    await db.command({ ping: 1 });
+    res.status(200).json({ status: 'healthy' });
+  } catch (error) {
+    logger.error('Health check failed:', error.message);
+    res.status(503).json({ status: 'degraded', reason: 'Database unreachable' });
+  }
 });
 
 // Public config endpoint - allows frontend to read runtime configuration
@@ -12803,7 +12829,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     // Respect role simulation: if simulating a non-approver role, skip auto-publish
     // This is safe — it can only make behavior MORE restrictive (force pending instead of auto-publish)
     const simulatedRole = req.headers['x-simulated-role'];
-    if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
+    if (simulatedRole && VALID_ROLES.includes(simulatedRole) && !['approver', 'admin'].includes(simulatedRole)) {
       canAutoPublish = false;
     }
 
@@ -16430,12 +16456,32 @@ app.delete('/api/admin/event-service-types/:id', verifyToken, async (req, res) =
   }
 });
 
-// Graceful shutdown handling
-process.on('SIGTERM', async () => {
-  logger.log('SIGTERM received, shutting down gracefully');
-  await client.close();
-  process.exit(0);
-});
+// Graceful shutdown handling — stop accepting connections, then close DB
+function gracefulShutdown(signal) {
+  logger.log(`${signal} received, shutting down gracefully`);
+  // Force exit after 30s if graceful shutdown stalls
+  const forceTimer = setTimeout(() => {
+    logger.error('Graceful shutdown timed out after 30s, forcing exit');
+    process.exit(1);
+  }, 30000);
+  forceTimer.unref();
+
+  const closeServer = server
+    ? new Promise((resolve) => server.close(resolve))
+    : Promise.resolve();
+
+  closeServer
+    .then(() => client.close())
+    .then(() => {
+      logger.log('Shutdown complete');
+      process.exit(0);
+    })
+    .catch((err) => {
+      logger.error('Error during shutdown:', err);
+      process.exit(1);
+    });
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Test endpoint to create sample events for Conference Room A and B
 app.post('/api/test/create-sample-events', verifyToken, async (req, res) => {
@@ -20997,17 +21043,14 @@ app.use(errorHandler);
 // END ERROR HANDLING
 // ============================================================================
 
-process.on('SIGINT', async () => {
-  logger.log('SIGINT received, shutting down gracefully');
-  await client.close();
-  process.exit(0);
-});
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start the server
+let server;
 async function startServer() {
   await connectToDatabase();
-  
-  app.listen(PORT, () => {
+
+  server = app.listen(PORT, () => {
     logger.log(`Server is running on port ${PORT}`);
     logger.log(`Using App ID: ${APP_ID}`);
     logger.log(`Tenant ID: ${TENANT_ID}`);

@@ -1,7 +1,8 @@
 // src/config/queryClient.js
 /**
- * TanStack Query client configuration with localStorage persistence
- * Provides automatic caching, background refetching, and data persistence
+ * TanStack Query client configuration with sessionStorage persistence
+ * Provides automatic caching and background refetching.
+ * Uses sessionStorage (not localStorage) so sensitive event data is cleared on tab close.
  */
 
 import { QueryClient } from '@tanstack/react-query';
@@ -20,26 +21,28 @@ export const queryClient = new QueryClient({
   },
 });
 
-// Only persist cache in browser environment with localStorage available
-if (typeof window !== 'undefined' && window.localStorage) {
+// Persist cache using sessionStorage so data is cleared when the tab closes.
+// This prevents sensitive event data (attendees, rooms, descriptions) from
+// surviving across sessions on shared computers.
+if (typeof window !== 'undefined' && window.sessionStorage) {
   try {
     const persister = createSyncStoragePersister({
-      storage: window.localStorage,
+      storage: window.sessionStorage,
       key: 'emanuelCalendar_queryCache',
     });
 
     persistQueryClient({
       queryClient,
       persister,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours max cache age
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours max cache age (within session)
       dehydrateOptions: {
         // Only persist successful queries
         shouldDehydrateQuery: (query) => query.state.status === 'success',
       },
     });
   } catch (error) {
-    // Graceful degradation if localStorage unavailable (private browsing, etc.)
-    console.warn('localStorage not available, query cache will not persist:', error.message);
+    // Graceful degradation if sessionStorage unavailable (private browsing, etc.)
+    console.warn('sessionStorage not available, query cache will not persist:', error.message);
   }
 }
 

@@ -65,7 +65,8 @@
       "Bash(npm root:*)",
       "Bash(sudo apt-get install:*)",
       "Bash(npx vite build:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities' 2>/dev/null || echo \"npm audit not available\")"
     ],
     "deny": []
   }

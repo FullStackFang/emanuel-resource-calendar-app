@@ -6719,54 +6719,106 @@ import ConflictDialog from './shared/ConflictDialog';
               ) : (
                 /* Actual sidebar content */
                 <>
+                  {/* SIDEBAR HEADER */}
+                  <div className="sidebar-panel-header">
+                    <h3 className="sidebar-panel-title">Filters</h3>
+                    <span className="sidebar-event-count">
+                      <strong>{filteredEvents?.length || 0}</strong> / {allEvents?.length || 0} events
+                    </span>
+                  </div>
+
                   {/* FILTERS CONTAINER */}
                   <div className="filters-container">
                     {/* CATEGORIES FILTER SECTION */}
                     <div className="filter-section">
-                      <h3 className="filter-title">Categories</h3>
-                      <MultiSelect 
-                            options={dynamicCategories}
-                            selected={selectedCategories}
-                            onChange={val => {
-                              setSelectedCategories(val);
-                              updateUserProfilePreferences({ selectedCategories: val });
-                            }}
-                            label="categories"
-                            maxHeight={200}
-                          />
-                        </div>
+                      <label className="filter-label">
+                        <span className="filter-label-icon">
+                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                            <rect x="1" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="7.5" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="1" y="7.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="7.5" y="7.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                          </svg>
+                        </span>
+                        Categories
+                      </label>
+                      <MultiSelect
+                        options={dynamicCategories}
+                        selected={selectedCategories}
+                        onChange={val => {
+                          setSelectedCategories(val);
+                          updateUserProfilePreferences({ selectedCategories: val });
+                        }}
+                        label="categories"
+                        searchable
+                      />
+                    </div>
 
-                        {/* LOCATIONS FILTER SECTION */}
-                        <div className="filter-section">
-                          <h3 className="filter-title">Locations</h3>
-                          <MultiSelect 
-                            options={dynamicLocations}
-                            selected={selectedLocations}
-                            onChange={val => {
-                              setSelectedLocations(val);
-                              updateUserProfilePreferences({ selectedLocations: val });
-                            }}
-                            label="locations"
-                            maxHeight={200}
-                          />
-                        </div>
-                      </div>
+                    {/* LOCATIONS FILTER SECTION */}
+                    <div className="filter-section">
+                      <label className="filter-label">
+                        <span className="filter-label-icon">
+                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                            <path d="M6.5 1C4.29 1 2.5 2.79 2.5 5C2.5 8 6.5 12 6.5 12C6.5 12 10.5 8 10.5 5C10.5 2.79 8.71 1 6.5 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                            <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                          </svg>
+                        </span>
+                        Locations
+                      </label>
+                      <MultiSelect
+                        options={dynamicLocations}
+                        selected={selectedLocations}
+                        onChange={val => {
+                          setSelectedLocations(val);
+                          updateUserProfilePreferences({ selectedLocations: val });
+                        }}
+                        label="locations"
+                        searchable
+                      />
+                    </div>
+                  </div>
 
-                      {/* FILTER STATUS SECTION */}
-                      <div className="filter-status">
-                        <div className="status-title">Active Filters:</div>
-                        <div className="status-info">Categories ({selectedCategories?.length || 0}), Locations ({selectedLocations?.length || 0})</div>
-                        <div className="status-events">Events: {filteredEvents?.length || 0} visible / {allEvents?.length || 0} total</div>
-                      </div>
+                  {/* FILTER SUMMARY BAR */}
+                  <div className={`filter-summary ${(selectedCategories?.length > 0 && selectedCategories?.length < dynamicCategories?.length) || (selectedLocations?.length > 0 && selectedLocations?.length < dynamicLocations?.length) ? 'has-active-filter' : ''}`}>
+                    <span className="filter-summary-icon">
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                        <path d="M1.5 2.5H11.5L7.5 7.5V10.5L5.5 11.5V7.5L1.5 2.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    {(selectedCategories?.length > 0 && selectedCategories?.length < dynamicCategories?.length) || (selectedLocations?.length > 0 && selectedLocations?.length < dynamicLocations?.length) ? (
+                      <>
+                        <span className="filter-summary-text">
+                          <strong>{filteredEvents?.length || 0}</strong> of {allEvents?.length || 0} events shown
+                        </span>
+                        <button
+                          className="filter-summary-reset"
+                          onClick={() => {
+                            setSelectedCategories(dynamicCategories);
+                            setSelectedLocations(dynamicLocations);
+                            updateUserProfilePreferences({ selectedCategories: dynamicCategories, selectedLocations: dynamicLocations });
+                          }}
+                        >
+                          Reset
+                        </button>
+                      </>
+                    ) : (
+                      <span className="filter-summary-text">
+                        Showing all <strong>{allEvents?.length || 0}</strong> events
+                      </span>
+                    )}
+                  </div>
 
-                      {/* GROUPING INFO SECTION */}
-                      <div className="grouping-info">
-                        <h4 className="grouping-title">Current Grouping</h4>
-                        <p className="grouping-description">
-                          Events are visually grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>.
-                          Use the buttons above to change grouping.
-                        </p>
-                      </div>
+                  {/* GROUPING INFO */}
+                  <div className="grouping-info">
+                    <span className="grouping-info-icon">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 3H10M2 6H10M2 9H10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                      </svg>
+                    </span>
+                    <p className="grouping-info-text">
+                      Grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>
+                    </p>
+                  </div>
                 </>
               )}
             </div>

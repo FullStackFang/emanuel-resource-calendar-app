@@ -84,48 +84,66 @@ async function getAppAccessToken() {
   }
 }
 
+// Transient HTTP status codes that are safe to retry
+const RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504];
+const MAX_RETRIES = 3;
+
 /**
  * Make an authenticated request to Microsoft Graph API
+ * Includes automatic retry with exponential backoff for transient failures
  * @param {string} endpoint - API endpoint (without base URL)
  * @param {Object} options - Fetch options
  * @returns {Promise<Object>} API response
  */
 async function graphRequest(endpoint, options = {}) {
-  const token = await getAppAccessToken();
-
   const url = endpoint.startsWith('http') ? endpoint : `${GRAPH_BASE_URL}${endpoint}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const token = await getAppAccessToken();
 
-  // Handle non-JSON responses (like DELETE which returns 204 No Content)
-  if (response.status === 204) {
-    return { success: true };
-  }
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const errorMessage = data.error?.message || `Graph API error: ${response.status}`;
-    logger.error('Graph API request failed:', {
-      endpoint,
-      status: response.status,
-      error: data.error
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
     });
 
-    const error = new Error(errorMessage);
-    error.status = response.status;
-    error.graphError = data.error;
-    throw error;
-  }
+    // Handle non-JSON responses (like DELETE which returns 204 No Content)
+    if (response.status === 204) {
+      return { success: true };
+    }
 
-  return data;
+    // Retry on transient failures (unless this is the last attempt)
+    if (RETRYABLE_STATUS_CODES.includes(response.status) && attempt < MAX_RETRIES) {
+      const retryAfter = response.headers.get('Retry-After');
+      const delayMs = retryAfter
+        ? parseInt(retryAfter, 10) * 1000
+        : Math.min(1000 * Math.pow(2, attempt), 10000); // Exponential backoff, max 10s
+      logger.warn(`Graph API ${response.status} on ${endpoint}, retrying in ${delayMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      continue;
+    }
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const errorMessage = data.error?.message || `Graph API error: ${response.status}`;
+      logger.error('Graph API request failed:', {
+        endpoint,
+        status: response.status,
+        error: data.error
+      });
+
+      const error = new Error(errorMessage);
+      error.status = response.status;
+      error.graphError = data.error;
+      throw error;
+    }
+
+    return data;
+  }
 }
 
 // =============================================================================
@@ -342,8 +360,10 @@ async function getUserDetails(userId) {
  * @returns {Promise<Array>} Array of matching users
  */
 async function searchUsers(searchQuery) {
+  // Escape single quotes to prevent OData injection
+  const safeQuery = searchQuery.replace(/'/g, "''");
   const params = new URLSearchParams({
-    $filter: `startswith(mail,'${searchQuery}') or startswith(displayName,'${searchQuery}')`,
+    $filter: `startswith(mail,'${safeQuery}') or startswith(displayName,'${safeQuery}')`,
     $select: 'id,displayName,mail,userPrincipalName'
   });
 

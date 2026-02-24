@@ -75,7 +75,7 @@
   flex-direction: column;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-xl);
   flex-shrink: 0;
   height: fit-content;
   align-self: flex-start;
@@ -83,12 +83,49 @@
   overflow: visible;
   position: relative;
   padding: 0;
-  box-shadow: var(--shadow-lg);
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.06),
+    0 1px 2px -1px rgba(0, 0, 0, 0.06);
   transition: box-shadow var(--duration-normal) var(--ease-in-out);
 }
 
 .calendar-right-sidebar:hover {
-  box-shadow: var(--shadow-xl);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.07),
+    0 2px 4px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* ==========================================================================
+   SIDEBAR HEADER
+   ========================================================================== */
+
+.sidebar-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-panel-title {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.sidebar-event-count {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-weight: var(--font-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-event-count strong {
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
 }
 
 /* ==========================================================================
@@ -96,42 +133,58 @@
    ========================================================================== */
 
 .filters-container {
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   background-color: var(--bg-primary);
-  border-bottom: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
   flex-shrink: 0;
   display: flex;
-  gap: var(--space-4);
-  width: calc(100% - var(--space-8));
-  margin: var(--space-4);
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
   box-sizing: border-box;
-  justify-content: stretch;
   overflow: visible;
   position: relative;
   z-index: 10;
 }
 
 .filter-section {
-  flex: 1;
-  margin: 0;
-  min-width: 0;
-  max-width: 100%;
   display: flex;
   flex-direction: column;
+  gap: var(--space-1);
   overflow: visible;
   position: relative;
+  z-index: 1;
+}
+
+/* When a multiselect inside this section is open, raise above siblings */
+.filter-section:has(.multiselect-container.is-open) {
   z-index: 20;
-  margin-bottom: var(--space-5);
 }
 
 .filter-section h3 {
-  margin: 0 0 var(--space-2) 0;
+  margin: 0;
   color: var(--color-primary-500);
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   text-align: center;
+}
+
+.filter-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.filter-label-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
 }
 
 .filter-title {
@@ -142,9 +195,120 @@
 }
 
 /* ==========================================================================
-   FILTER STATUS
+   FILTER SUMMARY BAR
    ========================================================================== */
 
+.filter-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--color-neutral-50);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  min-height: 36px;
+}
+
+.filter-summary-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.filter-summary-text {
+  flex: 1;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.filter-summary-text strong {
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.filter-summary.has-active-filter {
+  background-color: var(--color-primary-50);
+  border-top-color: var(--color-primary-100);
+}
+
+.filter-summary.has-active-filter .filter-summary-icon {
+  color: var(--color-primary-500);
+}
+
+.filter-summary.has-active-filter .filter-summary-text {
+  color: var(--color-primary-700);
+}
+
+.filter-summary-reset {
+  padding: 2px var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-primary-600);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  font-family: var(--font-body);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+.filter-summary-reset:hover {
+  background-color: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
+/* ==========================================================================
+   GROUPING INFO
+   ========================================================================== */
+
+.grouping-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.grouping-info-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.grouping-info-text {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: var(--leading-normal);
+}
+
+.grouping-info-text strong {
+  font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+}
+
+/* Legacy classes - keep for backward compatibility */
+.grouping-title {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.grouping-description {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Legacy classes - kept for backward compatibility */
 .filter-status {
   background: var(--color-info-50);
   border: 1px solid var(--color-info-500);
@@ -172,36 +336,6 @@
 .status-events {
   font-weight: var(--font-semibold);
   color: var(--color-info-600);
-}
-
-/* ==========================================================================
-   GROUPING INFO
-   ========================================================================== */
-
-.grouping-info {
-  padding: var(--space-3);
-  margin: var(--space-4);
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-default);
-  width: calc(100% - var(--space-8));
-  box-sizing: border-box;
-  position: relative;
-  z-index: 1;
-}
-
-.grouping-title {
-  margin: 0 0 var(--space-2) 0;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.grouping-description {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
 }
 
 /* ==========================================================================
@@ -836,27 +970,6 @@
 }
 
 /* ==========================================================================
-   MULTISELECT DROPDOWN
-   ========================================================================== */
-
-.multiselect-dropdown {
-  position: absolute !important;
-  top: 100% !important;
-  left: 0 !important;
-  right: 0 !important;
-  z-index: 99999 !important;
-  background-color: var(--bg-primary) !important;
-  border: 1px solid var(--border-default) !important;
-  border-radius: var(--radius-md) !important;
-  box-shadow: var(--shadow-lg) !important;
-  margin-top: 2px !important;
-  max-height: 200px !important;
-  overflow-y: auto !important;
-  min-width: 100% !important;
-  width: auto !important;
-}
-
-/* ==========================================================================
    SIDEBAR LOADING PLACEHOLDER
    ========================================================================== */
 
@@ -1097,9 +1210,18 @@
   }
 
   .filters-container {
-    padding: var(--space-3);
-    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
     overflow: visible;
+  }
+
+  .sidebar-panel-header {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .filter-summary,
+  .grouping-info {
+    padding: var(--space-2) var(--space-3);
   }
 }
 
@@ -1135,8 +1257,7 @@
   }
 
   .filters-container {
-    flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-2);
   }
 
   .settings-group {

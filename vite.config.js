@@ -53,8 +53,7 @@ export default defineConfig({
       '@azure/msal-browser',
       '@tanstack/react-query'
     ],
-    // Force re-bundling to clear any stale cache
-    force: true
+    // Removed force: true — was a debugging flag that added 10-30s to every dev start
   },
   plugins: [
     react(),
@@ -101,8 +100,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    // Enable source maps for Sentry error tracking
-    sourcemap: true,
+    // Source maps uploaded to Sentry but not served to browsers
+    sourcemap: 'hidden',
     // Remove console statements in production
     minify: 'terser',
     terserOptions: {
