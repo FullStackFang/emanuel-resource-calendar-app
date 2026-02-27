@@ -47,7 +47,7 @@ const formatTimeOrPlaceholder = (timeValue, timezone = 'America/New_York') => {
 
 
 // Search function implementation using unified backend search (includes CSV events)
-async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC') {
+async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categories = [], locations = [], page = 1, limit = null, calendarOwner = null, timezone = 'UTC', { allCategoryCount = 0, allLocationCount = 0 } = {}) {
   try {
     // Build search parameters
     const params = new URLSearchParams({
@@ -71,14 +71,20 @@ async function searchEvents(apiToken, searchTerm = '', dateRange = {}, categorie
       params.append('calendarOwner', calendarOwner);
     }
 
-    // Add category filters
+    // Add category filters (with count for backend all-selected detection)
     if (categories && categories.length > 0) {
       params.append('categories', categories.join(','));
+      if (allCategoryCount > 0) {
+        params.append('categoryCount', allCategoryCount.toString());
+      }
     }
 
-    // Add location filters
+    // Add location filters (with count for backend all-selected detection)
     if (locations && locations.length > 0) {
       params.append('locations', locations.join(','));
+      if (allLocationCount > 0) {
+        params.append('locationCount', allLocationCount.toString());
+      }
     }
 
     // Add date range filters
@@ -295,6 +301,17 @@ function EventSearch({
   // Search version - only increments when Search button is clicked (prevents auto-search on typing)
   const [searchVersion, setSearchVersion] = useState(0);
 
+  // Compute full category/location option lists for "all selected" detection
+  const allCategoryOptions = useMemo(() => [
+    'Uncategorized',
+    ...baseCategories
+      .filter(cat => cat.active !== false && cat.name)
+      .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
+      .map(cat => cat.name)
+  ], [baseCategories]);
+
+  const allLocationOptions = useMemo(() => availableLocations || [], [availableLocations]);
+
   // Create a query key based on search parameters (excludes searchTerm to prevent auto-search on typing)
   const searchQueryKey = useMemo(() =>
     ['events', searchVersion, dateRange, selectedCategories, selectedLocations, userTimezone],
@@ -331,16 +348,23 @@ function EventSearch({
       } : 'none');
       logger.debug(`EventSearch: Filtering by calendarOwner: ${calendarOwnerEmail || 'none (searching all calendars)'}`);
 
+      // Normalize: all selected = no filter (avoids expensive $or queries)
+      const effectiveCategories = selectedCategories.length >= allCategoryOptions.length
+        ? [] : selectedCategories;
+      const effectiveLocations = selectedLocations.length >= allLocationOptions.length
+        ? [] : selectedLocations;
+
       const result = await searchEvents(
         apiToken,
         searchTerm,
         dateRange,
-        selectedCategories,
-        selectedLocations,
+        effectiveCategories,
+        effectiveLocations,
         1, // Start with page 1
         100, // Load first 100 results; user clicks Load More for next batch
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
-        userTimezone // Use shared timezone
+        userTimezone, // Use shared timezone
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
       );
 
       // Sort results by start date (latest first)
@@ -461,16 +485,23 @@ function EventSearch({
         : null;
       const calendarOwnerEmail = selectedCalendar?.owner?.address?.toLowerCase() || null;
 
+      // Normalize: all selected = no filter (avoids expensive $or queries)
+      const effectiveCategories = selectedCategories.length >= allCategoryOptions.length
+        ? [] : selectedCategories;
+      const effectiveLocations = selectedLocations.length >= allLocationOptions.length
+        ? [] : selectedLocations;
+
       const result = await searchEvents(
         apiToken,
         searchTerm,
         dateRange,
-        selectedCategories,
-        selectedLocations,
+        effectiveCategories,
+        effectiveLocations,
         nextPage,
         100, // Load 100 at a time for pagination
         calendarOwnerEmail, // Pass calendar owner email instead of calendarId
-        userTimezone // Use shared timezone
+        userTimezone, // Use shared timezone
+        { allCategoryCount: allCategoryOptions.length, allLocationCount: allLocationOptions.length }
       );
       
       setHasNextPage(result.nextLink !== null);
@@ -529,7 +560,9 @@ function EventSearch({
     userTimezone,
     searchQueryKey,
     queryClient,
-    currentPage
+    currentPage,
+    allCategoryOptions,
+    allLocationOptions
   ]);
 
   const scheduleNextBatch = useCallback(() => {
@@ -879,7 +912,9 @@ function EventSearch({
               graphToken={graphToken}
               selectedCalendarId={searchCalendarId}
               calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
-              timezone={userTimezone} // Pass shared timezone to export
+              timezone={userTimezone}
+              allCategoryOptions={allCategoryOptions}
+              allLocationOptions={allLocationOptions}
             />
           )}
         </div>

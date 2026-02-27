@@ -12,24 +12,33 @@ const EventSearchExport = ({
   apiToken = null,
   dateRange,
   apiBaseUrl = 'http://localhost:3001',
-  graphToken, // Add this prop to access the Microsoft Graph token
-  selectedCalendarId, // Add this prop to know which calendar to search
-  calendarOwner = null, // Calendar owner email for unified backend filtering
-  timezone = 'UTC' // Display timezone passed from parent
+  graphToken,
+  selectedCalendarId,
+  calendarOwner = null,
+  timezone = 'UTC',
+  allCategoryOptions = [],
+  allLocationOptions = []
 }) => {
-  const { showError } = useNotification();
-  const [sortBy, setSortBy] = useState('date'); // Default sort by date
-  const [isExporting, setIsExporting] = useState(false);
-  const [showMaintenanceTimes, setShowMaintenanceTimes] = useState(false); // Setup/Teardown times
-  const [showSecurityTimes, setShowSecurityTimes] = useState(false); // Door Open/Close times
+  const { showError, showWarning } = useNotification();
+  const [sortBy, setSortBy] = useState('date');
+  const [exportState, setExportState] = useState({ phase: 'idle', message: '' });
+  const isExporting = exportState.phase !== 'idle';
+  const [showMaintenanceTimes, setShowMaintenanceTimes] = useState(false);
+  const [showSecurityTimes, setShowSecurityTimes] = useState(false);
   
   // Function to fetch ALL events matching the search criteria from unified backend
   // Uses limit=0 to get all results (no pagination) for export
   const fetchAllMatchingEvents = async () => {
     try {
+      // Normalize: all selected = no filter (avoids expensive $or queries on Cosmos DB)
+      const effectiveCategories = categories.length >= allCategoryOptions.length && allCategoryOptions.length > 0
+        ? [] : categories;
+      const effectiveLocations = locations.length >= allLocationOptions.length && allLocationOptions.length > 0
+        ? [] : locations;
+
       // Build query params for unified backend API
       const params = new URLSearchParams({
-        limit: '0', // No limit - get all matching results for export
+        limit: '0', // Backend caps to EXPORT_MAX_EVENTS (2000)
         status: 'active'
       });
 
@@ -51,14 +60,20 @@ const EventSearchExport = ({
         params.append('endDate', dateRange.end);
       }
 
-      // Add category filters
-      if (categories && categories.length > 0) {
-        params.append('categories', categories.join(','));
+      // Add category filters (with count for backend all-selected detection)
+      if (effectiveCategories && effectiveCategories.length > 0) {
+        params.append('categories', effectiveCategories.join(','));
+        if (allCategoryOptions.length > 0) {
+          params.append('categoryCount', allCategoryOptions.length.toString());
+        }
       }
 
-      // Add location filters
-      if (locations && locations.length > 0) {
-        params.append('locations', locations.join(','));
+      // Add location filters (with count for backend all-selected detection)
+      if (effectiveLocations && effectiveLocations.length > 0) {
+        params.append('locations', effectiveLocations.join(','));
+        if (allLocationOptions.length > 0) {
+          params.append('locationCount', allLocationOptions.length.toString());
+        }
       }
 
       logger.log('Export: Fetching all events from unified backend with params:', params.toString());
@@ -80,6 +95,11 @@ const EventSearchExport = ({
 
       const data = await response.json();
       logger.log(`Export: Fetched ${data.events?.length || 0} events for export`);
+
+      // Warn if export was capped
+      if (data.exportCapped) {
+        showWarning('Export limited to 2,000 events. Narrow your date range or filters for complete results.');
+      }
 
       // Transform unified events to match expected format for export
       const events = (data.events || []).map(event => {
@@ -195,10 +215,10 @@ const EventSearchExport = ({
 
   // Export to JSON - always in UTC for consistency
   const handleExportJSON = async () => {
-    setIsExporting(true);
+    setExportState({ phase: 'fetching', message: 'Fetching events...' });
     try {
-      // Fetch ALL matching events from Microsoft Graph instead of just paginated results
       const allMatchingEvents = await fetchAllMatchingEvents();
+      setExportState({ phase: 'building', message: 'Building JSON...' });
 
       // Create a formatted JSON object with UTC timestamps
       const exportData = {
@@ -250,16 +270,16 @@ const EventSearchExport = ({
       console.error('Error exporting to JSON:', error);
       showError(error, { context: 'EventSearchExport.exportToJson', userMessage: 'Failed to export to JSON. Please try again.' });
     } finally {
-      setIsExporting(false);
+      setExportState({ phase: 'idle', message: '' });
     }
   };
 
   // Export to CSV - display times in selected timezone, store metadata in UTC
   const handleExportCSV = async () => {
-    setIsExporting(true);
+    setExportState({ phase: 'fetching', message: 'Fetching events...' });
     try {
-      // Fetch ALL matching events from Microsoft Graph instead of just paginated results
       const allMatchingEvents = await fetchAllMatchingEvents();
+      setExportState({ phase: 'building', message: 'Building CSV...' });
 
       // Define CSV headers
       const headers = [
@@ -342,15 +362,15 @@ const EventSearchExport = ({
       console.error('Error exporting to CSV:', error);
       showError(error, { context: 'EventSearchExport.exportToCsv', userMessage: 'Failed to export to CSV. Please try again.' });
     } finally {
-      setIsExporting(false);
+      setExportState({ phase: 'idle', message: '' });
     }
   };
-  
+
   const handleExport = async () => {
-    setIsExporting(true);
+    setExportState({ phase: 'fetching', message: 'Fetching events...' });
     try {
-      // Fetch ALL matching events (not just the loaded batch of 100)
       const allMatchingEvents = await fetchAllMatchingEvents();
+      setExportState({ phase: 'building', message: 'Building PDF...' });
       logger.log(`PDF Export: Fetched ${allMatchingEvents.length} events for export`);
       // Create new PDF document
       const doc = new jsPDF();
@@ -910,7 +930,7 @@ const EventSearchExport = ({
       console.error('Error generating PDF:', error);
       showError(error, { context: 'EventSearchExport.exportToPdf', userMessage: 'There was an error generating the PDF. Please try again.' });
     } finally {
-      setIsExporting(false);
+      setExportState({ phase: 'idle', message: '' });
     }
   };
 
@@ -1022,7 +1042,7 @@ const EventSearchExport = ({
         }}
       >
         <span role="img" aria-label="export">📄</span>
-        {isExporting ? 'Exporting...' : 'Export Results to PDF'}
+        {isExporting ? (exportState.message || 'Exporting...') : 'Export Results to PDF'}
       </button>
 
       <button
@@ -1041,8 +1061,8 @@ const EventSearchExport = ({
           gap: '4px'
         }}
       >
-        <span role="img" aria-label="json">📋</span> 
-        {isExporting ? 'Exporting...' : 'Export to JSON'}
+        <span role="img" aria-label="json">📋</span>
+        {isExporting ? (exportState.message || 'Exporting...') : 'Export to JSON'}
       </button>
 
       <button
@@ -1061,8 +1081,8 @@ const EventSearchExport = ({
           gap: '4px'
         }}
       >
-        <span role="img" aria-label="csv">📊</span> 
-        {isExporting ? 'Exporting...' : 'Export to CSV'}
+        <span role="img" aria-label="csv">📊</span>
+        {isExporting ? (exportState.message || 'Exporting...') : 'Export to CSV'}
       </button>
       
       {/* Timezone info for user reference 

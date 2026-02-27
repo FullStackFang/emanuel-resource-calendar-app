@@ -5370,7 +5370,9 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
       limit = 20,
       includeDeleted,
       calendarOwner: qCalendarOwner = '',
-      calendarId: qCalendarId = ''
+      calendarId: qCalendarId = '',
+      categoryCount = '',
+      locationCount = ''
     } = req.query;
 
     if (!view || !['my-events', 'approval-queue', 'admin-browse'].includes(view)) {
@@ -5395,7 +5397,10 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     }
 
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = limit === '0' || limit === 0 ? 0 : Math.min(100, Math.max(1, parseInt(limit) || 20));
+    const EXPORT_MAX_EVENTS = 2000;
+    const limitNum = limit === '0' || limit === 0
+      ? EXPORT_MAX_EVENTS
+      : Math.min(100, Math.max(1, parseInt(limit) || 20));
     const skip = limitNum > 0 ? (pageNum - 1) * limitNum : 0;
     const shouldIncludeDeleted = includeDeleted === 'true';
 
@@ -5509,26 +5514,23 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     // ── Category filter ──
     if (categories) {
       const categoryList = categories.split(',').map(c => c.trim()).filter(c => c);
-      if (categoryList.length > 0) {
+      const totalCategoryCount = parseInt(categoryCount) || 0;
+      const isAllCategoriesSelected = totalCategoryCount > 0 && categoryList.length >= totalCategoryCount;
+
+      if (categoryList.length > 0 && !isAllCategoriesSelected) {
         const categoryConditions = [];
 
         if (categoryList.includes('Uncategorized')) {
-          categoryConditions.push({ categories: { $exists: false } });
-          categoryConditions.push({ categories: { $size: 0 } });
-          categoryConditions.push({ categories: null });
-          categoryConditions.push({
-            $and: [
-              { 'graphData.categories': { $exists: false } },
-              { 'calendarData.categories': { $exists: false } }
-            ]
-          });
+          categoryConditions.push(
+            { 'calendarData.categories': { $exists: false } },
+            { 'calendarData.categories': { $size: 0 } },
+            { 'calendarData.categories': null }
+          );
         }
 
         const actualCategories = categoryList.filter(c => c !== 'Uncategorized');
         if (actualCategories.length > 0) {
-          categoryConditions.push({ categories: { $in: actualCategories } });
           categoryConditions.push({ 'calendarData.categories': { $in: actualCategories } });
-          categoryConditions.push({ 'graphData.categories': { $in: actualCategories } });
         }
 
         if (categoryConditions.length > 0) {
@@ -5547,26 +5549,26 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     // ── Location filter ──
     if (locations) {
       const locationList = locations.split(',').map(l => l.trim()).filter(l => l);
-      if (locationList.length > 0) {
+      const totalLocationCount = parseInt(locationCount) || 0;
+      const isAllLocationsSelected = totalLocationCount > 0 && locationList.length >= totalLocationCount;
+
+      if (locationList.length > 0 && !isAllLocationsSelected) {
         const locationConditions = locationList.map(loc => {
           const escapedLoc = loc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          return {
-            $or: [
-              { 'calendarData.locationDisplayNames': { $regex: escapedLoc, $options: 'i' } },
-              { 'calendarData.locations': { $in: [loc] } },
-              { 'calendarData.locationCodes': { $in: [loc] } },
-              { 'graphData.location.displayName': { $regex: escapedLoc, $options: 'i' } }
-            ]
-          };
+          return { locationDisplayNames: { $regex: escapedLoc, $options: 'i' } };
         });
 
-        const locationFilter = { $or: locationConditions };
+        const locationFilter = locationConditions.length === 1
+          ? locationConditions[0]
+          : { $or: locationConditions };
 
         if (query.$and) {
           query.$and.push(locationFilter);
         } else if (query.$or) {
           query.$and = [{ $or: query.$or }, locationFilter];
           delete query.$or;
+        } else if (locationConditions.length === 1) {
+          Object.assign(query, locationFilter);
         } else {
           query.$and = [locationFilter];
         }
@@ -5627,7 +5629,8 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
         totalCount,
         totalPages: totalCapped ? '?' : totalPages,
         hasMore: totalCapped || hasMore
-      }
+      },
+      exportCapped: totalCount > EXPORT_MAX_EVENTS
     });
 
   } catch (error) {
