@@ -935,45 +935,92 @@ const EventSearchExport = ({
   };
 
   return (
-    <div className="export-container">
-      {/* PDF options */}
-      <div className="export-options">
-        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
-                className="export-sort-select">
-          <option value="date">Sort: Date</option>
-          <option value="category">Sort: Category</option>
-          <option value="location">Sort: Location</option>
+    <div className="export-toolbar">
+      {/* Sort control */}
+      <div className="export-sort-group">
+        <svg className="export-sort-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <path d="M2 3.5h10M2 7h7M2 10.5h4" />
+        </svg>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="export-sort-select"
+        >
+          <option value="date">Date</option>
+          <option value="category">Category</option>
+          <option value="location">Location</option>
         </select>
+      </div>
 
+      {/* Divider */}
+      <span className="export-divider" />
+
+      {/* Include toggles */}
+      <div className="export-toggles">
         <button
           onClick={() => setShowMaintenanceTimes(!showMaintenanceTimes)}
-          className={`export-toggle-btn ${showMaintenanceTimes ? 'active maintenance' : ''}`}
-          title="Toggle setup/teardown times in PDF export"
+          className={`export-chip ${showMaintenanceTimes ? 'active maintenance' : ''}`}
+          title="Include setup/teardown times in export"
         >
-          <span className="export-toggle-check">{showMaintenanceTimes ? '\u2713' : ''}</span>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8.5 1.5l3 3-8 8H.5v-3z" />
+          </svg>
           Maintenance
         </button>
 
         <button
           onClick={() => setShowSecurityTimes(!showSecurityTimes)}
-          className={`export-toggle-btn ${showSecurityTimes ? 'active security' : ''}`}
-          title="Toggle door open/close times in PDF export"
+          className={`export-chip ${showSecurityTimes ? 'active security' : ''}`}
+          title="Include door open/close times in export"
         >
-          <span className="export-toggle-check">{showSecurityTimes ? '\u2713' : ''}</span>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="6" width="9" height="6" rx="1" />
+            <path d="M4 6V4a2.5 2.5 0 015 0v2" />
+          </svg>
           Security
         </button>
       </div>
 
-      {/* Export format buttons */}
-      <div className="export-format-buttons">
-        <button onClick={handleExport} disabled={isExporting} className="export-btn export-btn-pdf">
-          {isExporting ? (exportState.message || 'Exporting...') : 'PDF'}
+      {/* Divider */}
+      <span className="export-divider" />
+
+      {/* Export format button group */}
+      <div className="export-btn-group">
+        <button onClick={handleExport} disabled={isExporting} className="export-fmt-btn pdf">
+          {isExporting ? (
+            <span className="export-spinner" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8.5 1H3.5a1 1 0 00-1 1v10a1 1 0 001 1h7a1 1 0 001-1V4L8.5 1z" />
+              <path d="M8.5 1v3h3" />
+            </svg>
+          )}
+          PDF
         </button>
-        <button onClick={handleExportJSON} disabled={isExporting} className="export-btn export-btn-json">
-          {isExporting ? (exportState.message || 'Exporting...') : 'JSON'}
+        <button onClick={handleExportJSON} disabled={isExporting} className="export-fmt-btn json">
+          {isExporting ? (
+            <span className="export-spinner" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 2C3 2 2 2.5 2 4v1.5C2 6.5 1 7 1 7s1 .5 1 1.5V10c0 1.5 1 2 2 2" />
+              <path d="M10 2c1 0 2 .5 2 2v1.5C12 6.5 13 7 13 7s-1 .5-1 1.5V10c0 1.5-1 2-2 2" />
+            </svg>
+          )}
+          JSON
         </button>
-        <button onClick={handleExportCSV} disabled={isExporting} className="export-btn export-btn-csv">
-          {isExporting ? (exportState.message || 'Exporting...') : 'CSV'}
+        <button onClick={handleExportCSV} disabled={isExporting} className="export-fmt-btn csv">
+          {isExporting ? (
+            <span className="export-spinner" />
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1.5" y="1.5" width="11" height="11" rx="1" />
+              <line x1="1.5" y1="5" x2="12.5" y2="5" />
+              <line x1="1.5" y1="8.5" x2="12.5" y2="8.5" />
+              <line x1="5" y1="1.5" x2="5" y2="12.5" />
+              <line x1="9" y1="1.5" x2="9" y2="12.5" />
+            </svg>
+          )}
+          CSV
         </button>
       </div>
     </div>
