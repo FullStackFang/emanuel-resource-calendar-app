@@ -1,7 +1,8 @@
 // src/components/NewReservationModal.jsx
-import { useState, useEffect, useCallback } from 'react';
-import UnifiedEventForm from './UnifiedEventForm';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
+import { useMsal } from '@azure/msal-react';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
@@ -13,6 +14,7 @@ import { logger } from '../utils/logger';
  * - Requester: "Request Event" with submit-for-approval flow
  */
 export default function NewReservationModal({ apiToken, selectedCalendarId, availableCalendars }) {
+  const { accounts } = useMsal();
   const { canCreateEvents } = usePermissions();
   const { showSuccess, showError, showWarning } = useNotification();
 
@@ -21,7 +23,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   const [hasChanges, setHasChanges] = useState(false);
   const [isFormValid, setIsFormValid] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [saveFunction, setSaveFunction] = useState(null);
   const [isConfirming, setIsConfirming] = useState(false);
   const [formData, setFormData] = useState(null);
 
@@ -30,6 +31,45 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftId, setDraftId] = useState(null);
   const [isDraftConfirming, setIsDraftConfirming] = useState(false);
+
+  // Build reservation object for RoomReservationReview (same pattern as Calendar.jsx handleDayCellClick)
+  const newReservation = useMemo(() => {
+    const calendarOwner = availableCalendars?.find(cal => cal.id === selectedCalendarId)?.owner?.address?.toLowerCase();
+    return {
+      requesterName: accounts[0]?.name || '',
+      requesterEmail: accounts[0]?.username || '',
+      department: '',
+      phone: '',
+      contactEmail: '',
+      contactName: '',
+      isOnBehalfOf: false,
+      eventTitle: '',
+      eventDescription: '',
+      startDate: '',
+      startTime: '',
+      endDate: '',
+      endTime: '',
+      isAllDayEvent: false,
+      locations: [],
+      setupTime: '',
+      teardownTime: '',
+      doorOpenTime: '',
+      doorCloseTime: '',
+      setupTimeMinutes: 0,
+      teardownTimeMinutes: 0,
+      setupNotes: '',
+      doorNotes: '',
+      eventNotes: '',
+      attendeeCount: '',
+      specialRequirements: '',
+      reviewNotes: '',
+      calendarId: selectedCalendarId,
+      calendarOwner,
+      calendarName: availableCalendars?.find(cal => cal.id === selectedCalendarId)?.name,
+      virtualMeetingUrl: null,
+      graphData: null,
+    };
+  }, [accounts, selectedCalendarId, availableCalendars]);
 
   // Listen for custom event from MyReservations
   useEffect(() => {
@@ -49,7 +89,6 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setHasChanges(false);
     setIsFormValid(false);
     setIsSaving(false);
-    setSaveFunction(null);
     setIsConfirming(false);
     setFormData(null);
     setShowDraftDialog(false);
@@ -184,18 +223,58 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     }
   }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showSuccess, showError, handleSuccess]);
 
-  // Requester: submit request (uses UnifiedEventForm's built-in save function)
-  const handleRequesterSubmit = useCallback(() => {
+  // Requester: submit request via direct API call
+  const handleRequesterSubmit = useCallback(async () => {
     if (!isConfirming) {
       setIsConfirming(true);
       return;
     }
+    if (!formData) return;
 
-    if (saveFunction) {
-      saveFunction();
-    }
+    setIsSaving(true);
     setIsConfirming(false);
-  }, [isConfirming, saveFunction]);
+    try {
+      const startDateTime = formData.startDate && formData.startTime
+        ? `${formData.startDate}T${formData.startTime}` : '';
+      const endDateTime = formData.endDate && formData.endTime
+        ? `${formData.endDate}T${formData.endTime}` : '';
+
+      const payload = {
+        ...formData,
+        startDateTime,
+        endDateTime,
+        attendeeCount: parseInt(formData.attendeeCount) || 0,
+        calendarId: selectedCalendarId,
+        calendarOwner: availableCalendars?.find(cal => cal.id === selectedCalendarId)?.owner?.address?.toLowerCase(),
+      };
+      delete payload.startDate;
+      delete payload.startTime;
+      delete payload.endDate;
+      delete payload.endTime;
+
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to submit reservation');
+      }
+
+      showSuccess('Reservation request submitted');
+      handleSuccess();
+    } catch (error) {
+      logger.error('Error submitting reservation:', error);
+      showError(error, { context: 'NewReservationModal.handleRequesterSubmit' });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isConfirming, formData, apiToken, selectedCalendarId, availableCalendars, showSuccess, showError, handleSuccess]);
 
   // Save draft (two-click confirmation, same pattern as handleAdminPublish)
   const handleSaveDraft = useCallback(async () => {
@@ -318,22 +397,18 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
         onCancelSave={() => setIsConfirming(false)}
         showTabs={true}
       >
-        <UnifiedEventForm
-          mode="create"
-          apiToken={apiToken}
-          prefillData={{
-            calendarId: selectedCalendarId,
-            calendarOwner: availableCalendars?.find(cal => cal.id === selectedCalendarId)?.owner?.address?.toLowerCase()
-          }}
-          hideActionBar={true}
-          onHasChangesChange={setHasChanges}
-          onFormValidChange={setIsFormValid}
-          onIsSavingChange={setIsSaving}
-          onSaveFunctionReady={(fn) => setSaveFunction(() => fn)}
-          onDataChange={(data) => setFormData(prev => ({ ...(prev || {}), ...data }))}
-          onCancel={handleClose}
-          onSuccess={handleSuccess}
-        />
+        {isOpen && (
+          <RoomReservationReview
+            reservation={newReservation}
+            apiToken={apiToken}
+            onDataChange={(updatedData) => {
+              setFormData(prev => ({ ...(prev || {}), ...updatedData }));
+              setHasChanges(true);
+            }}
+            onFormValidChange={setIsFormValid}
+            readOnly={false}
+          />
+        )}
       </ReviewModal>
   );
 }

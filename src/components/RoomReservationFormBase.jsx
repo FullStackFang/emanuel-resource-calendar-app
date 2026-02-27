@@ -845,6 +845,13 @@ export default function RoomReservationFormBase({
       [name]: value
     };
 
+    // Auto-fill endDate when startDate is set and endDate is empty or earlier
+    if (name === 'startDate' && value) {
+      if (!formData.endDate || formData.endDate < value) {
+        updatedData.endDate = value;
+      }
+    }
+
     // Auto-adjust endTime (and downstream times) when startTime moves to or past endTime
     if (name === 'startTime' && value && formData.endTime) {
       const [startH, startM] = value.split(':').map(Number);
