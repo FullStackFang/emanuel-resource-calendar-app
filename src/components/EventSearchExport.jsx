@@ -589,20 +589,22 @@ const EventSearchExport = ({
         return y + 6;
       };
 
-      // Draw date separator
-      const drawDateSeparator = (y, dateStr, dayOfWeek) => {
-        // Date pill background
-        const pillWidth = 50;
+      // Draw group separator (gold pill with extending line)
+      const drawGroupSeparator = (y, label) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(fontSize.tiny);
+        const textWidth = doc.getTextWidth(label);
+        const pillWidth = Math.min(textWidth + 6, contentWidth); // 3px padding each side, cap at content width
+
+        // Pill background
         doc.setFillColor(...colors.accent);
         doc.roundedRect(spacing.margin, y - 3, pillWidth, 5, 1, 1, 'F');
 
-        // Date text
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(fontSize.tiny);
+        // Label text
         doc.setTextColor(255, 255, 255);
-        doc.text(`${dayOfWeek}, ${dateStr}`, spacing.margin + 2, y);
+        doc.text(label, spacing.margin + 2, y);
 
-        // Line extending from pill
+        // Line extending from pill to right edge
         doc.setDrawColor(...colors.border);
         doc.setLineWidth(0.3);
         doc.line(spacing.margin + pillWidth + 2, y - 0.5, pageWidth - spacing.margin, y - 0.5);
@@ -659,6 +661,7 @@ const EventSearchExport = ({
       // Group tracking
       let currentGroup = '';
       let previousDateStr = '';
+      let currentGroupLabel = '';
 
       // Helper to format time strings
       const formatTimeString = (timeStr) => {
@@ -725,11 +728,30 @@ const EventSearchExport = ({
           rowHeight = Math.max(rowHeight, 8 + extraLines * 3.5);
         }
 
+        // Check if a new group header is needed for this event
+        let needsGroupHeader = false;
+        if (sortBy === 'date' && dateStr !== previousDateStr) {
+          needsGroupHeader = true;
+        } else if (sortBy === 'category') {
+          const category = event.categories?.[0] || 'Uncategorized';
+          if (category !== currentGroup) needsGroupHeader = true;
+        } else if (sortBy === 'location') {
+          const location = event.location?.displayName || 'Unspecified';
+          if (location !== currentGroup) needsGroupHeader = true;
+        }
+
+        // Account for group header height in page break check
+        const totalNeeded = rowHeight + (needsGroupHeader ? 8 : 0);
+
         // Check for new page
-        if (y + rowHeight > pageHeight - 20) {
+        if (y + totalNeeded > pageHeight - 20) {
           doc.addPage();
           y = drawHeader(false);
           y = drawTableHeader(y);
+          // Re-render current group header on new page (only if not about to draw a new one)
+          if (currentGroupLabel && !needsGroupHeader) {
+            y = drawGroupSeparator(y, `${currentGroupLabel} (cont'd)`);
+          }
         }
 
         // Date separator (when date changes)
@@ -737,7 +759,8 @@ const EventSearchExport = ({
           if (previousDateStr !== '') {
             y += 3;
           }
-          y = drawDateSeparator(y, fullDateStr, dayOfWeek);
+          currentGroupLabel = `${dayOfWeek}, ${fullDateStr}`;
+          y = drawGroupSeparator(y, currentGroupLabel);
         }
         previousDateStr = dateStr;
 
@@ -746,24 +769,17 @@ const EventSearchExport = ({
           const category = event.categories?.[0] || 'Uncategorized';
           if (category !== currentGroup) {
             currentGroup = category;
-            y += 4;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(fontSize.small);
-            doc.setTextColor(...colors.accent);
-            doc.text(category.toUpperCase(), spacing.margin, y);
-            y += 5;
+            if (previousDateStr !== '' || i > 0) y += 3;
+            currentGroupLabel = category.toUpperCase();
+            y = drawGroupSeparator(y, currentGroupLabel);
           }
         } else if (sortBy === 'location') {
           const location = event.location?.displayName || 'Unspecified';
           if (location !== currentGroup) {
             currentGroup = location;
-            y += 4;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(fontSize.small);
-            doc.setTextColor(...colors.accent);
-            const wrappedLoc = doc.splitTextToSize(location, contentWidth - 10);
-            doc.text(wrappedLoc[0], spacing.margin, y);
-            y += 5;
+            if (previousDateStr !== '' || i > 0) y += 3;
+            currentGroupLabel = location;
+            y = drawGroupSeparator(y, currentGroupLabel);
           }
         }
 
