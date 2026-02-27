@@ -2,7 +2,7 @@
  * Proposed Changes Merge Tests (PM-1 to PM-8)
  *
  * Tests that when an approver edits a published event with a pending edit request,
- * fields the approver modified are removed from pendingEditRequest.requestedChanges
+ * fields the approver modified are removed from pendingEditRequest.proposedChanges
  * so that publish-edit won't revert the approver's work.
  */
 
@@ -69,20 +69,20 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
     adminToken = await createMockToken(adminUser);
   });
 
-  describe('PM-1: Approver changes field in requestedChanges', () => {
-    it('should remove the changed field from requestedChanges', async () => {
+  describe('PM-1: Approver changes field in proposedChanges', () => {
+    it('should remove the changed field from proposedChanges', async () => {
       const event = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
-        requestedChanges: {
+        proposedChanges: {
           eventTitle: 'Requester Wants This Title',
           eventDescription: 'Requester Wants This Description',
         },
       });
       await insertEvents(db, [event]);
 
-      // Approver changes the title (same field as in requestedChanges)
+      // Approver changes the title (same field as in proposedChanges)
       const res = await request(app)
         .put(ENDPOINTS.UPDATE_EVENT(event._id))
         .set('Authorization', `Bearer ${adminToken}`)
@@ -93,26 +93,26 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
       expect(updated.eventTitle).toBe('Approver Chose This Title');
 
-      // eventTitle should be removed from requestedChanges, eventDescription should remain
-      const remaining = updated.pendingEditRequest.requestedChanges;
+      // eventTitle should be removed from proposedChanges, eventDescription should remain
+      const remaining = updated.pendingEditRequest.proposedChanges;
       expect(remaining.eventTitle).toBeUndefined();
       expect(remaining.eventDescription).toBe('Requester Wants This Description');
     });
   });
 
-  describe('PM-2: Approver changes field NOT in requestedChanges', () => {
-    it('should leave requestedChanges unchanged', async () => {
+  describe('PM-2: Approver changes field NOT in proposedChanges', () => {
+    it('should leave proposedChanges unchanged', async () => {
       const event = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
-        requestedChanges: {
+        proposedChanges: {
           eventTitle: 'Requester Wants This Title',
         },
       });
       await insertEvents(db, [event]);
 
-      // Approver changes a field NOT in requestedChanges
+      // Approver changes a field NOT in proposedChanges
       const res = await request(app)
         .put(ENDPOINTS.UPDATE_EVENT(event._id))
         .set('Authorization', `Bearer ${adminToken}`)
@@ -122,8 +122,8 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
 
-      // requestedChanges should be unchanged
-      const remaining = updated.pendingEditRequest.requestedChanges;
+      // proposedChanges should be unchanged
+      const remaining = updated.pendingEditRequest.proposedChanges;
       expect(remaining.eventTitle).toBe('Requester Wants This Title');
     });
   });
@@ -135,7 +135,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
         eventDescription: 'Original Description',
-        requestedChanges: {
+        proposedChanges: {
           eventTitle: 'New Title From Requester',
           eventDescription: 'New Description From Requester',
         },
@@ -151,7 +151,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
-      const remaining = updated.pendingEditRequest.requestedChanges;
+      const remaining = updated.pendingEditRequest.proposedChanges;
 
       expect(remaining.eventTitle).toBeUndefined();
       expect(remaining.eventDescription).toBe('New Description From Requester');
@@ -160,13 +160,13 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
   });
 
   describe('PM-4: Approver changes ALL proposed fields', () => {
-    it('should result in empty requestedChanges', async () => {
+    it('should result in empty proposedChanges', async () => {
       const event = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
         eventDescription: 'Original Description',
-        requestedChanges: {
+        proposedChanges: {
           eventTitle: 'New Title',
           eventDescription: 'New Description',
         },
@@ -185,7 +185,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
-      const remaining = updated.pendingEditRequest.requestedChanges;
+      const remaining = updated.pendingEditRequest.proposedChanges;
 
       expect(remaining).toEqual({});
     });
@@ -213,7 +213,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
   });
 
   describe('PM-6: Pending event (not published) with edit does not merge', () => {
-    it('should track reviewChanges but not merge requestedChanges', async () => {
+    it('should track reviewChanges but not merge proposedChanges', async () => {
       const event = createPendingEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -248,7 +248,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Location Event',
-        requestedChanges: {
+        proposedChanges: {
           requestedRooms: [locationId2],
           locationDisplayNames: 'New Room',
           eventDescription: 'Also changed description',
@@ -265,7 +265,7 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       expect(res.status).toBe(200);
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
-      const remaining = updated.pendingEditRequest.requestedChanges;
+      const remaining = updated.pendingEditRequest.proposedChanges;
 
       // Location-related fields should be removed
       expect(remaining.requestedRooms).toBeUndefined();
@@ -277,13 +277,13 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
   });
 
   describe('PM-8: publish-edit after merge applies only remaining changes', () => {
-    it('should preserve approver edits and apply only remaining requestedChanges', async () => {
+    it('should preserve approver edits and apply only remaining proposedChanges', async () => {
       const event = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
         eventTitle: 'Original Title',
         eventDescription: 'Original Description',
-        requestedChanges: {
+        proposedChanges: {
           eventTitle: 'Requester Title',
           eventDescription: 'Requester Description',
         },
@@ -301,8 +301,8 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       // Verify intermediate state
       const afterSave = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: event._id });
       expect(afterSave.eventTitle).toBe('Approver Title');
-      expect(afterSave.pendingEditRequest.requestedChanges.eventTitle).toBeUndefined();
-      expect(afterSave.pendingEditRequest.requestedChanges.eventDescription).toBe('Requester Description');
+      expect(afterSave.pendingEditRequest.proposedChanges.eventTitle).toBeUndefined();
+      expect(afterSave.pendingEditRequest.proposedChanges.eventDescription).toBe('Requester Description');
 
       // Step 2: publish-edit applies remaining changes
       const publishRes = await request(app)
@@ -318,8 +318,8 @@ describe('Proposed Changes Merge Tests (PM-1 to PM-8)', () => {
       expect(final.eventTitle).toBe('Approver Title');
       // Requester's description should be applied
       expect(final.eventDescription).toBe('Requester Description');
-      // pendingEditRequest should be cleared
-      expect(final.pendingEditRequest).toBeUndefined();
+      // pendingEditRequest should be marked as approved
+      expect(final.pendingEditRequest.status).toBe('approved');
     });
   });
 });

@@ -358,10 +358,10 @@ describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
             name: 'Test Requester',
             email: requesterUser.email,
           },
-          requestedChanges: {
+          proposedChanges: {
             eventTitle: 'Renamed Board Meeting',
           },
-          reason: 'Need to rename event',
+          changeReason: 'Need to rename event',
         },
       });
       await insertEvents(db, [event]);
@@ -400,11 +400,11 @@ describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
             name: 'Test Requester',
             email: requesterUser.email,
           },
-          requestedChanges: {
+          proposedChanges: {
             eventDescription: 'Updated workshop description',
             categories: ['Education', 'Workshop'],
           },
-          reason: 'Updated details',
+          changeReason: 'Updated details',
         },
       });
       await insertEvents(db, [event]);
@@ -442,12 +442,12 @@ describe('Edit Request Approved Notification Tests (EU-8 to EU-10)', () => {
             name: 'Test Requester',
             email: requesterUser.email,
           },
-          requestedChanges: {
+          proposedChanges: {
             startDateTime: '2026-04-11T19:00:00',
             endDateTime: '2026-04-11T23:00:00',
             locationDisplayNames: ['Ballroom B', 'Garden'],
           },
-          reason: 'Venue change and date shift',
+          changeReason: 'Venue change and date shift',
         },
       });
       await insertEvents(db, [event]);

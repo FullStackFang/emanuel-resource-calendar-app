@@ -925,6 +925,24 @@ export default function ReviewModal({
           </div>
         )}
 
+        {/* Edit Request Mode - reason for changes textarea */}
+        {isEditRequestMode && detectedChanges.length > 0 && (
+          <div className="edit-request-reason-container">
+            <label className="edit-request-reason-label" htmlFor="edit-request-reason">
+              Reason for changes
+            </label>
+            <textarea
+              id="edit-request-reason"
+              className="edit-request-reason-textarea"
+              placeholder="Briefly explain why these changes are needed..."
+              value={editRequestChangeReason || ''}
+              onChange={(e) => onEditRequestChangeReasonChange?.(e.target.value)}
+              rows={2}
+              maxLength={500}
+            />
+          </div>
+        )}
+
         {/* Draft Save Dialog - shown when closing with unsaved changes */}
         {showDraftDialog && (
           <DraftSaveDialog

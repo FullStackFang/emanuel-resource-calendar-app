@@ -1,5 +1,5 @@
 /**
- * Edit Request Tests (A-14 to A-17)
+ * Edit Request Tests (A-14 to A-17 + Cancel)
  *
  * Tests the edit request workflow for published events.
  */
@@ -86,7 +86,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
       const eventWithEditReq = res.body.events.find(e => e.pendingEditRequest);
       expect(eventWithEditReq).toBeDefined();
-      expect(eventWithEditReq.pendingEditRequest.requestedChanges.eventTitle).toBe('New Title');
+      expect(eventWithEditReq.pendingEditRequest.proposedChanges.eventTitle).toBe('New Title');
     });
   });
 
@@ -113,7 +113,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.event.eventTitle).toBe('Updated Title');
       expect(res.body.event.eventDescription).toBe('Updated description');
-      expect(res.body.event.pendingEditRequest).toBeUndefined();
+      expect(res.body.event.pendingEditRequest.status).toBe('approved');
     });
 
     it('should create audit log entry', async () => {
@@ -153,7 +153,7 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
   });
 
   describe('A-16: Reject edit request', () => {
-    it('should remove edit request without applying changes', async () => {
+    it('should reject edit request without applying changes', async () => {
       const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -171,7 +171,8 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.eventTitle).toBe('Original Title'); // Unchanged
-      expect(res.body.event.pendingEditRequest).toBeUndefined();
+      expect(res.body.event.pendingEditRequest.status).toBe('rejected');
+      expect(res.body.event.pendingEditRequest.reviewNotes).toBe('Change not appropriate');
     });
 
     it('should require rejection reason', async () => {
@@ -229,8 +230,8 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
     });
   });
 
-  describe('A-17: Edit request archived after processing', () => {
-    it('should remove pendingEditRequest after approval', async () => {
+  describe('A-17: Edit request status after processing', () => {
+    it('should set pendingEditRequest.status to approved after approval', async () => {
       const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -245,10 +246,13 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
       // Verify in database
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedEvent._id });
-      expect(event.pendingEditRequest).toBeUndefined();
+      expect(event.pendingEditRequest).toBeDefined();
+      expect(event.pendingEditRequest.status).toBe('approved');
+      expect(event.pendingEditRequest.reviewedAt).toBeDefined();
+      expect(event.pendingEditRequest.reviewedBy).toBeDefined();
     });
 
-    it('should remove pendingEditRequest after rejection', async () => {
+    it('should set pendingEditRequest.status to rejected after rejection', async () => {
       const eventWithEdit = createPublishedEventWithEditRequest({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
@@ -264,7 +268,10 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
 
       // Verify in database
       const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedEvent._id });
-      expect(event.pendingEditRequest).toBeUndefined();
+      expect(event.pendingEditRequest).toBeDefined();
+      expect(event.pendingEditRequest.status).toBe('rejected');
+      expect(event.pendingEditRequest.reviewNotes).toBe('Not allowed');
+      expect(event.pendingEditRequest.reviewedAt).toBeDefined();
     });
   });
 
@@ -281,41 +288,44 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'New Title' },
-          reason: 'Need to update',
+          proposedChanges: { eventTitle: 'New Title' },
+          changeReason: 'Need to update',
         })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.pendingEditRequest).toBeDefined();
-      expect(res.body.event.pendingEditRequest.requestedChanges.eventTitle).toBe('New Title');
-      expect(res.body.event.pendingEditRequest.reason).toBe('Need to update');
+      expect(res.body.event.pendingEditRequest.proposedChanges.eventTitle).toBe('New Title');
+      expect(res.body.event.pendingEditRequest.changeReason).toBe('Need to update');
+      expect(res.body.event.pendingEditRequest.status).toBe('pending');
+      expect(res.body.event.pendingEditRequest.requestedBy).toBeDefined();
+      expect(res.body.event.pendingEditRequest.requestedBy.email).toBe(requesterUser.email);
     });
 
-    it('should require both requestedChanges and reason', async () => {
+    it('should require both proposedChanges and changeReason', async () => {
       const published = createPublishedEvent({
         userId: requesterUser.odataId,
         requesterEmail: requesterUser.email,
       });
       const [savedPublished] = await insertEvents(db, [published]);
 
-      // Missing reason
+      // Missing changeReason
       let res = await request(app)
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'New Title' },
+          proposedChanges: { eventTitle: 'New Title' },
         })
         .expect(400);
 
       expect(res.body.error).toMatch(/required/i);
 
-      // Missing requestedChanges
+      // Missing proposedChanges
       res = await request(app)
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          reason: 'Need to update',
+          changeReason: 'Need to update',
         })
         .expect(400);
 
@@ -335,8 +345,8 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
         .post(`/api/events/${savedPending._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'New Title' },
-          reason: 'Need to update',
+          proposedChanges: { eventTitle: 'New Title' },
+          changeReason: 'Need to update',
         })
         .expect(400);
 
@@ -457,6 +467,85 @@ describe('Edit Request Tests (A-14 to A-17)', () => {
       expect(audit.metadata).toBeDefined();
       expect(audit.metadata.approverChanges).toEqual({ eventTitle: 'Approver Title' });
       expect(audit.metadata.originalProposedChanges).toEqual({ eventTitle: 'Requester Title' });
+    });
+  });
+
+  describe('Edit request cancellation', () => {
+    it('should allow requester to cancel their own pending edit request', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requestedChanges: { eventTitle: 'New Title' },
+        editReason: 'Want to change',
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/events/edit-requests/${savedEvent._id}/cancel`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      // Verify in database
+      const event = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: savedEvent._id });
+      expect(event.pendingEditRequest).toBeDefined();
+      expect(event.pendingEditRequest.status).toBe('cancelled');
+      expect(event.pendingEditRequest.reviewNotes).toBe('Cancelled by requester');
+    });
+
+    it('should return 403 when non-owner tries to cancel', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requestedChanges: { eventTitle: 'New Title' },
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/events/edit-requests/${savedEvent._id}/cancel`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(403);
+
+      expect(res.body.error).toMatch(/only the requester/i);
+    });
+
+    it('should return 400 when edit request is not pending', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requestedChanges: { eventTitle: 'New Title' },
+      });
+      // Simulate already-approved edit request
+      eventWithEdit.pendingEditRequest.status = 'approved';
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      const res = await request(app)
+        .put(`/api/events/edit-requests/${savedEvent._id}/cancel`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(400);
+
+      expect(res.body.error).toMatch(/not pending/i);
+    });
+
+    it('should create audit log entry for cancellation', async () => {
+      const eventWithEdit = createPublishedEventWithEditRequest({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requestedChanges: { eventTitle: 'New Title' },
+      });
+      const [savedEvent] = await insertEvents(db, [eventWithEdit]);
+
+      await request(app)
+        .put(`/api/events/edit-requests/${savedEvent._id}/cancel`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .expect(200);
+
+      await assertAuditEntry(db, {
+        eventId: savedEvent.eventId,
+        action: 'edit-request-cancelled',
+        performedBy: requesterUser.odataId,
+      });
     });
   });
 });

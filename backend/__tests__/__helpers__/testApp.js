@@ -1811,10 +1811,10 @@ function createTestApp(options = {}) {
       const userId = req.user.userId;
       const userEmail = req.user.email;
       const eventId = req.params.id;
-      const { requestedChanges, reason } = req.body;
+      const { proposedChanges, changeReason } = req.body;
 
-      if (!requestedChanges || !reason) {
-        return res.status(400).json({ error: 'requestedChanges and reason are required' });
+      if (!proposedChanges || !changeReason) {
+        return res.status(400).json({ error: 'proposedChanges and changeReason are required' });
       }
 
       const query = ObjectId.isValid(eventId)
@@ -1844,16 +1844,33 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'An edit request already exists for this event' });
       }
 
-      // Create the edit request
+      // Build structured requestedBy (matches production data model)
+      const requesterName = event.roomReservationData?.requestedBy?.name || userEmail;
+      const editRequestId = `edit-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create the edit request (matches production pendingEditRequest structure)
       const now = new Date();
+      const pendingEditRequest = {
+        id: editRequestId,
+        status: 'pending',
+        requestedBy: {
+          userId,
+          email: userEmail,
+          name: requesterName,
+          department: event.roomReservationData?.requestedBy?.department || '',
+          phone: event.roomReservationData?.requestedBy?.phone || '',
+          requestedAt: now,
+        },
+        changeReason: changeReason?.trim() || '',
+        proposedChanges,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNotes: '',
+      };
+
       await testCollections.events.updateOne(query, {
         $set: {
-          pendingEditRequest: {
-            requestedAt: now,
-            requestedBy: userEmail,
-            requestedChanges,
-            reason,
-          },
+          pendingEditRequest,
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
         },
@@ -1869,7 +1886,7 @@ function createTestApp(options = {}) {
         performedByEmail: userEmail,
         previousState: event,
         newState: updatedEvent,
-        changes: { pendingEditRequest: requestedChanges, reason },
+        changes: { pendingEditRequest: proposedChanges, changeReason },
       });
 
       // Send edit request alert to reviewers (approvers + admins)
@@ -1926,8 +1943,8 @@ function createTestApp(options = {}) {
       }
 
       // Apply the requested changes, merging with any approver overrides
-      const { approverChanges } = req.body;
-      const proposedChanges = event.pendingEditRequest.requestedChanges;
+      const { approverChanges, notes } = req.body;
+      const proposedChanges = event.pendingEditRequest.proposedChanges;
       const finalChanges = approverChanges
         ? { ...proposedChanges, ...approverChanges }
         : proposedChanges;
@@ -1971,11 +1988,27 @@ function createTestApp(options = {}) {
         }
       }
 
+      // Build update: write changes to calendarData.* fields (matching production)
       const mongoUpdate = {
-        ...finalChanges,
         lastModifiedDateTime: now,
         lastModifiedBy: userId,
       };
+
+      // Apply finalChanges to both top-level and calendarData (matching production behavior)
+      for (const [field, value] of Object.entries(finalChanges)) {
+        mongoUpdate[field] = value;
+        mongoUpdate[`calendarData.${field}`] = value;
+      }
+
+      // Update pendingEditRequest status (not $unset — matches production)
+      mongoUpdate['pendingEditRequest.status'] = 'approved';
+      mongoUpdate['pendingEditRequest.reviewedAt'] = now;
+      mongoUpdate['pendingEditRequest.reviewedBy'] = {
+        userId,
+        name: userEmail,
+        email: userEmail,
+      };
+      mongoUpdate['pendingEditRequest.reviewNotes'] = notes || '';
 
       // Merge Graph response back to graphData
       if (graphSyncResult) {
@@ -1984,9 +2017,6 @@ function createTestApp(options = {}) {
 
       await testCollections.events.updateOne(query, {
         $set: mongoUpdate,
-        $unset: {
-          pendingEditRequest: '',
-        },
       });
 
       const updatedEvent = await testCollections.events.findOne(query);
@@ -2071,15 +2101,20 @@ function createTestApp(options = {}) {
         return res.status(400).json({ error: 'No pending edit request for this event' });
       }
 
-      // Remove the edit request
+      // Set edit request status to rejected (not $unset — matches production)
       const now = new Date();
       await testCollections.events.updateOne(query, {
         $set: {
+          'pendingEditRequest.status': 'rejected',
+          'pendingEditRequest.reviewedAt': now,
+          'pendingEditRequest.reviewedBy': {
+            userId,
+            name: userEmail,
+            email: userEmail,
+          },
+          'pendingEditRequest.reviewNotes': reason,
           lastModifiedDateTime: now,
           lastModifiedBy: userId,
-        },
-        $unset: {
-          pendingEditRequest: '',
         },
       });
 
@@ -2102,6 +2137,79 @@ function createTestApp(options = {}) {
       });
     } catch (error) {
       console.error('Error rejecting edit:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * PUT /api/events/edit-requests/:id/cancel - Cancel own edit request
+   * Matches production: ownership check, status guard, sets status to 'cancelled'
+   */
+  app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+      const eventId = req.params.id;
+
+      const query = ObjectId.isValid(eventId)
+        ? { _id: new ObjectId(eventId) }
+        : { eventId };
+
+      const event = await testCollections.events.findOne(query);
+
+      if (!event) {
+        return res.status(404).json({ error: 'Event not found' });
+      }
+
+      if (!event.pendingEditRequest) {
+        return res.status(400).json({ error: 'No pending edit request found for this event' });
+      }
+
+      if (event.pendingEditRequest.status !== 'pending') {
+        return res.status(400).json({
+          error: 'Edit request is not pending',
+          currentStatus: event.pendingEditRequest.status,
+        });
+      }
+
+      // Verify the user is the owner of the edit request
+      const pendingEditRequest = event.pendingEditRequest;
+      const isOwner = pendingEditRequest.requestedBy?.userId === userId ||
+                      pendingEditRequest.requestedBy?.email === userEmail;
+
+      if (!isOwner) {
+        return res.status(403).json({ error: 'Only the requester can cancel their edit request' });
+      }
+
+      const now = new Date();
+      await testCollections.events.updateOne(query, {
+        $set: {
+          'pendingEditRequest.status': 'cancelled',
+          'pendingEditRequest.reviewNotes': 'Cancelled by requester',
+          lastModifiedDateTime: now,
+        },
+      });
+
+      // Create audit log
+      await createAuditLog({
+        eventId: event.eventId,
+        action: 'edit-request-cancelled',
+        performedBy: userId,
+        performedByEmail: userEmail,
+        previousState: event,
+        changes: [],
+        metadata: {
+          editRequestId: pendingEditRequest.id,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Edit request cancelled',
+        eventId: event.eventId,
+      });
+    } catch (error) {
+      console.error('Error cancelling edit request:', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -2267,24 +2375,24 @@ function createTestApp(options = {}) {
         }
       }
 
-      // Merge approver edits into pending edit request's requestedChanges
-      if (event.status === 'published' && event.pendingEditRequest?.requestedChanges) {
-        const currentRequested = { ...(event.pendingEditRequest.requestedChanges || {}) };
-        const originalCount = Object.keys(currentRequested).length;
+      // Merge approver edits into pending edit request's proposedChanges
+      if (event.status === 'published' && event.pendingEditRequest?.proposedChanges) {
+        const currentProposed = { ...(event.pendingEditRequest.proposedChanges || {}) };
+        const originalCount = Object.keys(currentProposed).length;
 
         const approverModifiedLocations = mongoUpdate.locations !== undefined
           || updates.requestedRooms !== undefined;
 
-        for (const field of Object.keys(currentRequested)) {
+        for (const field of Object.keys(currentProposed)) {
           const approverTouched = mongoUpdate[field] !== undefined;
           const isLocationField = ['locations', 'requestedRooms', 'locationDisplayNames'].includes(field);
           if (approverTouched || (isLocationField && approverModifiedLocations)) {
-            delete currentRequested[field];
+            delete currentProposed[field];
           }
         }
 
-        if (Object.keys(currentRequested).length < originalCount) {
-          mongoUpdate['pendingEditRequest.requestedChanges'] = currentRequested;
+        if (Object.keys(currentProposed).length < originalCount) {
+          mongoUpdate['pendingEditRequest.proposedChanges'] = currentProposed;
         }
       }
 

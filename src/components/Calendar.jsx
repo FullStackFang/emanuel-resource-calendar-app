@@ -5636,7 +5636,8 @@ import ConflictDialog from './shared/ConflictDialog';
           doorOpenTime: currentData.doorOpenTime,
           doorCloseTime: currentData.doorCloseTime,
           categories: currentData.categories || currentData.mecCategories || [],
-          services: currentData.services || {}
+          services: currentData.services || {},
+          changeReason: editRequestChangeReason?.trim() || '',
         };
 
         const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${eventId}/request-edit`, {
@@ -5673,7 +5674,7 @@ import ConflictDialog from './shared/ConflictDialog';
       } finally {
         setIsSubmittingEditRequest(false);
       }
-    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents]);
+    }, [reviewModal, computeDetectedChanges, apiToken, showNotification, pendingEditRequestConfirmation, refreshEvents, editRequestChangeReason]);
 
     /**
      * Cancel edit request confirmation

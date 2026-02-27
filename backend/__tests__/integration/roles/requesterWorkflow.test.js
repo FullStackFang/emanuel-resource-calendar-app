@@ -381,14 +381,14 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'New Title' },
-          reason: 'Need to update title',
+          proposedChanges: { eventTitle: 'New Title' },
+          changeReason: 'Need to update title',
         })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.event.pendingEditRequest).toBeDefined();
-      expect(res.body.event.pendingEditRequest.requestedChanges.eventTitle).toBe('New Title');
+      expect(res.body.event.pendingEditRequest.proposedChanges.eventTitle).toBe('New Title');
     });
   });
 
@@ -420,10 +420,12 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         requesterEmail: requesterUser.email,
       });
       published.pendingEditRequest = {
-        requestedAt: new Date(),
-        requestedBy: requesterUser.email,
-        requestedChanges: { eventTitle: 'New Title' },
-        reason: 'Update needed',
+        id: 'edit-req-test-1',
+        status: 'pending',
+        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
+        proposedChanges: { eventTitle: 'New Title' },
+        changeReason: 'Update needed',
+        reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
 
@@ -433,7 +435,7 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .expect(200);
 
       expect(res.body.reservations[0].pendingEditRequest).toBeDefined();
-      expect(res.body.reservations[0].pendingEditRequest.reason).toBe('Update needed');
+      expect(res.body.reservations[0].pendingEditRequest.changeReason).toBe('Update needed');
     });
   });
 
@@ -444,10 +446,12 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         requesterEmail: requesterUser.email,
       });
       published.pendingEditRequest = {
-        requestedAt: new Date(),
-        requestedBy: requesterUser.email,
-        requestedChanges: { eventTitle: 'New Title' },
-        reason: 'Update needed',
+        id: 'edit-req-test-2',
+        status: 'pending',
+        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
+        proposedChanges: { eventTitle: 'New Title' },
+        changeReason: 'Update needed',
+        reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
 
@@ -467,10 +471,12 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         requesterEmail: requesterUser.email,
       });
       published.pendingEditRequest = {
-        requestedAt: new Date(),
-        requestedBy: requesterUser.email,
-        requestedChanges: { eventTitle: 'First Request' },
-        reason: 'First reason',
+        id: 'edit-req-test-3',
+        status: 'pending',
+        requestedBy: { userId: requesterUser.odataId, email: requesterUser.email, name: requesterUser.email, department: '', phone: '', requestedAt: new Date() },
+        proposedChanges: { eventTitle: 'First Request' },
+        changeReason: 'First reason',
+        reviewedBy: null, reviewedAt: null, reviewNotes: '',
       };
       const [savedPublished] = await insertEvents(db, [published]);
 
@@ -478,8 +484,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'Second Request' },
-          reason: 'Second reason',
+          proposedChanges: { eventTitle: 'Second Request' },
+          changeReason: 'Second reason',
         })
         .expect(400);
 
@@ -616,8 +622,8 @@ describe('Requester Role Workflow Tests (R-1 to R-29)', () => {
         .post(`/api/events/${savedPublished._id}/request-edit`)
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'Hacked Title' },
-          reason: 'Unauthorized request',
+          proposedChanges: { eventTitle: 'Hacked Title' },
+          changeReason: 'Unauthorized request',
         })
         .expect(403);
 

@@ -160,8 +160,8 @@ describe('Publish-Edit Graph Sync Tests (PEG-1 to PEG-5)', () => {
       // Verify the MongoDB changes were still applied
       const updatedEvent = await findEvent(db, event._id.toString());
       expect(updatedEvent.eventTitle).toBe('Title Despite Graph Failure');
-      // pendingEditRequest should be cleared
-      expect(updatedEvent.pendingEditRequest).toBeUndefined();
+      // pendingEditRequest should be marked as approved
+      expect(updatedEvent.pendingEditRequest.status).toBe('approved');
     });
   });
 

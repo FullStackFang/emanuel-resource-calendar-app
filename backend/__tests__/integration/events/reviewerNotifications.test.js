@@ -463,8 +463,8 @@ describe('Reviewer Notification Tests (RN-1 to RN-20)', () => {
         .post(ENDPOINTS.REQUEST_EDIT(published._id))
         .set('Authorization', `Bearer ${requesterToken}`)
         .send({
-          requestedChanges: { eventTitle: 'New Title' },
-          reason: 'Need to change title',
+          proposedChanges: { eventTitle: 'New Title' },
+          changeReason: 'Need to change title',
         });
 
       expect(res.status).toBe(200);

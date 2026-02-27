@@ -188,14 +188,26 @@ function createPublishedEvent(options = {}) {
  */
 function createPublishedEventWithEditRequest(options = {}) {
   const event = createPublishedEvent(options);
+  const requesterEmail = options.requesterEmail || 'requester@external.com';
   event.pendingEditRequest = options.pendingEditRequest || {
-    requestedAt: new Date(),
-    requestedBy: options.requesterEmail || 'requester@external.com',
-    requestedChanges: options.requestedChanges || {
+    id: `edit-req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    status: 'pending',
+    requestedBy: {
+      userId: options.userId || event.userId,
+      email: requesterEmail,
+      name: requesterEmail,
+      department: '',
+      phone: '',
+      requestedAt: new Date(),
+    },
+    changeReason: options.editReason || 'Need to update event details',
+    proposedChanges: options.proposedChanges || options.requestedChanges || {
       eventTitle: 'Updated Title',
       eventDescription: 'Updated description',
     },
-    reason: options.editReason || 'Need to update event details',
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNotes: '',
   };
   return event;
 }

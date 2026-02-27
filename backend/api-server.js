@@ -18147,12 +18147,12 @@ app.get('/api/admin/edit-requests', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check approver/admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const { status = 'pending', limit = 100, skip = 0 } = req.query;
@@ -18252,12 +18252,12 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check approver/admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const eventId = req.params.id;
@@ -18567,12 +18567,12 @@ app.put('/api/admin/events/:id/reject-edit', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    // Check admin permissions
+    // Check approver/admin permissions
     const user = await usersCollection.findOne({ userId });
-    const isAdminUser = isAdmin(user, userEmail);
+    const hasApproverAccess = canApproveReservations(user, userEmail);
 
-    if (!isAdminUser) {
-      return res.status(403).json({ error: 'Admin access required' });
+    if (!hasApproverAccess) {
+      return res.status(403).json({ error: 'Approver access required' });
     }
 
     const eventId = req.params.id;
@@ -18747,17 +18747,33 @@ app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) =>
       return res.status(403).json({ error: 'Only the requester can cancel their edit request' });
     }
 
-    // Update pendingEditRequest status to cancelled
-    await unifiedEventsCollection.updateOne(
-      { _id: event._id },
-      {
-        $set: {
-          'pendingEditRequest.status': 'cancelled',
-          'pendingEditRequest.reviewNotes': 'Cancelled by requester',
-          lastModifiedDateTime: new Date()
+    const { _version } = req.body || {};
+
+    // Update pendingEditRequest status to cancelled with OCC
+    let updatedEvent;
+    try {
+      updatedEvent = await conditionalUpdate(
+        unifiedEventsCollection,
+        { _id: event._id },
+        {
+          $set: {
+            'pendingEditRequest.status': 'cancelled',
+            'pendingEditRequest.reviewNotes': 'Cancelled by requester',
+            lastModifiedDateTime: new Date()
+          }
+        },
+        {
+          expectedVersion: _version || null,
+          modifiedBy: userEmail,
+          snapshotFields: CONFLICT_SNAPSHOT_FIELDS
         }
+      );
+    } catch (err) {
+      if (err.statusCode === 409) {
+        return res.status(409).json(err.body);
       }
-    );
+      throw err;
+    }
 
     // Create audit log entry
     await eventAuditHistoryCollection.insertOne({

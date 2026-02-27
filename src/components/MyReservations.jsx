@@ -748,6 +748,7 @@ export default function MyReservations({ apiToken }) {
         isOffsite: formData.isOffsite || false,
         offsiteName: formData.offsiteName || '',
         offsiteAddress: formData.offsiteAddress || '',
+        changeReason: editRequestChangeReason?.trim() || '',
       };
 
       const response = await fetch(
@@ -778,7 +779,7 @@ export default function MyReservations({ apiToken }) {
     } finally {
       setSubmittingEditRequest(false);
     }
-  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError]);
+  }, [reviewModal, apiToken, loadMyReservations, showWarning, showSuccess, showError, editRequestChangeReason]);
 
   // Show loading while permissions are being determined
   if (permissionsLoading) {

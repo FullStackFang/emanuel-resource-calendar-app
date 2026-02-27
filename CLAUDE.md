@@ -21,14 +21,16 @@ npm start          # Start production server
 
 ### Testing
 
+**IMPORTANT: Do NOT run the full test suite (`npm test`) after every change.** The full suite has 472+ backend tests and takes ~2 minutes. Instead, run only the specific test file(s) directly related to your changes. Only run the full suite when explicitly asked by the user.
+
 **Backend (Jest):**
 ```bash
 cd backend
-npm test                           # Run all tests (173 tests)
+npm test -- editRequest.test.js    # Run specific test file (PREFERRED)
+npm test -- --testNamePattern="Approver"  # Run tests matching pattern
 npm run test:unit                  # Run unit tests only
 npm run test:integration           # Run integration tests only
-npm test -- eventPublish.test.js   # Run specific test file
-npm test -- --testNamePattern="Approver"  # Run tests matching pattern
+npm test                           # Run ALL tests (472+ tests) — ONLY when asked
 ```
 
 **Frontend (Vitest):**
