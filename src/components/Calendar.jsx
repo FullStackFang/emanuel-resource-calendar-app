@@ -5347,6 +5347,9 @@ import ConflictDialog from './shared/ConflictDialog';
           refreshEvents();
         }
 
+        // Notify MyReservations to refresh
+        window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+
         showNotification('Edit request approved. Changes have been applied.', 'success');
 
       } catch (error) {
@@ -5419,6 +5422,9 @@ import ConflictDialog from './shared/ConflictDialog';
         if (refreshEvents) {
           refreshEvents();
         }
+
+        // Notify MyReservations to refresh
+        window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
 
         showNotification('Edit request rejected.', 'success');
 

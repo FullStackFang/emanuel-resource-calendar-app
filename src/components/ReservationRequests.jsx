@@ -366,6 +366,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       // Close modal
       closeEditRequestModal();
 
+      // Notify MyReservations to refresh
+      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+
       // Show success message
       showSuccess('Edit request approved. Changes have been applied to the original event.');
 
@@ -415,6 +418,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       // Close modal
       closeEditRequestModal();
+
+      // Notify MyReservations to refresh
+      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
 
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
@@ -583,6 +589,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadReservations();
+      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
       showSuccess('Edit request approved. Changes have been applied.');
     } catch (error) {
       logger.error('Error approving edit request:', error);
@@ -639,6 +646,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadReservations();
+      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
       showSuccess('Edit request rejected.');
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
