@@ -3,7 +3,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import { useRooms } from '../context/LocationContext';
+import { usePolling } from '../hooks/usePolling';
+import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
+import FreshnessIndicator from './shared/FreshnessIndicator';
 import APP_CONFIG from '../config/config';
 import './EventManagement.css';
 
@@ -80,6 +83,8 @@ export default function EventManagement({ apiToken }) {
   const [confirmRestoreId, setConfirmRestoreId] = useState(null);
   const [conflictDialog, setConflictDialog] = useState(null);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   const anyConfirming = confirmDeleteId !== null || confirmRestoreId !== null;
 
@@ -123,6 +128,7 @@ export default function EventManagement({ apiToken }) {
         setEvents(data.events || []);
         const total = data.pagination?.totalCount || data.total || 0;
         setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
+        setLastFetchedAt(Date.now());
       }
     } catch (err) {
       showError(err, { context: 'EventManagement.fetchEvents' });
@@ -139,6 +145,55 @@ export default function EventManagement({ apiToken }) {
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
+
+  // Poll for updates every 90s (silent — no loading spinner)
+  const silentRefresh = useCallback(async () => {
+    if (!apiToken) return;
+    try {
+      // Refresh counts silently
+      const countRes = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list/counts?view=admin-browse`, {
+        headers: { Authorization: `Bearer ${apiToken}` }
+      });
+      if (countRes.ok) setCounts(await countRes.json());
+
+      // Refresh events silently (no setLoading)
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+        status: activeTab === 'all' ? 'all' : TABS.find(t => t.key === activeTab)?.statusParam || 'all',
+      });
+      if (debouncedSearchRef.current) params.set('search', debouncedSearchRef.current);
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=admin-browse&${params}`, {
+        headers: { Authorization: `Bearer ${apiToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data.events || []);
+        const total = data.pagination?.totalCount || data.total || 0;
+        setTotalPages(Math.max(1, Math.ceil(total / PAGE_SIZE)));
+        setLastFetchedAt(Date.now());
+      }
+    } catch {
+      // Silently fail on poll errors
+    }
+  }, [apiToken, page, activeTab, startDate, endDate]);
+  usePolling(silentRefresh, 90_000, !!apiToken);
+
+  // Listen for refresh events from other views
+  useDataRefreshBus('event-management', silentRefresh, !!apiToken);
+
+  // Manual refresh handler for FreshnessIndicator
+  const handleManualRefresh = useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await Promise.all([fetchEvents(), fetchCounts()]);
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  }, [fetchEvents, fetchCounts]);
 
   // Debounced search
   useEffect(() => {
@@ -355,7 +410,14 @@ export default function EventManagement({ apiToken }) {
       {/* Page Header */}
       <div className="em-page-header">
         <h2>Event Management</h2>
-        <p className="em-page-header-subtitle">Browse, search, and manage all events across the system</p>
+        <p className="em-page-header-subtitle">
+          Browse, search, and manage all events across the system
+          <FreshnessIndicator
+            lastFetchedAt={lastFetchedAt}
+            onRefresh={handleManualRefresh}
+            isRefreshing={isManualRefreshing}
+          />
+        </p>
       </div>
 
       {/* Stats Cards */}

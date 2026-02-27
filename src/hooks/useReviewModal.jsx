@@ -81,6 +81,30 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Pre-mutation freshness check.
+   * Calls GET /api/events/:id/version and compares _version with the modal's eventVersion.
+   * Returns true if fresh (or check fails gracefully), false if stale (resets confirmation).
+   */
+  const checkVersionFreshness = useCallback(async (itemId) => {
+    if (!itemId || !apiToken) return true; // No ID or token — skip check
+    try {
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/events/${itemId}/version`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      });
+      if (!res.ok) return true; // Endpoint error — proceed anyway, OCC catches conflicts
+      const data = await res.json();
+      if (data._version != null && eventVersion != null && data._version !== eventVersion) {
+        const modifiedBy = data.lastModifiedBy ? ` by ${data.lastModifiedBy}` : '';
+        if (onError) onError(`This event was modified${modifiedBy} since you opened it. Please review the latest changes before proceeding.`);
+        return false; // Stale — caller should abort
+      }
+      return true; // Fresh
+    } catch {
+      return true; // Network error — proceed anyway, OCC catches conflicts
+    }
+  }, [apiToken, eventVersion, onError]);
+
+  /**
    * Open modal with a reservation or event
    * @param {Object} item - The reservation or event to open
    * @param {Object} options - Optional settings
@@ -194,6 +218,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Second click - execute save
+    // Pre-mutation freshness check
+    const isFresh = await checkVersionFreshness(currentItem._id);
+    if (!isFresh) {
+      setPendingSaveConfirmation(false);
+      return;
+    }
+
     setPendingSaveConfirmation(false);
     setIsSaving(true);
     try {
@@ -269,7 +300,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsSaving(false);
     }
-  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation]);
+  }, [hasChanges, currentItem, editableData, eventVersion, apiToken, graphToken, editScope, onSuccess, onError, pendingSaveConfirmation, checkVersionFreshness]);
 
   /**
    * Approve the reservation/event
@@ -287,6 +318,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     }
 
     // Second click: User confirmed, proceed with approval
+    // Pre-mutation freshness check
+    const isFresh = await checkVersionFreshness(currentItem._id);
+    if (!isFresh) {
+      setPendingApproveConfirmation(false);
+      return { success: false, error: 'Stale data' };
+    }
+
     setPendingApproveConfirmation(false);
     setIsApproving(true);
 
@@ -444,7 +482,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsApproving(false);
     }
-  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation]);
+  }, [currentItem, editableData, eventVersion, apiToken, graphToken, selectedCalendarId, onSuccess, onError, closeModal, pendingApproveConfirmation, checkVersionFreshness]);
 
   /**
    * Reject the reservation/event
@@ -468,6 +506,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const message = 'Please provide a reason for rejection';
       if (onError) onError(message);
       return { success: false, error: message };
+    }
+
+    // Pre-mutation freshness check
+    const isFresh = await checkVersionFreshness(currentItem._id);
+    if (!isFresh) {
+      setPendingRejectConfirmation(false);
+      return { success: false, error: 'Stale data' };
     }
 
     setIsRejecting(true);
@@ -523,7 +568,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     } finally {
       setIsRejecting(false);
     }
-  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation]);
+  }, [currentItem, apiToken, eventVersion, rejectionReason, onSuccess, onError, closeModal, pendingRejectConfirmation, checkVersionFreshness]);
 
   /**
    * Cancel the pending reject confirmation

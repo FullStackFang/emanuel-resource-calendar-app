@@ -705,6 +705,29 @@ export default function RoomReservationFormBase({
     }
   }, [assistantRooms.length]);
 
+  // Auto-refresh availability every 30s while form is open with valid time fields
+  // Ensures conflict detection stays current during long form sessions
+  useEffect(() => {
+    if (readOnly) return;
+    if (!formData.startDate || !formData.startTime || !formData.endDate || !formData.endTime) return;
+
+    const interval = setInterval(() => {
+      if (assistantRoomsRef.current.length > 0) {
+        // Re-check day availability for scheduling assistant rooms
+        const roomIds = assistantRoomsRef.current.map(room => room._id);
+        const dateToCheck = formData.startDate;
+        lastFetchParamsRef.current = { roomIds: '', date: null }; // Reset to force re-fetch
+        setAvailabilityLoading(true);
+        checkDayAvailability(roomIds, dateToCheck);
+      } else {
+        // Re-check standard availability
+        checkAvailability();
+      }
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, [readOnly, formData.startDate, formData.startTime, formData.endDate, formData.endTime]);
+
   // Keep assistantRoomsRef in sync for reliable access in async functions (prevents stale closures)
   useEffect(() => {
     assistantRoomsRef.current = assistantRooms;

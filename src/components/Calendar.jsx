@@ -40,6 +40,8 @@ import ConflictDialog from './shared/ConflictDialog';
     updateLinkedEvent,
     deleteLinkedEvent
   } from '../services/graphService';
+  import { usePolling } from '../hooks/usePolling';
+  import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
   import { useTimezone } from '../context/TimezoneContext';
   import { useRooms, useLocations } from '../context/LocationContext';
   import { useNotification } from '../context/NotificationContext';
@@ -143,6 +145,8 @@ import ConflictDialog from './shared/ConflictDialog';
     const [initializing, setInitializing] = useState(true);
     const [loading, setLoading] = useState(false);
     const [savingEvent, setSavingEvent] = useState(false);
+    const [lastFetchedAt, setLastFetchedAt] = useState(null);
+    const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
     // Calendar access error (when user has no access to any allowed calendars)
     const [calendarAccessError, setCalendarAccessError] = useState(null);
@@ -1749,6 +1753,7 @@ import ConflictDialog from './shared/ConflictDialog';
         return false;
       } finally {
         setLoading(false);
+        setLastFetchedAt(Date.now());
       }
     }, [graphToken, apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
 
@@ -1776,15 +1781,27 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [isDemoMode, loadDemoEvents, loadEventsUnified]);
     loadEventsRef.current = loadEvents;
 
-    // Listen for AI chat calendar refresh events
-    useEffect(() => {
-      const handleAIChatRefresh = () => {
-        logger.debug('AI Chat triggered calendar refresh');
-        loadEvents(true);
-      };
+    // Listen for refresh events from other views (AI chat, reservation requests, etc.)
+    useDataRefreshBus('calendar', useCallback(() => {
+      logger.debug('Data refresh bus triggered calendar refresh');
+      loadEvents(true);
+    }, [loadEvents]), !!apiToken && !isDemoMode);
 
-      window.addEventListener('ai-chat-calendar-refresh', handleAIChatRefresh);
-      return () => window.removeEventListener('ai-chat-calendar-refresh', handleAIChatRefresh);
+    // Poll for updates every 120s (silent — no loading spinner, skip in demo mode or while modal is open)
+    const silentCalendarRefresh = useCallback(() => {
+      if (reviewModal.isOpen || eventReviewModal?.isOpen) return;
+      loadEvents(false);
+    }, [loadEvents, reviewModal.isOpen, eventReviewModal?.isOpen]);
+    usePolling(silentCalendarRefresh, 120_000, !!apiToken && !isDemoMode);
+
+    // Manual refresh handler for FreshnessIndicator
+    const handleManualCalendarRefresh = useCallback(async () => {
+      setIsManualRefreshing(true);
+      try {
+        await loadEvents(true);
+      } finally {
+        setIsManualRefreshing(false);
+      }
     }, [loadEvents]);
 
     /**
@@ -5371,7 +5388,7 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         // Notify MyReservations to refresh
-        window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+        dispatchRefresh('calendar');
 
         showNotification('Edit request approved. Changes have been applied.', 'success');
 
@@ -5447,7 +5464,7 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         // Notify MyReservations to refresh
-        window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+        dispatchRefresh('calendar');
 
         showNotification('Edit request rejected.', 'success');
 
@@ -6599,6 +6616,9 @@ import ConflictDialog from './shared/ConflictDialog';
           changingCalendar={changingCalendar}
           calendarAccessError={calendarAccessError}
           updateUserProfilePreferences={updateUserProfilePreferences}
+          lastFetchedAt={lastFetchedAt}
+          onManualRefresh={handleManualCalendarRefresh}
+          isRefreshing={isManualRefreshing}
         />
 
         {/* Mode Toggle with Action Buttons */}

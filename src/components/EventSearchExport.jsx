@@ -935,165 +935,47 @@ const EventSearchExport = ({
   };
 
   return (
-    <div className="export-container" style={{ 
-      display: 'flex', 
-      alignItems: 'center', 
-      gap: '10px',
-      flexWrap: 'wrap'
-    }}>
-      <select
-        value={sortBy}
-        onChange={(e) => setSortBy(e.target.value)}
-        style={{
-          padding: '6px 10px',
-          borderRadius: '4px',
-          border: '1px solid #ccc',
-          fontSize: '0.9rem'
-        }}
-      >
-        <option value="date">Sort by Date</option>
-        <option value="category">Sort by Category</option>
-        <option value="location">Sort by Location</option>
-      </select>
+    <div className="export-container">
+      {/* PDF options */}
+      <div className="export-options">
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
+                className="export-sort-select">
+          <option value="date">Sort: Date</option>
+          <option value="category">Sort: Category</option>
+          <option value="location">Sort: Location</option>
+        </select>
 
-      <button
-        onClick={() => setShowMaintenanceTimes(!showMaintenanceTimes)}
-        style={{
-          padding: '6px 12px',
-          backgroundColor: showMaintenanceTimes ? '#6c5ce7' : '#f8f9fa',
-          color: showMaintenanceTimes ? '#fff' : '#333',
-          border: showMaintenanceTimes ? '1px solid #6c5ce7' : '1px solid #ccc',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '0.85rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          transition: 'all 0.2s ease'
-        }}
-        title="Toggle setup/teardown times in PDF export"
-      >
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '16px',
-          height: '16px',
-          border: showMaintenanceTimes ? '2px solid #fff' : '2px solid #999',
-          borderRadius: '3px',
-          backgroundColor: showMaintenanceTimes ? '#6c5ce7' : '#fff',
-          fontSize: '11px',
-          fontWeight: 'bold'
-        }}>
-          {showMaintenanceTimes ? '✓' : ''}
-        </span>
-        Maintenance Times
-      </button>
+        <button
+          onClick={() => setShowMaintenanceTimes(!showMaintenanceTimes)}
+          className={`export-toggle-btn ${showMaintenanceTimes ? 'active maintenance' : ''}`}
+          title="Toggle setup/teardown times in PDF export"
+        >
+          <span className="export-toggle-check">{showMaintenanceTimes ? '\u2713' : ''}</span>
+          Maintenance
+        </button>
 
-      <button
-        onClick={() => setShowSecurityTimes(!showSecurityTimes)}
-        style={{
-          padding: '6px 12px',
-          backgroundColor: showSecurityTimes ? '#00b894' : '#f8f9fa',
-          color: showSecurityTimes ? '#fff' : '#333',
-          border: showSecurityTimes ? '1px solid #00b894' : '1px solid #ccc',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '0.85rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          transition: 'all 0.2s ease'
-        }}
-        title="Toggle door open/close times in PDF export"
-      >
-        <span style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '16px',
-          height: '16px',
-          border: showSecurityTimes ? '2px solid #fff' : '2px solid #999',
-          borderRadius: '3px',
-          backgroundColor: showSecurityTimes ? '#00b894' : '#fff',
-          fontSize: '11px',
-          fontWeight: 'bold'
-        }}>
-          {showSecurityTimes ? '✓' : ''}
-        </span>
-        Security Times
-      </button>
-
-      <button
-        onClick={handleExport}
-        disabled={isExporting}
-        className='export-search-pdf-button'
-        style={{
-          padding: '6px 12px',
-          backgroundColor: isExporting ? '#cccccc' : '#0078d4',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: isExporting ? 'not-allowed' : 'pointer',
-          fontSize: '0.9rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}
-      >
-        <span role="img" aria-label="export">📄</span>
-        {isExporting ? (exportState.message || 'Exporting...') : 'Export Results to PDF'}
-      </button>
-
-      <button
-        onClick={handleExportJSON}
-        disabled={isExporting}
-        style={{
-          padding: '6px 12px',
-          backgroundColor: isExporting ? '#cccccc' : '#28a745',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: isExporting ? 'not-allowed' : 'pointer',
-          fontSize: '0.9rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}
-      >
-        <span role="img" aria-label="json">📋</span>
-        {isExporting ? (exportState.message || 'Exporting...') : 'Export to JSON'}
-      </button>
-
-      <button
-        onClick={handleExportCSV}
-        disabled={isExporting}
-        style={{
-          padding: '6px 12px',
-          backgroundColor: isExporting ? '#cccccc' : '#17a2b8',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: isExporting ? 'not-allowed' : 'pointer',
-          fontSize: '0.9rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}
-      >
-        <span role="img" aria-label="csv">📊</span>
-        {isExporting ? (exportState.message || 'Exporting...') : 'Export to CSV'}
-      </button>
-      
-      {/* Timezone info for user reference 
-      <div style={{
-        fontSize: '0.8rem',
-        color: '#666',
-        fontStyle: 'italic'
-      }}>
-        Display: {timezone} | Export: UTC
+        <button
+          onClick={() => setShowSecurityTimes(!showSecurityTimes)}
+          className={`export-toggle-btn ${showSecurityTimes ? 'active security' : ''}`}
+          title="Toggle door open/close times in PDF export"
+        >
+          <span className="export-toggle-check">{showSecurityTimes ? '\u2713' : ''}</span>
+          Security
+        </button>
       </div>
-      */}
+
+      {/* Export format buttons */}
+      <div className="export-format-buttons">
+        <button onClick={handleExport} disabled={isExporting} className="export-btn export-btn-pdf">
+          {isExporting ? (exportState.message || 'Exporting...') : 'PDF'}
+        </button>
+        <button onClick={handleExportJSON} disabled={isExporting} className="export-btn export-btn-json">
+          {isExporting ? (exportState.message || 'Exporting...') : 'JSON'}
+        </button>
+        <button onClick={handleExportCSV} disabled={isExporting} className="export-btn export-btn-csv">
+          {isExporting ? (exportState.message || 'Exporting...') : 'CSV'}
+        </button>
+      </div>
     </div>
   );
 };

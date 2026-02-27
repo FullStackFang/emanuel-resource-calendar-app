@@ -2,6 +2,7 @@
 // AI Chat panel with MCP tools for calendar assistance
 import React, { useState, useRef, useEffect } from 'react';
 import APP_CONFIG from '../config/config';
+import { dispatchRefresh } from '../hooks/useDataRefreshBus';
 import './AIChat.css';
 
 export default function AIChat({ isOpen, onClose, apiToken, onCalendarRefresh }) {
@@ -95,7 +96,7 @@ export default function AIChat({ isOpen, onClose, apiToken, onCalendarRefresh })
           onCalendarRefresh();
         }
         // Also dispatch custom event for any listeners
-        window.dispatchEvent(new CustomEvent('ai-chat-calendar-refresh'));
+        dispatchRefresh('ai-chat');
       }
     } catch (err) {
       setMessages(prev => [...prev, {

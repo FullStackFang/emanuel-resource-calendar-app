@@ -18,6 +18,7 @@ import { RoomProvider } from './context/LocationContext';
 import { RoleSimulationProvider } from './context/RoleSimulationContext';
 import { useAuth } from './context/AuthContext';
 import APP_CONFIG, { fetchRuntimeConfig } from './config/config';
+import { dispatchRefresh } from './hooks/useDataRefreshBus';
 import { useTokenRefresh } from './hooks/useTokenRefresh';
 import { logger } from './utils/logger';
 import './App.css';
@@ -383,7 +384,7 @@ function App() {
                       setReservationSaveFunction(null);
                       setReservationIsConfirming(false);
                       // Trigger calendar refresh
-                      window.dispatchEvent(new CustomEvent('ai-chat-calendar-refresh'));
+                      dispatchRefresh('ai-chat');
                     }}
                   />
                 </ReviewModal>

@@ -6,6 +6,7 @@ import { useMsal } from '@azure/msal-react';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
+import { dispatchRefresh } from '../hooks/useDataRefreshBus';
 import { logger } from '../utils/logger';
 
 /**
@@ -107,7 +108,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
 
   const handleSuccess = useCallback(() => {
     resetState();
-    window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+    dispatchRefresh('new-reservation-modal');
   }, [resetState]);
 
   // Build draft payload from form data
@@ -360,7 +361,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setShowDraftDialog(false);
     resetState();
     if (savedSuccessfully) {
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      dispatchRefresh('new-reservation-modal');
     }
   }, [formData, draftId, apiToken, buildDraftPayload, resetState, showError]);
 

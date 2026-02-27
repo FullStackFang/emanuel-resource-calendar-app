@@ -739,30 +739,54 @@ function EventSearch({
   return (
     <div className="event-search-container">
       <div className="search-header">
-        <h2>Search Calendar Events</h2>
-        <button className="close-button" onClick={onClose}>×</button>
-      </div>
-
-      {/* Add calendar selector and timezone indicators */}
-      <div className="search-context-indicators">
-        {availableCalendars && availableCalendars.length > 0 && (
-          <div className="search-calendar-selector">
-            <label>Search in calendar:</label>
-            <CalendarSelector
+        <div className="search-header-left">
+          <h2>Search Events</h2>
+          {searchResults.length > 0 && (
+            <span className="search-header-count">
+              {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+              {totalAvailableEvents !== null && ` of ${totalAvailableEvents}`}
+            </span>
+          )}
+          {loadingStatus && (
+            <span className="search-header-status">{loadingStatus}</span>
+          )}
+        </div>
+        <div className="search-header-right">
+          {availableCalendars?.length > 0 && (
+            <div className="search-calendar-selector">
+              <CalendarSelector
+                selectedCalendarId={searchCalendarId}
+                availableCalendars={availableCalendars}
+                onCalendarChange={(calendarId) => {
+                  setSearchCalendarId(calendarId);
+                  setShouldRunSearch(false);
+                }}
+                changingCalendar={false}
+              />
+            </div>
+          )}
+          {searchResults.length > 0 && (
+            <EventSearchExport
+              searchResults={searchResults}
+              searchTerm={searchTerm}
+              categories={selectedCategories}
+              locations={selectedLocations}
+              apiToken={apiToken}
+              dateRange={dateRange}
+              apiBaseUrl={APP_CONFIG.API_BASE_URL}
+              graphToken={graphToken}
               selectedCalendarId={searchCalendarId}
-              availableCalendars={availableCalendars}
-              onCalendarChange={(calendarId) => {
-                setSearchCalendarId(calendarId);
-                // Clear previous results when calendar changes
-                setShouldRunSearch(false);
-              }}
-              changingCalendar={false}
+              calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
+              timezone={userTimezone}
+              allCategoryOptions={allCategoryOptions}
+              allLocationOptions={allLocationOptions}
             />
-          </div>
-        )}
-
-        <div className="timezone-indicator">
-          Results shown in: {AVAILABLE_TIMEZONES.find(tz => tz.value === userTimezone)?.label || userTimezone}
+          )}
+          <button className="close-button" onClick={onClose} aria-label="Close">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="4" y1="4" x2="14" y2="14" /><line x1="14" y1="4" x2="4" y2="14" />
+            </svg>
+          </button>
         </div>
       </div>
       
@@ -880,45 +904,6 @@ function EventSearch({
         </div>
       )}
       
-      <div className="search-results-header">
-        <div className="results-count">
-          {searchResults.length > 0 ? (
-            <div className="results-summary">
-              <div className="results-count-number">
-                {searchResults.length} event{searchResults.length !== 1 ? 's' : ''} found
-                {totalAvailableEvents !== null && ` (of ${totalAvailableEvents})`}
-              </div>
-              {loadingStatus && (
-                <div className="loading-status">{loadingStatus}</div>
-              )}
-            </div>
-          ) : (searchTerm || dateRange.start || selectedCategories.length || selectedLocations.length) &&
-            !isLoading && !isFetching ? (
-            <span>No events found</span>
-          ) : null}
-        </div>
-        
-        <div className="search-results-actions">       
-          {/* Export button - pass shared timezone to export component */}
-          {searchResults.length > 0 && (
-            <EventSearchExport
-              searchResults={searchResults}
-              searchTerm={searchTerm}
-              categories={selectedCategories}
-              locations={selectedLocations}
-              apiToken={apiToken}
-              dateRange={dateRange}
-              apiBaseUrl={APP_CONFIG.API_BASE_URL}
-              graphToken={graphToken}
-              selectedCalendarId={searchCalendarId}
-              calendarOwner={availableCalendars?.find(cal => cal.id === searchCalendarId)?.owner?.address?.toLowerCase() || null}
-              timezone={userTimezone}
-              allCategoryOptions={allCategoryOptions}
-              allLocationOptions={allLocationOptions}
-            />
-          )}
-        </div>
-      </div>
 
       {/* Loading progress bar */}
       {totalAvailableEvents > 0 && (

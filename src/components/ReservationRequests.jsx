@@ -7,6 +7,7 @@ import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
 import { usePolling } from '../hooks/usePolling';
+import { dispatchRefresh, useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { computeApproverChanges } from '../utils/editRequestUtils';
 import LoadingSpinner from './shared/LoadingSpinner';
@@ -14,6 +15,7 @@ import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
 import ConflictDialog from './shared/ConflictDialog';
+import FreshnessIndicator from './shared/FreshnessIndicator';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {
@@ -26,6 +28,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Search & date filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -150,6 +154,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       });
 
       setAllReservations(transformedEvents);
+      setLastFetchedAt(Date.now());
     } catch (err) {
       logger.error('Error loading reservations:', err);
       if (!silent) {
@@ -165,6 +170,19 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Poll for new reservations every 60s (silent — no loading spinner)
   const silentRefresh = useCallback(() => loadReservations({ silent: true }), [loadReservations]);
   usePolling(silentRefresh, 60_000, !!apiToken);
+
+  // Listen for refresh events from other views
+  useDataRefreshBus('approval-queue', silentRefresh, !!apiToken);
+
+  // Manual refresh handler for FreshnessIndicator
+  const handleManualRefresh = useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await loadReservations();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  }, [loadReservations]);
 
   // Stage 1: Apply search + date filters against all reservations
   const searchFiltered = useMemo(() => {
@@ -367,7 +385,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       closeEditRequestModal();
 
       // Notify MyReservations to refresh
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      dispatchRefresh('reservation-requests');
 
       // Show success message
       showSuccess('Edit request approved. Changes have been applied to the original event.');
@@ -420,7 +438,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       closeEditRequestModal();
 
       // Notify MyReservations to refresh
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      dispatchRefresh('reservation-requests');
 
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
@@ -589,7 +607,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadReservations();
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      dispatchRefresh('reservation-requests');
       showSuccess('Edit request approved. Changes have been applied.');
     } catch (error) {
       logger.error('Error approving edit request:', error);
@@ -646,7 +664,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       setOriginalEventData(null);
       reviewModal.closeModal();
       loadReservations();
-      window.dispatchEvent(new CustomEvent('refresh-my-reservations'));
+      dispatchRefresh('reservation-requests');
       showSuccess('Edit request rejected.');
     } catch (error) {
       logger.error('Error rejecting edit request:', error);
@@ -783,7 +801,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       <div className="rr-page-header">
         <div className="rr-header-content">
           <h1>Approval Queue</h1>
-          <p className="rr-header-subtitle">Review and manage reservation requests</p>
+          <p className="rr-header-subtitle">
+            Review and manage reservation requests
+            <FreshnessIndicator
+              lastFetchedAt={lastFetchedAt}
+              onRefresh={handleManualRefresh}
+              isRefreshing={isManualRefreshing}
+            />
+          </p>
         </div>
       </div>
 

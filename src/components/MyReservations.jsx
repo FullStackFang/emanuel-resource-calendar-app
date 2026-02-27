@@ -6,12 +6,15 @@ import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
+import { usePolling } from '../hooks/usePolling';
+import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import { transformEventToFlatStructure, transformEventsToFlatStructure } from '../utils/eventTransformers';
 import { computeApproverChanges } from '../utils/editRequestUtils';
 import ReviewModal from './shared/ReviewModal';
 import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
 import LoadingSpinner from './shared/LoadingSpinner';
+import FreshnessIndicator from './shared/FreshnessIndicator';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {
@@ -23,6 +26,8 @@ export default function MyReservations({ apiToken }) {
   const [activeTab, setActiveTab] = useState('draft');
   const [page, setPage] = useState(1);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Use room context for efficient room name resolution
   const { getRoomDetails } = useRooms();
@@ -230,6 +235,7 @@ export default function MyReservations({ apiToken }) {
       // Transform events to flatten calendarData fields to top-level for easier access
       const transformedReservations = transformEventsToFlatStructure(data.events || []);
       setAllReservations(transformedReservations);
+      setLastFetchedAt(Date.now());
     } catch (err) {
       logger.error('Error loading user reservations:', err);
       setError('Failed to load your reservation requests');
@@ -245,11 +251,34 @@ export default function MyReservations({ apiToken }) {
     }
   }, [loadMyReservations]);
 
-  // Listen for refresh event (triggered after draft submission)
-  useEffect(() => {
-    const handleRefresh = () => loadMyReservations();
-    window.addEventListener('refresh-my-reservations', handleRefresh);
-    return () => window.removeEventListener('refresh-my-reservations', handleRefresh);
+  // Listen for refresh events from other views (draft submission, approval actions, etc.)
+  useDataRefreshBus('my-reservations', loadMyReservations, !!apiToken);
+
+  // Poll for updates every 60s (silent — no loading spinner, skip while modal is open)
+  const silentRefresh = useCallback(async () => {
+    if (reviewModal.isOpen) return;
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/events/list?view=my-events&limit=1000&includeDeleted=true`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      setAllReservations(transformEventsToFlatStructure(data.events || []));
+      setLastFetchedAt(Date.now());
+    } catch {
+      // Silently fail on poll errors
+    }
+  }, [apiToken, reviewModal.isOpen]);
+  usePolling(silentRefresh, 60_000, !!apiToken);
+
+  // Manual refresh handler for FreshnessIndicator
+  const handleManualRefresh = useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await loadMyReservations();
+    } finally {
+      setIsManualRefreshing(false);
+    }
   }, [loadMyReservations]);
 
   // Handle approving an edit request (approver/admin)
@@ -856,7 +885,14 @@ export default function MyReservations({ apiToken }) {
       <div className="my-reservations-header">
         <div className="my-reservations-header-content">
           <h1>My Reservations</h1>
-          <p className="my-reservations-header-subtitle">Track and manage your room reservation requests</p>
+          <p className="my-reservations-header-subtitle">
+            Track and manage your room reservation requests
+            <FreshnessIndicator
+              lastFetchedAt={lastFetchedAt}
+              onRefresh={handleManualRefresh}
+              isRefreshing={isManualRefreshing}
+            />
+          </p>
         </div>
         <button
           className="new-reservation-btn"

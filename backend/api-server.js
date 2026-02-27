@@ -18050,6 +18050,44 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
 });
 
 /**
+ * Lightweight version check for an event (Authenticated)
+ * GET /api/events/:id/version
+ *
+ * Returns only { _version, status, lastModifiedDateTime, lastModifiedBy }.
+ * Minimal Cosmos DB cost (~2 RU). Used by frontend pre-mutation freshness checks.
+ */
+app.get('/api/events/:id/version', verifyToken, async (req, res) => {
+  try {
+    let event;
+    try {
+      event = await unifiedEventsCollection.findOne(
+        { _id: new ObjectId(req.params.id) },
+        { projection: { _version: 1, status: 1, lastModifiedDateTime: 1, lastModifiedBy: 1 } }
+      );
+    } catch (e) {
+      event = await unifiedEventsCollection.findOne(
+        { eventId: req.params.id },
+        { projection: { _version: 1, status: 1, lastModifiedDateTime: 1, lastModifiedBy: 1 } }
+      );
+    }
+
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    res.json({
+      _version: event._version || null,
+      status: event.status,
+      lastModifiedDateTime: event.lastModifiedDateTime || null,
+      lastModifiedBy: event.lastModifiedBy || null
+    });
+  } catch (error) {
+    console.error('Error fetching event version:', error);
+    res.status(500).json({ error: 'Failed to fetch event version' });
+  }
+});
+
+/**
  * Get pending edit request for an event (Authenticated)
  * GET /api/events/:id/edit-requests
  *

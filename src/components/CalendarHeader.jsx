@@ -4,6 +4,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { TimezoneSelector } from '../utils/timezoneUtils';
 import CalendarSelector from './CalendarSelector';
+import FreshnessIndicator from './shared/FreshnessIndicator';
 import './CalendarHeader.css';
 
 /**
@@ -131,7 +132,12 @@ const CalendarHeader = ({
   calendarAccessError,
 
   // User preferences update
-  updateUserProfilePreferences
+  updateUserProfilePreferences,
+
+  // Freshness indicator
+  lastFetchedAt,
+  onManualRefresh,
+  isRefreshing
 }) => {
 
   // Format contextual date display based on view type
@@ -203,6 +209,11 @@ const CalendarHeader = ({
                 Today
               </button>
             </div>
+            <FreshnessIndicator
+              lastFetchedAt={lastFetchedAt}
+              onRefresh={onManualRefresh}
+              isRefreshing={isRefreshing}
+            />
           </div>
 
           <div className="view-selector">
