@@ -150,7 +150,37 @@ export default function MyReservations({ apiToken }) {
       if (currentData) {
         setOriginalEventData(JSON.parse(JSON.stringify(currentData)));
       }
-      reviewModal.updateData(existingEditRequest);
+      const proposedChanges = existingEditRequest.proposedChanges || {};
+
+      // Decompose startDateTime/endDateTime into separate date/time fields
+      // so the form comparison can detect individual field changes
+      const decomposed = { ...proposedChanges };
+      if (proposedChanges.startDateTime) {
+        try {
+          const dt = new Date(proposedChanges.startDateTime);
+          if (!isNaN(dt.getTime())) {
+            decomposed.startDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            decomposed.startTime = dt.toTimeString().slice(0, 5);
+          }
+        } catch (e) { /* ignore parse errors */ }
+      }
+      if (proposedChanges.endDateTime) {
+        try {
+          const dt = new Date(proposedChanges.endDateTime);
+          if (!isNaN(dt.getTime())) {
+            decomposed.endDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+            decomposed.endTime = dt.toTimeString().slice(0, 5);
+          }
+        } catch (e) { /* ignore parse errors */ }
+      }
+
+      reviewModal.updateData({
+        ...existingEditRequest,
+        calendarData: {
+          ...(currentData?.calendarData || {}),
+          ...decomposed
+        }
+      });
       setIsViewingEditRequest(true);
     }
   }, [existingEditRequest, reviewModal]);

@@ -61,6 +61,18 @@ export default function EditRequestComparison({
       changed: proposed.endDateTime !== undefined && proposed.endDateTime !== cd.endDateTime
     },
     {
+      label: 'Start Time',
+      original: cd.startTime || 'N/A',
+      proposed: proposed.startTime || cd.startTime || 'N/A',
+      changed: proposed.startTime !== undefined && proposed.startTime !== cd.startTime
+    },
+    {
+      label: 'End Time',
+      original: cd.endTime || 'N/A',
+      proposed: proposed.endTime || cd.endTime || 'N/A',
+      changed: proposed.endTime !== undefined && proposed.endTime !== cd.endTime
+    },
+    {
       label: 'Location',
       original: cd.locationDisplayNames || 'N/A',
       proposed: proposed.locationDisplayNames || cd.locationDisplayNames || 'N/A',
