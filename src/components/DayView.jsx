@@ -6,6 +6,8 @@ import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon } from './shared/CalendarIcons';
+import './shared/CalendarIcons.css';
 
 const DayView = memo(({
   // Props
@@ -333,10 +335,7 @@ const DayView = memo(({
 
                         timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
 
-                        // Add indicator if showing registration times
-                        if (showRegistrationTimes && event.hasRegistrationEvent) {
-                          timeDisplay = `⏱️ ${timeDisplay}`;
-                        }
+                        // Registration time icon rendered inline in JSX below
                       }
                       
                       // Get primary category for color
@@ -410,7 +409,7 @@ const DayView = memo(({
                             }}
                             title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
                             >
-                              {hasParentEvent ? `+${overlapCount}` : `⚠️${overlapCount + 1}`}
+                              {hasParentEvent ? `+${overlapCount}` : <><WarningIcon size={8} /> {overlapCount + 1}</>}
                             </div>
                           )}
                           {/* Parent event indicator */}
@@ -424,7 +423,7 @@ const DayView = memo(({
                             }}
                             title="Allows concurrent events"
                             >
-                              🔄
+                              <ConcurrentIcon size={11} />
                             </div>
                           )}
                           <div style={{ lineHeight: '1.3', marginTop: overlapCount > 0 || isParentEvent ? '14px' : '0' }}>
@@ -436,10 +435,10 @@ const DayView = memo(({
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap'
                             }}>
-                              {timeDisplay}
+                              {isShowingRegistrationTime && <TimerIcon size={10} />}{' '}{timeDisplay}
                             </div>
-                            <div style={{ 
-                              fontSize: '13px', 
+                            <div style={{
+                              fontSize: '13px',
                               fontWeight: '600',
                               marginTop: '2px',
                               overflow: 'hidden',
@@ -487,7 +486,7 @@ const DayView = memo(({
                             }}
                             title="Has pending edit request"
                             >
-                              ✏️
+                              <PencilIcon size={10} />
                             </div>
                           )}
                         </div>

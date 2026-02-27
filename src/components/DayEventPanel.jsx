@@ -3,6 +3,8 @@ import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, LocationIcon, VideoIcon, TagIcon, CalendarIcon } from './shared/CalendarIcons';
+import './shared/CalendarIcons.css';
 import './DayEventPanel.css';
 
 const DayEventPanel = memo(({
@@ -180,12 +182,10 @@ const DayEventPanel = memo(({
                       position: 'absolute',
                       top: '4px',
                       right: '6px',
-                      fontSize: '14px',
                       color: '#444',
-                      fontWeight: 'bold',
                       lineHeight: 1
                     }}>
-                      ↻
+                      <RecurringIcon size={14} />
                     </div>
                   )}
                   {/* Overlap badge */}
@@ -202,11 +202,11 @@ const DayEventPanel = memo(({
                     }}
                     title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
                     >
-                      {hasParentEvent ? `+${overlapCount} nested` : `⚠️ ${overlapCount + 1} overlapping`}
+                      {hasParentEvent ? `+${overlapCount} nested` : <><WarningIcon size={10} /> {overlapCount + 1} overlapping</>}
                     </div>
                   )}
                   <div className="event-time">
-                    {isParentEvent && <span style={{ marginRight: '4px' }}>🔄</span>}
+                    {isParentEvent && <span style={{ marginRight: '4px' }}><ConcurrentIcon size={12} /></span>}
                     {formatEventTimeWithContext(event.start.dateTime, event.subject, event.start?.timeZone || event.graphData?.start?.timeZone)}
                     {' - '}
                     {formatEventTimeWithContext(event.end.dateTime, event.subject, event.end?.timeZone || event.graphData?.end?.timeZone)}
@@ -218,14 +218,14 @@ const DayEventPanel = memo(({
                     <div className="event-detail">
                       {isVirtualLocation(event.location.displayName) ? (
                         <>
-                          <span className="detail-icon">🎥</span>
+                          <span className="detail-icon"><VideoIcon size={14} /></span>
                           <span className="virtual-meeting-badge">
                             {getVirtualPlatform(event.location.displayName)} Meeting
                           </span>
                         </>
                       ) : (
                         <>
-                          <span className="detail-icon">📍</span>
+                          <span className="detail-icon"><LocationIcon size={14} /></span>
                           {event.location.displayName}
                         </>
                       )}
@@ -233,13 +233,13 @@ const DayEventPanel = memo(({
                   )}
                   
                   <div className="event-detail">
-                    <span className="detail-icon">🏷️</span>
+                    <span className="detail-icon"><TagIcon size={14} /></span>
                     {primaryCategory}
                   </div>
                   
                   {((event.setupMinutes && event.setupMinutes > 0) || (event.teardownMinutes && event.teardownMinutes > 0)) && (
                     <div className="event-detail setup-teardown-info">
-                      <span className="detail-icon">⏱️</span>
+                      <span className="detail-icon"><TimerIcon size={14} /></span>
                       Setup/Teardown: 
                       {event.setupMinutes > 0 && <span> {event.setupMinutes}min before</span>}
                       {event.setupMinutes > 0 && event.teardownMinutes > 0 && <span>,</span>}
@@ -249,7 +249,7 @@ const DayEventPanel = memo(({
                   
                   {event.calendarName && (
                     <div className="event-detail calendar-name">
-                      <span className="detail-icon">📅</span>
+                      <span className="detail-icon"><CalendarIcon size={14} /></span>
                       {event.calendarName}
                     </div>
                   )}

@@ -5,6 +5,8 @@ import { useTimezone } from '../context/TimezoneContext';
 import { formatDateTimeWithTimezone } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { logger } from '../utils/logger';
+import { TimerIcon } from './shared/CalendarIcons';
+import './shared/CalendarIcons.css';
 import './MonthView.css';
 
 const MonthView = memo(({ 
@@ -301,17 +303,16 @@ const MonthView = memo(({
                                   position: 'absolute',
                                   bottom: '-2px',
                                   right: '-2px',
-                                  width: '8px',
-                                  height: '8px',
+                                  width: '10px',
+                                  height: '10px',
                                   backgroundColor: '#dc2626',
                                   borderRadius: '50%',
-                                  fontSize: '8px',
                                   color: 'white',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center'
                                 }}>
-                                  ⏱
+                                  <TimerIcon size={7} />
                                 </div>
                               )}
                             </div>

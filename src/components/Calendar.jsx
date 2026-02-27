@@ -5373,6 +5373,13 @@ import ConflictDialog from './shared/ConflictDialog';
 
         logger.info('Edit request approved:', eventId);
 
+        // Optimistic update: immediately clear pending edit badge
+        setAllEvents(prev => prev.map(e =>
+          (e._id === eventId || e.eventId === eventId)
+            ? { ...e, pendingEditRequest: { ...e.pendingEditRequest, status: 'approved' } }
+            : e
+        ));
+
         // Reset state
         setIsEditRequestApproveConfirming(false);
         setIsViewingEditRequest(false);
@@ -5447,6 +5454,13 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         logger.info('Edit request rejected:', eventId);
+
+        // Optimistic update: immediately clear pending edit badge
+        setAllEvents(prev => prev.map(e =>
+          (e._id === eventId || e.eventId === eventId)
+            ? { ...e, pendingEditRequest: { ...e.pendingEditRequest, status: 'rejected' } }
+            : e
+        ));
 
         // Reset state
         setIsEditRequestRejectConfirming(false);

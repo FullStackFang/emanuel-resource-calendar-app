@@ -4,6 +4,8 @@ import { logger } from '../utils/logger';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
+import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon } from './shared/CalendarIcons';
+import './shared/CalendarIcons.css';
 
 const WeekView = memo(({
   // Props
@@ -324,10 +326,7 @@ const WeekView = memo(({
 
                           timeDisplay = `${startTimeStr} - ${endTimeStr} (${durationStr})`;
 
-                          // Add indicator if showing registration times
-                          if (showRegistrationTimes && event.hasRegistrationEvent) {
-                            timeDisplay = `⏱️ ${timeDisplay}`;
-                          }
+                          // Registration time icon rendered inline in JSX below
                         }
                         
                         // Get primary category for color
@@ -391,12 +390,10 @@ const WeekView = memo(({
                                 position: 'absolute',
                                 top: '2px',
                                 right: '3px',
-                                fontSize: '12px',
                                 color: '#444',
-                                fontWeight: 'bold',
                                 lineHeight: 1
                               }}>
-                                ↻
+                                <RecurringIcon size={12} />
                               </div>
                             )}
                             {/* Overlap badge - shows when multiple events at same time */}
@@ -416,7 +413,7 @@ const WeekView = memo(({
                               }}
                               title={hasParentEvent ? `Nested with ${overlapCount} event(s)` : `Overlaps with ${overlapCount} event(s)`}
                               >
-                                {hasParentEvent ? `+${overlapCount}` : `⚠️${overlapCount + 1}`}
+                                {hasParentEvent ? `+${overlapCount}` : <><WarningIcon size={8} /> {overlapCount + 1}</>}
                               </div>
                             )}
                             {/* Parent event indicator */}
@@ -430,7 +427,7 @@ const WeekView = memo(({
                               }}
                               title="Allows concurrent events"
                               >
-                                🔄
+                                <ConcurrentIcon size={10} />
                               </div>
                             )}
                             <div style={{ lineHeight: '1.3', marginTop: overlapCount > 0 || isParentEvent ? '10px' : '0' }}>
@@ -442,7 +439,7 @@ const WeekView = memo(({
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap'
                               }}>
-                                {timeDisplay}
+                                {isShowingRegistrationTime && <TimerIcon size={10} />}{' '}{timeDisplay}
                               </div>
                               <div style={{
                                 fontSize: viewType === 'month' ? '11px' : '12px',
@@ -493,7 +490,7 @@ const WeekView = memo(({
                               }}
                               title="Has pending edit request"
                               >
-                                ✏️
+                                <PencilIcon size={9} />
                               </div>
                             )}
                           </div>
