@@ -5616,27 +5616,33 @@ import ConflictDialog from './shared/ConflictDialog';
 
       try {
         const eventId = reviewModal.currentItem._id || reviewModal.currentItem.eventId;
-        const currentData = reviewModal.editableData;
+
+        // Read live form data from the form component (same source as handleApprove/handleSave)
+        const liveFormData = reviewModal.getFormData({ skipValidation: true });
+        if (!liveFormData) {
+          showNotification('Unable to read form data', 'error');
+          setIsSubmittingEditRequest(false);
+          return;
+        }
+
+        // Normalize datetime: append `:00` seconds if missing (backend stores with seconds)
+        const normalizeDT = (dt) => dt && dt.length === 16 ? `${dt}:00` : dt;
 
         // Build the edit request payload
         const requestBody = {
-          eventTitle: currentData.eventTitle,
-          eventDescription: currentData.eventDescription,
-          startDateTime: currentData.startDate && currentData.startTime
-            ? `${currentData.startDate}T${currentData.startTime}`
-            : null,
-          endDateTime: currentData.endDate && currentData.endTime
-            ? `${currentData.endDate}T${currentData.endTime}`
-            : null,
-          attendeeCount: parseInt(currentData.attendeeCount) || 0,
-          requestedRooms: currentData.requestedRooms || currentData.locations || [],
-          specialRequirements: currentData.specialRequirements,
-          setupTime: currentData.setupTime,
-          teardownTime: currentData.teardownTime,
-          doorOpenTime: currentData.doorOpenTime,
-          doorCloseTime: currentData.doorCloseTime,
-          categories: currentData.categories || currentData.mecCategories || [],
-          services: currentData.services || {},
+          eventTitle: liveFormData.eventTitle,
+          eventDescription: liveFormData.eventDescription,
+          startDateTime: normalizeDT(liveFormData.startDateTime) || null,
+          endDateTime: normalizeDT(liveFormData.endDateTime) || null,
+          attendeeCount: parseInt(liveFormData.attendeeCount) || 0,
+          requestedRooms: liveFormData.requestedRooms || liveFormData.locations || [],
+          specialRequirements: liveFormData.specialRequirements,
+          setupTime: liveFormData.setupTime,
+          teardownTime: liveFormData.teardownTime,
+          doorOpenTime: liveFormData.doorOpenTime,
+          doorCloseTime: liveFormData.doorCloseTime,
+          categories: liveFormData.categories || liveFormData.mecCategories || [],
+          services: liveFormData.services || {},
           changeReason: editRequestChangeReason?.trim() || '',
         };
 

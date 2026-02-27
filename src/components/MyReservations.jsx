@@ -715,39 +715,46 @@ export default function MyReservations({ apiToken }) {
 
   const handleSubmitEditRequest = useCallback(async () => {
     const item = reviewModal.currentItem;
-    const formData = reviewModal.editableData;
-    if (!item || !formData) return;
+    if (!item) return;
 
-    if (!formData.eventTitle?.trim()) {
+    // Read live form data from the form component (same source as handleApprove/handleSave)
+    const liveFormData = reviewModal.getFormData({ skipValidation: true });
+    if (!liveFormData) {
+      showWarning('Unable to read form data');
+      return;
+    }
+
+    if (!liveFormData.eventTitle?.trim()) {
       showWarning('Event title is required');
       return;
     }
+
+    // Normalize datetime: append `:00` seconds if missing (backend stores with seconds)
+    const normalizeDT = (dt) => dt && dt.length === 16 ? `${dt}:00` : dt;
 
     setSubmittingEditRequest(true);
     try {
       const payload = {
         _version: reviewModal.eventVersion,
-        eventTitle: formData.eventTitle || '',
-        eventDescription: formData.eventDescription || '',
-        startDateTime: formData.startDate && formData.startTime
-          ? `${formData.startDate}T${formData.startTime}` : null,
-        endDateTime: formData.endDate && formData.endTime
-          ? `${formData.endDate}T${formData.endTime}` : null,
-        attendeeCount: parseInt(formData.attendeeCount) || 0,
-        requestedRooms: formData.requestedRooms || formData.locations || [],
-        specialRequirements: formData.specialRequirements || '',
-        department: formData.department || '',
-        phone: formData.phone || '',
-        setupTime: formData.setupTime || null,
-        teardownTime: formData.teardownTime || null,
-        doorOpenTime: formData.doorOpenTime || null,
-        doorCloseTime: formData.doorCloseTime || null,
-        categories: formData.categories || [],
-        services: formData.services || {},
-        virtualMeetingUrl: formData.virtualMeetingUrl || null,
-        isOffsite: formData.isOffsite || false,
-        offsiteName: formData.offsiteName || '',
-        offsiteAddress: formData.offsiteAddress || '',
+        eventTitle: liveFormData.eventTitle || '',
+        eventDescription: liveFormData.eventDescription || '',
+        startDateTime: normalizeDT(liveFormData.startDateTime) || null,
+        endDateTime: normalizeDT(liveFormData.endDateTime) || null,
+        attendeeCount: parseInt(liveFormData.attendeeCount) || 0,
+        requestedRooms: liveFormData.requestedRooms || liveFormData.locations || [],
+        specialRequirements: liveFormData.specialRequirements || '',
+        department: liveFormData.department || '',
+        phone: liveFormData.phone || '',
+        setupTime: liveFormData.setupTime || null,
+        teardownTime: liveFormData.teardownTime || null,
+        doorOpenTime: liveFormData.doorOpenTime || null,
+        doorCloseTime: liveFormData.doorCloseTime || null,
+        categories: liveFormData.categories || [],
+        services: liveFormData.services || {},
+        virtualMeetingUrl: liveFormData.virtualMeetingUrl || null,
+        isOffsite: liveFormData.isOffsite || false,
+        offsiteName: liveFormData.offsiteName || '',
+        offsiteAddress: liveFormData.offsiteAddress || '',
         changeReason: editRequestChangeReason?.trim() || '',
       };
 

@@ -72,6 +72,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Get live form data from the form component.
+   * Wraps formDataGetterRef so parent components (MyReservations, Calendar)
+   * can read the same live data that handleApprove/handleSave use internally.
+   */
+  const getFormData = useCallback((options) => {
+    return formDataGetterRef.current?.(options) || null;
+  }, []);
+
+  /**
    * Open modal with a reservation or event
    * @param {Object} item - The reservation or event to open
    * @param {Object} options - Optional settings
@@ -931,6 +940,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     updateData,
     setIsFormValid,
     setFormDataGetter, // Set form data getter for live form data access
+    getFormData, // Get live form data (for edit request handlers in parent components)
     handleSave,
     handleApprove,
     handleReject,
