@@ -662,7 +662,7 @@ export default function UnifiedEventForm({
                     />
                   ) : (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
-                      <p>Attachments can be added after submitting your request.</p>
+                      <p>Attachments can be added after Saving or Submitting your request.</p>
                     </div>
                   )}
                 </section>

@@ -277,6 +277,9 @@ const event = await graphApiService.createCalendarEvent(
 
 ## Development Best Practices
 
+### Text Formatting
+- **Never use curly/smart quotes** (`"` `"` `'` `'`). Always use straight quotes (`"` and `'`). Smart quotes break git commit messages and shell commands.
+
 ### Before Writing Any Code
 
 Follow this verification-first workflow for all code changes:
