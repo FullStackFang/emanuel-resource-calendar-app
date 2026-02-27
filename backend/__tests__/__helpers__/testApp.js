@@ -1945,12 +1945,45 @@ function createTestApp(options = {}) {
         // Non-blocking
       }
 
+      // Graph sync via graphApiService (app-only auth)
+      const graphEventId = event.graphData?.id;
+      let graphSyncResult = null;
+      if (graphEventId && event.calendarOwner) {
+        try {
+          const graphUpdate = {};
+          if (finalChanges.eventTitle) graphUpdate.subject = finalChanges.eventTitle;
+          if (finalChanges.startDateTime) graphUpdate.startDateTime = finalChanges.startDateTime;
+          if (finalChanges.endDateTime) graphUpdate.endDateTime = finalChanges.endDateTime;
+          if (finalChanges.eventDescription) graphUpdate.eventDescription = finalChanges.eventDescription;
+          if (finalChanges.categories) graphUpdate.categories = finalChanges.categories;
+          if (finalChanges.locationDisplayNames) graphUpdate.location = { displayName: finalChanges.locationDisplayNames };
+
+          if (Object.keys(graphUpdate).length > 0) {
+            graphSyncResult = await graphApiMock.updateCalendarEvent(
+              event.calendarOwner,
+              event.calendarId,
+              graphEventId,
+              graphUpdate
+            );
+          }
+        } catch (graphError) {
+          console.error('Graph sync failed (non-blocking):', graphError.message);
+        }
+      }
+
+      const mongoUpdate = {
+        ...finalChanges,
+        lastModifiedDateTime: now,
+        lastModifiedBy: userId,
+      };
+
+      // Merge Graph response back to graphData
+      if (graphSyncResult) {
+        mongoUpdate.graphData = { ...(event.graphData || {}), ...graphSyncResult };
+      }
+
       await testCollections.events.updateOne(query, {
-        $set: {
-          ...finalChanges,
-          lastModifiedDateTime: now,
-          lastModifiedBy: userId,
-        },
+        $set: mongoUpdate,
         $unset: {
           pendingEditRequest: '',
         },

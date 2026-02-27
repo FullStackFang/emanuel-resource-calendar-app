@@ -18260,7 +18260,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { notes, graphToken, _version, approverChanges } = req.body;
+    const { notes, _version, approverChanges } = req.body;
 
     // Get the event with pending edit request
     let event;
@@ -18331,22 +18331,11 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         const cleanValue = value.replace(/Z$/, '');
         updateFields['calendarData.startDate'] = cleanValue.split('T')[0];
         updateFields['calendarData.startTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
-        updateFields['graphData.start.dateTime'] = cleanValue;
       }
       if (field === 'endDateTime' && value) {
         const cleanValue = value.replace(/Z$/, '');
         updateFields['calendarData.endDate'] = cleanValue.split('T')[0];
         updateFields['calendarData.endTime'] = cleanValue.split('T')[1]?.substring(0, 5) || '';
-        updateFields['graphData.end.dateTime'] = cleanValue;
-      }
-      if (field === 'eventTitle') {
-        updateFields['graphData.subject'] = value;
-      }
-      if (field === 'eventDescription') {
-        updateFields['graphData.bodyPreview'] = value;
-      }
-      if (field === 'categories') {
-        updateFields['graphData.categories'] = value;
       }
       // Normalize location IDs to ObjectId format
       if (field === 'locations' || field === 'requestedRooms') {
@@ -18359,7 +18348,6 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       }
       if (field === 'locationDisplayNames') {
         updateFields['calendarData.locationDisplayNames'] = value;
-        updateFields['graphData.location.displayName'] = value;
       }
     }
 
@@ -18393,9 +18381,10 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       throw err;
     }
 
-    // If the event has a Graph event ID, update it in Graph API
+    // Sync changes to Graph API via app-only auth (graphApiService)
     const graphEventId = event.graphData?.id;
-    if (graphEventId && graphToken) {
+    let graphSyncResult = null;
+    if (graphEventId && event.calendarOwner) {
       try {
         const graphUpdate = {};
 
@@ -18428,32 +18417,30 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         }
 
         if (Object.keys(graphUpdate).length > 0) {
-          // Get calendarId for shared calendar support
-          const calendarId = event.calendarId;
-          if (!calendarId) {
-            logger.error('Cannot update Graph event: calendarId is required', { graphEventId });
-            // Continue without Graph update - internal fields were already saved
-          } else {
-            const graphEndpoint = `https://graph.microsoft.com/v1.0/me/calendars/${calendarId}/events/${graphEventId}`;
-            const graphResponse = await fetch(graphEndpoint, {
-              method: 'PATCH',
-              headers: {
-                'Authorization': `Bearer ${graphToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(graphUpdate)
-            });
-
-            if (!graphResponse.ok) {
-              const errorText = await graphResponse.text();
-              logger.error('Failed to update Graph event:', { status: graphResponse.status, error: errorText });
-            } else {
-              logger.info('Graph event updated successfully:', { graphEventId, calendarId });
-            }
-          }
+          graphSyncResult = await graphApiService.updateCalendarEvent(
+            event.calendarOwner,
+            event.calendarId,
+            graphEventId,
+            graphUpdate
+          );
+          logger.info('Graph event updated successfully via graphApiService:', { graphEventId });
         }
       } catch (graphError) {
-        logger.error('Error updating Graph event:', graphError.message);
+        logger.error('Failed to update Graph event (non-blocking):', graphError.message);
+        // Continue - MongoDB update already succeeded
+      }
+    }
+
+    // Merge full Graph API response back to graphData
+    if (graphSyncResult) {
+      try {
+        const updatedGraphData = { ...(event.graphData || {}), ...graphSyncResult };
+        await unifiedEventsCollection.updateOne(
+          { _id: event._id },
+          { $set: { graphData: updatedGraphData } }
+        );
+      } catch (mergeError) {
+        logger.error('Failed to merge Graph response to graphData (non-blocking):', mergeError.message);
       }
     }
 

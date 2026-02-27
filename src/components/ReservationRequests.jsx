@@ -348,8 +348,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             'Authorization': `Bearer ${apiToken}`
           },
           body: JSON.stringify({
-            notes,
-            graphToken
+            notes
           })
         }
       );
@@ -569,7 +568,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`
           },
-          body: JSON.stringify({ notes: '', graphToken, ...(approverChanges && { approverChanges }) })
+          body: JSON.stringify({ notes: '', ...(approverChanges && { approverChanges }) })
         }
       );
 

@@ -5321,7 +5321,6 @@ import ConflictDialog from './shared/ConflictDialog';
             },
             body: JSON.stringify({
               notes: '',
-              graphToken,
               ...(approverChanges && { approverChanges })
             })
           }
