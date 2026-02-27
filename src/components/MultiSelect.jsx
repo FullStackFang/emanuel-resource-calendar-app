@@ -22,8 +22,13 @@ function MultiSelect({
 
   const prevSelectedRef = useRef(selected);
 
-  // Only update localSelected when props.selected actually changes
+  // Only update localSelected when props.selected actually changes.
+  // Skip while dropdown is open to prevent parent re-renders (e.g.,
+  // Calendar's dynamicCategories effect) from overwriting the user's
+  // in-progress selections.
   useEffect(() => {
+    if (isOpen) return;
+
     const selectedChanged =
       JSON.stringify(prevSelectedRef.current) !== JSON.stringify(selected);
 
@@ -31,7 +36,7 @@ function MultiSelect({
       setLocalSelected(selected);
       prevSelectedRef.current = selected;
     }
-  }, [selected]);
+  }, [selected, isOpen]);
 
   // Click outside handler
   useEffect(() => {

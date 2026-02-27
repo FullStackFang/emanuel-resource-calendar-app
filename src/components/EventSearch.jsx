@@ -570,6 +570,7 @@ function EventSearch({
     }
 
     setSearchError(null);
+    setSelectedEvent(null);  // Clear stale detail panel
     setSearchVersion(v => v + 1);  // Increment version to trigger new query
     setShouldRunSearch(true);
     // Collapse filters after initiating search

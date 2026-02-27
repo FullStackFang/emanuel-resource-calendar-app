@@ -5492,9 +5492,10 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     if (search) {
       const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const searchConditions = [
-        { eventTitle: { $regex: escapedSearch, $options: 'i' } },
-        { eventDescription: { $regex: escapedSearch, $options: 'i' } },
-        { locationDisplayName: { $regex: escapedSearch, $options: 'i' } }
+        { 'calendarData.eventTitle': { $regex: escapedSearch, $options: 'i' } },
+        { 'calendarData.eventDescription': { $regex: escapedSearch, $options: 'i' } },
+        { 'calendarData.locationDisplayNames': { $regex: escapedSearch, $options: 'i' } },
+        { 'graphData.subject': { $regex: escapedSearch, $options: 'i' } }
       ];
 
       if (query.$or) {
