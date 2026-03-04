@@ -576,50 +576,6 @@
 }
 
 /* ==========================================================================
-   VIEW MODE SELECTOR (Group by Category/Location)
-   ========================================================================== */
-
-.view-mode-selector {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-1);
-  height: 44px;
-}
-
-.view-mode-selector button {
-  height: 36px;
-  padding: 0 var(--space-5);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: var(--transition-all);
-  white-space: nowrap;
-}
-
-.view-mode-selector button:hover {
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-}
-
-.view-mode-selector button.active {
-  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
-  color: var(--text-inverse);
-  font-weight: var(--font-semibold);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-/* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */
 
@@ -653,13 +609,11 @@
     font-size: var(--text-sm);
   }
 
-  .view-selector,
-  .view-mode-selector {
+  .view-selector {
     height: 40px;
   }
 
-  .view-selector button,
-  .view-mode-selector button {
+  .view-selector button {
     height: 32px;
     font-size: var(--text-xs);
     padding: 0 var(--space-3);
@@ -700,8 +654,7 @@
     justify-content: center;
   }
 
-  .view-selector,
-  .view-mode-selector {
+  .view-selector {
     width: 100%;
     justify-content: center;
   }
@@ -747,8 +700,7 @@
     font-size: var(--text-xs);
   }
 
-  .view-selector button,
-  .view-mode-selector button {
+  .view-selector button {
     padding: 0 var(--space-2);
     font-size: var(--text-2xs);
   }

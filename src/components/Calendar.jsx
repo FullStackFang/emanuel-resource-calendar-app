@@ -859,15 +859,14 @@ import ConflictDialog from './shared/ConflictDialog';
     };
     
     /*
-    * TBD
+    * Admin-only mode controls (API/Demo toggle, upload)
     */
-    const renderModeToggle = () => {
+    const renderAdminModeControls = () => {
       const demoStats = calendarDataService.getDemoDataStats();
 
       return (
         <div className="mode-toggle-container">
           <div className="mode-toggle-row">
-            {/* Left side - Mode controls */}
             <div className="mode-toggle-controls">
               <div className="mode-toggle-group">
                 <button
@@ -905,20 +904,56 @@ import ConflictDialog from './shared/ConflictDialog';
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      );
+    };
 
-            {/* Right side - Action buttons */}
-            <div className="mode-toggle-actions">
+    /*
+    * Action bar - visible to all users (search, group-by, PDF export)
+    */
+    const renderActionBar = () => {
+      return (
+        <div className="mode-toggle-container">
+          <div className="mode-toggle-row mode-toggle-row--actions-only">
+            <div className="action-bar-left">
               <button
                 className="search-export-btn"
                 onClick={() => setShowSearch(true)}
               >
-                🔍 Search & Export
+                Search & Export
               </button>
               <ExportToPdfButton
                 events={filteredEvents}
                 dateRange={dateRange}
               />
             </div>
+            {viewType !== 'month' && (
+              <div className="group-by-toggle">
+                <button
+                  className={`group-by-btn ${groupBy === 'categories' ? 'active' : ''}`}
+                  onClick={() => {
+                    setLoading(true);
+                    setGroupBy('categories');
+                    updateUserProfilePreferences({ defaultGroupBy: 'categories' });
+                    setTimeout(() => setLoading(false), 300);
+                  }}
+                >
+                  Group by Category
+                </button>
+                <button
+                  className={`group-by-btn ${groupBy === 'locations' ? 'active' : ''}`}
+                  onClick={() => {
+                    setLoading(true);
+                    setGroupBy('locations');
+                    updateUserProfilePreferences({ defaultGroupBy: 'locations' });
+                    setTimeout(() => setLoading(false), 300);
+                  }}
+                >
+                  Group by Location
+                </button>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -6441,37 +6476,39 @@ import ConflictDialog from './shared/ConflictDialog';
     }
   }, [userPermissions.preferredTimeZone, userTimezone]); 
 
-    // Update selected locations when dynamic locations change - smart merging
+    // Update selected locations when dynamic locations change - smart merging with stale pruning
     useEffect(() => {
       if (dynamicLocations.length > 0) {
         if (selectedLocations.length === 0) {
           // Initial selection: select all locations
           setSelectedLocations(dynamicLocations);
         } else {
-          // Smart merging: add new locations to existing selection
-          const newLocations = dynamicLocations.filter(loc => !selectedLocations.includes(loc));
-          if (newLocations.length > 0) {
-            setSelectedLocations(prev => [...prev, ...newLocations]);
+          // Prune stale selections that no longer exist in options
+          const validSelections = selectedLocations.filter(loc => dynamicLocations.includes(loc));
+          // Add new locations to selection
+          const newLocations = dynamicLocations.filter(loc => !validSelections.includes(loc));
+          const updated = [...validSelections, ...newLocations];
+          if (JSON.stringify(updated) !== JSON.stringify(selectedLocations)) {
+            setSelectedLocations(updated);
           }
         }
       }
     }, [dynamicLocations]);
 
-    // Update selected categories when dynamic categories change - smart merging
+    // Update selected categories when dynamic categories change - smart merging with stale pruning
     useEffect(() => {
       if (dynamicCategories.length > 0) {
         if (selectedCategories.length === 0) {
           // Initial selection: select all categories
           setSelectedCategories(dynamicCategories);
-          // Initial category selection: all categories
         } else {
-          // Smart merging: add new categories to existing selection
-          const newCategories = dynamicCategories.filter(cat => !selectedCategories.includes(cat));
-          if (newCategories.length > 0) {
-            setSelectedCategories(prev => [...prev, ...newCategories]);
-            // Added new categories to selection
-          } else {
-            // No new categories to add
+          // Prune stale selections that no longer exist in options
+          const validSelections = selectedCategories.filter(cat => dynamicCategories.includes(cat));
+          // Add new categories to selection
+          const newCategories = dynamicCategories.filter(cat => !validSelections.includes(cat));
+          const updated = [...validSelections, ...newCategories];
+          if (JSON.stringify(updated) !== JSON.stringify(selectedCategories)) {
+            setSelectedCategories(updated);
           }
         }
       }
@@ -6620,13 +6657,6 @@ import ConflictDialog from './shared/ConflictDialog';
               });
             }
           }}
-          groupBy={groupBy}
-          onGroupByChange={async (mode) => {
-            setLoading(true);
-            setGroupBy(mode);
-            await updateUserProfilePreferences({ defaultGroupBy: mode });
-            setLoading(false);
-          }}
           selectedCalendarId={selectedCalendarId}
           availableCalendars={availableCalendars}
           onCalendarChange={setSelectedCalendarId}
@@ -6639,8 +6669,11 @@ import ConflictDialog from './shared/ConflictDialog';
           isRefreshing={isManualRefreshing}
         />
 
-        {/* Mode Toggle with Action Buttons - Admin only */}
-        {effectivePermissions.isAdmin && renderModeToggle()}
+        {/* Admin-only mode controls */}
+        {effectivePermissions.isAdmin && renderAdminModeControls()}
+
+        {/* Action bar - visible to all users */}
+        {renderActionBar()}
 
         {/* MAIN LAYOUT CONTAINER */}
         <div className="calendar-layout-container">

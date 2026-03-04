@@ -153,7 +153,9 @@ function MultiSelect({
   if (customHeight) triggerStyle.height = customHeight;
   if (customPadding) triggerStyle.padding = customPadding;
 
-  const isAllSelected = localSelected.length === options.length && options.length > 0;
+  // Defensive: only count selections that exist in current options to prevent "49/48" display
+  const effectiveSelected = localSelected.filter(item => options.includes(item));
+  const isAllSelected = effectiveSelected.length === options.length && options.length > 0;
   const isNoneSelected = localSelected.length === 0;
   const isFiltered = !isAllSelected && !isNoneSelected;
 
@@ -169,14 +171,14 @@ function MultiSelect({
       return (
         <span className="multiselect-trigger-text">
           All {label || 'options'}
-          <span className="multiselect-count-badge all">{localSelected.length}</span>
+          <span className="multiselect-count-badge all">{effectiveSelected.length}</span>
         </span>
       );
     }
     return (
       <span className="multiselect-trigger-text">
-        {localSelected.length} {label || 'selected'}
-        <span className="multiselect-count-badge">{localSelected.length}/{options.length}</span>
+        {effectiveSelected.length} {label || 'selected'}
+        <span className="multiselect-count-badge">{effectiveSelected.length}/{options.length}</span>
       </span>
     );
   };
@@ -263,7 +265,7 @@ function MultiSelect({
                 Clear
               </button>
               <span className="multiselect-selected-count">
-                {localSelected.length}/{options.length}
+                {effectiveSelected.length}/{options.length}
               </span>
             </div>
           </div>

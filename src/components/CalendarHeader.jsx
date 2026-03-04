@@ -120,10 +120,6 @@ const CalendarHeader = ({
   onTimezoneChange,
   onWeekStartChange,
 
-  // Grouping (only shown in week/day view)
-  groupBy,
-  onGroupByChange,
-
   // Calendar selection
   selectedCalendarId,
   availableCalendars,
@@ -279,23 +275,6 @@ const CalendarHeader = ({
               </div>
             </div>
 
-            {/* Group By Selector - Only show in week/day views */}
-            {viewType !== 'month' && (
-              <div className="view-mode-selector">
-                <button
-                  className={groupBy === 'categories' ? 'active' : ''}
-                  onClick={() => onGroupByChange('categories')}
-                >
-                  Group by Category
-                </button>
-                <button
-                  className={groupBy === 'locations' ? 'active' : ''}
-                  onClick={() => onGroupByChange('locations')}
-                >
-                  Group by Location
-                </button>
-              </div>
-            )}
           </div>
         )}
       </div>

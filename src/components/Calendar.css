@@ -1178,9 +1178,10 @@
 
 /* Search & Export Button */
 .mode-toggle-container .search-export-btn {
-  padding: var(--space-2) var(--space-4);
+  height: 36px;
+  padding: 0 var(--space-5);
   border: none;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background-color: var(--color-primary-500);
   color: var(--text-inverse);
   font-size: var(--text-sm);
@@ -1203,6 +1204,58 @@
 .mode-toggle-container .search-export-btn:active {
   background-color: var(--color-primary-700);
   transform: translateY(0);
+}
+
+/* Group By Toggle (in action bar) */
+.group-by-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+  height: 44px;
+}
+
+.group-by-btn {
+  height: 36px;
+  padding: 0 var(--space-5);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: var(--transition-all);
+  white-space: nowrap;
+}
+
+.group-by-btn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.mode-toggle-row--actions-only {
+  justify-content: space-between;
+}
+
+/* Action Bar Left Group (Search + PDF Export) */
+.action-bar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.group-by-btn.active {
+  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  color: var(--text-inverse);
+  font-weight: var(--font-semibold);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================
