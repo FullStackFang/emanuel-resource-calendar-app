@@ -1644,6 +1644,29 @@ function buildOffsiteGraphLocation(offsiteName, offsiteAddress, offsiteLat, offs
 }
 
 /**
+ * Build effective rooms/times for an event that has a pending edit request.
+ * Merges proposedChanges (delta) with the event's calendarData to get the
+ * effective state the event will have once the edit is approved.
+ * @param {Object} event - Event document with pendingEditRequest
+ * @returns {Object} Merged rooms/times from proposed changes + current calendarData
+ */
+function buildEffectiveEditData(event) {
+  const cd = event.calendarData || {};
+  const proposed = event.pendingEditRequest?.proposedChanges || {};
+  return {
+    locations: proposed.locations || proposed.requestedRooms || cd.locations || [],
+    startDateTime: proposed.startDateTime || cd.startDateTime,
+    endDateTime: proposed.endDateTime || cd.endDateTime,
+    setupTimeMinutes: proposed.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+    teardownTimeMinutes: proposed.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+    setupTime: proposed.setupTime || cd.setupTime,
+    teardownTime: proposed.teardownTime || cd.teardownTime,
+    eventTitle: proposed.eventTitle || cd.eventTitle,
+    locationDisplayNames: proposed.locationDisplayNames || cd.locationDisplayNames,
+  };
+}
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -1762,9 +1785,89 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       return false; // NOT a conflict
     });
 
-    // Return detailed conflict information
+    // --- Pending Edit Request conflict detection ---
+    // Published events with pending edit requests that propose room/time changes
+    // act as hard blocks on the proposed rooms/times.
+    const pendingEditQuery = {
+      status: 'published',
+      'pendingEditRequest.status': 'pending',
+      $or: [
+        { 'pendingEditRequest.proposedChanges.locations': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.requestedRooms': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
+        { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } },
+      ]
+    };
+    if (excludeId) {
+      pendingEditQuery._id = { $ne: new ObjectId(excludeId) };
+    }
+
+    const pendingEditEvents = await unifiedEventsCollection.find(pendingEditQuery).toArray();
+
+    // In-memory filter: check effective (merged) rooms/times against candidate event
+    const pendingEditConflicts = [];
+    for (const peEvent of pendingEditEvents) {
+      const effective = buildEffectiveEditData(peEvent);
+      const effectiveLocations = (effective.locations || []).map(id => id.toString());
+
+      // Check room overlap with candidate event
+      const candidateRoomIds = (roomIds || []).map(id => id.toString());
+      const hasRoomOverlap = effectiveLocations.some(loc => candidateRoomIds.includes(loc));
+      if (!hasRoomOverlap) continue;
+
+      // Check time overlap using effective start/end from the pending edit
+      const peStart = new Date(effective.startDateTime);
+      const peEnd = new Date(effective.endDateTime);
+      const peSetup = effective.setupTimeMinutes || 0;
+      const peTeardown = effective.teardownTimeMinutes || 0;
+      const peEffectiveStart = new Date(peStart.getTime() - (peSetup * 60 * 1000));
+      const peEffectiveEnd = new Date(peEnd.getTime() + (peTeardown * 60 * 1000));
+
+      // Time overlap check (same 3-case logic as published events)
+      const timeOverlap =
+        (peEffectiveStart < effectiveEnd && peEffectiveEnd > effectiveStart);
+      if (!timeOverlap) continue;
+
+      // Apply isAllowedConcurrent / category logic (same as published events)
+      const peAllowsConcurrent = peEvent.isAllowedConcurrent ?? false;
+      if (!requestAllowsConcurrent && !peAllowsConcurrent) {
+        // Both disallow concurrent — IS a conflict
+      } else if (peAllowsConcurrent) {
+        const allowedCategories = (peEvent.allowedConcurrentCategories || []).map(id => id.toString());
+        if (allowedCategories.length === 0) continue; // No restrictions, NOT a conflict
+        const hasMatchingCategory = requestCategoryIds.some(catId => allowedCategories.includes(catId));
+        if (hasMatchingCategory) continue; // Category match, NOT a conflict
+      } else if (requestAllowsConcurrent) {
+        continue; // NOT a conflict
+      }
+
+      // Build conflict entry with isPendingEdit flag
+      const cd = peEvent.calendarData || {};
+      pendingEditConflicts.push({
+        id: peEvent._id.toString(),
+        eventTitle: effective.eventTitle || peEvent.eventTitle || cd.eventTitle,
+        startDateTime: effective.startDateTime,
+        endDateTime: effective.endDateTime,
+        rooms: effective.locations,
+        status: peEvent.status,
+        setupTimeMinutes: effective.setupTimeMinutes || 0,
+        teardownTimeMinutes: effective.teardownTimeMinutes || 0,
+        isAllowedConcurrent: peEvent.isAllowedConcurrent ?? false,
+        allowedConcurrentCategories: peEvent.allowedConcurrentCategories || [],
+        isPendingEdit: true,
+        pendingEditFrom: {
+          locations: cd.locations || [],
+          locationDisplayNames: cd.locationDisplayNames,
+          startDateTime: cd.startDateTime,
+          endDateTime: cd.endDateTime,
+        },
+        changeReason: peEvent.pendingEditRequest?.changeReason || '',
+      });
+    }
+
+    // Return detailed conflict information (published + pending edit conflicts)
     // Fall back to calendarData fields since published/reservation events store data there
-    return actualConflicts.map(conflict => ({
+    const publishedConflictResults = actualConflicts.map(conflict => ({
       id: conflict._id.toString(),
       eventTitle: conflict.eventTitle || conflict.calendarData?.eventTitle,
       startDateTime: conflict.startDateTime || conflict.calendarData?.startDateTime,
@@ -1776,6 +1879,8 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       isAllowedConcurrent: conflict.isAllowedConcurrent ?? false,
       allowedConcurrentCategories: conflict.allowedConcurrentCategories || []
     }));
+
+    return [...publishedConflictResults, ...pendingEditConflicts];
   } catch (error) {
     logger.error('Error checking room conflicts:', error);
     throw error;
@@ -12271,14 +12376,37 @@ app.get('/api/rooms/availability', async (req, res) => {
     );
 
     logger.log('[AVAILABILITY DEBUG] Split results - Reservations:', allReservations.length, 'Calendar events:', allCalendarEvents.length);
-    
+
+    // Query for published events with pending edit requests that propose using queried rooms
+    let pendingEditEvents = [];
+    if (roomObjectIds.length > 0) {
+      pendingEditEvents = await unifiedEventsCollection.find({
+        status: 'published',
+        'pendingEditRequest.status': 'pending',
+        $or: [
+          // Events proposing to move INTO one of the queried rooms
+          { 'pendingEditRequest.proposedChanges.locations': { $in: [...roomObjectIds, ...roomIdStrings] } },
+          { 'pendingEditRequest.proposedChanges.requestedRooms': { $in: [...roomObjectIds, ...roomIdStrings] } },
+          // Events already in these rooms with time-only edits
+          {
+            'calendarData.locations': { $in: [...roomObjectIds, ...roomIdStrings] },
+            $or: [
+              { 'pendingEditRequest.proposedChanges.startDateTime': { $exists: true } },
+              { 'pendingEditRequest.proposedChanges.endDateTime': { $exists: true } }
+            ]
+          }
+        ]
+      }).toArray();
+      logger.log('[AVAILABILITY DEBUG] Found pending edit events:', pendingEditEvents.length);
+    }
+
     // Helper function to format time for display
-    const formatTime = (date) => date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const formatTime = (date) => date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: true 
+      hour12: true
     });
-    
+
     // Build availability response with detailed conflict information
     const availability = rooms.map(room => {
       const roomIdString = room._id.toString();
@@ -12398,6 +12526,63 @@ app.get('/api/rooms/availability', async (req, res) => {
         };
       });
 
+      // Process pending edit events for this room
+      const detailedPendingEdits = pendingEditEvents
+        .filter(peEvent => {
+          const effective = buildEffectiveEditData(peEvent);
+          const effectiveLocations = (effective.locations || []).map(id => id.toString());
+          return effectiveLocations.includes(roomIdString);
+        })
+        .map(peEvent => {
+          const effective = buildEffectiveEditData(peEvent);
+          const cd = peEvent.calendarData || {};
+          const effectiveStartDT = effective.startDateTime;
+          const effectiveEndDT = effective.endDateTime;
+          const startDate = (effectiveStartDT || '').split('T')[0];
+          const endDate = (effectiveEndDT || '').split('T')[0];
+
+          let effectiveStart, effectiveEnd;
+
+          if (effective.setupTime) {
+            effectiveStart = `${startDate}T${effective.setupTime}:00`;
+          } else if (effective.setupTimeMinutes) {
+            const s = new Date(effectiveStartDT);
+            s.setMinutes(s.getMinutes() - effective.setupTimeMinutes);
+            effectiveStart = toLocalISOString(s);
+          } else {
+            effectiveStart = effectiveStartDT;
+          }
+
+          if (effective.teardownTime) {
+            effectiveEnd = `${endDate}T${effective.teardownTime}:00`;
+          } else if (effective.teardownTimeMinutes) {
+            const e = new Date(effectiveEndDT);
+            e.setMinutes(e.getMinutes() + effective.teardownTimeMinutes);
+            effectiveEnd = toLocalISOString(e);
+          } else {
+            effectiveEnd = effectiveEndDT;
+          }
+
+          return {
+            id: peEvent._id,
+            eventTitle: effective.eventTitle || cd.eventTitle,
+            requesterName: peEvent.pendingEditRequest?.requestedBy?.name || '',
+            requesterEmail: peEvent.pendingEditRequest?.requestedBy?.email || '',
+            status: 'pending-edit',
+            originalStart: effectiveStartDT,
+            originalEnd: effectiveEndDT,
+            effectiveStart,
+            effectiveEnd,
+            setupTimeMinutes: effective.setupTimeMinutes || 0,
+            teardownTimeMinutes: effective.teardownTimeMinutes || 0,
+            isAllowedConcurrent: peEvent.isAllowedConcurrent ?? false,
+            isPendingEdit: true,
+            currentRoomIds: (cd.locations || []).map(id => id.toString()),
+            originalLocations: cd.locationDisplayNames,
+            changeReason: peEvent.pendingEditRequest?.changeReason || '',
+          };
+        });
+
       // Frontend calculates conflicts dynamically based on user's current time selection
       // This allows real-time updates as user drags events in scheduling assistant
       return {
@@ -12405,6 +12590,7 @@ app.get('/api/rooms/availability', async (req, res) => {
         conflicts: {
           reservations: detailedReservationConflicts,
           events: detailedEventConflicts,
+          pendingEdits: detailedPendingEdits,
           totalConflicts: detailedReservationConflicts.length + detailedEventConflicts.length
         }
       };
@@ -18319,7 +18505,7 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { notes, _version, approverChanges } = req.body;
+    const { notes, _version, approverChanges, forcePublishEdit } = req.body;
 
     // Get the event with pending edit request
     let event;
@@ -18352,6 +18538,42 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     const finalChanges = approverChanges
       ? { ...proposedChanges, ...approverChanges }
       : proposedChanges;
+
+    // --- Scheduling conflict check on publish-edit ---
+    // Check if the effective (merged) rooms/times conflict with other events
+    const hasTimeOrRoomChange = finalChanges.startDateTime || finalChanges.endDateTime ||
+      finalChanges.locations || finalChanges.requestedRooms ||
+      finalChanges.setupTimeMinutes !== undefined || finalChanges.teardownTimeMinutes !== undefined;
+
+    if (hasTimeOrRoomChange && !forcePublishEdit) {
+      const effectiveData = buildEffectiveEditData({ ...event, pendingEditRequest: { ...pendingEditRequest, proposedChanges: finalChanges } });
+      const conflictReservation = {
+        startDateTime: effectiveData.startDateTime,
+        endDateTime: effectiveData.endDateTime,
+        setupTimeMinutes: effectiveData.setupTimeMinutes,
+        teardownTimeMinutes: effectiveData.teardownTimeMinutes,
+        calendarData: {
+          locations: effectiveData.locations,
+          startDateTime: effectiveData.startDateTime,
+          endDateTime: effectiveData.endDateTime,
+          setupTimeMinutes: effectiveData.setupTimeMinutes,
+          teardownTimeMinutes: effectiveData.teardownTimeMinutes,
+        },
+        isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+        categories: finalChanges.categories || event.calendarData?.categories || [],
+      };
+
+      const conflicts = await checkRoomConflicts(conflictReservation, eventId);
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          message: 'The proposed edit changes conflict with existing reservations',
+          conflicts,
+          canForce: true,
+          forceField: 'forcePublishEdit',
+        });
+      }
+    }
 
     // Concurrent modification check is now handled atomically via _version
 

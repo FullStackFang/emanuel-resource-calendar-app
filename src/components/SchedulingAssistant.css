@@ -509,6 +509,32 @@
   border-top: 2px solid var(--color-warning-500);
 }
 
+/* Pending edit request — amber dashed border */
+.event-block.sa-pending-edit {
+  border: 2px dashed var(--color-warning-500) !important;
+  background-color: var(--color-warning-500) !important;
+}
+
+.event-pending-edit-label {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(0, 0, 0, 0.25);
+  color: white;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-top: 2px;
+}
+
+.event-pending-edit-detail {
+  font-size: 9px;
+  font-style: italic;
+  opacity: 0.9;
+  margin-top: 1px;
+}
+
 .event-block.calendar-event {
   background-image: repeating-linear-gradient(
     45deg,

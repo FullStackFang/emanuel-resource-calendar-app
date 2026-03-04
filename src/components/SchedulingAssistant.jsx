@@ -233,6 +233,55 @@ export default function SchedulingAssistant({
         });
       }
 
+      // Process pending edit events (proposed room/time changes on published events)
+      if (roomAvailability.conflicts.pendingEdits) {
+        roomAvailability.conflicts.pendingEdits.forEach(pendingEdit => {
+          const pendingEditId = pendingEdit._id || pendingEdit.id;
+
+          // SKIP the current reservation being edited
+          if (currentReservationId && pendingEditId === currentReservationId) {
+            return;
+          }
+
+          let startTime = new Date(pendingEdit.effectiveStart || pendingEdit.originalStart);
+          let endTime = new Date(pendingEdit.effectiveEnd || pendingEdit.originalEnd);
+          const originalStartTime = new Date(startTime);
+          const originalEndTime = new Date(endTime);
+          // Clamp multi-day events to the viewed day's boundaries
+          const dayStart = new Date(`${effectiveDate}T00:00:00`);
+          const dayEnd = new Date(`${effectiveDate}T23:59:59`);
+          if (startTime < dayStart) startTime = dayStart;
+          if (endTime > dayEnd) endTime = dayEnd;
+
+          const position = calculateEventPosition(startTime, endTime);
+
+          blocks.push({
+            id: pendingEditId,
+            type: 'pending-edit',
+            room,
+            roomIndex,
+            color: '#f59e0b', // Amber for pending edits
+            baseColor: '#f59e0b',
+            eventIndexInRoom,
+            title: pendingEdit.eventTitle || 'Pending Edit',
+            startTime,
+            endTime,
+            organizer: pendingEdit.requesterName || pendingEdit.requesterEmail || '',
+            isConflict: false, // Will be calculated later
+            isAllowedConcurrent: pendingEdit.isAllowedConcurrent ?? false,
+            isPendingEdit: true,
+            originalLocations: pendingEdit.originalLocations,
+            changeReason: pendingEdit.changeReason,
+            originalStartTime,
+            originalEndTime,
+            ...position
+          });
+
+          roomEventCount++;
+          eventIndexInRoom++;
+        });
+      }
+
       // Initialize stats (conflicts will be calculated after)
       stats[room._id] = {
         conflictCount: 0,
@@ -1051,6 +1100,12 @@ export default function SchedulingAssistant({
         : '0 0 0 3px rgba(0, 120, 212, 0.5)';
       backgroundColor = block.color;
       filter = 'none';
+    } else if (block.isPendingEdit) {
+      opacity = 0.85;
+      cursor = 'not-allowed';
+      boxShadow = 'none';
+      backgroundColor = '#f59e0b'; // Amber
+      filter = 'none';
     } else if (isLocked) {
       opacity = conflictsWithUser ? 0.85 : 0.75;
       cursor = 'not-allowed';
@@ -1087,6 +1142,12 @@ export default function SchedulingAssistant({
       title = `CONFLICT: ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nConflicts with:\n${conflictList}\n\nDrag to reschedule`;
     } else if (isUserEvent) {
       title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nDrag to reschedule\nNo conflicts at this time`;
+    } else if (block.isPendingEdit) {
+      const moveDetail = block.originalLocations
+        ? `\nMoving from: ${Array.isArray(block.originalLocations) ? block.originalLocations.join(', ') : block.originalLocations}`
+        : '';
+      const reason = block.changeReason ? `\nReason: ${block.changeReason}` : '';
+      title = `PENDING EDIT: ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${moveDetail}${reason}\n\nThis room/time is held pending edit approval`;
     } else if (isLocked) {
       const concurrentNote = block.isAllowedConcurrent ? '\nAllows concurrent events (no conflict)' : '';
       const conflictNote = conflictsWithUser ? '\nConflicts with your event' : '';
@@ -1110,6 +1171,7 @@ export default function SchedulingAssistant({
       block.isAllowedConcurrent ? 'allows-concurrent' : '',
       conflictsWithUser ? 'conflicts-with-user' : '',
       block.status === 'pending' ? 'sa-pending' : '',
+      block.isPendingEdit ? 'sa-pending-edit' : '',
       block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''
     ].filter(Boolean).join(' ');
 
@@ -1168,6 +1230,14 @@ export default function SchedulingAssistant({
           </div>
           {conflictsWithUser && (
             <div className="event-conflict-label">Conflicts with your event</div>
+          )}
+          {block.isPendingEdit && (
+            <div className="event-pending-edit-label">Pending Edit</div>
+          )}
+          {block.isPendingEdit && block.originalLocations && (
+            <div className="event-pending-edit-detail">
+              Moving from {Array.isArray(block.originalLocations) ? block.originalLocations.join(', ') : block.originalLocations}
+            </div>
           )}
           {isMultiDayBlock && (
             <div className="event-multi-day-label">
