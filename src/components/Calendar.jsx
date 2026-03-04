@@ -15,12 +15,10 @@
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
   import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
-  import { transformEventToFlatStructure } from '../utils/eventTransformers';
+  import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
   import { computeApproverChanges } from '../utils/editRequestUtils';
   import './Calendar.css';
   import APP_CONFIG from '../config/config';
-  import './DayEventPanel.css';
-  import DayEventPanel from './DayEventPanel';
   import eventDataService from '../services/eventDataService';
   import unifiedEventService from '../services/unifiedEventService';
   import DatePicker from 'react-datepicker';
@@ -225,6 +223,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const [selectedFilter, setSelectedFilter] = useState(''); 
     const [selectedCategories, setSelectedCategories] = useState([]);
     const [selectedLocations, setSelectedLocations] = useState([]);
+    const [selectedMonthDay, setSelectedMonthDay] = useState(null);
 
     const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -928,7 +927,7 @@ import ConflictDialog from './shared/ConflictDialog';
                 dateRange={dateRange}
               />
             </div>
-            {viewType !== 'month' && (
+            {(
               <div className="group-by-toggle">
                 <button
                   className={`group-by-btn ${groupBy === 'categories' ? 'active' : ''}`}
@@ -2969,6 +2968,7 @@ import ConflictDialog from './shared/ConflictDialog';
       return generalLocations.map(location => location.name).filter(name => name);
     }, [generalLocations]);
 
+
     /**
      * Get filtered locations for MultiSelect components (EventForm)
      * Returns only locations from templeEvents__Locations database collection
@@ -3212,6 +3212,7 @@ import ConflictDialog from './shared/ConflictDialog';
       canApproveReservations,
       effectivePermissions.isAdmin
     ]);
+
 
     /**
      * Group events by location for location-based calendar views
@@ -6725,6 +6726,8 @@ import ConflictDialog from './shared/ConflictDialog';
                           showRegistrationTimes={showRegistrationTimes}
                           onRequestEdit={handleRequestEdit}
                           canAddEvent={canAddEvent}
+                          selectedDay={selectedMonthDay}
+                          onDaySelect={setSelectedMonthDay}
                         />
                       </div>
                     </div>
@@ -6932,8 +6935,123 @@ import ConflictDialog from './shared/ConflictDialog';
               )}
             </div>
           ) : (
-            /* Month view - no sidebar, but add a placeholder to maintain consistent spacing */
-            <div className="calendar-sidebar-spacer"></div>
+            /* Month view - sidebar with filters */
+            <div className="calendar-right-sidebar">
+              {(loading || initializing) ? (
+                <div className="sidebar-loading-placeholder">
+                  <div className="loading-placeholder-section">
+                    <div className="loading-placeholder-title">Categories</div>
+                    <div className="loading-placeholder-content"></div>
+                  </div>
+                  <div className="loading-placeholder-section">
+                    <div className="loading-placeholder-title">Locations</div>
+                    <div className="loading-placeholder-content"></div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* SIDEBAR HEADER */}
+                  <div className="sidebar-panel-header">
+                    <h3 className="sidebar-panel-title">Filters</h3>
+                    <span className="sidebar-event-count">
+                      <strong>{filteredEvents?.length || 0}</strong> / {allEvents?.length || 0} events
+                    </span>
+                  </div>
+
+                  {/* FILTERS CONTAINER */}
+                  <div className="filters-container">
+                    <div className="filter-section">
+                      <label className="filter-label">
+                        <span className="filter-label-icon">
+                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                            <rect x="1" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="7.5" y="1" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="1" y="7.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                            <rect x="7.5" y="7.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                          </svg>
+                        </span>
+                        Categories
+                      </label>
+                      <MultiSelect
+                        options={dynamicCategories}
+                        selected={selectedCategories}
+                        onChange={val => {
+                          setSelectedCategories(val);
+                          updateUserProfilePreferences({ selectedCategories: val });
+                        }}
+                        label="categories"
+                        searchable
+                      />
+                    </div>
+
+                    <div className="filter-section">
+                      <label className="filter-label">
+                        <span className="filter-label-icon">
+                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                            <path d="M6.5 1C4.29 1 2.5 2.79 2.5 5C2.5 8 6.5 12 6.5 12C6.5 12 10.5 8 10.5 5C10.5 2.79 8.71 1 6.5 1Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                            <circle cx="6.5" cy="5" r="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                          </svg>
+                        </span>
+                        Locations
+                      </label>
+                      <MultiSelect
+                        options={dynamicLocations}
+                        selected={selectedLocations}
+                        onChange={val => {
+                          setSelectedLocations(val);
+                          updateUserProfilePreferences({ selectedLocations: val });
+                        }}
+                        label="locations"
+                        searchable
+                      />
+                    </div>
+                  </div>
+
+                  {/* FILTER SUMMARY BAR */}
+                  <div className={`filter-summary ${(selectedCategories?.length > 0 && selectedCategories?.length < dynamicCategories?.length) || (selectedLocations?.length > 0 && selectedLocations?.length < dynamicLocations?.length) ? 'has-active-filter' : ''}`}>
+                    <span className="filter-summary-icon">
+                      <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                        <path d="M1.5 2.5H11.5L7.5 7.5V10.5L5.5 11.5V7.5L1.5 2.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                    {(selectedCategories?.length > 0 && selectedCategories?.length < dynamicCategories?.length) || (selectedLocations?.length > 0 && selectedLocations?.length < dynamicLocations?.length) ? (
+                      <>
+                        <span className="filter-summary-text">
+                          <strong>{filteredEvents?.length || 0}</strong> of {allEvents?.length || 0} events shown
+                        </span>
+                        <button
+                          className="filter-summary-reset"
+                          onClick={() => {
+                            setSelectedCategories(dynamicCategories);
+                            setSelectedLocations(dynamicLocations);
+                            updateUserProfilePreferences({ selectedCategories: dynamicCategories, selectedLocations: dynamicLocations });
+                          }}
+                        >
+                          Reset
+                        </button>
+                      </>
+                    ) : (
+                      <span className="filter-summary-text">
+                        Showing all <strong>{allEvents?.length || 0}</strong> events
+                      </span>
+                    )}
+                  </div>
+
+                  {/* GROUPING INFO */}
+                  <div className="grouping-info">
+                    <span className="grouping-info-icon">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 3H10M2 6H10M2 9H10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                      </svg>
+                    </span>
+                    <p className="grouping-info-text">
+                      Grouped by <strong>{groupBy === 'categories' ? 'Categories' : 'Locations'}</strong>
+                    </p>
+                  </div>
+
+                </>
+              )}
+            </div>
           )}
         </div>
 
