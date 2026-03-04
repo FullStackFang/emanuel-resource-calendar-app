@@ -3,7 +3,6 @@ import { logger } from '../utils/logger';
 import React, { memo, useMemo } from 'react';
 import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUtils';
 import { useTimezone } from '../context/TimezoneContext';
-import { usePermissions } from '../hooks/usePermissions';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
 import { WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon } from './shared/CalendarIcons';
@@ -34,13 +33,12 @@ const DayView = memo(({
   isVirtualLocation,
   dynamicLocations,
   showRegistrationTimes,
-  handleLocationRowClick // New prop for location timeline modal
+  handleLocationRowClick, // New prop for location timeline modal
+  locationGroups, // Pre-computed location groups from Calendar.jsx (fixes crash on row click)
+  canAddEvent
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
-
-  // Get permissions for role simulation
-  const { canCreateEvents } = usePermissions();
 
   // For day view, we only need the current day
   const currentDay = dateRange.start;
@@ -89,42 +87,26 @@ const DayView = memo(({
     }
   };
   
-  // Get categories/locations that actually have events on this specific day
+  // Show ALL selected groups (not just those with events) so users can add events to empty groups
   const activeGroupsForDay = useMemo(() => {
-    const dayEvents = filteredEvents.filter(event => 
-      getEventPosition(event, currentDay)
-    );
-    
     if (groupBy === 'categories') {
-      // Get categories that have events on this day and are selected
-      const categoriesWithEvents = new Set();
-      
-      dayEvents.forEach(event => {
-        // Check calendarData.categories first (authoritative), then top-level, then graphData fallback
-        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-        const category = categories[0] || 'Uncategorized';
-        if (selectedCategories.includes(category)) {
-          categoriesWithEvents.add(category);
-        }
+      // Show all selected categories, with 'Uncategorized' last
+      return [...selectedCategories].sort((a, b) => {
+        if (a === 'Uncategorized') return 1;
+        if (b === 'Uncategorized') return -1;
+        return a.localeCompare(b);
       });
-      
-      // Return sorted array of categories that have events
-      return Array.from(categoriesWithEvents).sort();
     } else {
-      // Get locations that have events on this day and are selected
-      const locationsWithEvents = new Set();
-      
-      dayEvents.forEach(event => {
-        const displayLocation = getEventDisplayLocation(event);
-        if (selectedLocations.includes(displayLocation)) {
-          locationsWithEvents.add(displayLocation);
-        }
+      // Show all location groups from pre-computed locationGroups, with special groups last
+      const specialOrder = { 'Unspecified': 1, 'Offsite': 2 };
+      return Object.keys(locationGroups).sort((a, b) => {
+        const aSpecial = specialOrder[a] || 0;
+        const bSpecial = specialOrder[b] || 0;
+        if (aSpecial !== bSpecial) return aSpecial - bSpecial;
+        return a.localeCompare(b);
       });
-      
-      // Return sorted array of locations that have events
-      return Array.from(locationsWithEvents).sort();
     }
-  }, [groupBy, filteredEvents, selectedCategories, selectedLocations, currentDay, getEventPosition]);
+  }, [groupBy, selectedCategories, locationGroups]);
   
   return (
     <>
@@ -183,14 +165,28 @@ const DayView = memo(({
             </div>
             
             {/* One Day Cell */}
-            <div 
+            <div
               className="grid-cell day-cell"
               onClick={() => handleDayCellClick(
-                currentDay, 
+                currentDay,
                 groupBy === 'categories' ? group : null,
                 groupBy === 'locations' ? group : null
               )}
             >
+              {canAddEvent && (
+                <button
+                  className="cell-add-event-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDayCellClick(
+                      currentDay,
+                      groupBy === 'categories' ? group : null,
+                      groupBy === 'locations' ? group : null
+                    );
+                  }}
+                  title="Add event"
+                >+</button>
+              )}
               {/* Events for this group on this day */}
               {(() => {
                 // Filter events for this group and day
@@ -491,19 +487,18 @@ const DayView = memo(({
           </div>
         ))
       ) : (
-        // Show message when no events on this day
+        // Show message when no groups are selected
         <div className="grid-row">
-          <div className="grid-cell" style={{ 
+          <div className="grid-cell" style={{
             gridColumn: '1 / 3',
             textAlign: 'center',
             padding: '40px 20px',
             color: '#666'
           }}>
             <div style={{ fontSize: '16px', marginBottom: '10px' }}>
-              No events found for {formatDateHeader(currentDay)}
+              No {groupBy === 'categories' ? 'categories' : 'locations'} selected for {formatDateHeader(currentDay)}
             </div>
-            {/* Add Event button - only show if user has create permission */}
-            {canCreateEvents && (
+            {canAddEvent && (
               <button
                 onClick={() => handleDayCellClick(currentDay)}
                 style={{

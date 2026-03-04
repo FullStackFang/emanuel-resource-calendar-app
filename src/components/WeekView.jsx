@@ -33,7 +33,8 @@ const WeekView = memo(({
   isVirtualLocation,
   dynamicLocations,
   showRegistrationTimes,
-  handleLocationRowClick // New prop for location timeline modal
+  handleLocationRowClick, // New prop for location timeline modal
+  canAddEvent
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
@@ -77,32 +78,26 @@ const WeekView = memo(({
     return eventLocations[0];
   };
   
-  // Get categories/locations that actually have events to display
+  // Show ALL selected groups (not just those with events) so users can add events to empty groups
   const activeGroups = useMemo(() => {
     if (groupBy === 'categories') {
-      // Get categories that have events and are selected
-      const categoriesWithEvents = new Set();
-
-      filteredEvents.forEach(event => {
-        // Check calendarData.categories first (authoritative), then top-level, then graphData fallback
-        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
-        const category = categories[0] || 'Uncategorized';
-        if (selectedCategories.includes(category)) {
-          categoriesWithEvents.add(category);
-        }
+      // Show all selected categories, with 'Uncategorized' last
+      return [...selectedCategories].sort((a, b) => {
+        if (a === 'Uncategorized') return 1;
+        if (b === 'Uncategorized') return -1;
+        return a.localeCompare(b);
       });
-
-      // Return sorted array of categories that have events
-      return Array.from(categoriesWithEvents).sort();
     } else {
-      // Use pre-computed location groups from Calendar.jsx
-      // Filter to only show groups that have events
-      return Object.keys(locationGroups).filter(groupName => {
-        const groupData = locationGroups[groupName];
-        return groupData && groupData.events && groupData.events.length > 0;
-      }).sort();
+      // Show all location groups from pre-computed locationGroups, with special groups last
+      const specialOrder = { 'Unspecified': 1, 'Offsite': 2 };
+      return Object.keys(locationGroups).sort((a, b) => {
+        const aSpecial = specialOrder[a] || 0;
+        const bSpecial = specialOrder[b] || 0;
+        if (aSpecial !== bSpecial) return aSpecial - bSpecial;
+        return a.localeCompare(b);
+      });
     }
-  }, [groupBy, filteredEvents, selectedCategories, locationGroups]);
+  }, [groupBy, selectedCategories, locationGroups]);
 
   return (
     <>
@@ -167,15 +162,29 @@ const WeekView = memo(({
             
             {/* Days */}
             {getDaysInRange().map((day, dayIndex) => (
-              <div 
-                key={dayIndex} 
+              <div
+                key={dayIndex}
                 className="grid-cell day-cell"
                 onClick={() => handleDayCellClick(
-                  day, 
+                  day,
                   groupBy === 'categories' ? group : null,
                   groupBy === 'locations' ? group : null
                 )}
               >
+                {canAddEvent && (
+                  <button
+                    className="cell-add-event-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDayCellClick(
+                        day,
+                        groupBy === 'categories' ? group : null,
+                        groupBy === 'locations' ? group : null
+                      );
+                    }}
+                    title="Add event"
+                  >+</button>
+                )}
                 {/* Events for this group and day */}
                 {(() => {
                   // Filter events for this group and day
@@ -496,16 +505,33 @@ const WeekView = memo(({
           </div>
         ))
       ) : (
-        // Show message when no events match the current filters
+        // Show message when no groups are selected at all
         <div className="grid-row">
-          <div className="grid-cell" style={{ 
+          <div className="grid-cell" style={{
             gridColumn: `1 / ${getDaysInRange().length + 2}`,
             textAlign: 'center',
-            padding: '20px',
-            color: '#666',
-            fontStyle: 'italic'
+            padding: '40px 20px',
+            color: '#666'
           }}>
-            No events found for the selected filters and date range.
+            <div style={{ fontSize: '14px', marginBottom: '10px', fontStyle: 'italic' }}>
+              No {groupBy === 'categories' ? 'categories' : 'locations'} selected. Use the filters to add groups.
+            </div>
+            {canAddEvent && (
+              <button
+                onClick={() => handleDayCellClick(getDaysInRange()[0])}
+                style={{
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                + Add Event
+              </button>
+            )}
           </div>
         </div>
       )}

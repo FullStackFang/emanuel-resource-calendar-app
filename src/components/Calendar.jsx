@@ -290,6 +290,9 @@ import ConflictDialog from './shared/ConflictDialog';
       isAdmin: isSimulating ? isSimulatedAdmin : userPermissions.isAdmin,
     }), [userPermissions, isSimulating, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
 
+    // Whether the current user/simulated-role can add events (used by all calendar views)
+    const canAddEvent = effectivePermissions.createEvents || effectivePermissions.submitReservation;
+
     // Calculate date range based on current view and user preferences
     const dateRange = useMemo(() => {
       let start = new Date(currentDate);
@@ -6630,13 +6633,14 @@ import ConflictDialog from './shared/ConflictDialog';
           changingCalendar={changingCalendar}
           calendarAccessError={calendarAccessError}
           updateUserProfilePreferences={updateUserProfilePreferences}
+          isAdmin={effectivePermissions.isAdmin}
           lastFetchedAt={lastFetchedAt}
           onManualRefresh={handleManualCalendarRefresh}
           isRefreshing={isManualRefreshing}
         />
 
-        {/* Mode Toggle with Action Buttons */}
-        {renderModeToggle()}
+        {/* Mode Toggle with Action Buttons - Admin only */}
+        {effectivePermissions.isAdmin && renderModeToggle()}
 
         {/* MAIN LAYOUT CONTAINER */}
         <div className="calendar-layout-container">
@@ -6687,6 +6691,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           isVirtualLocation={isVirtualLocation}
                           showRegistrationTimes={showRegistrationTimes}
                           onRequestEdit={handleRequestEdit}
+                          canAddEvent={canAddEvent}
                         />
                       </div>
                     </div>
@@ -6728,6 +6733,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
+                          canAddEvent={canAddEvent}
                         />
                       ) : (
                         <DayView
@@ -6758,6 +6764,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
+                          canAddEvent={canAddEvent}
                         />
                       )}
                     </div>

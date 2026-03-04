@@ -43,7 +43,8 @@ const MonthView = memo(({
   updateUserProfilePreferences,
   showRegistrationTimes,
   // Request edit handler (passed from Calendar.jsx)
-  onRequestEdit
+  onRequestEdit,
+  canAddEvent
 }) => {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showSetupTeardown, setShowSetupTeardown] = useState(false);
@@ -224,7 +225,7 @@ const MonthView = memo(({
                     onClick={() => handleDayClick(day)}
                   >
                     {/* Add event button in top-left */}
-                    {day.isCurrentMonth && (
+                    {day.isCurrentMonth && canAddEvent && (
                       <button
                         className="add-event-btn"
                         onClick={(e) => handleAddEventClick(e, day)}

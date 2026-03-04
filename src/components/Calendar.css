@@ -642,6 +642,48 @@
   outline-offset: -2px;
 }
 
+/* ---------- Hover "+" add-event button (Week / Day views) ---------- */
+.day-cell .cell-add-event-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-normal) var(--ease-in-out),
+              transform var(--duration-slow) var(--ease-bounce),
+              background-color var(--duration-normal) var(--ease-in-out),
+              box-shadow var(--duration-normal) var(--ease-in-out);
+  z-index: 3;
+  box-shadow: var(--shadow-primary);
+}
+
+.day-cell:hover .cell-add-event-btn {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.day-cell .cell-add-event-btn:hover {
+  background-color: var(--color-primary-600);
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: var(--shadow-md);
+}
+
 .day-cell.outside-month {
   background-color: var(--bg-primary);
 }

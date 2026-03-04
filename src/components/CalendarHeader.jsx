@@ -134,6 +134,9 @@ const CalendarHeader = ({
   // User preferences update
   updateUserProfilePreferences,
 
+  // Admin flag - controls visibility of settings row
+  isAdmin,
+
   // Freshness indicator
   lastFetchedAt,
   onManualRefresh,
@@ -238,61 +241,63 @@ const CalendarHeader = ({
           </div>
         </div>
 
-        {/* BOTTOM ROW - Settings and Grouping */}
-        <div className="header-bottom-row">
-          <div className="settings-group">
-            {/* Calendar Selector */}
-            <div className="calendar-selector-wrapper">
-              <CalendarSelector
-                selectedCalendarId={selectedCalendarId}
-                availableCalendars={availableCalendars}
-                onCalendarChange={onCalendarChange}
-                changingCalendar={changingCalendar}
-                accessError={calendarAccessError}
-              />
+        {/* BOTTOM ROW - Settings and Grouping (Admin only) */}
+        {isAdmin && (
+          <div className="header-bottom-row">
+            <div className="settings-group">
+              {/* Calendar Selector */}
+              <div className="calendar-selector-wrapper">
+                <CalendarSelector
+                  selectedCalendarId={selectedCalendarId}
+                  availableCalendars={availableCalendars}
+                  onCalendarChange={onCalendarChange}
+                  changingCalendar={changingCalendar}
+                  accessError={calendarAccessError}
+                />
+              </div>
+
+              {/* Timezone Selector */}
+              <div className="time-zone-selector">
+                <TimezoneSelector
+                  value={timezone}
+                  onChange={onTimezoneChange}
+                  showLabel={false}
+                  className="timezone-select"
+                />
+              </div>
+
+              {/* Week Start Selector */}
+              <div className="week-start-selector">
+                <select
+                  value={weekStart}
+                  onChange={onWeekStartChange}
+                  className="week-start-select"
+                >
+                  <option value="Sunday">Sunday start of Week</option>
+                  <option value="Monday">Monday start of Week</option>
+                </select>
+              </div>
             </div>
 
-            {/* Timezone Selector */}
-            <div className="time-zone-selector">
-              <TimezoneSelector
-                value={timezone}
-                onChange={onTimezoneChange}
-                showLabel={false}
-                className="timezone-select"
-              />
-            </div>
-
-            {/* Week Start Selector */}
-            <div className="week-start-selector">
-              <select
-                value={weekStart}
-                onChange={onWeekStartChange}
-                className="week-start-select"
-              >
-                <option value="Sunday">Sunday start of Week</option>
-                <option value="Monday">Monday start of Week</option>
-              </select>
-            </div>
+            {/* Group By Selector - Only show in week/day views */}
+            {viewType !== 'month' && (
+              <div className="view-mode-selector">
+                <button
+                  className={groupBy === 'categories' ? 'active' : ''}
+                  onClick={() => onGroupByChange('categories')}
+                >
+                  Group by Category
+                </button>
+                <button
+                  className={groupBy === 'locations' ? 'active' : ''}
+                  onClick={() => onGroupByChange('locations')}
+                >
+                  Group by Location
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Group By Selector - Only show in week/day views */}
-          {viewType !== 'month' && (
-            <div className="view-mode-selector">
-              <button
-                className={groupBy === 'categories' ? 'active' : ''}
-                onClick={() => onGroupByChange('categories')}
-              >
-                Group by Category
-              </button>
-              <button
-                className={groupBy === 'locations' ? 'active' : ''}
-                onClick={() => onGroupByChange('locations')}
-              >
-                Group by Location
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
