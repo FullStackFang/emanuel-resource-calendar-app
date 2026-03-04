@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './MultiSelect.css';
 
+let nextInstanceId = 0;
+
 function MultiSelect({
   options,
   selected,
@@ -19,7 +21,10 @@ function MultiSelect({
   const dropdownRef = useRef(null);
   const triggerRef = useRef(null);
   const searchInputRef = useRef(null);
+  const instanceIdRef = useRef(nextInstanceId++);
+  const wasOpenRef = useRef(false);
 
+  const instanceId = instanceIdRef.current;
   const prevSelectedRef = useRef(selected);
 
   // Only update localSelected when props.selected actually changes.
@@ -38,15 +43,34 @@ function MultiSelect({
     }
   }, [selected, isOpen]);
 
+  // Close this instance when another MultiSelect opens
+  useEffect(() => {
+    const handleOtherOpen = (e) => {
+      if (e.detail !== instanceId) {
+        setIsOpen(false);
+        setSearchQuery('');
+      }
+    };
+    document.addEventListener('multiselect-open', handleOtherOpen);
+    return () => document.removeEventListener('multiselect-open', handleOtherOpen);
+  }, [instanceId]);
+
+  // Commit pending selections whenever dropdown closes (covers all close paths)
+  useEffect(() => {
+    if (wasOpenRef.current && !isOpen) {
+      if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
+        onChange(localSelected);
+      }
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Click outside handler
   useEffect(() => {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsOpen(false);
         setSearchQuery('');
-        if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
-          onChange(localSelected);
-        }
       }
     }
 
@@ -56,7 +80,7 @@ function MultiSelect({
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [isOpen, localSelected, onChange, selected]);
+  }, [isOpen]);
 
   // Focus search input when dropdown opens
   useEffect(() => {
@@ -111,13 +135,12 @@ function MultiSelect({
     }
 
     if (isOpen) {
-      if (JSON.stringify(localSelected) !== JSON.stringify(selected)) {
-        onChange(localSelected);
-      }
       setSearchQuery('');
+    } else {
+      document.dispatchEvent(new CustomEvent('multiselect-open', { detail: instanceId }));
     }
     setIsOpen(!isOpen);
-  }, [isOpen, localSelected, selected, onChange]);
+  }, [isOpen, instanceId]);
 
   const handleClear = useCallback((e) => {
     e.preventDefault();
@@ -146,6 +169,15 @@ function MultiSelect({
       setSearchQuery('');
       triggerRef.current?.focus();
     }
+  }, []);
+
+  const handleDone = useCallback((e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setSearchQuery('');
+    setIsOpen(false);
   }, []);
 
   // Build trigger style with optional custom height/padding
@@ -301,6 +333,17 @@ function MultiSelect({
                 </div>
               ))
             )}
+          </div>
+
+          {/* Done button */}
+          <div className="multiselect-done-bar">
+            <button
+              className="multiselect-done-btn"
+              onClick={handleDone}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

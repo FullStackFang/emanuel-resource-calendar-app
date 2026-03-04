@@ -162,6 +162,12 @@
   z-index: 20;
 }
 
+/* Right-align the Locations dropdown (last filter section) so it grows leftward */
+.calendar-right-sidebar .filter-section:last-child .multiselect-dropdown {
+  left: auto;
+  right: 0;
+}
+
 .calendar-right-sidebar .filter-section h3 {
   margin: 0;
   color: var(--color-primary-500);

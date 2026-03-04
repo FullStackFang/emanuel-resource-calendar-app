@@ -66,7 +66,8 @@
       "Bash(sudo apt-get install:*)",
       "Bash(npx vite build:*)",
       "WebFetch(domain:github.com)",
-      "Bash(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities' 2>/dev/null || echo \"npm audit not available\")"
+      "Bash(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities' 2>/dev/null || echo \"npm audit not available\")",
+      "Bash(chmod +x /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/.git/hooks/commit-msg)"
     ],
     "deny": []
   }

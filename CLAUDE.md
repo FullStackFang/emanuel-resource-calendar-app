@@ -325,6 +325,11 @@ Once a task is complete and verified, **always provide a ready-to-use git commit
 
 Keep the summary line under 72 chars. Body bullets should cover what changed and why, not how. Include test counts when tests were added or modified.
 
+### Git Commit Message Quoting Rule
+- **NEVER use double quotes (`"`) in suggested or generated git commit messages.** Use single quotes (`'`) instead when quoting values.
+- This applies to the summary line, body, and all bullet points.
+- Example: `feat(calendar): add 'draft' status badge` (correct) vs `feat(calendar): add "draft" status badge` (wrong)
+
 ### State Management
 - Use React Context for global state (user preferences, timezone)
 - Pass data directly to avoid race conditions with async state updates
