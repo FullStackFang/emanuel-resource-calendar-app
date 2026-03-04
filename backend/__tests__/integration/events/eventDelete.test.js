@@ -12,6 +12,7 @@ const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createApprover, createRequester, createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
+  createDraftEvent,
   createPendingEvent,
   createPublishedEvent,
   createRejectedEvent,
@@ -70,6 +71,9 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
 
     approverToken = await createMockToken(approverUser);
     adminToken = await createMockToken(adminUser);
+
+    // Clear deletion email tracking
+    app.locals.lastDeletionEmail = undefined;
   });
 
   describe('A-13: Delete published event', () => {
@@ -302,6 +306,125 @@ describe('Event Delete/Restore Tests (A-13, A-19 to A-23)', () => {
         .expect(200);
 
       expect(res.body.status).toBe(STATUS.DRAFT);
+    });
+  });
+
+  describe('Deletion Notification (DN-1 to DN-5)', () => {
+    it('DN-1: should trigger deletion notification when deleting a published event', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Published Event for Notification',
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      const res = await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      // Verify deletion notification was tracked
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.recipientEmail).toBe(requesterUser.email);
+      expect(emailTracked.eventTitle).toBe('Published Event for Notification');
+    });
+
+    it('DN-2: should NOT trigger notification when deleting a pending event', async () => {
+      const pending = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Pending Event No Notification',
+      });
+      const [savedPending] = await insertEvents(db, [pending]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPending._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      // Verify no deletion notification was tracked
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).toBeNull();
+    });
+
+    it('DN-3: should NOT trigger notification when deleting a draft event', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Draft Event No Notification',
+      });
+      const [savedDraft] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedDraft._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      // Verify no deletion notification was tracked
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).toBeNull();
+    });
+
+    it('DN-4: deletion notification should include correct event details', async () => {
+      const startDateTime = new Date('2026-04-15T14:00:00');
+      const endDateTime = new Date('2026-04-15T16:00:00');
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        requesterName: 'Jane Doe',
+        eventTitle: 'Annual Gala Dinner',
+        startDateTime,
+        endDateTime,
+        locationDisplayNames: ['Main Sanctuary', 'Social Hall'],
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.eventTitle).toBe('Annual Gala Dinner');
+      expect(emailTracked.recipientEmail).toBe(requesterUser.email);
+      expect(emailTracked.requesterName).toBe('Jane Doe');
+      expect(emailTracked.locationDisplayNames).toEqual(['Main Sanctuary', 'Social Hall']);
+    });
+
+    it('DN-5: no notification triggered if requester has no email', async () => {
+      const published = createPublishedEvent({
+        userId: requesterUser.odataId,
+        eventTitle: 'No Email Event',
+        roomReservationData: {
+          requestedBy: {
+            userId: requesterUser.odataId,
+            name: 'No Email User',
+            email: null,
+            department: 'General',
+            phone: '555-0000',
+          },
+          attendees: 5,
+          eventSetup: 'standard',
+          notes: '',
+          submittedAt: new Date(),
+          currentRevision: 1,
+        },
+      });
+      const [savedPublished] = await insertEvents(db, [published]);
+
+      await request(app)
+        .delete(`/api/admin/events/${savedPublished._id}`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      // Email was tracked but with null recipient
+      const emailTracked = app.locals.lastDeletionEmail;
+      expect(emailTracked).not.toBeNull();
+      expect(emailTracked.recipientEmail).toBeNull();
     });
   });
 

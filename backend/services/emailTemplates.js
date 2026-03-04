@@ -35,6 +35,8 @@ const TEMPLATE_IDS = {
   EDIT_REQUEST_REJECTED: 'edit-request-rejected',
   // Event update notification
   EVENT_UPDATED: 'event-updated',
+  // Event deletion notification
+  DELETION: 'event-deleted',
   // Error notification templates
   ERROR_NOTIFICATION: 'error-notification',
   USER_REPORT_ACKNOWLEDGMENT: 'user-report-acknowledgment'
@@ -266,6 +268,52 @@ const DEFAULT_TEMPLATES = {
   Thank you for your understanding.
 </p>`,
     variables: ['eventTitle', 'requesterName', 'startTime', 'locations', 'rejectionReason']
+  },
+
+  [TEMPLATE_IDS.DELETION]: {
+    id: TEMPLATE_IDS.DELETION,
+    name: 'Deletion Notification',
+    description: 'Sent to requester when their published event is cancelled/deleted by an admin',
+    subject: 'Event Cancelled: {{eventTitle}}',
+    body: `<h2 style="margin: 0 0 20px 0; color: #c53030;">
+  <span style="background-color: #fed7d7; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-right: 10px;">CANCELLED</span>
+  Event Has Been Cancelled
+</h2>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  Dear {{requesterName}},
+</p>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  We are writing to let you know that the following event has been cancelled.
+</p>
+
+<div style="background-color: #fff5f5; border-left: 4px solid #fc8181; padding: 15px 20px; margin: 20px 0;">
+  <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 18px;">Event Details</h3>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 8px 0; color: #718096; width: 120px;">Event:</td>
+      <td style="padding: 8px 0; color: #2d3748; font-weight: 600;">{{eventTitle}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Date/Time:</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{startTime}} - {{endTime}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #718096;">Location(s):</td>
+      <td style="padding: 8px 0; color: #2d3748;">{{locations}}</td>
+    </tr>
+  </table>
+</div>
+
+<p style="color: #4a5568; font-size: 16px; line-height: 1.6;">
+  If you have any questions about this cancellation, please contact our office.
+</p>
+
+<p style="color: #718096; font-size: 14px; margin-top: 30px;">
+  Thank you for your understanding.
+</p>`,
+    variables: ['eventTitle', 'requesterName', 'startTime', 'endTime', 'locations']
   },
 
   [TEMPLATE_IDS.RESUBMISSION]: {
@@ -1111,6 +1159,15 @@ async function generateRejectionNotification(reservation, rejectionReason = '') 
 }
 
 /**
+ * Generate deletion notification email
+ * Sent to requester when their published event is cancelled/deleted by an admin
+ */
+async function generateDeletionNotification(reservation) {
+  const variables = extractVariables(reservation);
+  return generateFromTemplate(TEMPLATE_IDS.DELETION, variables);
+}
+
+/**
  * Generate resubmission confirmation email
  */
 async function generateResubmissionConfirmation(reservation) {
@@ -1326,6 +1383,7 @@ module.exports = {
   generateAdminNewRequestAlert,
   generateApprovalNotification,
   generateRejectionNotification,
+  generateDeletionNotification,
   generateResubmissionConfirmation,
   generateReviewStartedNotification,
   generateEventUpdatedNotification,

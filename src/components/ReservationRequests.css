@@ -33,6 +33,10 @@
   position: relative;
 }
 
+.rr-page-header > .freshness-indicator {
+  flex-shrink: 0;
+}
+
 .rr-page-header::before {
   content: '';
   position: absolute;

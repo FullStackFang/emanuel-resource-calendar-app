@@ -21,7 +21,7 @@ npm start          # Start production server
 
 ### Testing
 
-**IMPORTANT: Do NOT run the full test suite (`npm test`) after every change.** The full suite has 472+ backend tests and takes ~2 minutes. Instead, run only the specific test file(s) directly related to your changes. Only run the full suite when explicitly asked by the user.
+**IMPORTANT: Do NOT run the full test suite (`npm test`) after every change.** The full suite has 472 backend tests and takes ~2 minutes. Instead, run only the specific test file(s) directly related to your changes. Only run the full suite when explicitly asked by the user.
 
 **Backend (Jest):**
 ```bash
@@ -30,7 +30,7 @@ npm test -- editRequest.test.js    # Run specific test file (PREFERRED)
 npm test -- --testNamePattern="Approver"  # Run tests matching pattern
 npm run test:unit                  # Run unit tests only
 npm run test:integration           # Run integration tests only
-npm test                           # Run ALL tests (472+ tests) — ONLY when asked
+npm test                           # Run ALL tests (472 tests) — ONLY when asked
 ```
 
 **Frontend (Vitest):**
@@ -123,7 +123,7 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 - **Database**: MongoDB (Azure Cosmos DB)
 - **Collections**:
   - `templeEvents__Users`: User profiles and preferences
-  - `templeEvents__Events`: Unified event storage with Graph data and internal enrichments
+  - `templeEvents__Events`: Unified event storage with Graph data and reservation workflow
   - `templeEvents__CalendarDeltas`: Delta token storage for efficient syncing
   - `templeEvents__Locations`: Location and room data (replaces templeEvents__Rooms)
     - Locations with `isReservable: true` are available for room reservations
@@ -131,6 +131,14 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
   - `templeEvents__ReservationTokens`: Guest access tokens for public forms
   - `templeEvents__EventAttachments`: File attachments for events (GridFS)
   - `templeEvents__EventAuditHistory`: Event change tracking and audit logs
+  - `templeEvents__Categories`: Event categories and subcategories
+  - `templeEvents__SystemSettings`: System-wide settings (email config, error logging)
+  - `templeEvents__RoomCapabilityTypes`: Room capability/feature definitions
+  - `templeEvents__EventServiceTypes`: Event service type definitions
+  - `templeEvents__FeatureCategories`: Feature category groupings
+  - `templeEvents__ReservationAuditHistory`: Reservation-specific audit trail
+  - `templeEvents__ReservationAttachments`: Reservation file tracking
+  - `templeEvents__Files` (GridFS): File binary storage
   - **DEPRECATED**: `templeEvents__Rooms` (migrated to templeEvents__Locations)
   - **DEPRECATED**: `templeEvents__InternalEvents` (consolidated into templeEvents__Events)
   - **DEPRECATED**: `templeEvents__EventCache` (consolidated into templeEvents__Events)
@@ -140,9 +148,14 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 ### Key Services
 - **calendarDataService.js**: Enhanced event operations with caching and unified sync
 - **unifiedEventService.js**: Delta sync for multiple calendars with conflict detection
-- **graphService.js**: Frontend Graph API interactions (legacy, being phased out)
 - **graphApiService.js**: Backend Graph API service using app-only authentication (preferred)
+- **emailService.js**: Email notifications via Graph API (approval, rejection, edit requests)
+- **emailTemplates.js**: HTML email template generation with change tracking tables
+- **errorLoggingService.js**: Centralized error logging with Sentry integration
 - **userPreferencesService.js**: User preference management with MongoDB persistence
+- **utils/changeDetection.js**: Approver change tracking for email notifications
+- **utils/concurrencyUtils.js**: `conditionalUpdate()` for optimistic concurrency control
+- ~~**graphService.js**~~: Frontend Graph API interactions (legacy, fully deprecated)
 
 ### API Structure
 - Protected endpoints require JWT bearer token
@@ -150,7 +163,7 @@ This is a Temple Events Calendar application with Microsoft 365 integration, con
 - Admin-only endpoints for sync operations
 
 ### Event Data Model
-Events in `templeEvents__Events` combine Microsoft Graph data with internal enrichments:
+Events in `templeEvents__Events` use top-level calendar fields with nested workflow data:
 
 **Document Structure:**
 ```javascript
@@ -172,8 +185,16 @@ Events in `templeEvents__Events` combine Microsoft Graph data with internal enri
 
   // NESTED DATA STRUCTURES
   graphData: { /* Raw Microsoft Graph API data - do NOT read for display */ },
-  roomReservationData: { /* Reservation workflow data */ },
-  internalData: { /* Legacy internal enrichments */ },
+  roomReservationData: {
+    requestedBy: { name, email, department, phone, userId }, // Canonical requester source
+    // ... reservation workflow fields (reviewNotes, reviewedAt, etc.)
+  },
+
+  // VERSIONING & HISTORY
+  _version,          // Optimistic concurrency control (incremented on each write)
+  statusHistory: [   // Array of { status, changedAt, changedBy, ... }
+    { status, changedAt, changedBy, reason }
+  ],
 
   // METADATA
   createdAt, createdBy, lastModifiedDateTime, ...
@@ -191,9 +212,9 @@ query['endDateTime'] = { $gt: startDate };
 - Event info: eventTitle, eventDescription, categories
 - Timing: startDateTime/endDateTime, setupTime, teardownTime, doorOpenTime, doorCloseTime
 - Location: locations (ObjectId array), locationDisplayNames, isOffsite, offsite* fields
-- Requester: requesterName, requesterEmail, department, phone
 - Recurring: eventType, seriesMasterId, recurrence
 - Services and assignments
+- **Requester info**: Lives in `roomReservationData.requestedBy` (NOT top-level)
 
 ### Authentication Flow
 1. User logs in via MSAL popup
@@ -352,63 +373,14 @@ Keep the summary line under 72 chars. Body bullets should cover what changed and
 - Constructive (restore, publish): `var(--color-success-500)` (green)
 - Neutral (reject, update): `var(--color-warning-500)` or `var(--color-info-500)`
 
-```javascript
-// Standard action pattern with in-button confirmation
-const [actionId, setActionId] = useState(null);
-const [confirmActionId, setConfirmActionId] = useState(null);
+**State pattern:** `actionId` (loading), `confirmActionId` (confirm state). First click sets confirm, second click calls handler. 3-second auto-reset timeout. Use `showSuccess()`/`showError()` for feedback. See existing components (e.g., `EventManagement.jsx`, `MyReservations.jsx`) for full implementations.
 
-// First click sets confirm state, second click performs action
-const handleActionClick = (item) => {
-  if (confirmActionId === item._id) {
-    // Already in confirm state, proceed with action
-    handleAction(item);
-  } else {
-    // First click - enter confirm state
-    setConfirmActionId(item._id);
-    // Auto-reset after 3 seconds if not confirmed
-    setTimeout(() => {
-      setConfirmActionId(prev => prev === item._id ? null : prev);
-    }, 3000);
-  }
-};
-
-const handleAction = async (item) => {
-  try {
-    setActionId(item._id);
-    setConfirmActionId(null);
-    await performAction(item._id);
-    showSuccess(`"${item.name}" action completed`);
-    // Update local state
-  } catch (err) {
-    showError(err, { context: 'ComponentName.handleAction' });
-  } finally {
-    setActionId(null);
-  }
-};
-
-// Button JSX (example: Restore)
-<button
-  className={`restore-btn ${confirmActionId === item._id ? 'confirm' : ''}`}
-  onClick={() => handleActionClick(item)}
-  disabled={actionId === item._id}
->
-  {actionId === item._id
-    ? 'Restoring...'
-    : confirmActionId === item._id
-      ? 'Confirm?'
-      : 'Restore'}
-</button>
-
-// Required CSS for confirm state (adjust color per action type)
+```css
+/* Confirm state CSS (adjust color per action type) */
 .action-btn.confirm {
   background: var(--color-success-500); /* or error-500 for destructive */
   color: white;
   animation: pulse-confirm 1s ease-in-out infinite;
-}
-
-@keyframes pulse-confirm {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
 }
 ```
 
@@ -494,6 +466,35 @@ Add field handling in relevant endpoint(s):
 ### See Also
 For detailed architecture documentation, see `architecture-notes.md`
 
+## Key Architectural Patterns
+
+### Event Status Machine
+```
+draft → pending → published → deleted
+                → rejected  → deleted
+          draft → deleted
+```
+**Statuses**: `draft` | `pending` | `published` | `rejected` | `deleted`
+Restore walks `statusHistory[]` backwards to find previous status.
+
+### Optimistic Concurrency Control (OCC)
+Every write endpoint uses `conditionalUpdate()` with `_version` field. Clients send `expectedVersion` in request body. On conflict, backend returns 409 with `VERSION_CONFLICT` code and field-level diff snapshot. Frontend shows `ConflictDialog` with three modes: `status_changed`, `data_changed`, `already_actioned`.
+
+### Requester Canonical Source
+Requester info lives in `roomReservationData.requestedBy` (name, email, department, phone, userId). **NOT** in top-level `calendarData` fields. Ownership queries use `roomReservationData.requestedBy.email`.
+
+### Scheduling Conflict Detection
+`checkRoomConflicts()` runs on publish, admin save, owner edit, and restore endpoints. Returns 409 `SchedulingConflict` with conflict details. Admins can force-override; owners cannot.
+
+### graphData.id Gate
+`graphData.id` only exists on published events (set when Graph event is created). It gates all Graph API sync operations. Events without `graphData.id` skip Graph sync entirely.
+
+### Testing
+- **472 backend tests** (31 suites) — Jest with MongoDB Memory Server
+- **169 frontend tests** — Vitest
+- Test helpers in `backend/__tests__/__helpers__/` (testSetup, userFactory, eventFactory, authHelpers, graphApiMock, testApp)
+- MongoDB Memory Server auto-detects Windows ARM64 and uses x64 emulation
+
 ## Important Notes
 
 - The app functions as both a standalone web app and Microsoft Teams/Outlook add-in
@@ -507,157 +508,30 @@ For detailed architecture documentation, see `architecture-notes.md`
 
 ## Current In-Progress Work
 
-### Initial Load Performance Optimization - Phase 1 In Progress
+### Initial Load Performance Optimization (Planned)
 
-**Status**: Planning complete 2026-02-04. Ready for implementation.
+**Status**: Planned 2026-02-04. No implementation started yet.
 
-**Goal**: Reduce initial app load time by removing blocking imports, adding visual feedback, and eliminating unused dependencies.
+**Goal**: Reduce initial app load time (~680KB blocking imports, sequential API waterfalls, no loading UI).
 
-**Problem Identified:**
-- ~680KB blocking imports in main chunk (MSAL, Sentry, React Query, DatePicker, Loader)
-- 3-4 sequential API call waterfalls before content renders
-- Duplicate API calls (`/users/current` fetched multiple times)
-- No loading UI - blank screen during provider initialization
-- Dead dependencies - lodash (~70KB) unused
+**Phase 1 (Quick Wins):** Remove unused deps (lodash, @react-pdf/renderer), add skeleton screen, defer Sentry init, replace react-loader-spinner with CSS spinner. Expected ~120KB reduction.
 
-**Phase 1 Tasks (Quick Wins - This Session):**
-| # | Task | Files | Status |
-|---|------|-------|--------|
-| 1 | Remove unused deps (lodash, @react-pdf/renderer) | `package.json` | Pending |
-| 2 | Add skeleton screen | `src/App.jsx`, `src/App.css` | Pending |
-| 3 | Defer Sentry init with requestIdleCallback | `src/main.jsx` | Pending |
-| 4 | Replace react-loader-spinner with CSS | `src/components/shared/LoadingSpinner.jsx`, `LoadingSpinner.css` | Pending |
-
-**Expected Results:**
-- ~120KB bundle size reduction
-- Immediate visual feedback instead of blank screen
-- Low risk, all changes isolated
-
-**Future Phases (Not This Session):**
-- Phase 2: API call parallelization in Calendar.jsx, dedupe user calls
-- Phase 3: Lazy load react-datepicker, optimize Vite chunks
-- Phase 4: Stale-while-revalidate for events
+**Future Phases:** API call parallelization, lazy-load react-datepicker, optimize Vite chunks, stale-while-revalidate.
 
 **Plan File**: `/home/fullstackfang/.claude/plans/smooth-kindling-river.md`
 
-**Verification:**
-```bash
-# Baseline bundle size
-npm run build && ls -la dist/assets/*.js | awk '{sum += $5} END {print "Total:", sum/1024, "KB"}'
-
-# After changes - run tests
-cd backend && npm test  # 173 tests should pass
-
-# Performance check (Chrome DevTools)
-# - First Contentful Paint (FCP)
-# - Time to Interactive (TTI)
-```
-
 ---
 
-### Event Workflow Test Suite - Phase 1 Complete
+### Completed Architectural Work (Reference)
 
-**Status**: Phase 1 Complete 2026-02-04. All 173 tests passing.
-
-**Goal**: Create comprehensive test suite to verify event workflow state machine, role-based access control, and cross-role interactions.
-
-**Event State Machine:**
-```
-CREATE DRAFT → DRAFT → SUBMIT → PENDING → PUBLISH → PUBLISHED
-                 │                  │                   │
-                 │                  └─→ REJECT → REJECTED │
-                 │                                        │
-                 └─────────── DELETE ←───────────────────┘
-                                │
-                            DELETED → RESTORE → Previous State
-```
-
-**Statuses**: `draft` | `pending` | `published` | `rejected` | `deleted`
-
-**Test Categories (93 planned tests):**
-| Category | Test IDs | Count |
-|----------|----------|-------|
-| Viewer Role | V-1 to V-11 | 11 |
-| Requester Role | R-1 to R-29 | 29 |
-| Approver Role | A-1 to A-23 | 23 |
-| Admin Role | AD-1 to AD-3 | 3 |
-| Cross-Role | X-1 to X-10 | 10 |
-| Edge Cases | E-1 to E-13 | 13 |
-| Notifications | N-1 to N-4 | 4 |
-
-**Test Infrastructure Files:**
-```
-backend/__tests__/__helpers__/
-├── testSetup.js       # mongodb-memory-server lifecycle (Windows ARM64 compatible)
-├── testConstants.js   # Status terminology mapping
-├── userFactory.js     # Create mock users for each role
-├── eventFactory.js    # Create events in each state
-├── authHelpers.js     # JWT mock token generation (jose)
-├── graphApiMock.js    # Mock Graph API service with call tracking
-├── dbHelpers.js       # Database seeding + audit assertion
-├── testApp.js         # Express test app with all workflow endpoints
-└── globalSetup.js     # Jest global setup for mongodb-memory-server
-```
-
-**Integration Test Files:**
-```
-backend/__tests__/integration/
-├── roles/
-│   ├── viewerAccess.test.js      # V-1 to V-11 (17 tests)
-│   └── requesterWorkflow.test.js # R-1 to R-29 (27 tests)
-└── events/
-    ├── eventPublish.test.js      # A-7 (8 tests)
-    ├── eventReject.test.js       # A-8, A-9 (8 tests)
-    ├── eventDelete.test.js       # A-13, A-19-A-23 (14 tests)
-    └── editRequest.test.js       # A-14 to A-17 (12 tests)
-```
-
-**Verification Commands:**
-```bash
-cd backend && npm test                                  # All tests (173 passing)
-cd backend && npm run test:unit                         # Unit only
-cd backend && npm run test:integration                  # Integration only
-cd backend && npm test -- eventPublish.test.js          # Specific file
-```
-
-**Completed Tests (173 passing):**
-- **Permission Unit Tests**: 44 tests for permissionUtils (role hierarchy, permissions, department fields)
-- **Viewer Access Tests (V-1 to V-11)**: 17 tests verifying viewers cannot perform privileged actions
-- **Requester Workflow Tests (R-1 to R-29)**: 27 tests for ownership and state transitions
-- **Event Publish Tests (A-7)**: 8 tests for pending→published workflow with Graph API mock
-- **Event Rejection Tests (A-8, A-9)**: 8 tests for pending→rejected workflow with reason validation
-- **Event Delete/Restore Tests (A-13, A-19-A-23)**: 14 tests for soft delete and restore
-- **Edit Request Tests (A-14 to A-17)**: 12 tests for edit request workflow
-- **Error Logging Service Tests**: 12 tests for sanitizeData and generateCorrelationId
-- **Graph API Service Tests**: 31 tests for Graph API service functionality
-
-**Test Infrastructure Created:**
-- `backend/__tests__/__helpers__/testConstants.js` - Status/role/endpoint constants
-- `backend/__tests__/__helpers__/testSetup.js` - MongoDB memory server lifecycle with Windows ARM64 detection
-- `backend/__tests__/__helpers__/userFactory.js` - User fixtures for all roles
-- `backend/__tests__/__helpers__/eventFactory.js` - Event fixtures for all states
-- `backend/__tests__/__helpers__/authHelpers.js` - JWT token generation with jose RSA key pairs
-- `backend/__tests__/__helpers__/graphApiMock.js` - Mock Graph API service with call history tracking
-- `backend/__tests__/__helpers__/dbHelpers.js` - Audit assertion helpers
-- `backend/__tests__/__helpers__/testApp.js` - Express test app implementing all workflow endpoints
-
-**Windows ARM64 Compatibility:**
-The test suite automatically detects Windows ARM64 and uses x64 MongoDB binary emulation since MongoDB doesn't provide ARM64 Windows builds. This is handled in `testSetup.js` via `getServerOptions()`.
-
-**Remaining Work:**
-- Cross-role tests (X-1 to X-10)
-- Edge case tests (E-1 to E-13)
-- Notification tests (N-1 to N-4)
-- E2E tests with Playwright
-
-**Plan File**: `/home/fullstackfang/.claude/plans/piped-percolating-adleman.md`
-
----
-
-### Completed Work (Reference)
-
-- **graphData Isolation Cleanup** (2026-02-04): All frontend components now read from top-level fields, not `graphData`. Backend bidirectional sync removed.
-- **Recurring Event Metadata Migration** (2026-02-04): `eventType`, `seriesMasterId`, `recurrence` moved to top-level. Migration: `cd backend && node migrate-add-recurrence-to-calendardata.js`
+- **Event data architecture cleanup**: Eliminated `internalData`, removed placeholder `graphData`, deduplicated requester info into `roomReservationData.requestedBy`
+- **Status rename**: `approved` → `published` across entire codebase (database, API, frontend, tests)
+- **Optimistic concurrency control**: `_version` field with `conditionalUpdate()`, 409 conflict responses with field-level diffs
+- **Status history tracking**: `statusHistory[]` array on all events, restore walks history backwards
+- **Scheduling conflict detection**: `checkRoomConflicts()` on publish, save, edit, and restore endpoints
+- **Email notifications**: Approval/rejection emails with approver change tracking (`reviewChanges`)
+- **graphData isolation**: Frontend reads top-level fields only, `graphData` is raw Graph API cache
+- **Recurring event metadata**: `eventType`, `seriesMasterId`, `recurrence` at top level
 
 ---
 

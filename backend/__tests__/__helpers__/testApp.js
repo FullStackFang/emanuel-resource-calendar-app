@@ -1070,6 +1070,23 @@ function createTestApp(options = {}) {
         changes: { status: { from: event.status, to: 'deleted' } },
       });
 
+      // Track deletion notification (only for previously-published events)
+      if (event.status === 'published') {
+        const cd = event.calendarData || {};
+        const requestedBy = event.roomReservationData?.requestedBy || {};
+        req.app.locals.lastDeletionEmail = {
+          recipientEmail: requestedBy.email || null,
+          eventTitle: cd.eventTitle || event.eventTitle,
+          startDateTime: cd.startDateTime || event.startDateTime,
+          endDateTime: cd.endDateTime || event.endDateTime,
+          locationDisplayNames: cd.locationDisplayNames || [],
+          requesterName: requestedBy.name || null,
+          sentAt: new Date(),
+        };
+      } else {
+        req.app.locals.lastDeletionEmail = null;
+      }
+
       res.json({
         success: true,
         message: 'Event deleted successfully',

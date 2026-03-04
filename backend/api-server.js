@@ -20081,6 +20081,57 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       newStatus: 'deleted'
     });
 
+    // Step 4: Send deletion notification to requester (only for previously-published events)
+    if (event.status === 'published') {
+      try {
+        const cd = event.calendarData || {};
+        const requestedBy = event.roomReservationData?.requestedBy || {};
+        let deleteEmailLocationNames = cd.locationDisplayNames;
+        if (!deleteEmailLocationNames && cd.locations && cd.locations.length > 0) {
+          try {
+            deleteEmailLocationNames = await calculateLocationDisplayNames(cd.locations, db);
+          } catch (err) {
+            logger.warn('Could not resolve location names for deletion email:', err.message);
+          }
+        }
+        const reservationForEmail = {
+          _id: event._id,
+          eventTitle: cd.eventTitle || event.eventTitle,
+          requesterName: requestedBy.name,
+          requesterEmail: requestedBy.email,
+          contactEmail: event.roomReservationData?.contactPerson?.email,
+          startDateTime: cd.startDateTime || event.startDateTime,
+          endDateTime: cd.endDateTime || event.endDateTime,
+          locationDisplayNames: deleteEmailLocationNames
+            ? (Array.isArray(deleteEmailLocationNames) ? deleteEmailLocationNames : [deleteEmailLocationNames])
+            : [],
+          attendeeCount: cd.attendeeCount || 0
+        };
+
+        const emailResult = await emailService.sendDeletionNotification(reservationForEmail);
+        logger.info('Deletion notification email sent', {
+          eventId: event.eventId,
+          correlationId: emailResult.correlationId,
+          skipped: emailResult.skipped
+        });
+
+        // Record in communication history
+        await emailService.recordEmailInHistory(
+          unifiedEventsCollection,
+          event._id,
+          emailResult,
+          'deletion_notification',
+          [reservationForEmail.requesterEmail],
+          `Event Cancelled: ${reservationForEmail.eventTitle}`
+        );
+      } catch (emailError) {
+        logger.error('Deletion email notification failed:', {
+          eventId: event.eventId,
+          error: emailError.message
+        });
+      }
+    }
+
     logger.log('========== DELETE COMPLETE ==========\n');
     res.json({
       success: true,

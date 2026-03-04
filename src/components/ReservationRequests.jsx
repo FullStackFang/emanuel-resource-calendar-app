@@ -823,13 +823,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
           <h1>Approval Queue</h1>
           <p className="rr-header-subtitle">
             Review and manage reservation requests
-            <FreshnessIndicator
-              lastFetchedAt={lastFetchedAt}
-              onRefresh={handleManualRefresh}
-              isRefreshing={isManualRefreshing}
-            />
           </p>
         </div>
+        <FreshnessIndicator
+          lastFetchedAt={lastFetchedAt}
+          onRefresh={handleManualRefresh}
+          isRefreshing={isManualRefreshing}
+        />
       </div>
 
       {error && (

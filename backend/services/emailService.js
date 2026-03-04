@@ -506,6 +506,34 @@ async function sendRejectionNotification(reservation, rejectionReason = '') {
 }
 
 /**
+ * Send deletion notification to requester
+ * Sent when an admin deletes a published event
+ * @param {Object} reservation - Reservation data
+ * @returns {Promise<Object>} Send result with correlationId
+ */
+async function sendDeletionNotification(reservation) {
+  const reqData = reservation.roomReservationData || {};
+  const requestedBy = reqData.requestedBy || {};
+  const recipientEmail = requestedBy.email || reservation.requesterEmail || reservation.contactEmail;
+
+  if (!recipientEmail) {
+    logger.warn('No requester email for deletion notification', {
+      reservationId: reservation._id
+    });
+    return { success: false, error: 'No recipient email' };
+  }
+
+  const shouldSend = await shouldSendNotification(recipientEmail, 'emailOnStatusUpdates');
+  if (!shouldSend) return { success: true, skipped: true, reason: 'user_opted_out' };
+
+  const { subject, html } = await emailTemplates.generateDeletionNotification(reservation);
+
+  return sendEmail(recipientEmail, subject, html, {
+    reservationId: reservation._id?.toString()
+  });
+}
+
+/**
  * Send resubmission confirmation to requester
  * @param {Object} reservation - Reservation data
  * @returns {Promise<Object>} Send result with correlationId
@@ -824,6 +852,7 @@ module.exports = {
   sendAdminNewRequestAlert,
   sendPublishNotification,
   sendRejectionNotification,
+  sendDeletionNotification,
   sendResubmissionConfirmation,
   sendReviewStartedNotification,
   sendEventUpdatedNotification,
