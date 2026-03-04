@@ -881,6 +881,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
       {/* Search & Date Filters */}
       <div className="rr-filter-bar">
+        {/* Search — unchanged */}
         <div className="rr-search-container">
           <svg className="rr-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8" />
@@ -899,50 +900,68 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             </button>
           )}
         </div>
-        <div className="rr-filter-divider" />
-        <div className="rr-date-filters">
-          <label>From</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-          />
-          <label>To</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
+
+        {/* Secondary filters row */}
+        <div className="rr-secondary-filters">
+          <div className={`rr-date-filters${dateFrom || dateTo ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              From
+            </label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <label>To</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          <div className={`rr-status-filter${statusFilter ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              Status
+            </label>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="published">Published</option>
+              <option value="published_edit">Edit Requested</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div className={`rr-sort-filter${sortBy !== 'date_desc' ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <polyline points="19 12 12 19 5 12" />
+              </svg>
+              Sort
+            </label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="date_desc">Event Date (Newest)</option>
+              <option value="date_asc">Event Date (Oldest)</option>
+              <option value="submitted_desc">Submitted (Newest)</option>
+              <option value="submitted_asc">Submitted (Oldest)</option>
+            </select>
+          </div>
+          {hasActiveFilters && (
+            <div className="rr-filter-actions">
+              <button className="rr-clear-filters" onClick={clearFilters}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                Clear
+              </button>
+              <span className="rr-filter-results">
+                {sortedReservations.length} of {allReservations.length}
+              </span>
+            </div>
+          )}
         </div>
-        <div className="rr-filter-divider" />
-        <div className="rr-status-filter">
-          <label>Status</label>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="published">Published</option>
-            <option value="published_edit">Edit Requested</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-        <div className="rr-filter-divider" />
-        <div className="rr-sort-filter">
-          <label>Sort</label>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="date_desc">Event Date (Newest)</option>
-            <option value="date_asc">Event Date (Oldest)</option>
-            <option value="submitted_desc">Submitted (Newest)</option>
-            <option value="submitted_asc">Submitted (Oldest)</option>
-          </select>
-        </div>
-        {hasActiveFilters && (
-          <>
-            <button className="rr-clear-filters" onClick={clearFilters}>Clear</button>
-            <span className="rr-filter-results">
-              Showing {sortedReservations.length} of {allReservations.length}
-            </span>
-          </>
-        )}
       </div>
 
       {/* Reservations List */}
