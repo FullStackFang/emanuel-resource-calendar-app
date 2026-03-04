@@ -892,43 +892,52 @@
    LOADING STATES
    ========================================================================== */
 
-.loading-overlay {
+.calendar-loading-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(255, 255, 255, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  transition: opacity var(--duration-slow) var(--ease-out);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease-out, visibility 0.25s ease-out;
+  pointer-events: none;
 }
 
-.loading-content {
+.calendar-loading-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.calendar-loading-overlay.initial {
+  background-color: rgba(255, 255, 255, 0.9);
+}
+
+.calendar-loading-overlay.navigation {
+  background-color: rgba(248, 250, 252, 0.95);
+  backdrop-filter: blur(4px);
+}
+
+.calendar-loading-overlay .loading-content {
   text-align: center;
-  padding: var(--space-5);
+  padding: var(--space-6);
   border-radius: var(--radius-xl);
   background-color: var(--bg-primary);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 2px 10px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  min-width: 200px;
 }
 
-.loading-spinner {
-  display: inline-block;
-  width: 48px;
-  height: 48px;
-  border: 3px solid var(--border-default);
-  border-radius: 50%;
-  border-top-color: var(--color-primary-500);
-  animation: spin 1s linear infinite;
-  margin-bottom: var(--space-4);
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.calendar-loading-overlay .loading-content p {
+  margin-top: var(--space-3);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .calendar-loading-screen {
@@ -948,48 +957,6 @@
   color: var(--text-secondary);
 }
 
-/* ==========================================================================
-   NAVIGATION LOADING OVERLAY
-   Shown during calendar navigation (prev/next/today) to prevent flash of
-   empty content while events load
-   ========================================================================== */
-
-.navigation-loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(248, 250, 252, 0.95);
-  backdrop-filter: blur(4px);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;  /* Match .loading-overlay z-index */
-  animation: navOverlayFadeIn 0.2s ease-out;
-}
-
-@keyframes navOverlayFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.navigation-loading-overlay .loading-content {
-  text-align: center;
-  padding: var(--space-6);
-  border-radius: var(--radius-xl);
-  background-color: white;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 2px 10px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  min-width: 200px;
-}
-
-.navigation-loading-overlay .loading-content p {
-  margin-top: var(--space-3);
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
 
 .calendar-grid-wrapper {
   transition: opacity 0.15s ease-out;

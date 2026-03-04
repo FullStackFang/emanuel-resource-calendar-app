@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import APP_CONFIG from '../config/config';
 import { logger } from '../utils/logger';
 import FieldMappingStep from './csv-import/FieldMappingStep';
+import LoadingSpinner from './shared/LoadingSpinner';
 import './CSVImportWithMapping.css';
 
 const IMPORT_STEPS = [
@@ -386,7 +387,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
 
         {analyzing && (
           <div className="analyzing-status">
-            <div className="loading-spinner"></div>
+            <LoadingSpinner size={20} minHeight={0} className="compact" />
             <span>Analyzing CSV structure...</span>
           </div>
         )}
@@ -544,7 +545,7 @@ export default function CSVImportWithMapping({ apiToken, availableCalendars = []
         {importing && (
           <div className="import-progress">
             <div className="progress-indicator">
-              <div className="loading-spinner"></div>
+              <LoadingSpinner size={20} minHeight={0} className="compact" />
               <span>Importing data...</span>
             </div>
             <div className="progress-message">{importProgress.message}</div>

@@ -7,6 +7,7 @@ import { usePolling } from '../hooks/usePolling';
 import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
+import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
 import './EventManagement.css';
 
@@ -510,7 +511,7 @@ export default function EventManagement({ apiToken }) {
       {/* Content */}
       {loading ? (
         <div className="em-loading">
-          <div className="em-loading-spinner" />
+          <LoadingSpinner size={40} minHeight={100} />
           <p>Loading events...</p>
         </div>
       ) : events.length === 0 ? (

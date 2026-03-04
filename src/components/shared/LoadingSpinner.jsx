@@ -1,7 +1,7 @@
 import './LoadingSpinner.css';
 
-const LoadingSpinner = ({ size = 64, minHeight = 300 }) => (
-  <div className="loading-spinner-container" style={{ minHeight }}>
+const LoadingSpinner = ({ size = 64, minHeight = 300, className = '' }) => (
+  <div className={`loading-spinner-container ${className}`} style={{ minHeight }}>
     <div
       className="loading-spinner-css"
       style={{

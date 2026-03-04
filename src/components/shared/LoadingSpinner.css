@@ -20,6 +20,11 @@
   padding: var(--space-4);
 }
 
+.loading-spinner-container.compact {
+  padding: 0;
+  min-height: 0 !important;
+}
+
 /* CSS-only spinner animation */
 .loading-spinner-css {
   border: 5px solid var(--border-default, #e5e7eb);

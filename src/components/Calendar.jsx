@@ -932,10 +932,8 @@ import ConflictDialog from './shared/ConflictDialog';
                 <button
                   className={`group-by-btn ${groupBy === 'categories' ? 'active' : ''}`}
                   onClick={() => {
-                    setLoading(true);
                     setGroupBy('categories');
                     updateUserProfilePreferences({ defaultGroupBy: 'categories' });
-                    setTimeout(() => setLoading(false), 300);
                   }}
                 >
                   Group by Category
@@ -943,10 +941,8 @@ import ConflictDialog from './shared/ConflictDialog';
                 <button
                   className={`group-by-btn ${groupBy === 'locations' ? 'active' : ''}`}
                   onClick={() => {
-                    setLoading(true);
                     setGroupBy('locations');
                     updateUserProfilePreferences({ defaultGroupBy: 'locations' });
-                    setTimeout(() => setLoading(false), 300);
                   }}
                 >
                   Group by Location
@@ -6569,24 +6565,11 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     // LOADING SCREEN
     //---------------------------------------------------------------------------
-    const LoadingOverlay = () => (
-      <div className="loading-overlay">
-        <div className="loading-content">
-          <LoadingSpinner size={64} minHeight={100} />
-          <p>Loading your calendar...</p>
-        </div>
-      </div>
-    );
-
-    // Navigation loading overlay - matches main loading overlay pattern
-    const NavigationLoadingOverlay = () => (
-      <div className="navigation-loading-overlay">
-        <div className="loading-content">
-          <LoadingSpinner size={64} minHeight={100} />
-          <p>Loading events...</p>
-        </div>
-      </div>
-    );
+    const overlayClass = `calendar-loading-overlay${
+      initializing ? ' visible initial' :
+      (isNavigating || loading) ? ' visible navigation' :
+      ''
+    }`;
 
     const locationGroups = useMemo(() => {
       if (groupBy === 'locations') {
@@ -6600,8 +6583,12 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     return (
       <div className="calendar-container">
-        {initializing && <LoadingOverlay/>}
-        {!initializing && (isNavigating || loading) && <NavigationLoadingOverlay />}
+        <div className={overlayClass}>
+          <div className="loading-content">
+            <LoadingSpinner size={64} minHeight={100} />
+            <p>{initializing ? 'Loading your calendar...' : 'Loading events...'}</p>
+          </div>
+        </div>
 
         {/* Calendar Header */}
         <CalendarHeader

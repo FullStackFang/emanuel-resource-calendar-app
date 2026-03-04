@@ -640,7 +640,7 @@
 }
 
 .user-admin .delete-btn .spinner {
-  animation: spin 1s linear infinite;
+  animation: useradmin-spin 1s linear infinite;
 }
 
 @keyframes pulse-confirm {
@@ -648,7 +648,7 @@
   50% { opacity: 0.8; }
 }
 
-@keyframes spin {
+@keyframes useradmin-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
