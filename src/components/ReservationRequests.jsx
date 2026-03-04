@@ -36,6 +36,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState('date_desc');
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -254,7 +255,26 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     all: searchFiltered.length,
   }), [searchFiltered]);
 
-  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter;
+  // Sort filtered results
+  const sortedReservations = useMemo(() => {
+    const sorted = [...filteredReservations];
+    sorted.sort((a, b) => {
+      switch (sortBy) {
+        case 'date_asc':
+          return (a.startDate || '').localeCompare(b.startDate || '');
+        case 'submitted_desc':
+          return (b.submittedAt || '').localeCompare(a.submittedAt || '');
+        case 'submitted_asc':
+          return (a.submittedAt || '').localeCompare(b.submittedAt || '');
+        case 'date_desc':
+        default:
+          return (b.startDate || '').localeCompare(a.startDate || '');
+      }
+    });
+    return sorted;
+  }, [filteredReservations, sortBy]);
+
+  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -308,9 +328,9 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   };
 
   // Client-side pagination
-  const totalPages = Math.ceil(filteredReservations.length / PAGE_SIZE);
+  const totalPages = Math.ceil(sortedReservations.length / PAGE_SIZE);
   const startIndex = (page - 1) * PAGE_SIZE;
-  const paginatedReservations = filteredReservations.slice(startIndex, startIndex + PAGE_SIZE);
+  const paginatedReservations = sortedReservations.slice(startIndex, startIndex + PAGE_SIZE);
 
   // Handle tab changes - no API call, filtering is client-side
   const handleTabChange = useCallback((newTab) => {
@@ -326,13 +346,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   // Reset to page 1 when search/date/status filters change
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, dateFrom, dateTo, statusFilter]);
+  }, [searchTerm, dateFrom, dateTo, statusFilter, sortBy]);
 
   const clearFilters = useCallback(() => {
     setSearchTerm('');
     setDateFrom('');
     setDateTo('');
     setStatusFilter('');
+    setSortBy('date_desc');
   }, []);
 
   // Status badge helper for card display
@@ -904,11 +925,21 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             <option value="rejected">Rejected</option>
           </select>
         </div>
+        <div className="rr-filter-divider" />
+        <div className="rr-sort-filter">
+          <label>Sort</label>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="date_desc">Event Date (Newest)</option>
+            <option value="date_asc">Event Date (Oldest)</option>
+            <option value="submitted_desc">Submitted (Newest)</option>
+            <option value="submitted_asc">Submitted (Oldest)</option>
+          </select>
+        </div>
         {hasActiveFilters && (
           <>
             <button className="rr-clear-filters" onClick={clearFilters}>Clear</button>
             <span className="rr-filter-results">
-              Showing {filteredReservations.length} of {allReservations.length}
+              Showing {sortedReservations.length} of {allReservations.length}
             </span>
           </>
         )}
