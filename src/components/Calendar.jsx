@@ -111,8 +111,7 @@ import ConflictDialog from './shared/ConflictDialog';
     //---------------------------------------------------------------------------
     // Loading state
     const initializationStarted = useRef(false);
-    const initialLoadComplete = useRef(false); // Tracks if initial load in initializeApp has completed
-    const lastLoadedDateRange = useRef(null); // Tracks dateRangeString used during last event load
+    // (initialLoadComplete and lastLoadedDateRange refs removed — consolidated effect handles first load)
 
     // Navigation loading state - shows overlay during calendar navigation
     const [isNavigating, setIsNavigating] = useState(false);
@@ -1527,7 +1526,6 @@ import ConflictDialog from './shared/ConflictDialog';
       try {
         // Prepare parameters for sync
         const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
-        lastLoadedDateRange.current = `${dateRange.start.toISOString()}-${dateRange.end.toISOString()}`;
 
         // Get calendar IDs to sync - include both user calendar and TempleRegistration
         const calendarIds = [];
@@ -2150,14 +2148,12 @@ import ConflictDialog from './shared/ConflictDialog';
           }
         }
 
-        // Phase 2: Load events (depends on calendars being available)
-        // Categories are loaded via TanStack Query hooks which handle their own caching
-        await loadEvents(false, calendars);
-
-        // Mark initial load complete to prevent duplicate load in useEffect
-        initialLoadComplete.current = true;
+        // Events are NOT loaded here — the consolidated effect handles the first load
+        // after React re-renders with the correct viewType from user preferences.
+        // This prevents flicker when saved view preference differs from default.
 
         logger.log("Application initialized successfully");
+        setLoading(true); // Keep loading overlay visible while consolidated effect fetches events
         setInitializing(false);
 
         // Clear timeout on successful completion
@@ -2171,7 +2167,7 @@ import ConflictDialog from './shared/ConflictDialog';
         // Clear timeout on error
         clearTimeout(timeoutId);
       }
-    }, [graphToken, apiToken, loadUserProfile, loadSchemaExtensions, loadEvents]);
+    }, [graphToken, apiToken, loadUserProfile, loadSchemaExtensions]);
 
     //---------------------------------------------------------------------------
     // CACHE MANAGEMENT FUNCTIONS
@@ -6410,19 +6406,6 @@ import ConflictDialog from './shared/ConflictDialog';
     // This effect handles reloading when date range or calendar changes AFTER initialization
     useEffect(() => {
       if (apiToken && !initializing && selectedCalendarId && availableCalendars.length > 0) {
-        // Skip if this is the first trigger right after initializeApp completed
-        // (initializeApp already loaded events, no need to reload immediately)
-        if (initialLoadComplete.current) {
-          initialLoadComplete.current = false; // Reset so future changes trigger loads
-          setIsNavigating(false); // Clear navigation state even when skipping load
-          // Only skip if the date range hasn't changed since init loaded events
-          // (e.g., user preference changed viewType from week->month during init)
-          if (dateRangeString === lastLoadedDateRange.current) {
-            return;
-          }
-          logger.debug('Post-init dateRange changed, reloading events for correct view');
-        }
-
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
         window._calendarLoadStart = Date.now();
         const startTime = Date.now();
