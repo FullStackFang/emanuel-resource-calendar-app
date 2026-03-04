@@ -660,16 +660,27 @@
   font-style: italic;
 }
 
+/* Concurrent scheduling label — indicates event allows overlap */
+.event-block .event-concurrent-label {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  font-style: italic;
+  line-height: 1.2;
+  margin-top: 1px;
+}
+
 /* Locked events that conflict with user's event — red left border accent */
 .event-block.conflicts-with-user:not(.allows-concurrent) {
   border-left: 4px solid #dc2626;
 }
 
-/* Hide conflict/multi-day labels in compact modes */
+/* Hide conflict/multi-day/concurrent labels in compact modes */
 .event-block.compact .event-conflict-label,
 .event-block.compact .event-multi-day-label,
+.event-block.compact .event-concurrent-label,
 .event-block.very-compact .event-conflict-label,
-.event-block.very-compact .event-multi-day-label {
+.event-block.very-compact .event-multi-day-label,
+.event-block.very-compact .event-concurrent-label {
   display: none;
 }
 

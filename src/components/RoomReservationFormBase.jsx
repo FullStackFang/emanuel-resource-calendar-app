@@ -2001,6 +2001,7 @@ export default function RoomReservationFormBase({
                     isAllDayEvent={formData.isAllDayEvent}
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}
+                    isAllowedConcurrent={formData.isAllowedConcurrent || false}
                     disabled={fieldsDisabled}
                     onConflictChange={onConflictChange}
                   />

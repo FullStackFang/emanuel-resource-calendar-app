@@ -23,6 +23,7 @@ export default function SchedulingAssistant({
   defaultCalendar = '', // Calendar name to display in header
   organizerName = '', // Organizer name for user events
   organizerEmail = '', // Organizer email for user events
+  isAllowedConcurrent = false, // Whether this event allows concurrent scheduling
   disabled = false, // Read-only mode - disables all interactions
   onConflictChange // Callback: (hasConflicts: boolean, totalConflicts: number) => void
 }) {
@@ -250,6 +251,10 @@ export default function SchedulingAssistant({
           // Clamp multi-day events to the viewed day's boundaries
           const dayStart = new Date(`${effectiveDate}T00:00:00`);
           const dayEnd = new Date(`${effectiveDate}T23:59:59`);
+
+          // Skip pending edits entirely outside the viewed day
+          if (startTime >= dayEnd || endTime <= dayStart) return;
+
           if (startTime < dayStart) startTime = dayStart;
           if (endTime > dayEnd) endTime = dayEnd;
 
@@ -348,6 +353,7 @@ export default function SchedulingAssistant({
           isUserEvent: true,
           isDraggable: true,
           isConflict: false, // Will be calculated below
+          isAllowedConcurrent: isAllowedConcurrent, // Propagate from form data
           ...position
         });
       });
@@ -424,27 +430,32 @@ export default function SchedulingAssistant({
     });
 
     logger.debug(`[SchedulingAssistant] FINAL: Generated ${blocks.length} total event blocks`);
-    blocks.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toLocaleTimeString()} (top: ${b.top}px)`));
+    blocks.forEach(b => logger.debug(`  - "${b.title}" at ${b.startTime.toISOString()} - ${b.endTime.toISOString()} (top: ${b.top}px)`));
 
     setEventBlocks(blocks);
     setRoomStats(stats);
   }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
 
+  // Stable ref for onConflictChange to avoid infinite render loops
+  // (parent components may pass unstable inline arrow functions)
+  const onConflictChangeRef = useRef(onConflictChange);
+  useEffect(() => { onConflictChangeRef.current = onConflictChange; });
+
   // Propagate conflict state to parent (with hard/soft breakdown)
   useEffect(() => {
-    if (onConflictChange) {
+    if (onConflictChangeRef.current) {
       const stats = Object.values(roomStats);
       const totalHard = stats.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
       const totalSoft = stats.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
       const total = totalHard + totalSoft;
-      onConflictChange(total > 0, total, {
+      onConflictChangeRef.current(total > 0, total, {
         hasHardConflicts: totalHard > 0,
         hardConflictCount: totalHard,
         hasSoftConflicts: totalSoft > 0,
         softConflictCount: totalSoft,
       });
     }
-  }, [roomStats, onConflictChange]);
+  }, [roomStats]);
 
   // Reset active room index when selected rooms change
   useEffect(() => {
@@ -1248,6 +1259,9 @@ export default function SchedulingAssistant({
           </div>
           {conflictsWithUser && (
             <div className="event-conflict-label">Conflicts with your event</div>
+          )}
+          {block.isAllowedConcurrent && !isUserEvent && (
+            <div className="event-concurrent-label">Allows Overlap</div>
           )}
           {block.isPendingEdit && (
             <div className="event-pending-edit-label">Pending Edit</div>

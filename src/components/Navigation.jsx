@@ -82,6 +82,11 @@ export default function Navigation({ apiToken }) {
     setAdminExpanded(false);
   };
 
+  // Viewers only see Calendar — hide nav bar entirely since it adds no value
+  if (!canSubmitReservation && !canApproveReservations && !isAdmin) {
+    return null;
+  }
+
   return (
     <nav className="main-navigation">
       <ul className="nav-list">
