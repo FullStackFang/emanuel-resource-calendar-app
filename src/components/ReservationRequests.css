@@ -326,51 +326,17 @@
   color: var(--text-inverse);
 }
 
-/* Edit Requests Tab Accent */
-.event-type-tab.edit-requests-tab .count {
-  background: var(--color-info-100);
-  color: var(--color-info-700);
+/* Needs Attention Tab Accent */
+.event-type-tab.needs-attention-tab .count {
+  background: var(--color-warning-100);
+  color: var(--color-warning-700);
 }
 
-.event-type-tab.edit-requests-tab.active {
-  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
+.event-type-tab.needs-attention-tab.active {
+  background: linear-gradient(135deg, var(--color-warning-500) 0%, var(--color-warning-600) 100%);
 }
 
-.event-type-tab.edit-requests-tab.active .count {
-  background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
-}
-
-/* Published Edit Tab Accent */
-.event-type-tab.published-edit-tab .count {
-  background: var(--color-info-100);
-  color: var(--color-info-700);
-}
-
-.event-type-tab.published-edit-tab.active {
-  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
-}
-
-.event-type-tab.published-edit-tab.active .count {
-  background: rgba(255, 255, 255, 0.2);
-  color: var(--text-inverse);
-}
-
-/* Deleted Tab Accent */
-.event-type-tab.deleted-tab .count {
-  background: var(--color-neutral-100);
-  color: var(--color-neutral-600);
-}
-
-.event-type-tab.deleted-tab:hover {
-  background-color: var(--color-neutral-100);
-}
-
-.event-type-tab.deleted-tab.active {
-  background: linear-gradient(135deg, var(--color-neutral-500) 0%, var(--color-neutral-600) 100%);
-}
-
-.event-type-tab.deleted-tab.active .count {
+.event-type-tab.needs-attention-tab.active .count {
   background: rgba(255, 255, 255, 0.2);
   color: var(--text-inverse);
 }
@@ -492,6 +458,43 @@
   box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
+.rr-status-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.rr-status-filter label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rr-status-filter select {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  transition: var(--transition-all);
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: auto;
+}
+
+.rr-status-filter select:hover {
+  border-color: var(--border-strong);
+}
+
+.rr-status-filter select:focus {
+  outline: none;
+  border-color: var(--color-primary-400);
+  box-shadow: 0 0 0 3px var(--color-primary-100);
+}
+
 .rr-clear-filters {
   background: none;
   border: none;
@@ -592,6 +595,68 @@
 .rr-attendee-pill::before {
   content: '👥';
   font-size: 11px;
+}
+
+/* Status Badges */
+.rr-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+
+.rr-status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.rr-status-badge.status-pending {
+  background: var(--color-warning-50);
+  color: var(--color-warning-700);
+  border-color: var(--color-warning-200);
+}
+
+.rr-status-badge.status-pending::before {
+  background: var(--color-warning-500);
+}
+
+.rr-status-badge.status-published {
+  background: var(--color-success-50);
+  color: var(--color-success-700);
+  border-color: var(--color-success-200);
+}
+
+.rr-status-badge.status-published::before {
+  background: var(--color-success-500);
+}
+
+.rr-status-badge.status-published-edit {
+  background: var(--color-info-50);
+  color: var(--color-info-700);
+  border-color: var(--color-info-200);
+}
+
+.rr-status-badge.status-published-edit::before {
+  background: var(--color-info-500);
+}
+
+.rr-status-badge.status-rejected {
+  background: var(--color-error-50);
+  color: var(--color-error-700);
+  border-color: var(--color-error-200);
+}
+
+.rr-status-badge.status-rejected::before {
+  background: var(--color-error-500);
 }
 
 /* Card Actions - Equal width buttons */
@@ -878,6 +943,10 @@
   .rr-date-filters {
     flex: 1;
   }
+
+  .rr-status-filter {
+    flex: 0 1 auto;
+  }
 }
 
 @media (max-width: 640px) {
@@ -892,6 +961,15 @@
   }
 
   .rr-date-filters input[type="date"] {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rr-status-filter {
+    width: 100%;
+  }
+
+  .rr-status-filter select {
     flex: 1;
     min-width: 0;
   }
@@ -1840,11 +1918,6 @@
 /* ==========================================================================
    EDIT REQUESTS STYLES
    ========================================================================== */
-
-/* Edit Requests Tab */
-.event-type-tab.edit-requests-tab:hover {
-  background-color: var(--color-info-50);
-}
 
 /* Edit Requests Table */
 .edit-requests-table .pending-row {

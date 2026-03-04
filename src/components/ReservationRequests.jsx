@@ -25,7 +25,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('needs_attention');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
@@ -35,6 +35,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   // Calendar event creation settings
   const [calendarMode, setCalendarMode] = useState(APP_CONFIG.CALENDAR_CONFIG.DEFAULT_MODE);
@@ -211,48 +212,49 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     return results;
   }, [allReservations, searchTerm, dateFrom, dateTo]);
 
-  // Stage 2: Apply tab status filter
+  // Stage 2: Apply tab status filter + status dropdown filter
   const filteredReservations = useMemo(() => {
-    if (activeTab === 'all') {
-      return searchFiltered;
-    }
-    if (activeTab === 'pending') {
-      return searchFiltered.filter(r => r.status === 'pending' || r.status === 'room-reservation-request');
-    }
-    if (activeTab === 'published') {
-      return searchFiltered.filter(r =>
-        r.status === 'published' &&
-        (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
+    let results = searchFiltered;
+
+    if (activeTab === 'needs_attention') {
+      results = results.filter(r =>
+        r.status === 'pending' ||
+        r.status === 'room-reservation-request' ||
+        (r.status === 'published' && r.pendingEditRequest?.status === 'pending')
       );
     }
-    if (activeTab === 'published_edit') {
-      return searchFiltered.filter(r =>
-        r.status === 'published' &&
-        r.pendingEditRequest?.status === 'pending'
-      );
+
+    if (statusFilter) {
+      results = results.filter(r => {
+        switch (statusFilter) {
+          case 'pending':
+            return r.status === 'pending' || r.status === 'room-reservation-request';
+          case 'published':
+            return r.status === 'published' && r.pendingEditRequest?.status !== 'pending';
+          case 'published_edit':
+            return r.status === 'published' && r.pendingEditRequest?.status === 'pending';
+          case 'rejected':
+            return r.status === 'rejected';
+          default:
+            return true;
+        }
+      });
     }
-    if (activeTab === 'rejected') {
-      return searchFiltered.filter(r => r.status === 'rejected');
-    }
-    return searchFiltered.filter(r => r.status === activeTab);
-  }, [searchFiltered, activeTab]);
+
+    return results;
+  }, [searchFiltered, activeTab, statusFilter]);
 
   // Compute tab counts from search-filtered results (counts reflect active search/date filters)
   const statusCounts = useMemo(() => ({
+    needs_attention: searchFiltered.filter(r =>
+      r.status === 'pending' ||
+      r.status === 'room-reservation-request' ||
+      (r.status === 'published' && r.pendingEditRequest?.status === 'pending')
+    ).length,
     all: searchFiltered.length,
-    pending: searchFiltered.filter(r => r.status === 'pending' || r.status === 'room-reservation-request').length,
-    published: searchFiltered.filter(r =>
-      r.status === 'published' &&
-      (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
-    ).length,
-    published_edit: searchFiltered.filter(r =>
-      r.status === 'published' &&
-      r.pendingEditRequest?.status === 'pending'
-    ).length,
-    rejected: searchFiltered.filter(r => r.status === 'rejected').length,
   }), [searchFiltered]);
 
-  const hasActiveFilters = searchTerm || dateFrom || dateTo;
+  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter;
 
   // Load edit requests (for admin review)
   const loadEditRequests = async () => {
@@ -321,15 +323,33 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     setPage(newPage);
   }, []);
 
-  // Reset to page 1 when search/date filters change
+  // Reset to page 1 when search/date/status filters change
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, dateFrom, dateTo]);
+  }, [searchTerm, dateFrom, dateTo, statusFilter]);
 
   const clearFilters = useCallback(() => {
     setSearchTerm('');
     setDateFrom('');
     setDateTo('');
+    setStatusFilter('');
+  }, []);
+
+  // Status badge helper for card display
+  const getStatusBadgeInfo = useCallback((reservation) => {
+    if (reservation.status === 'pending' || reservation.status === 'room-reservation-request') {
+      return { label: 'Pending', className: 'status-pending' };
+    }
+    if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
+      return { label: 'Edit Requested', className: 'status-published-edit' };
+    }
+    if (reservation.status === 'published') {
+      return { label: 'Published', className: 'status-published' };
+    }
+    if (reservation.status === 'rejected') {
+      return { label: 'Rejected', className: 'status-rejected' };
+    }
+    return { label: reservation.status, className: 'status-pending' };
   }, []);
 
   // =========================================================================
@@ -822,39 +842,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
       <div className="tabs-container">
         <div className="event-type-tabs">
           <button
+            className={`event-type-tab needs-attention-tab ${activeTab === 'needs_attention' ? 'active' : ''}`}
+            onClick={() => handleTabChange('needs_attention')}
+          >
+            Needs Attention
+            <span className="count">({statusCounts.needs_attention})</span>
+          </button>
+          <button
             className={`event-type-tab ${activeTab === 'all' ? 'active' : ''}`}
             onClick={() => handleTabChange('all')}
           >
             All Requests
             <span className="count">({statusCounts.all})</span>
-          </button>
-          <button
-            className={`event-type-tab ${activeTab === 'pending' ? 'active' : ''}`}
-            onClick={() => handleTabChange('pending')}
-          >
-            Pending
-            <span className="count">({statusCounts.pending})</span>
-          </button>
-          <button
-            className={`event-type-tab ${activeTab === 'published' ? 'active' : ''}`}
-            onClick={() => handleTabChange('published')}
-          >
-            Published
-            <span className="count">({statusCounts.published})</span>
-          </button>
-          <button
-            className={`event-type-tab published-edit-tab ${activeTab === 'published_edit' ? 'active' : ''}`}
-            onClick={() => handleTabChange('published_edit')}
-          >
-            Published Edit
-            <span className="count">({statusCounts.published_edit})</span>
-          </button>
-          <button
-            className={`event-type-tab ${activeTab === 'rejected' ? 'active' : ''}`}
-            onClick={() => handleTabChange('rejected')}
-          >
-            Rejected
-            <span className="count">({statusCounts.rejected})</span>
           </button>
         </div>
       </div>
@@ -894,6 +893,17 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onChange={(e) => setDateTo(e.target.value)}
           />
         </div>
+        <div className="rr-filter-divider" />
+        <div className="rr-status-filter">
+          <label>Status</label>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="published">Published</option>
+            <option value="published_edit">Edit Requested</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
         {hasActiveFilters && (
           <>
             <button className="rr-clear-filters" onClick={clearFilters}>Clear</button>
@@ -918,6 +928,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
               <div className="rr-card-header">
                 <div className="rr-card-title-row">
                   <h3 className="rr-card-title">{reservation.eventTitle}</h3>
+                  {(() => {
+                    const badge = getStatusBadgeInfo(reservation);
+                    return <span className={`rr-status-badge ${badge.className}`}>{badge.label}</span>;
+                  })()}
                   {reservation.attendeeCount > 0 && (
                     <span className="rr-attendee-pill">{reservation.attendeeCount} attendees</span>
                   )}
@@ -1011,18 +1025,14 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         {paginatedReservations.length === 0 && !loading && (
           <div className="rr-empty-state">
             <div className="rr-empty-icon">
-              {hasActiveFilters ? '🔍' : activeTab === 'pending' ? '📋' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : '📁'}
+              {hasActiveFilters ? '🔍' : activeTab === 'needs_attention' ? '✓' : '📁'}
             </div>
-            <h3>{hasActiveFilters ? 'No matching requests' : `No ${activeTab === 'all' ? '' : activeTab} requests`}</h3>
+            <h3>{hasActiveFilters ? 'No matching requests' : activeTab === 'needs_attention' ? 'All caught up!' : 'No requests'}</h3>
             <p>
               {hasActiveFilters
                 ? 'Try adjusting your search or date filters.'
-                : activeTab === 'pending'
-                ? 'All caught up! No pending requests to review.'
-                : activeTab === 'published'
-                ? 'No published reservations yet.'
-                : activeTab === 'rejected'
-                ? 'No rejected reservations.'
+                : activeTab === 'needs_attention'
+                ? 'No pending requests or edit requests to review.'
                 : 'No reservation requests found.'}
             </p>
           </div>
