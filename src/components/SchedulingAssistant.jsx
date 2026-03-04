@@ -749,26 +749,6 @@ export default function SchedulingAssistant({
     return snapped;
   };
 
-  // Detect if an event overlaps with other events in the same room
-  const getOverlapOffset = (block, allVisibleBlocks) => {
-    // Find all blocks that overlap with this one
-    const overlapping = allVisibleBlocks.filter(otherBlock => {
-      if (otherBlock.id === block.id) return false;
-
-      // Check if times overlap
-      return block.startTime < otherBlock.endTime && block.endTime > otherBlock.startTime;
-    });
-
-    if (overlapping.length === 0) return { left: 0, width: 100 };
-
-    // Calculate offset based on event index
-    // Each overlapping event gets a small horizontal shift
-    const offsetPercent = (block.eventIndexInRoom % 3) * 3; // 0%, 3%, 6% offset
-    const widthPercent = 97; // Slightly narrower to show stagger effect
-
-    return { left: offsetPercent, width: widthPercent };
-  };
-
   // Handle mouse down - start drag (replaces HTML5 drag API)
   const handleMouseDown = (e, block) => {
     // Block all backend events (only user event is draggable)
@@ -1072,7 +1052,7 @@ export default function SchedulingAssistant({
 
   // Render event block with drag capability
   const renderEventBlock = (block, allVisibleBlocks) => {
-    const offset = getOverlapOffset(block, allVisibleBlocks);
+    const offset = columnLayout.get(block.id) || { column: 0, totalColumns: 1, left: 0, width: 100 };
 
     const isDragging = draggingEventId === block.id;
     const dragOffset = dragOffsets[block.id] || 0;
@@ -1201,7 +1181,8 @@ export default function SchedulingAssistant({
       conflictsWithUser ? 'conflicts-with-user' : '',
       block.status === 'pending' ? 'sa-pending' : '',
       block.isPendingEdit ? 'sa-pending-edit' : '',
-      block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : ''
+      block.height < 35 ? 'very-compact' : block.height < 100 ? 'compact' : '',
+      offset.totalColumns > 1 ? 'has-overlap' : ''
     ].filter(Boolean).join(' ');
 
     return (
@@ -1219,7 +1200,7 @@ export default function SchedulingAssistant({
           cursor: cursor,
           boxShadow: boxShadow,
           filter: filter,
-          zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : 5)),
+          zIndex: isDragging ? 200 : (isUserEvent ? 15 : (isCurrentReservation ? 10 : (5 + (offset.column || 0)))),
           transition: isDragging ? 'none' : 'all 0.2s'
         }}
         onMouseDown={!isLocked && !disabled ? (e) => handleMouseDown(e, block) : undefined}
@@ -1302,6 +1283,91 @@ export default function SchedulingAssistant({
 
     return filtered;
   }, [activeRoom, eventBlocks]);
+
+  // Pre-compute column-based cascade layout for overlapping events
+  const columnLayout = useMemo(() => {
+    const layout = new Map();
+    if (!visibleEventBlocks.length) return layout;
+
+    // Sort by start time, then longer events first (for stable column assignment)
+    const sorted = [...visibleEventBlocks].sort((a, b) => {
+      const startDiff = a.startTime - b.startTime;
+      if (startDiff !== 0) return startDiff;
+      return (b.endTime - b.startTime) - (a.endTime - a.startTime);
+    });
+
+    // Build overlap clusters using linear sweep (connected components)
+    const clusters = [];
+    let clusterStart = 0;
+    let clusterEnd = sorted[0].endTime;
+
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].startTime < clusterEnd) {
+        // Overlaps with current cluster — extend end
+        if (sorted[i].endTime > clusterEnd) {
+          clusterEnd = sorted[i].endTime;
+        }
+      } else {
+        // No overlap — finalize current cluster, start new one
+        clusters.push(sorted.slice(clusterStart, i));
+        clusterStart = i;
+        clusterEnd = sorted[i].endTime;
+      }
+    }
+    clusters.push(sorted.slice(clusterStart));
+
+    // Within each cluster, assign columns greedily
+    for (const cluster of clusters) {
+      if (cluster.length === 1) {
+        layout.set(cluster[0].id, { column: 0, totalColumns: 1, left: 0, width: 100 });
+        continue;
+      }
+
+      // Column assignment: user event always gets column 0
+      const columnEnds = []; // Track when each column becomes free
+      const assignments = new Map();
+
+      // Sort within cluster: user events first, then by start time
+      const ordered = [...cluster].sort((a, b) => {
+        if (a.isUserEvent && !b.isUserEvent) return -1;
+        if (!a.isUserEvent && b.isUserEvent) return 1;
+        return a.startTime - b.startTime;
+      });
+
+      for (const block of ordered) {
+        // Find first column where this block fits (no overlap)
+        let assignedCol = -1;
+        for (let col = 0; col < columnEnds.length; col++) {
+          if (block.startTime >= columnEnds[col]) {
+            assignedCol = col;
+            columnEnds[col] = block.endTime;
+            break;
+          }
+        }
+        if (assignedCol === -1) {
+          assignedCol = columnEnds.length;
+          columnEnds.push(block.endTime);
+        }
+        assignments.set(block.id, assignedCol);
+      }
+
+      const totalColumns = columnEnds.length;
+      const stepPercent = Math.max(10, Math.floor(40 / totalColumns));
+      const widthPercent = 100 - (totalColumns - 1) * stepPercent;
+
+      for (const block of cluster) {
+        const col = assignments.get(block.id);
+        layout.set(block.id, {
+          column: col,
+          totalColumns,
+          left: col * stepPercent,
+          width: widthPercent
+        });
+      }
+    }
+
+    return layout;
+  }, [visibleEventBlocks]);
 
   // Get stats for the active room
   const activeRoomStats = activeRoom ? roomStats[activeRoom._id] : { conflictCount: 0, eventCount: 0 };
