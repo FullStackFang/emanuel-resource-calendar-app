@@ -112,6 +112,7 @@ import ConflictDialog from './shared/ConflictDialog';
     // Loading state
     const initializationStarted = useRef(false);
     const initialLoadComplete = useRef(false); // Tracks if initial load in initializeApp has completed
+    const lastLoadedDateRange = useRef(null); // Tracks dateRangeString used during last event load
 
     // Navigation loading state - shows overlay during calendar navigation
     const [isNavigating, setIsNavigating] = useState(false);
@@ -1525,7 +1526,8 @@ import ConflictDialog from './shared/ConflictDialog';
       try {
         // Prepare parameters for sync
         const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
-        
+        lastLoadedDateRange.current = `${dateRange.start.toISOString()}-${dateRange.end.toISOString()}`;
+
         // Get calendar IDs to sync - include both user calendar and TempleRegistration
         const calendarIds = [];
         
@@ -6412,7 +6414,12 @@ import ConflictDialog from './shared/ConflictDialog';
         if (initialLoadComplete.current) {
           initialLoadComplete.current = false; // Reset so future changes trigger loads
           setIsNavigating(false); // Clear navigation state even when skipping load
-          return;
+          // Only skip if the date range hasn't changed since init loaded events
+          // (e.g., user preference changed viewType from week->month during init)
+          if (dateRangeString === lastLoadedDateRange.current) {
+            return;
+          }
+          logger.debug('Post-init dateRange changed, reloading events for correct view');
         }
 
         calendarDebug.logEventLoading(selectedCalendarId, dateRange, 'useEffect trigger');
