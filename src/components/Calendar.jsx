@@ -265,29 +265,23 @@ import ConflictDialog from './shared/ConflictDialog';
       defaultGroupBy: 'categories',
       preferredZoomLevel: 100,
       preferredTimeZone: 'America/New_York',
-      createEvents: true, // TEMPORARY: Set to true for testing
-      editEvents: true,   // TEMPORARY: Set to true for testing
-      deleteEvents: true, // TEMPORARY: Set to true for testing
-      isAdmin: true,      // TEMPORARY: Set to true for testing
     });
 
     // User permissions initialized
 
-    // Effective permissions: Role Simulation overrides action permissions when simulating
+    // Effective permissions: always use usePermissions() hook (handles both real roles and simulation)
     const effectivePermissions = useMemo(() => ({
-      // User preferences (always from userPermissions state)
       startOfWeek: userPermissions.startOfWeek,
       defaultView: userPermissions.defaultView,
       defaultGroupBy: userPermissions.defaultGroupBy,
       preferredZoomLevel: userPermissions.preferredZoomLevel,
       preferredTimeZone: userPermissions.preferredTimeZone,
-      // Action permissions: use Role Simulation when simulating, otherwise use userPermissions
-      createEvents: isSimulating ? canCreateEvents : userPermissions.createEvents,
-      editEvents: isSimulating ? canEditEvents : userPermissions.editEvents,
-      deleteEvents: isSimulating ? canDeleteEvents : userPermissions.deleteEvents,
-      submitReservation: isSimulating ? canSubmitReservation : (userPermissions.submitReservation ?? true),
-      isAdmin: isSimulating ? isSimulatedAdmin : userPermissions.isAdmin,
-    }), [userPermissions, isSimulating, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
+      createEvents: canCreateEvents,
+      editEvents: canEditEvents,
+      deleteEvents: canDeleteEvents,
+      submitReservation: canSubmitReservation,
+      isAdmin: isSimulatedAdmin,
+    }), [userPermissions, canCreateEvents, canEditEvents, canDeleteEvents, canSubmitReservation, isSimulatedAdmin]);
 
     // Whether the current user/simulated-role can add events (used by all calendar views)
     const canAddEvent = effectivePermissions.createEvents || effectivePermissions.submitReservation;
@@ -1987,22 +1981,14 @@ import ConflictDialog from './shared/ConflictDialog';
         
         if (response.status === 401) {
           logger.debug("Unauthorized - authentication issue with API token");
-          // TEMPORARY: Don't reset permissions for testing
-          logger.debug("401 error but keeping test permissions");
-          /*
           setUserPermissions({
             startOfWeek: 'Monday',
             defaultView: 'week',
             defaultGroupBy: 'categories',
             preferredZoomLevel: 100,
             preferredTimeZone: 'America/New_York',
-            createEvents: false, 
-            editEvents: false,  
-            deleteEvents: false, 
-            isAdmin: false
           });
-          */
-          return true;
+          return false;
         }
         
         if (response.ok) {
@@ -2017,26 +2003,14 @@ import ConflictDialog from './shared/ConflictDialog';
             id: data.id || data._id
           });
 
-          // Based on UserAdmin component, permissions are stored in preferences
-          const hasCreatePermission = data.preferences?.createEvents ?? true;  // Default to true if not set
-          const hasEditPermission = data.preferences?.editEvents ?? true;      // Default to true if not set
-          const hasDeletePermission = data.preferences?.deleteEvents ?? false; // Default to false if not set
-          const isAdmin = data.role === 'admin' || data.role === 'approver';      // Admins and approvers can edit all fields
-          
-          const permissions = {
+          // Apply user preferences from database (action permissions come from usePermissions() hook)
+          setUserPermissions({
             startOfWeek: data.preferences?.startOfWeek || 'Monday',
             defaultView: data.preferences?.defaultView || 'week',
             defaultGroupBy: data.preferences?.defaultGroupBy || 'categories',
             preferredZoomLevel: data.preferences?.preferredZoomLevel || 100,
             preferredTimeZone: data.preferences?.preferredTimeZone || 'America/New_York',
-            createEvents: hasCreatePermission,
-            editEvents: hasEditPermission,
-            deleteEvents: hasDeletePermission,  
-            isAdmin: isAdmin,
-          };
-          
-          // Apply user permissions from database
-          setUserPermissions(permissions);
+          });
 
           // Also update the UI state variables from loaded preferences
           if (data.preferences?.defaultGroupBy) {
@@ -2056,22 +2030,14 @@ import ConflictDialog from './shared/ConflictDialog';
         return false;
       } catch (error) {
         logger.error("Error fetching user permissions:", error);
-        // TEMPORARY: Don't reset permissions for testing
-        // Error loading profile but keeping test permissions
-        /*
         setUserPermissions({
           startOfWeek: 'Monday',
           defaultView: 'week',
           defaultGroupBy: 'categories',
           preferredZoomLevel: 100,
           preferredTimeZone: 'America/New_York',
-          createEvents: false,
-          editEvents: false,
-          deleteEvents: false,
-          isAdmin: false
         });
-        */
-        return true;
+        return false;
       }
     }, [apiToken, API_BASE_URL]);  
 

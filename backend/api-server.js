@@ -12427,6 +12427,12 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
+    // Permission check: requester role or higher required
+    const userDoc = await findUserByIdentity(usersCollection, userId, userEmail);
+    if (!canSubmitReservation(userDoc, userEmail)) {
+      return res.status(403).json({ error: 'Permission denied. Requester role required.' });
+    }
+
     const {
       eventTitle,
       eventDescription,
@@ -12496,8 +12502,7 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
     // Look up user's department from profile if not provided in form
     let effectiveDepartment = department || '';
     if (!effectiveDepartment) {
-      const userRecord = await findUserByIdentity(usersCollection, userId, userEmail);
-      effectiveDepartment = userRecord?.department || '';
+      effectiveDepartment = userDoc?.department || '';
     }
 
     // Create draft event record in unified events collection with calendarData structure
@@ -12828,6 +12833,12 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     const user = await usersCollection.findOne({
       $or: [{ odataId: userId }, { email: userEmail }]
     });
+
+    // Permission check: requester role or higher required
+    if (!canSubmitReservation(user, userEmail)) {
+      return res.status(403).json({ error: 'Permission denied. Requester role required.' });
+    }
+
     let canAutoPublish = canApproveReservations(user, userEmail);
 
     // Respect role simulation: if simulating a non-approver role, skip auto-publish
@@ -16736,6 +16747,12 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userEmail = req.user.email;
+
+    // Permission check: requester role or higher required
+    const user = await findUserByIdentity(usersCollection, userId, userEmail);
+    if (!canSubmitReservation(user, userEmail)) {
+      return res.status(403).json({ error: 'Permission denied. Requester role required.' });
+    }
 
     const {
       eventTitle,

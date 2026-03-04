@@ -1,5 +1,5 @@
 /**
- * Viewer Role Access Tests (V-1 to V-11)
+ * Viewer Role Access Tests (V-1 to V-12)
  *
  * Tests that viewers have minimal permissions and cannot perform
  * privileged actions like creating drafts, publishing events, etc.
@@ -22,7 +22,7 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 
-describe('Viewer Role Access Tests (V-1 to V-11)', () => {
+describe('Viewer Role Access Tests (V-1 to V-12)', () => {
   let mongoServer;
   let mongoClient;
   let db;
@@ -268,6 +268,23 @@ describe('Viewer Role Access Tests (V-1 to V-11)', () => {
       const res = await request(app)
         .get('/api/admin/events?status=pending')
         .set('Authorization', `Bearer ${viewerToken}`)
+        .expect(403);
+
+      expect(res.body).toHaveProperty('error');
+      expect(res.body.error).toMatch(/permission denied/i);
+    });
+  });
+
+  describe('V-12: Viewer CANNOT submit event request', () => {
+    it('should return 403 when viewer tries to submit an event request', async () => {
+      const res = await request(app)
+        .post('/api/events/request')
+        .set('Authorization', `Bearer ${viewerToken}`)
+        .send({
+          eventTitle: 'Viewer Event Request',
+          startDateTime: new Date(Date.now() + 86400000).toISOString(),
+          endDateTime: new Date(Date.now() + 90000000).toISOString(),
+        })
         .expect(403);
 
       expect(res.body).toHaveProperty('error');

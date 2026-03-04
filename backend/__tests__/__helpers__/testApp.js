@@ -2599,6 +2599,121 @@ function createTestApp(options = {}) {
   });
 
   // ============================================
+  // EVENT REQUEST ENDPOINT
+  // ============================================
+
+  /**
+   * POST /api/events/request - Create a new event request (authenticated, requester+)
+   */
+  app.post('/api/events/request', verifyToken, async (req, res) => {
+    try {
+      const userId = req.user.userId;
+      const userEmail = req.user.email;
+
+      // Permission check: requester role or higher required
+      const userDoc = await testCollections.users.findOne({
+        $or: [{ odataId: userId }, { email: userEmail }],
+      });
+      if (!hasRole(userDoc, userEmail, 'requester')) {
+        return res.status(403).json({ error: 'Permission denied. Requester role required.' });
+      }
+
+      const {
+        eventTitle,
+        eventDescription,
+        startDateTime,
+        endDateTime,
+        locations,
+        calendarOwner,
+        calendarId,
+        categories,
+        services,
+        requesterName,
+        requesterEmail,
+        department,
+        phone,
+        setupTime,
+        doorOpenTime,
+      } = req.body;
+
+      // Validate required fields
+      if (!eventTitle || !startDateTime || !endDateTime) {
+        return res.status(400).json({ error: 'Missing required fields: eventTitle, startDateTime, endDateTime' });
+      }
+
+      const now = new Date();
+      const eventId = `request-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      const event = {
+        _id: new ObjectId(),
+        eventId,
+        userId,
+        calendarOwner: (calendarOwner || TEST_CALENDAR_OWNER).toLowerCase(),
+        calendarId: calendarId || null,
+        status: 'pending',
+        isDeleted: false,
+        eventTitle,
+        eventDescription: eventDescription || '',
+        startDateTime: new Date(startDateTime),
+        endDateTime: new Date(endDateTime),
+        locations: (locations || []).map(id => {
+          try { return new ObjectId(id); } catch { return id; }
+        }),
+        locationDisplayNames: [],
+        categories: categories || [],
+        services: services || [],
+        calendarData: {
+          eventTitle,
+          eventDescription: eventDescription || '',
+          startDateTime: new Date(startDateTime),
+          endDateTime: new Date(endDateTime),
+          locations: (locations || []).map(id => {
+            try { return new ObjectId(id); } catch { return id; }
+          }),
+          categories: categories || [],
+          services: services || [],
+          setupTime: setupTime || null,
+          doorOpenTime: doorOpenTime || null,
+        },
+        roomReservationData: {
+          requestedBy: {
+            name: requesterName || userDoc?.name || userDoc?.displayName || 'Unknown',
+            email: requesterEmail || userEmail,
+            department: department || userDoc?.department || '',
+            phone: phone || '',
+            userId,
+          },
+        },
+        graphData: null,
+        statusHistory: [{ status: 'pending', changedAt: now, changedBy: userEmail }],
+        _version: 1,
+        createdAt: now,
+        createdBy: userEmail,
+        lastModifiedDateTime: now,
+      };
+
+      await testCollections.events.insertOne(event);
+
+      // Track email notification
+      const reviewerEmails = await getTestReviewerEmails('emailOnNewRequests');
+      if (reviewerEmails.length > 0) {
+        sentEmailNotifications.push({
+          type: 'new_request',
+          to: reviewerEmails,
+          eventTitle,
+          requesterEmail: requesterEmail || userEmail,
+          sentAt: now,
+        });
+      }
+
+      res.status(201).json(event);
+    } catch (error) {
+      console.error('Error in POST /api/events/request:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
   // CALENDAR LOAD ENDPOINT (simplified getUnifiedEvents for testing)
   // ============================================
 
