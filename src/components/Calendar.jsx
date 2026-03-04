@@ -295,8 +295,27 @@ import ConflictDialog from './shared/ConflictDialog';
         start = snapToStartOfWeek(currentDate, userPermissions.startOfWeek);
         end = calculateEndDate(start, 'week');
       } else if (viewType === 'month') {
-        start = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-        end = calculateEndDate(start, 'month');
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstOfMonth = new Date(year, month, 1);
+        const lastOfMonth = new Date(year, month + 1, 0);
+
+        // Calculate first visible day (mirrors getMonthWeeks overflow logic)
+        const firstDayOfWeek = firstOfMonth.getDay();
+        const startOfWeekIndex = userPermissions.startOfWeek === 'Sunday' ? 0 : 1;
+        let prevMonthDays;
+        if (startOfWeekIndex === 0) {
+          prevMonthDays = firstDayOfWeek;
+        } else {
+          prevMonthDays = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
+        }
+        start = new Date(year, month, 1 - prevMonthDays);
+
+        // Calculate last visible day
+        const totalDaysInGrid = prevMonthDays + lastOfMonth.getDate();
+        const nextMonthDays = Math.ceil(totalDaysInGrid / 7) * 7 - totalDaysInGrid;
+        end = new Date(year, month + 1, nextMonthDays);
+        end.setHours(23, 59, 59, 999);
       } else {
         // day view
         end = calculateEndDate(start, 'day');
@@ -2854,8 +2873,8 @@ import ConflictDialog from './shared/ConflictDialog';
      */
     const getMonthWeeks = useCallback(() => {
       const days = [];
-      const year = dateRange.start.getFullYear();
-      const month = dateRange.start.getMonth();
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
       
       // Get first day of month and last day of month
       const firstDay = new Date(year, month, 1);
@@ -2902,7 +2921,7 @@ import ConflictDialog from './shared/ConflictDialog';
       }
       
       return weeks;
-    }, [dateRange.start, userPermissions.startOfWeek]);
+    }, [currentDate, userPermissions.startOfWeek]);
 
     /**
      * Get all days within the current date range for the calendar view
