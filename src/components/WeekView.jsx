@@ -452,15 +452,7 @@ const WeekView = memo(({
                                 {event.subject}
                               </div>
                             </div>
-                            {event.calendarId && event.calendarId !== 'primary' && (
-                              <div className="calendar-source" style={{
-                                fontSize: '9px',
-                                opacity: 0.8,
-                                marginTop: '2px'
-                              }}>
-                                {event.calendarName}
-                              </div>
-                            )}
+
                             {isPending && (
                               <span className="event-status-badge badge-pending">
                                 PENDING
