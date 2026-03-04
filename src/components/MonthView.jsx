@@ -141,21 +141,18 @@ const MonthView = memo(({
                     className={`day-cell ${!day.isCurrentMonth ? 'outside-month' : ''} ${isSelected ? 'selected' : ''} ${isTodayDate ? 'current-day' : ''}`}
                     onClick={() => handleDayClick(day)}
                   >
-                    {/* Header row: day number (left) + add button (right) */}
                     <div className="day-cell-header">
                       <div className={`day-number ${isTodayDate ? 'today-number' : ''}`}>{day.date.getDate()}</div>
-                      {day.isCurrentMonth && canAddEvent ? (
-                        <button
-                          className="add-event-btn"
-                          onClick={(e) => handleAddEventClick(e, day)}
-                          title="Add new event"
-                        >
-                          +
-                        </button>
-                      ) : (
-                        <span />
-                      )}
                     </div>
+                    {day.isCurrentMonth && canAddEvent && (
+                      <button
+                        className="cell-add-event-btn"
+                        onClick={(e) => handleAddEventClick(e, day)}
+                        title="Add new event"
+                      >
+                        +
+                      </button>
+                    )}
 
                     {/* Event snippets */}
                     <div className="day-cell-events">

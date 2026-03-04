@@ -103,6 +103,7 @@
    ========================================================================== */
 
 .month-view-wrapper .day-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -197,46 +198,6 @@
 .day-cell.current-day .day-number {
   color: var(--text-inverse);
   font-weight: var(--font-bold);
-}
-
-/* ==========================================================================
-   ADD EVENT BUTTON (FAB style)
-   ========================================================================== */
-
-.month-view-wrapper .day-cell .add-event-btn {
-  position: static;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background-color: var(--color-primary-500);
-  color: var(--text-inverse);
-  font-size: var(--text-sm);
-  font-weight: var(--font-bold);
-  line-height: 1;
-  cursor: pointer;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: scale(0.6);
-  transition: opacity var(--duration-fast) var(--ease-in-out),
-              transform var(--duration-normal) var(--ease-bounce),
-              background-color var(--duration-fast) var(--ease-in-out);
-  z-index: 3;
-  box-shadow: var(--shadow-primary);
-  flex-shrink: 0;
-}
-
-.day-cell:hover .add-event-btn {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.month-view-wrapper .day-cell .add-event-btn:hover {
-  background-color: var(--color-primary-600);
-  transform: scale(1.1);
 }
 
 /* ==========================================================================
