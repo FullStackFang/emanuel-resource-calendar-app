@@ -1880,7 +1880,11 @@ async function checkRoomConflicts(reservation, excludeId = null) {
       allowedConcurrentCategories: conflict.allowedConcurrentCategories || []
     }));
 
-    return [...publishedConflictResults, ...pendingEditConflicts];
+    return {
+      hardConflicts: publishedConflictResults,
+      softConflicts: pendingEditConflicts,
+      allConflicts: [...publishedConflictResults, ...pendingEditConflicts]
+    };
   } catch (error) {
     logger.error('Error checking room conflicts:', error);
     throw error;
@@ -13085,11 +13089,26 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       locations: cd.locations
     };
 
-    const conflicts = await checkRoomConflicts(reservationForConflict, draftId);
-    if (conflicts.length > 0) {
+    const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, draftId);
+    if (hardConflicts.length > 0) {
       return res.status(409).json({
-        error: 'Scheduling conflict detected',
-        conflicts
+        error: 'SchedulingConflict',
+        conflictTier: 'hard',
+        message: `Cannot submit: ${hardConflicts.length} scheduling conflict(s) with published events`,
+        hardConflicts,
+        softConflicts,
+        conflicts: allConflicts,
+        canForce: false,
+      });
+    }
+    if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+      return res.status(409).json({
+        error: 'SchedulingConflict',
+        conflictTier: 'soft',
+        message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+        hardConflicts: [],
+        softConflicts,
+        conflicts: softConflicts,
       });
     }
 
@@ -13375,12 +13394,28 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
     if (['pending', 'published'].includes(previousStatus)) {
       const roomIds = reservation.calendarData?.locations || reservation.locations || [];
       if (roomIds.length > 0) {
-        const conflicts = await checkRoomConflicts(reservation, reservationId);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservation, reservationId);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected. Please submit a new reservation with different times or contact an admin.`,
-            conflicts,
+            conflictTier: 'hard',
+            message: `Cannot restore: ${hardConflicts.length} scheduling conflict(s) with published events. Please submit a new reservation with different times or contact an admin.`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: false,
+            previousStatus,
+            _version: reservation._version
+          });
+        }
+        if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
             previousStatus,
             _version: reservation._version
           });
@@ -13569,12 +13604,29 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
     if (!forceRestore && ['pending', 'published'].includes(previousStatus)) {
       const roomIds = event.calendarData?.locations || event.locations || [];
       if (roomIds.length > 0) {
-        const conflicts = await checkRoomConflicts(event, eventId);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(event, eventId);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected`,
-            conflicts,
+            conflictTier: 'hard',
+            message: `Cannot restore: ${hardConflicts.length} scheduling conflict(s) with published events`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: true,
+            forceField: 'forceRestore',
+            previousStatus,
+            _version: event._version
+          });
+        }
+        if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
             previousStatus,
             _version: event._version
           });
@@ -14538,12 +14590,27 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         isAllowedConcurrent: event.isAllowedConcurrent ?? false,
         categories: categories || event.calendarData?.categories || []
       };
-      const conflicts = await checkRoomConflicts(reservationForConflict, reservationId);
-      if (conflicts.length > 0) {
+      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, reservationId);
+      if (hardConflicts.length > 0) {
         return res.status(409).json({
           error: 'SchedulingConflict',
-          message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
-          conflicts,
+          conflictTier: 'hard',
+          message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
+          hardConflicts,
+          softConflicts,
+          conflicts: allConflicts,
+          canForce: false,
+          _version: event._version
+        });
+      }
+      if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          conflictTier: 'soft',
+          message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+          hardConflicts: [],
+          softConflicts,
+          conflicts: softConflicts,
           _version: event._version
         });
       }
@@ -17340,7 +17407,7 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
 
     const id = req.params.id;
     // Note: graphToken is no longer needed - using app-only auth via graphApiService
-    const { notes, calendarMode, createCalendarEvent, forcePublish, targetCalendar, _version } = req.body;
+    const { notes, calendarMode, createCalendarEvent, forcePublish, targetCalendar, _version, acknowledgeSoftConflicts } = req.body;
 
     // Get event by _id (needed for processing before atomic update)
     const event = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
@@ -17369,12 +17436,28 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           isAllowedConcurrent: event.isAllowedConcurrent ?? false,
           categories: event.calendarData?.categories || []
         };
-        const conflicts = await checkRoomConflicts(reservationForConflict, id);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, id);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: `Cannot publish: ${conflicts.length} scheduling conflict(s) detected`,
-            conflicts,
+            conflictTier: 'hard',
+            message: `Cannot publish: ${hardConflicts.length} scheduling conflict(s) with published events`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: true,
+            forceField: 'forcePublish',
+            _version: event._version
+          });
+        }
+        if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
             _version: event._version
           });
         }
@@ -18505,7 +18588,12 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     const eventId = req.params.id;
-    const { notes, _version, approverChanges, forcePublishEdit } = req.body;
+    const { notes, _version, approverChanges, forcePublishEdit, acknowledgeSoftConflicts } = req.body;
+
+    // Only admins can force-override scheduling conflicts
+    if (forcePublishEdit && !isAdmin(user, userEmail)) {
+      return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
+    }
 
     // Get the event with pending edit request
     let event;
@@ -18563,14 +18651,27 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         categories: finalChanges.categories || event.calendarData?.categories || [],
       };
 
-      const conflicts = await checkRoomConflicts(conflictReservation, eventId);
-      if (conflicts.length > 0) {
+      const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(conflictReservation, eventId);
+      if (hardConflicts.length > 0) {
         return res.status(409).json({
           error: 'SchedulingConflict',
-          message: 'The proposed edit changes conflict with existing reservations',
-          conflicts,
-          canForce: true,
+          conflictTier: 'hard',
+          message: 'The proposed edit changes conflict with published events',
+          hardConflicts,
+          softConflicts,
+          conflicts: allConflicts,
+          canForce: isAdmin(user, userEmail),
           forceField: 'forcePublishEdit',
+        });
+      }
+      if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+        return res.status(409).json({
+          error: 'SchedulingConflict',
+          conflictTier: 'soft',
+          message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+          hardConflicts: [],
+          softConflicts,
+          conflicts: softConflicts,
         });
       }
     }
@@ -19395,12 +19496,28 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           isAllowedConcurrent: event.isAllowedConcurrent ?? false,
           categories: updates.categories || cd.categories || []
         };
-        const conflicts = await checkRoomConflicts(reservationForConflict, id);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, id);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
-            conflicts,
+            conflictTier: 'hard',
+            message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: true,
+            forceField: 'forceUpdate',
+            _version: event._version
+          });
+        }
+        if (softConflicts.length > 0 && !updates.acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
             _version: event._version
           });
         }

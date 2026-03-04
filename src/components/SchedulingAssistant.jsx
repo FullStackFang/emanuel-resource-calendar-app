@@ -382,6 +382,7 @@ export default function SchedulingAssistant({
 
     // Recalculate stats - count only conflicts with user's event
     // Consider isAllowedConcurrent when counting conflicts
+    // Split into hard (published events) and soft (pending edit proposals)
     selectedRooms.forEach(room => {
       const roomBlocks = blocksByRoom[room._id] || [];
 
@@ -399,15 +400,24 @@ export default function SchedulingAssistant({
           return !userEvent.isAllowedConcurrent && !b.isAllowedConcurrent;
         });
 
+        const hardConflicts = conflictsWithUserEvent.filter(b => !b.isPendingEdit);
+        const softConflicts = conflictsWithUserEvent.filter(b => b.isPendingEdit);
+
         if (stats[room._id]) {
           stats[room._id].conflictCount = conflictsWithUserEvent.length;
+          stats[room._id].hardConflictCount = hardConflicts.length;
+          stats[room._id].softConflictCount = softConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
         }
       } else {
         // No user event - show all conflicts
         const conflictingEvents = roomBlocks.filter(b => b.isConflict);
+        const hardConflicts = conflictingEvents.filter(b => !b.isPendingEdit);
+        const softConflicts = conflictingEvents.filter(b => b.isPendingEdit);
         if (stats[room._id]) {
           stats[room._id].conflictCount = conflictingEvents.length;
+          stats[room._id].hardConflictCount = hardConflicts.length;
+          stats[room._id].softConflictCount = softConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
         }
       }
@@ -420,11 +430,19 @@ export default function SchedulingAssistant({
     setRoomStats(stats);
   }, [availability, availabilityLoading, selectedRooms, effectiveDate, eventStartTime, eventEndTime, setupTime, teardownTime, doorOpenTime, doorCloseTime, eventTitle]);
 
-  // Propagate conflict state to parent
+  // Propagate conflict state to parent (with hard/soft breakdown)
   useEffect(() => {
     if (onConflictChange) {
-      const total = Object.values(roomStats).reduce((sum, s) => sum + (s.conflictCount || 0), 0);
-      onConflictChange(total > 0, total);
+      const stats = Object.values(roomStats);
+      const totalHard = stats.reduce((sum, s) => sum + (s.hardConflictCount || 0), 0);
+      const totalSoft = stats.reduce((sum, s) => sum + (s.softConflictCount || 0), 0);
+      const total = totalHard + totalSoft;
+      onConflictChange(total > 0, total, {
+        hasHardConflicts: totalHard > 0,
+        hardConflictCount: totalHard,
+        hasSoftConflicts: totalSoft > 0,
+        softConflictCount: totalSoft,
+      });
     }
   }, [roomStats, onConflictChange]);
 

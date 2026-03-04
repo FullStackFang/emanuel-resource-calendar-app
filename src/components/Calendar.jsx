@@ -392,6 +392,7 @@ import ConflictDialog from './shared/ConflictDialog';
     // Navigation state for reviewModal
     const [reviewModalIsNavigating, setReviewModalIsNavigating] = useState(false);
     const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
+    const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
     // Department colleague edit state (for non-admin users editing pending/rejected events)
     const [savingPendingEdit, setSavingPendingEdit] = useState(false);
@@ -7295,7 +7296,8 @@ import ConflictDialog from './shared/ConflictDialog';
           onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
           onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
-          hasSchedulingConflicts={hasSchedulingConflicts}
+          hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
+          hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
           onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
           savingPendingEdit={savingPendingEdit}
           onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleSaveRejectedEdit : null}
@@ -7316,7 +7318,10 @@ import ConflictDialog from './shared/ConflictDialog';
               onFormValidChange={reviewModal.setIsFormValid}
               readOnly={!canEditThisEvent && !isEditRequestMode && !reviewModal.isDraft}
               editScope={reviewModal.editScope}
-              onSchedulingConflictsChange={setHasSchedulingConflicts}
+              onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
+                setHasSchedulingConflicts(hasConflicts);
+                setSchedulingConflictInfo(conflictInfo || null);
+              }}
             />
           )}
         </ReviewModal>

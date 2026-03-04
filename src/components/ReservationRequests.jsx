@@ -54,6 +54,7 @@ export default function ReservationRequests({ apiToken, graphToken }) {
 
   // Scheduling conflict state (from SchedulingAssistant via RoomReservationReview)
   const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
+  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
   // Edit request state (card-level EditRequestComparison modal)
   const [editRequests, setEditRequests] = useState([]);
@@ -1187,7 +1188,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         onCancelEditRequestApprove={cancelEditRequestApproveConfirmation}
         onCancelEditRequestReject={cancelEditRequestRejectConfirmation}
         // Scheduling conflicts
-        hasSchedulingConflicts={hasSchedulingConflicts}
+        hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
+        hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
         // Form toggle
@@ -1211,7 +1213,10 @@ export default function ReservationRequests({ apiToken, graphToken }) {
             onTargetCalendarChange={setSelectedTargetCalendar}
             createCalendarEvent={createCalendarEvent}
             onCreateCalendarEventChange={setCreateCalendarEvent}
-            onSchedulingConflictsChange={setHasSchedulingConflicts}
+            onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
+              setHasSchedulingConflicts(hasConflicts);
+              setSchedulingConflictInfo(conflictInfo || null);
+            }}
           />
         )}
       </ReviewModal>

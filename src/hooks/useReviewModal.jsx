@@ -273,7 +273,35 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           return { success: false, error: 'VERSION_CONFLICT' };
         }
         if (data.error === 'SchedulingConflict') {
-          const msg = `Cannot save: ${data.conflicts?.length || 0} scheduling conflict(s). Adjust times or rooms.`;
+          // Tiered conflict handling
+          if (data.conflictTier === 'soft') {
+            // Soft conflicts: auto-retry with acknowledgement
+            const retryResponse = await fetch(endpoint, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+              body: JSON.stringify({ ...bodyData, _version: eventVersion, acknowledgeSoftConflicts: true })
+            });
+            if (retryResponse.ok) {
+              const retryResult = await retryResponse.json();
+              if (onSuccess) onSuccess('Changes saved (pending edit conflicts acknowledged)', retryResult.event || retryResult);
+              setEventVersion(retryResult.event?._version || retryResult._version);
+              setHasChanges(false);
+              return { success: true, event: retryResult.event || retryResult };
+            }
+            // Retry failed (could be hard conflict now), fall through to error
+            const retryData = await retryResponse.json().catch(() => ({}));
+            const retryMsg = retryData.message || `Cannot save: scheduling conflict(s) detected`;
+            if (onError) onError(retryMsg, retryData.conflicts);
+            return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
+          }
+          if (data.conflictTier === 'hard' && data.canForce && data.forceField) {
+            // Hard conflicts with admin force override available - show in error
+            const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Use force override to proceed.`;
+            if (onError) onError(msg, data.conflicts);
+            return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts, canForce: true, forceField: data.forceField };
+          }
+          // Hard conflicts without force option
+          const msg = `Cannot save: ${data.hardConflicts?.length || 0} scheduling conflict(s) with published events. Adjust times or rooms.`;
           if (onError) onError(msg, data.conflicts);
           return { success: false, error: 'SchedulingConflict', conflicts: data.conflicts };
         }
@@ -393,10 +421,32 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
               return { success: false, error: 'VERSION_CONFLICT' };
             }
             if (saveData.error === 'SchedulingConflict') {
-              const msg = `Cannot publish: ${saveData.conflicts?.length || 0} scheduling conflict(s) detected.`;
-              if (onError) onError(msg, saveData.conflicts);
-              setIsApproving(false);
-              return { success: false, error: 'SchedulingConflict', conflicts: saveData.conflicts };
+              if (saveData.conflictTier === 'soft') {
+                // Auto-acknowledge soft conflicts during publish flow
+                const retryResponse = await fetch(saveEndpoint, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+                  body: JSON.stringify({ ...formData, graphToken, _version: latestVersion, acknowledgeSoftConflicts: true })
+                });
+                if (retryResponse.ok) {
+                  const retryResult = await retryResponse.json();
+                  latestVersion = retryResult.event?._version || retryResult._version || latestVersion;
+                  setEventVersion(latestVersion);
+                  // Continue to Step 2 (publish)
+                } else {
+                  const retryData = await retryResponse.json().catch(() => ({}));
+                  const retryMsg = retryData.message || 'Cannot publish: scheduling conflict(s) detected';
+                  if (onError) onError(retryMsg, retryData.conflicts);
+                  setIsApproving(false);
+                  return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
+                }
+              } else {
+                // Hard conflicts
+                const msg = `Cannot publish: ${saveData.hardConflicts?.length || saveData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
+                if (onError) onError(msg, saveData.conflicts);
+                setIsApproving(false);
+                return { success: false, error: 'SchedulingConflict', conflicts: saveData.conflicts, canForce: saveData.canForce, forceField: saveData.forceField };
+              }
             }
           }
 
@@ -461,9 +511,37 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
           return { success: false, error: 'VERSION_CONFLICT' };
         }
         if (data.error === 'SchedulingConflict') {
-          const message = `Cannot publish: ${data.conflicts?.length || 0} scheduling conflict(s) detected.`;
+          if (data.conflictTier === 'soft') {
+            // Auto-acknowledge soft conflicts and retry publish
+            const retryResponse = await fetch(endpoint, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+              body: JSON.stringify({
+                graphToken,
+                notes: safeApprovalData.notes || '',
+                calendarMode: safeApprovalData.calendarMode || 'production',
+                createCalendarEvent: true,
+                forcePublish: safeApprovalData.forcePublish || false,
+                targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
+                _version: latestVersion,
+                acknowledgeSoftConflicts: true,
+              })
+            });
+            if (retryResponse.ok) {
+              const retryResult = await retryResponse.json();
+              if (onSuccess) onSuccess(retryResult);
+              await closeModal(true);
+              return { success: true, data: retryResult };
+            }
+            const retryData = await retryResponse.json().catch(() => ({}));
+            const retryMsg = retryData.message || 'Cannot publish: scheduling conflict(s) detected';
+            if (onError) onError(retryMsg, retryData.conflicts);
+            return { success: false, error: retryMsg, conflicts: retryData.conflicts };
+          }
+          // Hard conflicts
+          const message = `Cannot publish: ${data.hardConflicts?.length || data.conflicts?.length || 0} scheduling conflict(s) with published events.`;
           if (onError) onError(message, data.conflicts);
-          return { success: false, error: message, conflicts: data.conflicts };
+          return { success: false, error: message, conflicts: data.conflicts, canForce: data.canForce, forceField: data.forceField };
         }
       }
 

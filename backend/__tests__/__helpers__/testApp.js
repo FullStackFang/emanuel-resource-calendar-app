@@ -186,7 +186,7 @@ function buildEffectiveEditData(event) {
 
 async function checkTestConflicts(event, excludeId, eventsCollection) {
   const roomIds = event.calendarData?.locations || event.locations || [];
-  if (roomIds.length === 0) return [];
+  if (roomIds.length === 0) return { hardConflicts: [], softConflicts: [], allConflicts: [] };
 
   const startTime = new Date(event.startDateTime || event.calendarData?.startDateTime);
   const endTime = new Date(event.endDateTime || event.calendarData?.endDateTime);
@@ -269,7 +269,7 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
     });
   }
 
-  const results = publishedConflicts.map(c => ({
+  const hardConflicts = publishedConflicts.map(c => ({
     id: c._id.toString(),
     eventTitle: c.calendarData?.eventTitle || c.eventTitle,
     startDateTime: c.calendarData?.startDateTime || c.startDateTime,
@@ -278,7 +278,11 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
     status: c.status,
   }));
 
-  return [...results, ...pendingEditConflicts];
+  return {
+    hardConflicts,
+    softConflicts: pendingEditConflicts,
+    allConflicts: [...hardConflicts, ...pendingEditConflicts]
+  };
 }
 
 /**
@@ -590,6 +594,39 @@ function createTestApp(options = {}) {
         });
       }
 
+      // Check for scheduling conflicts
+      const roomIds = cd.locations || [];
+      if (roomIds.length > 0) {
+        const conflictEvent = {
+          ...draft,
+          startDateTime: cd.startDateTime,
+          endDateTime: cd.endDateTime,
+          calendarData: { ...cd, locations: roomIds },
+        };
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, draft._id, testCollections.events);
+        if (hardConflicts.length > 0) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'hard',
+            message: `Cannot submit: ${hardConflicts.length} scheduling conflict(s) with published events`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: false,
+          });
+        }
+        if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
+          });
+        }
+      }
+
       const now = new Date();
       let canAutoPublish = isApproverOrAdmin;
 
@@ -894,16 +931,32 @@ function createTestApp(options = {}) {
       }
 
       // Check for scheduling conflicts (unless forcePublish)
-      const { forcePublish } = req.body;
+      const { forcePublish, acknowledgeSoftConflicts } = req.body;
       if (!forcePublish) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
-          if (conflicts.length > 0) {
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+          if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
-              message: `Cannot publish: ${conflicts.length} scheduling conflict(s) detected`,
-              conflicts,
+              conflictTier: 'hard',
+              message: `Cannot publish: ${hardConflicts.length} scheduling conflict(s) with published events`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: true,
+              forceField: 'forcePublish',
+              _version: event._version,
+            });
+          }
+          if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
               _version: event._version,
             });
           }
@@ -1226,12 +1279,29 @@ function createTestApp(options = {}) {
       if (!forceRestore && ['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
-          if (conflicts.length > 0) {
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+          if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
-              message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected`,
-              conflicts,
+              conflictTier: 'hard',
+              message: `Cannot restore: ${hardConflicts.length} scheduling conflict(s) with published events`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: true,
+              forceField: 'forceRestore',
+              previousStatus,
+              _version: event._version,
+            });
+          }
+          if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
               previousStatus,
               _version: event._version,
             });
@@ -1380,12 +1450,28 @@ function createTestApp(options = {}) {
       if (['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const conflicts = await checkTestConflicts(event, event._id, testCollections.events);
-          if (conflicts.length > 0) {
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+          if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
-              message: `Cannot restore: ${conflicts.length} scheduling conflict(s) detected. Please submit a new reservation with different times or contact an admin.`,
-              conflicts,
+              conflictTier: 'hard',
+              message: `Cannot restore: ${hardConflicts.length} scheduling conflict(s) with published events. Please submit a new reservation with different times or contact an admin.`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: false,
+              previousStatus,
+              _version: event._version,
+            });
+          }
+          if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
               previousStatus,
               _version: event._version,
             });
@@ -1698,12 +1784,27 @@ function createTestApp(options = {}) {
             locations: editedRoomIds,
           },
         };
-        const conflicts = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
-            conflicts,
+            conflictTier: 'hard',
+            message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: false,
+            _version: event._version,
+          });
+        }
+        if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
             _version: event._version,
           });
         }
@@ -2027,7 +2128,12 @@ function createTestApp(options = {}) {
       }
 
       // Apply the requested changes, merging with any approver overrides
-      const { approverChanges, notes, forcePublishEdit } = req.body;
+      const { approverChanges, notes, forcePublishEdit, acknowledgeSoftConflicts } = req.body;
+
+      // Only admins can force-override scheduling conflicts
+      if (forcePublishEdit && !isAdmin(userDoc, userEmail)) {
+        return res.status(403).json({ error: 'Only admins can force-override scheduling conflicts' });
+      }
       const proposedChanges = event.pendingEditRequest.proposedChanges;
       const finalChanges = approverChanges
         ? { ...proposedChanges, ...approverChanges }
@@ -2049,14 +2155,27 @@ function createTestApp(options = {}) {
             endDateTime: effective.endDateTime,
           },
         };
-        const conflicts = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
-        if (conflicts.length > 0) {
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+        if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
-            message: 'The proposed edit changes conflict with existing reservations',
-            conflicts,
-            canForce: true,
+            conflictTier: 'hard',
+            message: 'The proposed edit changes conflict with published events',
+            hardConflicts,
+            softConflicts,
+            conflicts: allConflicts,
+            canForce: isAdmin(userDoc, userEmail),
             forceField: 'forcePublishEdit',
+          });
+        }
+        if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+          return res.status(409).json({
+            error: 'SchedulingConflict',
+            conflictTier: 'soft',
+            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+            hardConflicts: [],
+            softConflicts,
+            conflicts: softConflicts,
           });
         }
       }
@@ -2396,12 +2515,28 @@ function createTestApp(options = {}) {
               locations: roomIds,
             },
           };
-          const conflicts = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
-          if (conflicts.length > 0) {
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+          if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
-              message: `Cannot save: ${conflicts.length} scheduling conflict(s) detected`,
-              conflicts,
+              conflictTier: 'hard',
+              message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: true,
+              forceField: 'forceUpdate',
+              _version: event._version,
+            });
+          }
+          if (softConflicts.length > 0 && !updates.acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
               _version: event._version,
             });
           }

@@ -45,6 +45,7 @@ export default function MyReservations({ apiToken }) {
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [hasSchedulingConflicts, setHasSchedulingConflicts] = useState(false);
+  const [schedulingConflictInfo, setSchedulingConflictInfo] = useState(null);
 
   // Local state for pending edit (owner editing pending events)
   const [savingPendingEdit, setSavingPendingEdit] = useState(false);
@@ -1249,7 +1250,8 @@ export default function MyReservations({ apiToken }) {
         onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
         onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
         // Scheduling conflicts
-        hasSchedulingConflicts={hasSchedulingConflicts}
+        hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
+        hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
       >
@@ -1263,7 +1265,10 @@ export default function MyReservations({ apiToken }) {
             onFormValidChange={reviewModal.setIsFormValid}
             readOnly={!canEditEvents && !canApproveReservations && !isEditRequestMode && !reviewModal.isDraft && reviewModal.currentItem?.status !== 'pending' && reviewModal.currentItem?.status !== 'rejected'}
             editScope={reviewModal.editScope}
-            onSchedulingConflictsChange={setHasSchedulingConflicts}
+            onSchedulingConflictsChange={(hasConflicts, conflictInfo) => {
+              setHasSchedulingConflicts(hasConflicts);
+              setSchedulingConflictInfo(conflictInfo || null);
+            }}
           />
         )}
       </ReviewModal>

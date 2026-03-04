@@ -147,13 +147,19 @@ export default function ReviewModal({
   onSavePublishedEdit = null,
   savingPublishedEdit = false,
   // Scheduling conflict state (from SchedulingAssistant)
-  hasSchedulingConflicts = false,
+  hasSchedulingConflicts = false, // Hard conflicts (published events)
+  hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
   // Event owner info (displayed as pills in action bar)
   requesterName = '',
   requesterDepartment = ''
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
+
+  // Determine effective conflict blocking behavior
+  // Hard conflicts: block non-admins, allow admin override
+  // Soft conflicts: show warning but don't disable buttons (handled by useReviewModal confirmation)
+  const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -502,7 +508,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'rejectedEdit' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('rejectedEdit', onSaveRejectedEdit)}
-                    disabled={savingRejectedEdit || !isFormValid || hasSchedulingConflicts || (anyConfirming && localConfirming !== 'rejectedEdit')}
+                    disabled={savingRejectedEdit || !isFormValid || hardConflictBlocks || (anyConfirming && localConfirming !== 'rejectedEdit')}
                   >
                     {savingRejectedEdit ? 'Saving & Resubmitting...' : (localConfirming === 'rejectedEdit' ? 'Confirm?' : 'Save & Resubmit')}
                   </button>
@@ -571,7 +577,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${isApproveConfirming ? 'confirming' : ''}`}
                     onClick={onApprove}
-                    disabled={isApproving || hasSchedulingConflicts || (anyConfirming && !isApproveConfirming)}
+                    disabled={isApproving || hardConflictBlocks || (anyConfirming && !isApproveConfirming)}
                   >
                     {isApproving ? 'Publishing...' : (isApproveConfirming ? 'Confirm Publish?' : 'Publish')}
                   </button>
@@ -730,7 +736,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'publishedEdit' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('publishedEdit', onSavePublishedEdit)}
-                    disabled={!hasChanges || !isFormValid || savingPublishedEdit || hasSchedulingConflicts || (anyConfirming && localConfirming !== 'publishedEdit')}
+                    disabled={!hasChanges || !isFormValid || savingPublishedEdit || hardConflictBlocks || (anyConfirming && localConfirming !== 'publishedEdit')}
                   >
                     {savingPublishedEdit ? 'Saving...' : (localConfirming === 'publishedEdit' ? 'Confirm Save?' : 'Save Changes')}
                   </button>
@@ -800,7 +806,7 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn save-btn ${isSaveConfirming ? 'confirming' : ''}`}
                     onClick={onSave}
-                    disabled={!hasChanges || !isFormValid || isSaving || hasSchedulingConflicts || (anyConfirming && !isSaveConfirming)}
+                    disabled={!hasChanges || !isFormValid || isSaving || hardConflictBlocks || (anyConfirming && !isSaveConfirming)}
                   >
                     {isSaving ? 'Saving...' : (isSaveConfirming ? 'Confirm Save?' : (saveButtonLabel || 'Save'))}
                   </button>
@@ -841,8 +847,13 @@ export default function ReviewModal({
               )}
 
               {hasSchedulingConflicts && (
-                <span className="scheduling-conflict-warning">
-                  ⚠ Conflicts
+                <span className={`scheduling-conflict-warning ${isAdmin ? 'admin-override' : ''}`}>
+                  ⚠ Hard Conflicts{isAdmin ? ' (Override Available)' : ''}
+                </span>
+              )}
+              {!hasSchedulingConflicts && hasSoftConflicts && (
+                <span className="scheduling-conflict-warning soft-conflict">
+                  ⚠ Pending Edit Conflicts
                 </span>
               )}
 
