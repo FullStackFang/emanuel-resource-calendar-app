@@ -15,17 +15,16 @@ function computePosition(anchorRect) {
   const vh = window.innerHeight;
   const vw = window.innerWidth;
 
-  let top = anchorRect.bottom + OFFSET;
-  let left = anchorRect.left;
+  // Vertically center the popup in the viewport, clamped to safe bounds
+  const popupHeight = Math.min(POPUP_MAX_H, vh - MARGIN * 2);
+  let top = Math.round((vh - popupHeight) / 2);
+  top = Math.max(MARGIN, Math.min(top, vh - popupHeight - MARGIN));
 
-  // Flip above if not enough space below
-  const spaceBelow = vh - anchorRect.bottom - OFFSET - MARGIN;
-  const spaceAbove = anchorRect.top - OFFSET - MARGIN;
-  if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-    top = anchorRect.top - OFFSET - Math.min(POPUP_MAX_H, spaceAbove);
+  // Horizontally: prefer right of anchor, fall back to left
+  let left = anchorRect.right + OFFSET;
+  if (left + POPUP_WIDTH + MARGIN > vw) {
+    left = anchorRect.left - POPUP_WIDTH - OFFSET;
   }
-
-  // Clamp horizontally
   left = Math.max(MARGIN, Math.min(left, vw - POPUP_WIDTH - MARGIN));
 
   return { top, left };
@@ -242,7 +241,7 @@ const DayEventsPopup = ({
                   </div>
 
                   {/* Setup/Teardown */}
-                  {((event.setupMinutes && event.setupMinutes > 0) || (event.teardownMinutes && event.teardownMinutes > 0)) && (
+                  {(event.setupMinutes > 0 || event.teardownMinutes > 0) && (
                     <div className="dep-event-detail dep-setup-info">
                       <span className="dep-detail-icon"><TimerIcon size={13} /></span>
                       Setup/Teardown:
