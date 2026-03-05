@@ -34,7 +34,9 @@ const WeekView = memo(({
   dynamicLocations,
   showRegistrationTimes,
   handleLocationRowClick, // New prop for location timeline modal
-  canAddEvent
+  canAddEvent,
+  favorites,
+  onToggleFavorite
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
@@ -85,6 +87,9 @@ const WeekView = memo(({
       return [...selectedCategories].sort((a, b) => {
         if (a === 'Uncategorized') return 1;
         if (b === 'Uncategorized') return -1;
+        const aFav = favorites?.includes(a) ? 0 : 1;
+        const bFav = favorites?.includes(b) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
         return a.localeCompare(b);
       });
     } else {
@@ -94,10 +99,13 @@ const WeekView = memo(({
         const aSpecial = specialOrder[a] || 0;
         const bSpecial = specialOrder[b] || 0;
         if (aSpecial !== bSpecial) return aSpecial - bSpecial;
+        const aFav = favorites?.includes(a) ? 0 : 1;
+        const bFav = favorites?.includes(b) ? 0 : 1;
+        if (aFav !== bFav) return aFav - bFav;
         return a.localeCompare(b);
       });
     }
-  }, [groupBy, selectedCategories, locationGroups]);
+  }, [groupBy, selectedCategories, locationGroups, favorites]);
 
   return (
     <>
@@ -158,8 +166,28 @@ const WeekView = memo(({
                 flex: 1,
                 minWidth: 0
               }}>{group}</span>
+              {onToggleFavorite && (
+                <button
+                  className={`grid-cell-pin-icon${favorites?.includes(group) ? ' pinned' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(group);
+                  }}
+                  title={favorites?.includes(group) ? 'Unpin favorite' : 'Pin as favorite'}
+                >
+                  {favorites?.includes(group) ? (
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
+                    </svg>
+                  ) : (
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
+                      <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
+                    </svg>
+                  )}
+                </button>
+              )}
             </div>
-            
+
             {/* Days */}
             {getDaysInRange().map((day, dayIndex) => (
               <div

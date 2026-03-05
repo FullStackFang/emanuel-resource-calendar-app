@@ -1351,4 +1351,45 @@
     line-height: var(--leading-normal);
     padding: var(--space-2) var(--space-1);
   }
+
+  .grid-cell-pin-icon {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   GRID CELL PIN ICON (Favorites)
+   ========================================================================== */
+
+.grid-cell-pin-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-neutral-300);
+  transition: color var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out);
+  margin-left: auto;
+}
+
+.grid-cell.category-cell:hover .grid-cell-pin-icon {
+  color: var(--color-neutral-400);
+}
+
+.grid-cell-pin-icon:hover {
+  color: var(--color-primary-400);
+  background-color: var(--color-primary-50);
+}
+
+.grid-cell-pin-icon.pinned {
+  color: var(--color-primary-500);
+  animation: pin-snap 300ms var(--ease-out);
 }

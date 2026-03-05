@@ -223,6 +223,8 @@ import ConflictDialog from './shared/ConflictDialog';
     const [selectedFilter, setSelectedFilter] = useState(''); 
     const [selectedCategories, setSelectedCategories] = useState([]);
     const [selectedLocations, setSelectedLocations] = useState([]);
+    const [favoriteCategories, setFavoriteCategories] = useState([]);
+    const [favoriteLocations, setFavoriteLocations] = useState([]);
     const [selectedMonthDay, setSelectedMonthDay] = useState(null);
 
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -2045,6 +2047,12 @@ import ConflictDialog from './shared/ConflictDialog';
           if (data.preferences?.preferredTimeZone) {
             setUserTimezone(data.preferences.preferredTimeZone);
           }
+          if (data.preferences?.favoriteCategories) {
+            setFavoriteCategories(data.preferences.favoriteCategories);
+          }
+          if (data.preferences?.favoriteLocations) {
+            setFavoriteLocations(data.preferences.favoriteLocations);
+          }
           return true;
         }
         return false;
@@ -3862,6 +3870,22 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {string} viewType - 'day' or 'week'
      * @param {string|null} locationId - Optional ObjectId of the location for precise matching
      */
+    const handleToggleGridFavorite = useCallback((group) => {
+      if (groupBy === 'categories') {
+        const next = favoriteCategories.includes(group)
+          ? favoriteCategories.filter(f => f !== group)
+          : [...favoriteCategories, group];
+        setFavoriteCategories(next);
+        updateUserProfilePreferences({ favoriteCategories: next });
+      } else {
+        const next = favoriteLocations.includes(group)
+          ? favoriteLocations.filter(f => f !== group)
+          : [...favoriteLocations, group];
+        setFavoriteLocations(next);
+        updateUserProfilePreferences({ favoriteLocations: next });
+      }
+    }, [groupBy, favoriteCategories, favoriteLocations, updateUserProfilePreferences]);
+
     const handleLocationRowClick = useCallback((locationName, dateOrDates, viewType, locationId = null) => {
       // Filter events by location and date range
       let filteredModalEvents = [];
@@ -6733,6 +6757,8 @@ import ConflictDialog from './shared/ConflictDialog';
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
                           canAddEvent={canAddEvent}
+                          favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
+                          onToggleFavorite={handleToggleGridFavorite}
                         />
                       ) : (
                         <DayView
@@ -6764,6 +6790,8 @@ import ConflictDialog from './shared/ConflictDialog';
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
                           canAddEvent={canAddEvent}
+                          favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
+                          onToggleFavorite={handleToggleGridFavorite}
                         />
                       )}
                     </div>
@@ -6824,6 +6852,11 @@ import ConflictDialog from './shared/ConflictDialog';
                           setSelectedCategories(val);
                           updateUserProfilePreferences({ selectedCategories: val });
                         }}
+                        favorites={favoriteCategories}
+                        onFavoritesChange={val => {
+                          setFavoriteCategories(val);
+                          updateUserProfilePreferences({ favoriteCategories: val });
+                        }}
                         label="categories"
                         searchable
                       />
@@ -6846,6 +6879,11 @@ import ConflictDialog from './shared/ConflictDialog';
                         onChange={val => {
                           setSelectedLocations(val);
                           updateUserProfilePreferences({ selectedLocations: val });
+                        }}
+                        favorites={favoriteLocations}
+                        onFavoritesChange={val => {
+                          setFavoriteLocations(val);
+                          updateUserProfilePreferences({ favoriteLocations: val });
                         }}
                         label="locations"
                         searchable
@@ -6942,6 +6980,11 @@ import ConflictDialog from './shared/ConflictDialog';
                           setSelectedCategories(val);
                           updateUserProfilePreferences({ selectedCategories: val });
                         }}
+                        favorites={favoriteCategories}
+                        onFavoritesChange={val => {
+                          setFavoriteCategories(val);
+                          updateUserProfilePreferences({ favoriteCategories: val });
+                        }}
                         label="categories"
                         searchable
                       />
@@ -6963,6 +7006,11 @@ import ConflictDialog from './shared/ConflictDialog';
                         onChange={val => {
                           setSelectedLocations(val);
                           updateUserProfilePreferences({ selectedLocations: val });
+                        }}
+                        favorites={favoriteLocations}
+                        onFavoritesChange={val => {
+                          setFavoriteLocations(val);
+                          updateUserProfilePreferences({ favoriteLocations: val });
                         }}
                         label="locations"
                         searchable

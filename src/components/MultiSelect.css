@@ -434,6 +434,61 @@
   background: var(--color-primary-600);
 }
 
+/* ==========================================================================
+   FAVORITES / PIN ICON
+   ========================================================================== */
+
+.multiselect-pin-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-neutral-300);
+  transition: color var(--duration-fast) var(--ease-out),
+              transform var(--duration-fast) var(--ease-out),
+              background-color var(--duration-fast) var(--ease-out);
+}
+
+.multiselect-option:hover .multiselect-pin-icon {
+  color: var(--color-neutral-400);
+}
+
+.multiselect-pin-icon:hover {
+  color: var(--color-primary-400);
+  background-color: var(--color-primary-50);
+}
+
+.multiselect-pin-icon.pinned {
+  color: var(--color-primary-500);
+  animation: pin-snap 300ms var(--ease-out);
+}
+
+.multiselect-pin-icon.pinned:hover {
+  color: var(--color-primary-700);
+  background-color: var(--color-primary-100);
+}
+
+@keyframes pin-snap {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.25) rotate(-8deg); }
+  60% { transform: scale(0.92); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Favorites divider between pinned and unpinned sections */
+.multiselect-favorites-divider {
+  height: 1px;
+  margin: var(--space-1) var(--space-3);
+  background-color: var(--border-subtle);
+}
+
 /* Legacy support: hide native checkbox if present */
 .multiselect-checkbox {
   display: none;

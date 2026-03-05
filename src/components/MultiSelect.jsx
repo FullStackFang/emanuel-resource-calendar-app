@@ -13,8 +13,11 @@ function MultiSelect({
   customHeight,
   customPadding,
   searchable = false,
-  icon = null
+  icon = null,
+  favorites = null,
+  onFavoritesChange = null
 }) {
+  const hasFavorites = favorites !== null && onFavoritesChange !== null;
   const [isOpen, setIsOpen] = useState(false);
   const [localSelected, setLocalSelected] = useState(selected);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +99,30 @@ function MultiSelect({
     const query = searchQuery.toLowerCase().trim();
     return options.filter(option => option.toLowerCase().includes(query));
   }, [options, searchQuery]);
+
+  // When favorites enabled, split filtered options into pinned (top) and unpinned (bottom)
+  const sortedFilteredOptions = useMemo(() => {
+    if (!hasFavorites) return { pinned: [], unpinned: filteredOptions };
+    const pinned = filteredOptions
+      .filter(opt => favorites.includes(opt))
+      .sort((a, b) => a.localeCompare(b));
+    const unpinned = filteredOptions
+      .filter(opt => !favorites.includes(opt))
+      .sort((a, b) => a.localeCompare(b));
+    return { pinned, unpinned };
+  }, [hasFavorites, filteredOptions, favorites]);
+
+  const toggleFavorite = useCallback((option, event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!onFavoritesChange) return;
+    const next = favorites.includes(option)
+      ? favorites.filter(f => f !== option)
+      : [...favorites, option];
+    onFavoritesChange(next);
+  }, [favorites, onFavoritesChange]);
 
   const toggleOption = useCallback((option, event) => {
     if (event) {
@@ -312,6 +339,66 @@ function MultiSelect({
               <div className="multiselect-empty">
                 No matches for "{searchQuery}"
               </div>
+            ) : hasFavorites ? (
+              <>
+                {sortedFilteredOptions.pinned.map((option) => (
+                  <div
+                    key={option}
+                    onClick={(e) => toggleOption(option, e)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`multiselect-option ${localSelected.includes(option) ? 'selected' : ''}`}
+                  >
+                    <span className="multiselect-check-box">
+                      {localSelected.includes(option) && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5L4 7.5L8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </span>
+                    <span className="multiselect-option-label">{option}</span>
+                    <button
+                      className="multiselect-pin-icon pinned"
+                      onClick={(e) => toggleFavorite(option, e)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title="Unpin favorite"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                {sortedFilteredOptions.pinned.length > 0 && sortedFilteredOptions.unpinned.length > 0 && (
+                  <div className="multiselect-favorites-divider" />
+                )}
+                {sortedFilteredOptions.unpinned.map((option) => (
+                  <div
+                    key={option}
+                    onClick={(e) => toggleOption(option, e)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`multiselect-option ${localSelected.includes(option) ? 'selected' : ''}`}
+                  >
+                    <span className="multiselect-check-box">
+                      {localSelected.includes(option) && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5L4 7.5L8 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </span>
+                    <span className="multiselect-option-label">{option}</span>
+                    <button
+                      className="multiselect-pin-icon"
+                      onClick={(e) => toggleFavorite(option, e)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title="Pin as favorite"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
+                        <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </>
             ) : (
               filteredOptions.map((option) => (
                 <div
