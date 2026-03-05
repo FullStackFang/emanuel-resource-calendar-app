@@ -3847,6 +3847,9 @@ import ConflictDialog from './shared/ConflictDialog';
         calendarId: selectedCalendarId,
         calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name,
 
+        // Categories (from grouped row click)
+        categories: (category && category !== 'Uncategorized') ? [category] : [],
+
         // Virtual Meeting
         virtualMeetingUrl: null,
         graphData: null

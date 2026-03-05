@@ -144,71 +144,7 @@
   font-size: var(--text-sm);
 }
 
-/* ==========================================================================
-   TAB NAVIGATION
-   ========================================================================== */
-
-.my-reservations .tabs-container {
-  margin-bottom: var(--space-5);
-}
-
-.my-reservations .tabs {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  align-items: center;
-  border-bottom: 1px solid var(--border-default);
-  padding-bottom: var(--space-1);
-}
-
-.my-reservations .tab {
-  padding: var(--space-2) var(--space-4);
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  cursor: pointer;
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-tertiary);
-  transition: var(--transition-all);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  position: relative;
-}
-
-.my-reservations .tab:hover {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-}
-
-.my-reservations .tab.active {
-  background: var(--color-primary-50);
-  color: var(--color-primary-600);
-}
-
-.my-reservations .tab.active::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: var(--color-primary-500);
-}
-
-.my-reservations .tab .count {
-  font-size: var(--text-xs);
-  opacity: 0.8;
-  background: var(--bg-tertiary);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-full);
-}
-
-.my-reservations .tab.active .count {
-  background: var(--color-primary-100);
-}
+/* Tab navigation removed — now uses rr-filter-bar from ReservationRequests.css */
 
 /* ==========================================================================
    RESERVATIONS LIST - Card Layout
@@ -1042,15 +978,6 @@
 
   .my-reservations h1 {
     font-size: var(--text-xl);
-  }
-
-  .my-reservations .tabs {
-    gap: var(--space-1);
-  }
-
-  .my-reservations .tab {
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--text-xs);
   }
 
   .my-reservations .modal-actions {

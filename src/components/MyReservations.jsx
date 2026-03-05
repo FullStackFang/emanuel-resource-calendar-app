@@ -23,7 +23,11 @@ export default function MyReservations({ apiToken }) {
   const [allReservations, setAllReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('draft');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState('date_desc');
   const [page, setPage] = useState(1);
   const [restoreConflicts, setRestoreConflicts] = useState(null);
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
@@ -400,68 +404,124 @@ export default function MyReservations({ apiToken }) {
     setEditRequestRejectionReason('');
   }, []);
 
-  // Client-side filtering with memoization
+  // Stage 1: Apply search + date filters against all reservations
+  const searchFiltered = useMemo(() => {
+    let results = allReservations;
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      results = results.filter(r =>
+        (r.eventTitle || '').toLowerCase().includes(term) ||
+        (r.requesterName || '').toLowerCase().includes(term) ||
+        (r.roomReservationData?.requestedBy?.name || '').toLowerCase().includes(term) ||
+        (r.department || '').toLowerCase().includes(term) ||
+        (r.roomReservationData?.requestedBy?.department || '').toLowerCase().includes(term) ||
+        (r.locationDisplayNames || '').toLowerCase().includes(term) ||
+        (r.eventDescription || '').toLowerCase().includes(term)
+      );
+    }
+
+    if (dateFrom) {
+      results = results.filter(r => r.startDate >= dateFrom);
+    }
+    if (dateTo) {
+      results = results.filter(r => r.startDate <= dateTo);
+    }
+
+    return results;
+  }, [allReservations, searchTerm, dateFrom, dateTo]);
+
+  // Stage 2: Apply status dropdown filter
   const filteredReservations = useMemo(() => {
-    if (activeTab === 'draft') {
-      return allReservations.filter(r => r.status === 'draft');
-    }
-    if (activeTab === 'pending') {
-      return allReservations.filter(r => r.status === 'pending');
-    }
-    if (activeTab === 'published') {
-      // Published = published status WITHOUT a pending edit request
-      return allReservations.filter(r =>
-        r.status === 'published' &&
-        (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
-      );
-    }
-    if (activeTab === 'published_edit') {
-      // Published Edit = published status WITH a pending edit request
-      return allReservations.filter(r =>
-        r.status === 'published' &&
-        r.pendingEditRequest?.status === 'pending'
-      );
-    }
-    if (activeTab === 'rejected') {
-      return allReservations.filter(r => r.status === 'rejected');
-    }
-    if (activeTab === 'cancelled') {
-      return allReservations.filter(r => r.status === 'cancelled');
-    }
-    if (activeTab === 'deleted') {
-      return allReservations.filter(r => r.status === 'deleted');
-    }
-    return allReservations.filter(reservation => reservation.status === activeTab);
-  }, [allReservations, activeTab]);
+    if (!statusFilter) return searchFiltered;
 
-  // Count for each status tab
-  const statusCounts = useMemo(() => ({
-    draft: allReservations.filter(r => r.status === 'draft').length,
-    pending: allReservations.filter(r => r.status === 'pending').length,
-    published: allReservations.filter(r =>
-      r.status === 'published' &&
-      (!r.pendingEditRequest || r.pendingEditRequest.status !== 'pending')
-    ).length,
-    published_edit: allReservations.filter(r =>
-      r.status === 'published' &&
-      r.pendingEditRequest?.status === 'pending'
-    ).length,
-    rejected: allReservations.filter(r => r.status === 'rejected').length,
-    cancelled: allReservations.filter(r => r.status === 'cancelled').length,
-    deleted: allReservations.filter(r => r.status === 'deleted').length,
-  }), [allReservations]);
+    return searchFiltered.filter(r => {
+      switch (statusFilter) {
+        case 'draft':
+          return r.status === 'draft';
+        case 'pending':
+          return r.status === 'pending';
+        case 'published':
+          return r.status === 'published' && r.pendingEditRequest?.status !== 'pending';
+        case 'published_edit':
+          return r.status === 'published' && r.pendingEditRequest?.status === 'pending';
+        case 'rejected':
+          return r.status === 'rejected';
+        case 'cancelled':
+          return r.status === 'cancelled';
+        case 'deleted':
+          return r.status === 'deleted';
+        default:
+          return true;
+      }
+    });
+  }, [searchFiltered, statusFilter]);
 
-  // Pagination for filtered results
-  const itemsPerPage = 20;
-  const totalPages = Math.ceil(filteredReservations.length / itemsPerPage);
-  const startIndex = (page - 1) * itemsPerPage;
-  const paginatedReservations = filteredReservations.slice(startIndex, startIndex + itemsPerPage);
+  // Stage 3: Sort filtered results
+  const sortedReservations = useMemo(() => {
+    const sorted = [...filteredReservations];
+    sorted.sort((a, b) => {
+      switch (sortBy) {
+        case 'date_asc':
+          return (a.startDate || '').localeCompare(b.startDate || '');
+        case 'submitted_desc':
+          return (b.submittedAt || '').localeCompare(a.submittedAt || '');
+        case 'submitted_asc':
+          return (a.submittedAt || '').localeCompare(b.submittedAt || '');
+        case 'date_desc':
+        default:
+          return (b.startDate || '').localeCompare(a.startDate || '');
+      }
+    });
+    return sorted;
+  }, [filteredReservations, sortBy]);
 
-  // Reset page when tab changes
-  const handleTabChange = (newTab) => {
-    setActiveTab(newTab);
+  const hasActiveFilters = searchTerm || dateFrom || dateTo || statusFilter || sortBy !== 'date_desc';
+
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    setDateFrom('');
+    setDateTo('');
+    setStatusFilter('');
+    setSortBy('date_desc');
+  }, []);
+
+  // Reset page when filters change
+  useEffect(() => {
     setPage(1);
-  };
+  }, [searchTerm, dateFrom, dateTo, statusFilter, sortBy]);
+
+  // Pagination for sorted results
+  const itemsPerPage = 20;
+  const totalPages = Math.ceil(sortedReservations.length / itemsPerPage);
+  const startIndex = (page - 1) * itemsPerPage;
+  const paginatedReservations = sortedReservations.slice(startIndex, startIndex + itemsPerPage);
+
+  // Status badge helper for card display
+  const getStatusBadgeInfo = useCallback((reservation) => {
+    if (reservation.status === 'draft') {
+      return { label: 'Draft', className: 'status-draft' };
+    }
+    if (reservation.status === 'pending') {
+      return { label: 'Pending', className: 'status-pending' };
+    }
+    if (reservation.status === 'published' && reservation.pendingEditRequest?.status === 'pending') {
+      return { label: 'Edit Requested', className: 'status-published-edit' };
+    }
+    if (reservation.status === 'published') {
+      return { label: 'Published', className: 'status-published' };
+    }
+    if (reservation.status === 'rejected') {
+      return { label: 'Rejected', className: 'status-rejected' };
+    }
+    if (reservation.status === 'cancelled') {
+      return { label: 'Cancelled', className: 'status-cancelled' };
+    }
+    if (reservation.status === 'deleted') {
+      return { label: 'Deleted', className: 'status-deleted' };
+    }
+    return { label: reservation.status, className: 'status-pending' };
+  }, []);
 
   // Calculate days until draft auto-deletes
   const getDaysUntilDelete = (draftCreatedAt) => {
@@ -914,58 +974,89 @@ export default function MyReservations({ apiToken }) {
         </div>
       )}
 
-      {/* Tab Navigation */}
-      <div className="tabs-container">
-        <div className="tabs">
-          <button
-            className={`tab ${activeTab === 'draft' ? 'active' : ''}`}
-            onClick={() => handleTabChange('draft')}
-          >
-            Draft
-            <span className="count draft-count">({statusCounts.draft})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'pending' ? 'active' : ''}`}
-            onClick={() => handleTabChange('pending')}
-          >
-            Pending
-            <span className="count">({statusCounts.pending})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'published' ? 'active' : ''}`}
-            onClick={() => handleTabChange('published')}
-          >
-            Published
-            <span className="count">({statusCounts.published})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'published_edit' ? 'active' : ''}`}
-            onClick={() => handleTabChange('published_edit')}
-          >
-            Published Edit
-            <span className="count">({statusCounts.published_edit})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'rejected' ? 'active' : ''}`}
-            onClick={() => handleTabChange('rejected')}
-          >
-            Rejected
-            <span className="count">({statusCounts.rejected})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'cancelled' ? 'active' : ''}`}
-            onClick={() => handleTabChange('cancelled')}
-          >
-            Cancelled
-            <span className="count">({statusCounts.cancelled})</span>
-          </button>
-          <button
-            className={`tab ${activeTab === 'deleted' ? 'active' : ''}`}
-            onClick={() => handleTabChange('deleted')}
-          >
-            Deleted
-            <span className="count">({statusCounts.deleted})</span>
-          </button>
+      {/* Filter Bar */}
+      <div className="rr-filter-bar">
+        <div className="rr-search-container">
+          <svg className="rr-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            type="text"
+            className="rr-search-input"
+            placeholder="Search by title, room, or description..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button className="rr-search-clear" onClick={() => setSearchTerm('')} title="Clear search">
+              &times;
+            </button>
+          )}
+        </div>
+
+        <div className="rr-secondary-filters">
+          <div className={`rr-date-filters${dateFrom || dateTo ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              From
+            </label>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <label>To</label>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          <div className={`rr-status-filter${statusFilter ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              Status
+            </label>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="pending">Pending</option>
+              <option value="published">Published</option>
+              <option value="published_edit">Edit Requested</option>
+              <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="deleted">Deleted</option>
+            </select>
+          </div>
+          <div className={`rr-sort-filter${sortBy !== 'date_desc' ? ' active' : ''}`}>
+            <label>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <polyline points="19 12 12 19 5 12" />
+              </svg>
+              Sort
+            </label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="date_desc">Event Date (Newest)</option>
+              <option value="date_asc">Event Date (Oldest)</option>
+              <option value="submitted_desc">Submitted (Newest)</option>
+              <option value="submitted_asc">Submitted (Oldest)</option>
+            </select>
+          </div>
+          {hasActiveFilters && (
+            <div className="rr-filter-actions">
+              <button className="rr-clear-filters" onClick={clearFilters}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+                Clear
+              </button>
+              <span className="rr-filter-results">
+                {sortedReservations.length} of {allReservations.length}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -982,6 +1073,9 @@ export default function MyReservations({ apiToken }) {
               <div className="mr-card-header">
                 <div className="mr-card-title-row">
                   <h3 className="mr-card-title">{reservation.eventTitle || 'Untitled'}</h3>
+                  <span className={`status-badge ${getStatusBadgeInfo(reservation).className}`}>
+                    {getStatusBadgeInfo(reservation).label}
+                  </span>
                   {reservation.attendeeCount > 0 && (
                     <span className="mr-attendee-pill">{reservation.attendeeCount} attendees</span>
                   )}
@@ -1105,23 +1199,13 @@ export default function MyReservations({ apiToken }) {
         {paginatedReservations.length === 0 && !loading && (
           <div className="mr-empty-state">
             <div className="mr-empty-icon">
-              {activeTab === 'draft' ? '📝' : activeTab === 'pending' ? '⏳' : activeTab === 'published' ? '✅' : activeTab === 'rejected' ? '❌' : activeTab === 'deleted' ? '🗑️' : '📁'}
+              {hasActiveFilters ? '🔍' : '📁'}
             </div>
-            <h3>No {activeTab === 'published_edit' ? 'pending edits' : activeTab} reservations</h3>
+            <h3>{hasActiveFilters ? 'No matching reservations' : 'No reservations'}</h3>
             <p>
-              {activeTab === 'draft'
-                ? "You don't have any saved drafts."
-                : activeTab === 'pending'
-                ? "You don't have any pending requests."
-                : activeTab === 'published'
-                ? "You don't have any published reservations."
-                : activeTab === 'published_edit'
-                ? "No reservations with pending edit requests."
-                : activeTab === 'rejected'
-                ? "You don't have any rejected reservations."
-                : activeTab === 'deleted'
-                ? "You don't have any deleted reservations."
-                : `You don't have any ${activeTab} reservations.`}
+              {hasActiveFilters
+                ? 'Try adjusting your search or filters.'
+                : "You don't have any reservation requests yet."}
             </p>
           </div>
         )}
