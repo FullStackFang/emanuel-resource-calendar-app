@@ -197,6 +197,11 @@
   margin-left: auto;
 }
 
+.rr-filter-actions.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .rr-clear-filters {
   display: inline-flex;
   align-items: center;
