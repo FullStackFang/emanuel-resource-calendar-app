@@ -1239,6 +1239,18 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         details={reviewModal.conflictInfo?.details}
         staleData={reviewModal.conflictInfo?.staleData}
       />
+
+      {/* Soft Conflict Confirmation Dialog */}
+      {reviewModal.softConflictConfirmation && (
+        <ConflictDialog
+          isOpen={true}
+          onClose={reviewModal.dismissSoftConflictConfirmation}
+          onConfirm={reviewModal.softConflictConfirmation.retryFn}
+          conflictType="soft_conflict"
+          eventTitle={reviewModal.currentItem?.eventTitle || 'Event'}
+          details={{ message: reviewModal.softConflictConfirmation.message }}
+        />
+      )}
     </div>
   );
 }

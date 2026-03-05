@@ -1,5 +1,5 @@
 // src/components/SchedulingAssistant.jsx
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react';
 import { logger } from '../utils/logger';
 import './SchedulingAssistant.css';
 
@@ -31,9 +31,11 @@ export default function SchedulingAssistant({
   const [activeRoomIndex, setActiveRoomIndex] = useState(0); // Track which room tab is active
   const [roomStats, setRoomStats] = useState({}); // Stats per room: { roomId: { conflictCount, events } }
   const [draggingEventId, setDraggingEventId] = useState(null);
+  const [tooltipInfo, setTooltipInfo] = useState(null);
   const [dragOffsets, setDragOffsets] = useState({}); // Track drag offset for each event
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const tooltipRef = useRef(null);
   const timelineRef = useRef(null);
   const tabsContainerRef = useRef(null);
   const manuallyAdjustedPositions = useRef({}); // Track manually dragged positions: { eventId: { top, startTime, endTime } }
@@ -43,6 +45,22 @@ export default function SchedulingAssistant({
   const dragClickOffset = useRef(0); // Track where on event block user clicked (for accurate cursor tracking)
   const liveDragOffset = useRef(0); // Track live drag offset during drag (for smooth CSS transform without re-renders)
   const lastMouseY = useRef(0); // Track last mouse Y position for position updates during auto-scroll
+
+  // Measure tooltip and position near cursor, flipping if near viewport edge
+  useLayoutEffect(() => {
+    if (!tooltipRef.current || !tooltipInfo) return;
+    const el = tooltipRef.current;
+    const { x, y } = tooltipInfo;
+    const rect = el.getBoundingClientRect();
+    const offset = 10;
+
+    el.style.top = (y + rect.height + offset > window.innerHeight)
+      ? `${y - rect.height - offset}px`
+      : `${y + offset}px`;
+    el.style.left = (x + rect.width + offset > window.innerWidth)
+      ? `${x - rect.width - offset}px`
+      : `${x + offset}px`;
+  }, [tooltipInfo]);
 
   const PIXELS_PER_HOUR = 50; // 50px per hour
   const START_HOUR = 0;  // Start at 12 AM (midnight)
@@ -261,7 +279,7 @@ export default function SchedulingAssistant({
           const position = calculateEventPosition(startTime, endTime);
 
           blocks.push({
-            id: pendingEditId,
+            id: `${pendingEditId}-pending-edit`,
             type: 'pending-edit',
             room,
             roomIndex,
@@ -414,6 +432,7 @@ export default function SchedulingAssistant({
           stats[room._id].hardConflictCount = hardConflicts.length;
           stats[room._id].softConflictCount = softConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
+          stats[room._id].conflictDetails = conflictsWithUserEvent.map(b => b.title).join(', ');
         }
       } else {
         // No user event - show all conflicts
@@ -425,6 +444,7 @@ export default function SchedulingAssistant({
           stats[room._id].hardConflictCount = hardConflicts.length;
           stats[room._id].softConflictCount = softConflicts.length;
           stats[room._id].eventCount = roomBlocks.length;
+          stats[room._id].conflictDetails = conflictingEvents.map(b => b.title).join(', ');
         }
       }
     });
@@ -770,6 +790,7 @@ export default function SchedulingAssistant({
     dragClickOffset.current = clickOffsetY / 0.75; // Convert to logical coordinates for zoom
 
     setDraggingEventId(block.id);
+    setTooltipInfo(null); // Hide tooltip during drag
 
     // Reset offset for this event
     liveDragOffset.current = 0;
@@ -1102,25 +1123,29 @@ export default function SchedulingAssistant({
     let opacity, cursor, boxShadow, backgroundColor, filter;
 
     if (isUserEvent) {
-      opacity = hasConflict ? 0.95 : 0.9;
+      opacity = 1;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
       boxShadow = isDragging
-        ? '0 8px 20px rgba(0, 120, 212, 0.5)'
-        : '0 0 0 3px rgba(0, 120, 212, 0.5)';
+        ? '0 12px 28px rgba(59, 110, 184, 0.45), 0 0 0 2px rgba(59, 110, 184, 0.6)'
+        : '0 0 0 2px rgba(59, 110, 184, 0.5), 0 4px 12px rgba(59, 110, 184, 0.25)';
       backgroundColor = block.color;
       filter = 'none';
     } else if (block.isPendingEdit) {
       opacity = 0.85;
       cursor = 'not-allowed';
-      boxShadow = 'none';
-      backgroundColor = '#f59e0b'; // Amber
+      boxShadow = '0 0 0 2px rgba(234, 88, 12, 0.5)';
+      backgroundColor = '#ea580c';
       filter = 'none';
     } else if (isLocked) {
-      opacity = conflictsWithUser ? 0.85 : 0.75;
+      opacity = conflictsWithUser ? 0.8 : 0.55;
       cursor = 'not-allowed';
-      boxShadow = 'none';
-      backgroundColor = block.isAllowedConcurrent ? '#4aba6d' : '#999999';
-      filter = block.isAllowedConcurrent ? 'none' : (conflictsWithUser ? 'none' : 'grayscale(100%)');
+      boxShadow = conflictsWithUser
+        ? 'inset 3px 0 0 0 #dc2626'
+        : 'inset 0 1px 3px rgba(0, 0, 0, 0.15)';
+      backgroundColor = block.isAllowedConcurrent
+        ? '#4aba6d'
+        : (conflictsWithUser ? '#6b7280' : '#9ca3af');
+      filter = block.isAllowedConcurrent ? 'none' : (conflictsWithUser ? 'saturate(0.3)' : 'saturate(0)');
     } else {
       opacity = hasConflict ? 0.95 : 0.8;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
@@ -1129,44 +1154,6 @@ export default function SchedulingAssistant({
         : '0 0 0 3px rgba(0, 120, 212, 0.5)';
       backgroundColor = block.color;
       filter = 'none';
-    }
-
-    // Multi-day date range for tooltips
-    const multiDayRange = isMultiDayBlock
-      ? `\n${block.originalStartTime.toLocaleDateString()} - ${block.originalEndTime.toLocaleDateString()}`
-      : '';
-
-    // Build tooltip text (no emoji)
-    let title;
-    if (isUserEvent && hasConflict) {
-      // Name the specific conflicting events
-      const conflictingBlocks = allVisibleBlocks.filter(other => {
-        if (other.id === block.id) return false;
-        if (other.isAllowedConcurrent) return false;
-        return block.startTime < other.endTime && block.endTime > other.startTime;
-      });
-      const conflictList = conflictingBlocks.map(c =>
-        `  - "${c.title}" (${formatTime(c.startTime)} - ${formatTime(c.endTime)})`
-      ).join('\n');
-      title = `CONFLICT: ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nConflicts with:\n${conflictList}\n\nDrag to reschedule`;
-    } else if (isUserEvent) {
-      title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\n\nDrag to reschedule\nNo conflicts at this time`;
-    } else if (block.isPendingEdit) {
-      const moveDetail = block.originalLocations
-        ? `\nMoving from: ${Array.isArray(block.originalLocations) ? block.originalLocations.join(', ') : block.originalLocations}`
-        : '';
-      const reason = block.changeReason ? `\nReason: ${block.changeReason}` : '';
-      title = `PENDING EDIT: ${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${moveDetail}${reason}\n\nThis room/time is held pending edit approval`;
-    } else if (isLocked) {
-      const concurrentNote = block.isAllowedConcurrent ? '\nAllows concurrent events (no conflict)' : '';
-      const conflictNote = conflictsWithUser ? '\nConflicts with your event' : '';
-      if (block.type === 'reservation') {
-        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${multiDayRange}\nOrganizer: ${block.organizer}${concurrentNote}${conflictNote}\n\nClick the arrow to open this reservation`;
-      } else {
-        title = `${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}${multiDayRange}\nOrganizer: ${block.organizer}${concurrentNote}${conflictNote}`;
-      }
-    } else {
-      title = `${hasConflict ? 'CONFLICT: ' : ''}${block.title}\n${formatTime(block.startTime)} - ${formatTime(block.endTime)}\nOrganizer: ${block.organizer}\n\nDrag to reschedule${hasConflict ? '\nOverlaps with other events' : '\nNo conflicts'}`;
     }
 
     // Build CSS class list
@@ -1204,16 +1191,29 @@ export default function SchedulingAssistant({
           transition: isDragging ? 'none' : 'all 0.2s'
         }}
         onMouseDown={!isLocked && !disabled ? (e) => handleMouseDown(e, block) : undefined}
-        title={title}
+        onMouseEnter={(e) => {
+          if (draggingEventId) return;
+          setTooltipInfo({ block, x: e.clientX, y: e.clientY });
+        }}
+        onMouseMove={(e) => {
+          if (draggingEventId || !tooltipInfo) return;
+          setTooltipInfo({ block, x: e.clientX, y: e.clientY });
+        }}
+        onMouseLeave={() => setTooltipInfo(null)}
       >
         <div className="event-block-content">
           {isUserEvent && (
             <span className="sa-user-label">YOUR EVENT</span>
           )}
           <div className="event-block-header">
-            {isLocked && (
-              <svg className="sa-lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            {isLocked && !block.isPendingEdit && (
+              <svg className="sa-lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z" />
+              </svg>
+            )}
+            {block.isPendingEdit && (
+              <svg className="sa-pencil-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
               </svg>
             )}
             <span className="event-title">{block.title}</span>
@@ -1238,27 +1238,13 @@ export default function SchedulingAssistant({
           <div className="event-time">
             {formatTime(block.startTime)} - {formatTime(block.endTime)}
           </div>
-          {conflictsWithUser && (
-            <div className="event-conflict-label">Conflicts with your event</div>
-          )}
           {block.isAllowedConcurrent && !isUserEvent && (
             <div className="event-concurrent-label">Allows Overlap</div>
-          )}
-          {block.isPendingEdit && (
-            <div className="event-pending-edit-label">Pending Edit</div>
-          )}
-          {block.isPendingEdit && block.originalLocations && (
-            <div className="event-pending-edit-detail">
-              Moving from {Array.isArray(block.originalLocations) ? block.originalLocations.join(', ') : block.originalLocations}
-            </div>
           )}
           {isMultiDayBlock && (
             <div className="event-multi-day-label">
               Multi-day ({new Date(block.originalStartTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(block.originalEndTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
             </div>
-          )}
-          {block.organizer && (
-            <div className="event-organizer">{block.organizer}</div>
           )}
           {block.status && block.status === 'pending' && (
             <div className="event-status">Pending</div>
@@ -1316,52 +1302,66 @@ export default function SchedulingAssistant({
     }
     clusters.push(sorted.slice(clusterStart));
 
-    // Within each cluster, assign columns greedily
+    // Within each cluster, assign columns using greedy interval coloring
+    // All blocks in a cluster share the same totalColumns for even distribution
     for (const cluster of clusters) {
       if (cluster.length === 1) {
         layout.set(cluster[0].id, { column: 0, totalColumns: 1, left: 0, width: 100 });
         continue;
       }
 
-      // Column assignment: user event always gets column 0
-      const columnEnds = []; // Track when each column becomes free
-      const assignments = new Map();
-
-      // Sort within cluster: user events first, then by start time
-      const ordered = [...cluster].sort((a, b) => {
-        if (a.isUserEvent && !b.isUserEvent) return -1;
-        if (!a.isUserEvent && b.isUserEvent) return 1;
+      // Sort within cluster: user event leftmost, pending edits middle, locked rightmost
+      // Secondary sort by start time for stability
+      const typePriority = (b) => b.isUserEvent ? 0 : b.isPendingEdit ? 1 : 2;
+      const sortedCluster = [...cluster].sort((a, b) => {
+        const p = typePriority(a) - typePriority(b);
+        if (p !== 0) return p;
         return a.startTime - b.startTime;
       });
 
-      for (const block of ordered) {
-        // Find first column where this block fits (no overlap)
-        let assignedCol = -1;
-        for (let col = 0; col < columnEnds.length; col++) {
-          if (block.startTime >= columnEnds[col]) {
-            assignedCol = col;
-            columnEnds[col] = block.endTime;
+      // Greedy column assignment: assign each block to the first column
+      // where no existing block overlaps it
+      const columns = []; // columns[i] = array of blocks assigned to column i
+      const blockColumns = new Map(); // block.id -> column index
+
+      for (const block of sortedCluster) {
+        let placed = false;
+        for (let col = 0; col < columns.length; col++) {
+          // Check if block fits in this column (no overlap with any block already there)
+          const fits = columns[col].every(existing =>
+            block.startTime >= existing.endTime || block.endTime <= existing.startTime
+          );
+          if (fits) {
+            columns[col].push(block);
+            blockColumns.set(block.id, col);
+            placed = true;
             break;
           }
         }
-        if (assignedCol === -1) {
-          assignedCol = columnEnds.length;
-          columnEnds.push(block.endTime);
+        if (!placed) {
+          // Need a new column
+          columns.push([block]);
+          blockColumns.set(block.id, columns.length - 1);
         }
-        assignments.set(block.id, assignedCol);
       }
 
-      const totalColumns = columnEnds.length;
-      const stepPercent = Math.max(10, Math.floor(40 / totalColumns));
-      const widthPercent = 100 - (totalColumns - 1) * stepPercent;
+      const totalColumns = columns.length;
+      const width = 100 / totalColumns;
 
       for (const block of cluster) {
-        const col = assignments.get(block.id);
+        const col = blockColumns.get(block.id);
         layout.set(block.id, {
           column: col,
           totalColumns,
-          left: col * stepPercent,
-          width: widthPercent
+          left: col * width,
+          width
+        });
+      }
+
+      if (cluster.length > 1) {
+        cluster.forEach(block => {
+          const l = layout.get(block.id);
+          logger.debug(`  [Layout] "${block.title}" col=${l.column} left=${l.left.toFixed(1)}% width=${l.width.toFixed(1)}%`);
         });
       }
     }
@@ -1570,7 +1570,7 @@ export default function SchedulingAssistant({
                   style={{
                     backgroundColor: stats.conflictCount > 0 ? '#dc2626' : '#16a34a'
                   }}
-                  title={stats.conflictCount > 0 ? `${stats.conflictCount} conflict${stats.conflictCount !== 1 ? 's' : ''}` : 'No conflicts'}
+                  title={stats.conflictCount > 0 ? `${stats.conflictCount} conflict${stats.conflictCount !== 1 ? 's' : ''}: ${stats.conflictDetails || ''}` : 'No conflicts'}
                 >
                   {stats.conflictCount}
                 </span>
@@ -1709,6 +1709,28 @@ export default function SchedulingAssistant({
               ? `${activeRoomStats.conflictCount} conflict${activeRoomStats.conflictCount !== 1 ? 's' : ''}`
               : 'No conflicts'}
           </span>
+        </div>
+      )}
+
+      {/* Tooltip for event blocks — follows mouse cursor, positioned via useLayoutEffect */}
+      {tooltipInfo && (
+        <div
+          ref={tooltipRef}
+          className="sa-event-tooltip"
+          style={{ position: 'fixed', zIndex: 1000, pointerEvents: 'none', top: -9999, left: -9999 }}
+        >
+          {tooltipInfo.block.isUserEvent && <div className="tooltip-badge user">YOUR EVENT</div>}
+          {tooltipInfo.block.isPendingEdit && <div className="tooltip-badge pending-edit">PENDING EDIT</div>}
+          <div className="tooltip-title">{tooltipInfo.block.title}</div>
+          <div className="tooltip-time">
+            {formatTime(tooltipInfo.block.startTime)} - {formatTime(tooltipInfo.block.endTime)}
+          </div>
+          {tooltipInfo.block.organizer && (
+            <div className="tooltip-organizer">{tooltipInfo.block.organizer}</div>
+          )}
+          {tooltipInfo.block.status && (
+            <div className={`tooltip-status ${tooltipInfo.block.status}`}>{tooltipInfo.block.status}</div>
+          )}
         </div>
       )}
 

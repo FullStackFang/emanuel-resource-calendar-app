@@ -29,6 +29,7 @@ export default function ConflictDialog({
   isOpen,
   onClose,
   onRefresh,
+  onConfirm,
   conflictType = 'data_changed',
   eventTitle = 'Event',
   details = {},
@@ -94,6 +95,11 @@ export default function ConflictDialog({
       message = `${modifierName} already ${currentStatus} this event at ${formattedTime}.`;
       iconClass = 'conflict-icon-actioned';
       break;
+    case 'soft_conflict':
+      heading = 'Pending Edit Conflict';
+      message = details.message || 'This time slot has a pending edit request. Proceed anyway?';
+      iconClass = 'conflict-icon-soft';
+      break;
     case 'data_changed':
     default:
       heading = 'Conflict Detected';
@@ -108,7 +114,11 @@ export default function ConflictDialog({
         {/* Header */}
         <div className={`conflict-dialog-header ${iconClass}`}>
           <div className="conflict-dialog-icon">
-            {conflictType === 'data_changed' ? (
+            {conflictType === 'soft_conflict' ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+              </svg>
+            ) : conflictType === 'data_changed' ? (
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                 <line x1="12" y1="9" x2="12" y2="13"/>
@@ -171,7 +181,7 @@ export default function ConflictDialog({
             className="conflict-dialog-btn conflict-dialog-btn-secondary"
             onClick={onClose}
           >
-            Close
+            {conflictType === 'soft_conflict' ? 'Cancel' : 'Close'}
           </button>
           {conflictType === 'data_changed' && onRefresh && (
             <button
@@ -179,6 +189,14 @@ export default function ConflictDialog({
               onClick={onRefresh}
             >
               Reload & Re-edit
+            </button>
+          )}
+          {conflictType === 'soft_conflict' && onConfirm && (
+            <button
+              className="conflict-dialog-btn conflict-dialog-btn-warning"
+              onClick={onConfirm}
+            >
+              Proceed Anyway
             </button>
           )}
         </div>

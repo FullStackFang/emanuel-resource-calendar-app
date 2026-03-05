@@ -1292,6 +1292,18 @@ export default function MyReservations({ apiToken }) {
         staleData={reviewModal.conflictInfo?.staleData}
       />
 
+      {/* Soft Conflict Confirmation Dialog */}
+      {reviewModal.softConflictConfirmation && (
+        <ConflictDialog
+          isOpen={true}
+          onClose={reviewModal.dismissSoftConflictConfirmation}
+          onConfirm={reviewModal.softConflictConfirmation.retryFn}
+          conflictType="soft_conflict"
+          eventTitle={reviewModal.currentItem?.eventTitle || 'Event'}
+          details={{ message: reviewModal.softConflictConfirmation.message }}
+        />
+      )}
+
       {/* Scheduling Conflict Modal (for restore conflicts) */}
       {restoreConflicts && (
         <div className="mr-modal-overlay" onClick={() => setRestoreConflicts(null)}>

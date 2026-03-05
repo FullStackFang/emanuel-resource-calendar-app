@@ -31,6 +31,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Conflict dialog state (for 409 VERSION_CONFLICT responses)
   const [conflictInfo, setConflictInfo] = useState(null);
 
+  // Soft conflict confirmation state (for scheduling conflicts with pending edits)
+  const [softConflictConfirmation, setSoftConflictConfirmation] = useState(null);
+
   // Inline confirmation state for delete action
   const [pendingDeleteConfirmation, setPendingDeleteConfirmation] = useState(false);
 
@@ -275,24 +278,36 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         if (data.error === 'SchedulingConflict') {
           // Tiered conflict handling
           if (data.conflictTier === 'soft') {
-            // Soft conflicts: auto-retry with acknowledgement
-            const retryResponse = await fetch(endpoint, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-              body: JSON.stringify({ ...bodyData, _version: eventVersion, acknowledgeSoftConflicts: true })
+            // Soft conflicts: show confirmation dialog instead of auto-retrying
+            setSoftConflictConfirmation({
+              message: `This time slot has ${data.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
+              conflicts: data.softConflicts || data.conflicts || [],
+              retryFn: async () => {
+                setSoftConflictConfirmation(null);
+                setIsSaving(true);
+                try {
+                  const retryResponse = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+                    body: JSON.stringify({ ...bodyData, _version: eventVersion, acknowledgeSoftConflicts: true })
+                  });
+                  if (retryResponse.ok) {
+                    const retryResult = await retryResponse.json();
+                    if (onSuccess) onSuccess('Changes saved (pending edit conflicts acknowledged)', retryResult.event || retryResult);
+                    setEventVersion(retryResult.event?._version || retryResult._version);
+                    setHasChanges(false);
+                    return { success: true, event: retryResult.event || retryResult };
+                  }
+                  const retryData = await retryResponse.json().catch(() => ({}));
+                  const retryMsg = retryData.message || 'Cannot save: scheduling conflict(s) detected';
+                  if (onError) onError(retryMsg, retryData.conflicts);
+                  return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
+                } finally {
+                  setIsSaving(false);
+                }
+              }
             });
-            if (retryResponse.ok) {
-              const retryResult = await retryResponse.json();
-              if (onSuccess) onSuccess('Changes saved (pending edit conflicts acknowledged)', retryResult.event || retryResult);
-              setEventVersion(retryResult.event?._version || retryResult._version);
-              setHasChanges(false);
-              return { success: true, event: retryResult.event || retryResult };
-            }
-            // Retry failed (could be hard conflict now), fall through to error
-            const retryData = await retryResponse.json().catch(() => ({}));
-            const retryMsg = retryData.message || `Cannot save: scheduling conflict(s) detected`;
-            if (onError) onError(retryMsg, retryData.conflicts);
-            return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
+            return { success: false, error: 'SoftConflictPending' };
           }
           if (data.conflictTier === 'hard' && data.canForce && data.forceField) {
             // Hard conflicts with admin force override available - show in error
@@ -405,7 +420,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             body: JSON.stringify({
               ...formData,
               graphToken, // Include for any Graph sync needed
-              _version: latestVersion
+              _version: latestVersion,
+              ...(safeApprovalData.acknowledgeSoftConflicts ? { acknowledgeSoftConflicts: true } : {})
             })
           });
 
@@ -422,24 +438,18 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
             }
             if (saveData.error === 'SchedulingConflict') {
               if (saveData.conflictTier === 'soft') {
-                // Auto-acknowledge soft conflicts during publish flow
-                const retryResponse = await fetch(saveEndpoint, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-                  body: JSON.stringify({ ...formData, graphToken, _version: latestVersion, acknowledgeSoftConflicts: true })
+                // Soft conflicts: show confirmation dialog
+                setSoftConflictConfirmation({
+                  message: `This time slot has ${saveData.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
+                  conflicts: saveData.softConflicts || saveData.conflicts || [],
+                  retryFn: async () => {
+                    setSoftConflictConfirmation(null);
+                    // Re-invoke handleApprove — the save step will include acknowledgeSoftConflicts
+                    return handleApprove({ ...safeApprovalData, acknowledgeSoftConflicts: true });
+                  }
                 });
-                if (retryResponse.ok) {
-                  const retryResult = await retryResponse.json();
-                  latestVersion = retryResult.event?._version || retryResult._version || latestVersion;
-                  setEventVersion(latestVersion);
-                  // Continue to Step 2 (publish)
-                } else {
-                  const retryData = await retryResponse.json().catch(() => ({}));
-                  const retryMsg = retryData.message || 'Cannot publish: scheduling conflict(s) detected';
-                  if (onError) onError(retryMsg, retryData.conflicts);
-                  setIsApproving(false);
-                  return { success: false, error: 'SchedulingConflict', conflicts: retryData.conflicts };
-                }
+                setIsApproving(false);
+                return { success: false, error: 'SoftConflictPending' };
               } else {
                 // Hard conflicts
                 const msg = `Cannot publish: ${saveData.hardConflicts?.length || saveData.conflicts?.length || 0} scheduling conflict(s) with published events.`;
@@ -512,31 +522,44 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         }
         if (data.error === 'SchedulingConflict') {
           if (data.conflictTier === 'soft') {
-            // Auto-acknowledge soft conflicts and retry publish
-            const retryResponse = await fetch(endpoint, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
-              body: JSON.stringify({
-                graphToken,
-                notes: safeApprovalData.notes || '',
-                calendarMode: safeApprovalData.calendarMode || 'production',
-                createCalendarEvent: true,
-                forcePublish: safeApprovalData.forcePublish || false,
-                targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
-                _version: latestVersion,
-                acknowledgeSoftConflicts: true,
-              })
+            // Soft conflicts: show confirmation dialog
+            setSoftConflictConfirmation({
+              message: `This time slot has ${data.softConflicts?.length || 1} pending edit proposal(s). Proceeding will override them.`,
+              conflicts: data.softConflicts || data.conflicts || [],
+              retryFn: async () => {
+                setSoftConflictConfirmation(null);
+                setIsApproving(true);
+                try {
+                  const retryResponse = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` },
+                    body: JSON.stringify({
+                      graphToken,
+                      notes: safeApprovalData.notes || '',
+                      calendarMode: safeApprovalData.calendarMode || 'production',
+                      createCalendarEvent: true,
+                      forcePublish: safeApprovalData.forcePublish || false,
+                      targetCalendar: safeApprovalData.targetCalendar || selectedCalendarId || '',
+                      _version: latestVersion,
+                      acknowledgeSoftConflicts: true,
+                    })
+                  });
+                  if (retryResponse.ok) {
+                    const retryResult = await retryResponse.json();
+                    if (onSuccess) onSuccess(retryResult);
+                    await closeModal(true);
+                    return { success: true, data: retryResult };
+                  }
+                  const retryData = await retryResponse.json().catch(() => ({}));
+                  const retryMsg = retryData.message || 'Cannot publish: scheduling conflict(s) detected';
+                  if (onError) onError(retryMsg, retryData.conflicts);
+                  return { success: false, error: retryMsg, conflicts: retryData.conflicts };
+                } finally {
+                  setIsApproving(false);
+                }
+              }
             });
-            if (retryResponse.ok) {
-              const retryResult = await retryResponse.json();
-              if (onSuccess) onSuccess(retryResult);
-              await closeModal(true);
-              return { success: true, data: retryResult };
-            }
-            const retryData = await retryResponse.json().catch(() => ({}));
-            const retryMsg = retryData.message || 'Cannot publish: scheduling conflict(s) detected';
-            if (onError) onError(retryMsg, retryData.conflicts);
-            return { success: false, error: retryMsg, conflicts: retryData.conflicts };
+            return { success: false, error: 'SoftConflictPending' };
           }
           // Hard conflicts
           const message = `Cannot publish: ${data.hardConflicts?.length || data.conflicts?.length || 0} scheduling conflict(s) with published events.`;
@@ -751,6 +774,13 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
    */
   const dismissConflict = useCallback(() => {
     setConflictInfo(null);
+  }, []);
+
+  /**
+   * Dismiss the soft conflict confirmation dialog
+   */
+  const dismissSoftConflictConfirmation = useCallback(() => {
+    setSoftConflictConfirmation(null);
   }, []);
 
   /**
@@ -1043,6 +1073,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     pendingSaveConfirmation,
     eventVersion, // Current document version for optimistic concurrency
     conflictInfo, // Conflict dialog data (set on 409 VERSION_CONFLICT)
+    softConflictConfirmation, // Soft conflict confirmation dialog data
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
 
@@ -1073,6 +1104,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     cancelRejectConfirmation,
     cancelSaveConfirmation,
     dismissConflict, // Dismiss the conflict dialog
+    dismissSoftConflictConfirmation, // Dismiss the soft conflict confirmation dialog
 
     // Draft-specific actions
     handleSaveDraft,
