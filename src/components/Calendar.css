@@ -57,7 +57,8 @@
 
 .calendar-grid-container {
   flex: 1;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
@@ -438,7 +439,8 @@
 
 .calendar-grid {
   width: 100%;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   background-color: var(--bg-primary);
   border: 1px solid var(--border-default);
@@ -651,9 +653,9 @@
 /* ---------- Hover "+" add-event button (Week / Day views) ---------- */
 .day-cell .cell-add-event-btn {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0.6);
+  top: 8px;
+  right: 8px;
+  transform: scale(0.6);
   width: 36px;
   height: 36px;
   padding: 0;
@@ -681,12 +683,12 @@
 .day-cell:hover .cell-add-event-btn {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, -50%) scale(1);
+  transform: scale(1);
 }
 
 .day-cell .cell-add-event-btn:hover {
   background-color: var(--color-primary-600);
-  transform: translate(-50%, -50%) scale(1.15);
+  transform: scale(1.15);
   box-shadow: var(--shadow-md);
 }
 

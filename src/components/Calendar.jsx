@@ -1517,13 +1517,13 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {boolean} forceRefresh - Force full sync instead of delta
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null) => {
+    const loadEventsUnified = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false } = {}) => {
       if (!apiToken) {
         logger.debug("loadEventsUnified: Missing API token - returning false");
         return false;
       }
 
-      setLoading(true);
+      if (!silent) setLoading(true);
       
       try {
         // Prepare parameters for sync
@@ -1801,7 +1801,7 @@ import ConflictDialog from './shared/ConflictDialog';
         logger.error('loadEventsUnified failed:', error);
         return false;
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
         setLastFetchedAt(Date.now());
       }
     }, [graphToken, apiToken, selectedCalendarId, availableCalendars, dateRange, formatDateRangeForAPI]);
@@ -1811,7 +1811,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {boolean} forceRefresh - Force refresh from backend
      * @param {Array} calendarsData - Optional calendar data to use instead of state
      */
-    const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null) => {
+    const loadEvents = useCallback(async (forceRefresh = false, calendarsData = null, { silent = false } = {}) => {
       calendarDebug.logApiCall('loadEvents', 'start', { forceRefresh, isDemoMode });
 
       try {
@@ -1820,7 +1820,7 @@ import ConflictDialog from './shared/ConflictDialog';
         }
 
         // Load events from MongoDB via unified service
-        const result = await loadEventsUnified(forceRefresh, calendarsData);
+        const result = await loadEventsUnified(forceRefresh, calendarsData, { silent });
         calendarDebug.logApiCall('loadEvents', 'complete', { method: 'unified' });
         return result;
       } catch (error) {
@@ -1833,13 +1833,13 @@ import ConflictDialog from './shared/ConflictDialog';
     // Listen for refresh events from other views (AI chat, reservation requests, etc.)
     useDataRefreshBus('calendar', useCallback(() => {
       logger.debug('Data refresh bus triggered calendar refresh');
-      loadEvents(true);
+      loadEvents(true, null, { silent: true });
     }, [loadEvents]), !!apiToken && !isDemoMode);
 
     // Poll for updates every 120s (silent — no loading spinner, skip in demo mode or while modal is open)
     const silentCalendarRefresh = useCallback(() => {
       if (reviewModal.isOpen || eventReviewModal?.isOpen) return;
-      loadEvents(false);
+      loadEvents(false, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventReviewModal?.isOpen]);
     usePolling(silentCalendarRefresh, 120_000, !!apiToken && !isDemoMode);
 
@@ -1847,7 +1847,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const handleManualCalendarRefresh = useCallback(async () => {
       setIsManualRefreshing(true);
       try {
-        await loadEvents(true);
+        await loadEvents(true, null, { silent: true });
       } finally {
         setIsManualRefreshing(false);
       }
@@ -6669,7 +6669,7 @@ import ConflictDialog from './shared/ConflictDialog';
           <div className="calendar-main-content">
             {/* Calendar grid section */}
             <div className="calendar-grid-container">
-              <div className={`calendar-grid-wrapper ${isNavigating || loading ? 'navigating' : ''}`}>
+              <div className={`calendar-grid-wrapper ${isNavigating ? 'navigating' : ''}`}>
                   {viewType === 'month' ? (
                     <div className="calendar-content-wrapper">
                       <div 
