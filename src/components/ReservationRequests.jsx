@@ -1060,6 +1060,16 @@ export default function ReservationRequests({ apiToken, graphToken }) {
                     <span className="rr-submitted-time">{new Date(reservation.submittedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                   </div>
                 </div>
+
+                {/* Reason (rejected only) */}
+                {reservation.status === 'rejected' && reservation.reviewNotes && (
+                  <div className="rr-info-block">
+                    <span className="rr-info-label">Reason</span>
+                    <div className="rr-info-value rr-status-info">
+                      <span className="rr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Description Preview (if exists) */}

@@ -692,6 +692,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Status info styling */
+.rr-status-info {
+  color: var(--text-secondary);
+}
+
+.rr-rejection {
+  color: var(--color-error-600);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Card Description - with label */
 .rr-card-description {
   margin-top: var(--space-4);

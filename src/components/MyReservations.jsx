@@ -1166,12 +1166,12 @@ export default function MyReservations({ apiToken }) {
                 {/* Status Info (contextual) */}
                 <div className="mr-info-block">
                   <span className="mr-info-label">
-                    {isDraft ? 'Expires' : reservation.reviewNotes ? 'Reason' : 'Last Modified'}
+                    {isDraft ? 'Expires' : (reservation.status === 'rejected' && reservation.reviewNotes) ? 'Reason' : 'Last Modified'}
                   </span>
                   <div className="mr-info-value mr-status-info">
                     {isDraft && reservation.draftCreatedAt ? (
                       <span className="mr-expires">in {getDaysUntilDelete(reservation.draftCreatedAt)} days</span>
-                    ) : reservation.reviewNotes ? (
+                    ) : (reservation.status === 'rejected' && reservation.reviewNotes) ? (
                       <span className="mr-rejection" title={reservation.reviewNotes}>{reservation.reviewNotes}</span>
                     ) : (reservation.actionDate || reservation.lastModifiedDateTime) ? (
                       <span className="mr-last-modified">
