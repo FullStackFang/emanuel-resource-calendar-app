@@ -36,7 +36,8 @@ const WeekView = memo(({
   handleLocationRowClick, // New prop for location timeline modal
   canAddEvent,
   favorites,
-  onToggleFavorite
+  onToggleFavorite,
+  hideEmptyGroups
 }) => {
   // Get user's timezone preference from context
   const { userTimezone } = useTimezone();
@@ -81,10 +82,11 @@ const WeekView = memo(({
   };
   
   // Show ALL selected groups (not just those with events) so users can add events to empty groups
+  // When hideEmptyGroups is on, filter out groups with no events
   const activeGroups = useMemo(() => {
+    let sorted;
     if (groupBy === 'categories') {
-      // Show all selected categories, with 'Uncategorized' last
-      return [...selectedCategories].sort((a, b) => {
+      sorted = [...selectedCategories].sort((a, b) => {
         if (a === 'Uncategorized') return 1;
         if (b === 'Uncategorized') return -1;
         const aFav = favorites?.includes(a) ? 0 : 1;
@@ -92,10 +94,15 @@ const WeekView = memo(({
         if (aFav !== bFav) return aFav - bFav;
         return a.localeCompare(b);
       });
+      if (hideEmptyGroups) {
+        sorted = sorted.filter(cat => filteredEvents.some(event => {
+          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          return (categories[0] || 'Uncategorized') === cat;
+        }));
+      }
     } else {
-      // Show all location groups from pre-computed locationGroups, with special groups last
       const specialOrder = { 'Unspecified': 1, 'Offsite': 2 };
-      return Object.keys(locationGroups).sort((a, b) => {
+      sorted = Object.keys(locationGroups).sort((a, b) => {
         const aSpecial = specialOrder[a] || 0;
         const bSpecial = specialOrder[b] || 0;
         if (aSpecial !== bSpecial) return aSpecial - bSpecial;
@@ -104,8 +111,12 @@ const WeekView = memo(({
         if (aFav !== bFav) return aFav - bFav;
         return a.localeCompare(b);
       });
+      if (hideEmptyGroups) {
+        sorted = sorted.filter(group => locationGroups[group]?.events?.length > 0);
+      }
     }
-  }, [groupBy, selectedCategories, locationGroups, favorites]);
+    return sorted;
+  }, [groupBy, selectedCategories, locationGroups, favorites, hideEmptyGroups, filteredEvents]);
 
   return (
     <>

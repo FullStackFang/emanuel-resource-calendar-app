@@ -225,6 +225,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const [selectedLocations, setSelectedLocations] = useState([]);
     const [favoriteCategories, setFavoriteCategories] = useState([]);
     const [favoriteLocations, setFavoriteLocations] = useState([]);
+    const [hideEmptyGroups, setHideEmptyGroups] = useState(false);
     const [selectedMonthDay, setSelectedMonthDay] = useState(null);
 
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -1060,6 +1061,16 @@ import ConflictDialog from './shared/ConflictDialog';
                   Group by Location
                 </button>
               </div>
+              <button
+                className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
+                onClick={() => {
+                  const next = !hideEmptyGroups;
+                  setHideEmptyGroups(next);
+                  updateUserProfilePreferences({ hideEmptyGroups: next });
+                }}
+              >
+                Hide Empty
+              </button>
               {renderFilterControls()}
             </div>
           </div>
@@ -2149,6 +2160,9 @@ import ConflictDialog from './shared/ConflictDialog';
           }
           if (data.preferences?.favoriteLocations) {
             setFavoriteLocations(data.preferences.favoriteLocations);
+          }
+          if (data.preferences?.hideEmptyGroups != null) {
+            setHideEmptyGroups(data.preferences.hideEmptyGroups);
           }
           return true;
         }
@@ -6859,6 +6873,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}
+                          hideEmptyGroups={hideEmptyGroups}
                         />
                       ) : (
                         <DayView
@@ -6892,6 +6907,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}
+                          hideEmptyGroups={hideEmptyGroups}
                         />
                       )}
                     </div>
