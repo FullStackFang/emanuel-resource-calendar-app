@@ -16,6 +16,7 @@ import ReviewModal from './shared/ReviewModal';
 import EditRequestComparison from './EditRequestComparison';
 import ConflictDialog from './shared/ConflictDialog';
 import FreshnessIndicator from './shared/FreshnessIndicator';
+import './shared/FilterBar.css';
 import './ReservationRequests.css';
 
 export default function ReservationRequests({ apiToken, graphToken }) {

@@ -15,6 +15,7 @@ import RoomReservationReview from './RoomReservationReview';
 import ConflictDialog from './shared/ConflictDialog';
 import LoadingSpinner from './shared/LoadingSpinner';
 import FreshnessIndicator from './shared/FreshnessIndicator';
+import './shared/FilterBar.css';
 import './MyReservations.css';
 
 export default function MyReservations({ apiToken }) {

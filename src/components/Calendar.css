@@ -9,7 +9,6 @@
    ========================================================================== */
 
 .calendar-container {
-  --calendar-sidebar-width: 400px;
   --calendar-category-column-width: 180px;
 }
 
@@ -32,7 +31,6 @@
 
 .calendar-layout-container {
   display: flex;
-  gap: var(--space-4);
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -66,128 +64,33 @@
 }
 
 /* ==========================================================================
-   RIGHT SIDEBAR
+   ACTION BAR FILTER CONTROLS
    ========================================================================== */
 
-.calendar-right-sidebar {
-  width: var(--calendar-sidebar-width);
-  max-width: var(--calendar-sidebar-width);
+.action-bar-filter {
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  flex-shrink: 0;
-  height: fit-content;
-  align-self: flex-start;
-  box-sizing: border-box;
-  overflow: visible;
-  position: relative;
-  padding: 0;
-  box-shadow:
-    0 1px 3px 0 rgba(0, 0, 0, 0.06),
-    0 1px 2px -1px rgba(0, 0, 0, 0.06);
-  transition: box-shadow var(--duration-normal) var(--ease-in-out);
-}
-
-.calendar-right-sidebar:hover {
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.07),
-    0 2px 4px -2px rgba(0, 0, 0, 0.05);
-}
-
-/* ==========================================================================
-   SIDEBAR HEADER
-   ========================================================================== */
-
-.sidebar-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.sidebar-panel-title {
-  font-size: var(--text-xs);
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0;
-}
-
-.sidebar-event-count {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-weight: var(--font-medium);
-  font-variant-numeric: tabular-nums;
-}
-
-.sidebar-event-count strong {
-  color: var(--text-primary);
-  font-weight: var(--font-semibold);
-}
-
-/* ==========================================================================
-   SIDEBAR FILTER COMPONENTS
-   ========================================================================== */
-
-.calendar-right-sidebar .filters-container {
-  padding: var(--space-3) var(--space-4);
-  background-color: var(--bg-primary);
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-2);
-  width: 100%;
-  box-sizing: border-box;
-  overflow: visible;
+  gap: 2px;
+  min-width: 160px;
+  max-width: 200px;
   position: relative;
   z-index: 10;
 }
 
-.calendar-right-sidebar .filter-section {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  overflow: visible;
-  position: relative;
-  z-index: 1;
-}
-
-/* When a multiselect inside this section is open, raise above siblings */
-.calendar-right-sidebar .filter-section:has(.multiselect-container.is-open) {
+.action-bar-filter:has(.multiselect-container.is-open) {
   z-index: 20;
-}
-
-/* Right-align the Locations dropdown (last filter section) so it grows leftward */
-.calendar-right-sidebar .filter-section:last-child .multiselect-dropdown {
-  left: auto;
-  right: 0;
-}
-
-.calendar-right-sidebar .filter-section h3 {
-  margin: 0;
-  color: var(--color-primary-500);
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  text-align: center;
 }
 
 .filter-label {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: 10px;
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 .filter-label-icon {
@@ -196,57 +99,43 @@
   color: var(--text-tertiary);
 }
 
-.filter-title {
-  margin: 0 0 var(--space-2) 0;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-/* ==========================================================================
-   FILTER SUMMARY BAR
-   ========================================================================== */
-
-.filter-summary {
+/* Action Bar Filter Summary (inline badge) */
+.action-bar-filter-summary {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-1) var(--space-3);
   background-color: var(--color-neutral-50);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  min-height: 36px;
+  white-space: nowrap;
+  align-self: flex-end;
+  height: 32px;
+  box-sizing: border-box;
 }
 
-.filter-summary-icon {
-  display: flex;
-  align-items: center;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
+.action-bar-filter-summary.has-active-filter {
+  background-color: var(--color-primary-50);
+  border-color: var(--color-primary-200);
 }
 
-.filter-summary-text {
-  flex: 1;
+.action-bar-filter-summary.has-active-filter .action-bar-filter-summary-text {
+  color: var(--color-primary-700);
+}
+
+.action-bar-filter-summary-text {
   font-weight: var(--font-medium);
   color: var(--text-secondary);
 }
 
-.filter-summary-text strong {
+.action-bar-filter-summary-text strong {
   font-weight: var(--font-semibold);
   color: var(--text-primary);
 }
 
-.filter-summary.has-active-filter {
-  background-color: var(--color-primary-50);
-  border-top-color: var(--color-primary-100);
-}
-
-.filter-summary.has-active-filter .filter-summary-icon {
-  color: var(--color-primary-500);
-}
-
-.filter-summary.has-active-filter .filter-summary-text {
+.action-bar-filter-summary.has-active-filter .action-bar-filter-summary-text strong {
   color: var(--color-primary-700);
 }
 
@@ -267,84 +156,6 @@
 .filter-summary-reset:hover {
   background-color: var(--color-primary-100);
   color: var(--color-primary-700);
-}
-
-/* ==========================================================================
-   GROUPING INFO
-   ========================================================================== */
-
-.grouping-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border-subtle);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-.grouping-info-icon {
-  display: flex;
-  align-items: center;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.grouping-info-text {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  line-height: var(--leading-normal);
-}
-
-.grouping-info-text strong {
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-}
-
-/* Legacy classes - keep for backward compatibility */
-.grouping-title {
-  margin: 0 0 var(--space-2) 0;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.grouping-description {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
-}
-
-/* Legacy classes - kept for backward compatibility */
-.filter-status {
-  background: var(--color-info-50);
-  border: 1px solid var(--color-info-500);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  margin: var(--space-4);
-  font-size: var(--text-xs);
-  width: calc(100% - var(--space-8));
-  box-sizing: border-box;
-  position: relative;
-  z-index: 1;
-}
-
-.status-title {
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-1);
-  color: var(--color-info-600);
-}
-
-.status-info {
-  margin-bottom: 2px;
-  color: var(--text-primary);
-}
-
-.status-events {
-  font-weight: var(--font-semibold);
-  color: var(--color-info-600);
 }
 
 /* ==========================================================================
@@ -989,56 +800,6 @@
 }
 
 /* ==========================================================================
-   SIDEBAR LOADING PLACEHOLDER
-   ========================================================================== */
-
-.sidebar-loading-placeholder {
-  padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  height: 100%;
-  min-height: 400px;
-}
-
-.loading-placeholder-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.loading-placeholder-title {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-secondary);
-  text-align: center;
-  margin-bottom: var(--space-2);
-}
-
-.loading-placeholder-content {
-  height: 80px;
-  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
-  background-size: 200% 100%;
-  animation: loading-shimmer 2s infinite;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-default);
-}
-
-@keyframes loading-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-.calendar-sidebar-spacer {
-  width: 0;
-  flex-shrink: 0;
-}
-
-/* ==========================================================================
    MODE TOGGLE CONTAINER
    ========================================================================== */
 
@@ -1048,6 +809,9 @@
   border-radius: var(--radius-xl);
   border: 1px solid var(--border-default);
   margin-bottom: var(--space-5);
+  overflow: visible;
+  position: relative;
+  z-index: 20;
 }
 
 .mode-toggle-row {
@@ -1056,6 +820,7 @@
   justify-content: space-between;
   gap: var(--space-4);
   flex-wrap: wrap;
+  overflow: visible;
 }
 
 .mode-toggle-controls {
@@ -1224,6 +989,15 @@
   gap: var(--space-3);
 }
 
+/* Action Bar Right Group (Group-by + Filters + Summary) */
+.action-bar-right {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
 .group-by-btn.active {
   background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
   color: var(--text-inverse);
@@ -1251,49 +1025,9 @@
    RESPONSIVE DESIGN
    ========================================================================== */
 
-@media (max-width: 1600px) {
-  .calendar-container {
-    --calendar-sidebar-width: 380px;
-  }
-}
-
-@media (max-width: 1400px) {
-  .calendar-container {
-    --calendar-sidebar-width: 350px;
-  }
-}
-
 @media (max-width: 1200px) {
-  .calendar-container {
-    --calendar-sidebar-width: 320px;
-  }
-
-  .calendar-layout-container {
-    flex-direction: column;
-  }
-
-  .calendar-right-sidebar {
-    width: 100%;
-    min-width: auto;
-    border: 1px solid var(--border-default);
-    border-top: 1px solid var(--border-default);
-    height: auto;
-    align-self: stretch;
-  }
-
-  .filters-container {
-    padding: var(--space-2) var(--space-3);
-    gap: var(--space-2);
-    overflow: visible;
-  }
-
-  .sidebar-panel-header {
-    padding: var(--space-2) var(--space-3);
-  }
-
-  .filter-summary,
-  .grouping-info {
-    padding: var(--space-2) var(--space-3);
+  .action-bar-filter {
+    min-width: 140px;
   }
 }
 
@@ -1328,8 +1062,9 @@
     padding: var(--space-3) var(--space-4);
   }
 
-  .filters-container {
-    gap: var(--space-2);
+  .action-bar-filter {
+    min-width: 120px;
+    max-width: 160px;
   }
 
   .settings-group {
