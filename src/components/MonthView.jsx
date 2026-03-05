@@ -144,7 +144,7 @@ const MonthView = memo(({
                     <div className="day-cell-header">
                       <div className={`day-number ${isTodayDate ? 'today-number' : ''}`}>{day.date.getDate()}</div>
                     </div>
-                    {day.isCurrentMonth && canAddEvent && (
+                    {canAddEvent && (
                       <button
                         className="cell-add-event-btn"
                         onClick={(e) => handleAddEventClick(e, day)}

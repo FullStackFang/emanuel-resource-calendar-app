@@ -136,6 +136,11 @@
   outline-offset: -2px;
 }
 
+/* Current-month cells get a subtle top accent border */
+.month-view-wrapper .day-cell:not(.outside-month) {
+  border-top: 2px solid var(--color-primary-200);
+}
+
 .day-cell.outside-month {
   background-color: var(--bg-tertiary);
 }
@@ -266,7 +271,20 @@
 
 /* Outside-month snippets faded */
 .day-cell.outside-month .month-event-snippet {
-  opacity: 0.5;
+  opacity: 0.6;
+}
+
+/* Outside-month "+" button: muted until hovered */
+.day-cell.outside-month .cell-add-event-btn {
+  opacity: 0;
+  background-color: var(--color-neutral-400);
+}
+.day-cell.outside-month:hover .cell-add-event-btn {
+  opacity: 0.7;
+}
+.day-cell.outside-month .cell-add-event-btn:hover {
+  opacity: 1;
+  background-color: var(--color-primary-500);
 }
 
 /* ==========================================================================
