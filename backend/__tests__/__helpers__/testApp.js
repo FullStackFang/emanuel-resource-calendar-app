@@ -2193,26 +2193,82 @@ function createTestApp(options = {}) {
       }
 
       // Graph sync via graphApiService (app-only auth)
+      const cd = event.calendarData || {};
       const graphEventId = event.graphData?.id;
       let graphSyncResult = null;
       if (graphEventId && event.calendarOwner) {
         try {
-          const graphUpdate = {};
-          if (finalChanges.eventTitle) graphUpdate.subject = finalChanges.eventTitle;
-          if (finalChanges.startDateTime) graphUpdate.startDateTime = finalChanges.startDateTime;
-          if (finalChanges.endDateTime) graphUpdate.endDateTime = finalChanges.endDateTime;
-          if (finalChanges.eventDescription) graphUpdate.eventDescription = finalChanges.eventDescription;
-          if (finalChanges.categories) graphUpdate.categories = finalChanges.categories;
-          if (finalChanges.locationDisplayNames) graphUpdate.location = { displayName: finalChanges.locationDisplayNames };
-
-          if (Object.keys(graphUpdate).length > 0) {
-            graphSyncResult = await graphApiMock.updateCalendarEvent(
-              event.calendarOwner,
-              event.calendarId,
-              graphEventId,
-              graphUpdate
-            );
+          // Pre-process locations: resolve ObjectIds to display names
+          let processedLocationsArray = [];
+          const effectiveLocationIds = finalChanges.locations || finalChanges.requestedRooms || cd.locations;
+          if (!finalChanges.isOffsite && effectiveLocationIds && Array.isArray(effectiveLocationIds) && effectiveLocationIds.length > 0) {
+            try {
+              const locationIds = effectiveLocationIds.map(id =>
+                typeof id === 'string' ? new ObjectId(id) : id
+              );
+              const locationDocs = await testCollections.locations.find({
+                _id: { $in: locationIds }
+              }).toArray();
+              processedLocationsArray = locationDocs
+                .map(loc => ({
+                  displayName: loc.displayName || loc.name || '',
+                  locationType: 'default'
+                }))
+                .filter(loc => loc.displayName);
+            } catch (locError) {
+              // Non-blocking
+            }
           }
+
+          // Always send subject, start, end with fallback chain
+          const graphUpdate = {
+            subject: finalChanges.eventTitle || cd.eventTitle || event.graphData?.subject,
+            startDateTime: (finalChanges.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime || '').replace(/Z$/, ''),
+            endDateTime: (finalChanges.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime || '').replace(/Z$/, ''),
+          };
+
+          // Description (only if changed)
+          if (finalChanges.eventDescription) {
+            graphUpdate.body = { contentType: 'HTML', content: finalChanges.eventDescription };
+          }
+
+          // Categories with fallback
+          if (finalChanges.categories) {
+            graphUpdate.categories = finalChanges.categories;
+          } else if (cd.categories) {
+            graphUpdate.categories = cd.categories;
+          }
+
+          // Location processing
+          if (finalChanges.isOffsite) {
+            graphUpdate.location = {
+              displayName: `${finalChanges.offsiteName} (Offsite) - ${finalChanges.offsiteAddress}`,
+              locationType: 'default'
+            };
+            graphUpdate.locations = [graphUpdate.location];
+          } else if (processedLocationsArray.length > 0) {
+            const joinedName = processedLocationsArray.map(loc => loc.displayName).join('; ');
+            graphUpdate.location = { displayName: joinedName, locationType: 'default' };
+            graphUpdate.locations = processedLocationsArray;
+          } else if (
+            (Array.isArray(finalChanges.locations) && finalChanges.locations.length === 0) ||
+            (Array.isArray(finalChanges.requestedRooms) && finalChanges.requestedRooms.length === 0)
+          ) {
+            graphUpdate.location = { displayName: 'Unspecified', locationType: 'default' };
+            graphUpdate.locations = [];
+          } else if (event.graphData?.location?.displayName) {
+            graphUpdate.location = event.graphData.location;
+            if (event.graphData?.locations && Array.isArray(event.graphData.locations)) {
+              graphUpdate.locations = event.graphData.locations;
+            }
+          }
+
+          graphSyncResult = await graphApiMock.updateCalendarEvent(
+            event.calendarOwner,
+            event.calendarId,
+            graphEventId,
+            graphUpdate
+          );
         } catch (graphError) {
           console.error('Graph sync failed (non-blocking):', graphError.message);
         }
@@ -2286,6 +2342,7 @@ function createTestApp(options = {}) {
       res.json({
         success: true,
         event: updatedEvent,
+        graphSynced: !!graphSyncResult,
       });
     } catch (error) {
       console.error('Error approving edit:', error);

@@ -18764,49 +18764,103 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
     }
 
     // Sync changes to Graph API via app-only auth (graphApiService)
+    const cd = event.calendarData || {};
     const graphEventId = event.graphData?.id;
     let graphSyncResult = null;
     if (graphEventId && event.calendarOwner) {
       try {
-        const graphUpdate = {};
+        // Pre-process locations: resolve ObjectIds to display names (mirrors admin save pattern)
+        let processedLocationsArray = [];
+        const effectiveLocationIds = finalChanges.locations || finalChanges.requestedRooms || cd.locations;
+        if (finalChanges.isOffsite) {
+          // Offsite handled below in Graph location building
+        } else if (effectiveLocationIds && Array.isArray(effectiveLocationIds) && effectiveLocationIds.length > 0) {
+          try {
+            const locationIds = effectiveLocationIds.map(id =>
+              typeof id === 'string' ? new ObjectId(id) : id
+            );
+            const locationDocs = await locationsCollection.find({
+              _id: { $in: locationIds }
+            }).toArray();
+            processedLocationsArray = locationDocs
+              .map(loc => ({
+                displayName: loc.displayName || loc.name || '',
+                locationType: 'default'
+              }))
+              .filter(loc => loc.displayName);
+          } catch (locError) {
+            logger.warn('Failed to resolve location docs for Graph sync (non-blocking):', locError.message);
+          }
+        }
 
-        if (finalChanges.eventTitle) {
-          graphUpdate.subject = finalChanges.eventTitle;
-        }
-        if (finalChanges.startDateTime) {
-          graphUpdate.start = {
-            dateTime: finalChanges.startDateTime.replace(/Z$/, ''),
-            timeZone: 'America/New_York'
-          };
-        }
-        if (finalChanges.endDateTime) {
-          graphUpdate.end = {
-            dateTime: finalChanges.endDateTime.replace(/Z$/, ''),
-            timeZone: 'America/New_York'
-          };
-        }
+        // Always send subject, start, end with fallback chain (mirrors admin save pattern)
+        const graphUpdate = {
+          subject: finalChanges.eventTitle || cd.eventTitle || event.graphData?.subject,
+          start: {
+            dateTime: (finalChanges.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime || '').replace(/Z$/, ''),
+            timeZone: event.graphData?.start?.timeZone || 'America/New_York'
+          },
+          end: {
+            dateTime: (finalChanges.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime || '').replace(/Z$/, ''),
+            timeZone: event.graphData?.end?.timeZone || 'America/New_York'
+          }
+        };
+
+        // Description (only if changed)
         if (finalChanges.eventDescription) {
           graphUpdate.body = {
             contentType: 'HTML',
             content: finalChanges.eventDescription
           };
         }
+
+        // Categories with fallback
         if (finalChanges.categories) {
           graphUpdate.categories = finalChanges.categories;
-        }
-        if (finalChanges.locationDisplayNames) {
-          graphUpdate.location = { displayName: finalChanges.locationDisplayNames };
+        } else if (cd.categories) {
+          graphUpdate.categories = cd.categories;
         }
 
-        if (Object.keys(graphUpdate).length > 0) {
-          graphSyncResult = await graphApiService.updateCalendarEvent(
-            event.calendarOwner,
-            event.calendarId,
-            graphEventId,
-            graphUpdate
+        // Location processing (mirrors admin save pattern)
+        if (finalChanges.isOffsite) {
+          graphUpdate.location = buildOffsiteGraphLocation(
+            finalChanges.offsiteName,
+            finalChanges.offsiteAddress,
+            finalChanges.offsiteLat,
+            finalChanges.offsiteLon
           );
-          logger.info('Graph event updated successfully via graphApiService:', { graphEventId });
+          graphUpdate.locations = [graphUpdate.location];
+        } else if (processedLocationsArray.length > 0) {
+          const joinedLocationDisplayName = processedLocationsArray
+            .map(loc => loc.displayName)
+            .join('; ');
+          graphUpdate.location = {
+            displayName: joinedLocationDisplayName,
+            locationType: 'default'
+          };
+          graphUpdate.locations = processedLocationsArray;
+        } else if (
+          (Array.isArray(finalChanges.locations) && finalChanges.locations.length === 0) ||
+          (Array.isArray(finalChanges.requestedRooms) && finalChanges.requestedRooms.length === 0)
+        ) {
+          // Explicitly cleared all locations
+          graphUpdate.location = { displayName: 'Unspecified', locationType: 'default' };
+          graphUpdate.locations = [];
+        } else if (event.graphData?.location?.displayName) {
+          // Preserve existing Graph location when no location change
+          graphUpdate.location = event.graphData.location;
+          if (event.graphData?.locations && Array.isArray(event.graphData.locations)) {
+            graphUpdate.locations = event.graphData.locations;
+          }
         }
+
+        graphSyncResult = await graphApiService.updateCalendarEvent(
+          event.calendarOwner,
+          event.calendarId,
+          graphEventId,
+          graphUpdate
+        );
+        logger.info('Graph event updated successfully via graphApiService:', { graphEventId });
       } catch (graphError) {
         logger.error('Failed to update Graph event (non-blocking):', graphError.message);
         // Continue - MongoDB update already succeeded
@@ -18828,7 +18882,6 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
 
     // Build changes array for audit log (read originals from calendarData)
     const changesArray = [];
-    const cd = event.calendarData || {};
     for (const [field, newValue] of Object.entries(finalChanges)) {
       changesArray.push({
         field,
@@ -18927,7 +18980,8 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
       message: 'Edit request published and changes applied',
       eventId: event.eventId,
       _version: publishedEditEvent._version,
-      changesApplied: finalChanges
+      changesApplied: finalChanges,
+      graphSynced: !!graphSyncResult
     });
 
   } catch (error) {
