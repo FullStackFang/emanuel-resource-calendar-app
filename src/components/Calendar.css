@@ -1129,19 +1129,47 @@
   margin-left: auto;
 }
 
-.grid-cell.category-cell:hover {
-  background-color: var(--bg-tertiary);
+/* ---------- Hover timeline button (category/location row headers) ---------- */
+.grid-cell.category-cell {
+  position: relative;
 }
 
-.category-cell-timeline-icon {
-  color: var(--text-tertiary, var(--color-neutral-400));
-  flex-shrink: 0;
-  margin-right: 2px;
-  opacity: 0.6;
+.category-cell .cell-timeline-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.6);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background-color: var(--color-primary-500);
+  color: var(--text-inverse);
+  cursor: pointer;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-normal) var(--ease-in-out),
+              transform var(--duration-slow) var(--ease-bounce),
+              background-color var(--duration-normal) var(--ease-in-out),
+              box-shadow var(--duration-normal) var(--ease-in-out);
+  z-index: 3;
+  box-shadow: var(--shadow-primary);
 }
 
-.grid-cell.category-cell:hover .category-cell-timeline-icon {
+.grid-cell.category-cell:hover .cell-timeline-btn {
   opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.category-cell .cell-timeline-btn:hover {
+  background-color: var(--color-primary-600);
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: var(--shadow-md);
 }
 
 .grid-cell.category-cell:hover .grid-cell-pin-icon {

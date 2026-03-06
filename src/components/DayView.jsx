@@ -149,20 +149,23 @@ const DayView = memo(({
           <div key={group} className="grid-row">
             <div
               className="grid-cell category-cell"
-              onClick={() => {
-                if (groupBy === 'locations' && handleLocationRowClick) {
-                  const locationData = locationGroups[group];
-                  const locationId = locationData?.locationId;
-                  handleLocationRowClick(group, currentDay, 'day', locationId);
-                } else if (groupBy === 'categories' && handleCategoryRowClick) {
-                  handleCategoryRowClick(group, currentDay, 'day');
-                }
-              }}
-              style={{ cursor: 'pointer' }}
             >
-              <span className="category-cell-timeline-badge" title="View timeline">
-                <TimelineIcon size={11} />
-              </span>
+              <button
+                className="cell-timeline-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (groupBy === 'locations' && handleLocationRowClick) {
+                    const locationData = locationGroups[group];
+                    const locationId = locationData?.locationId;
+                    handleLocationRowClick(group, currentDay, 'day', locationId);
+                  } else if (groupBy === 'categories' && handleCategoryRowClick) {
+                    handleCategoryRowClick(group, currentDay, 'day');
+                  }
+                }}
+                title="View timeline"
+              >
+                <TimelineIcon size={13} />
+              </button>
               {/* Color indicator */}
               <div
                 className="category-color"

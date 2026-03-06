@@ -139,22 +139,25 @@ const WeekView = memo(({
           <div key={group} className="grid-row">
             <div
               className="grid-cell category-cell"
-              onClick={() => {
-                const days = getDaysInRange();
-                if (days.length === 0) return;
-                if (groupBy === 'locations' && handleLocationRowClick) {
-                  const groupData = locationGroups[group];
-                  const locationId = groupData?.locationId;
-                  handleLocationRowClick(group, days, 'week', locationId);
-                } else if (groupBy === 'categories' && handleCategoryRowClick) {
-                  handleCategoryRowClick(group, days, 'week');
-                }
-              }}
-              style={{ cursor: 'pointer' }}
             >
-              <span className="category-cell-timeline-badge" title="View timeline">
-                <TimelineIcon size={11} />
-              </span>
+              <button
+                className="cell-timeline-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const days = getDaysInRange();
+                  if (days.length === 0) return;
+                  if (groupBy === 'locations' && handleLocationRowClick) {
+                    const groupData = locationGroups[group];
+                    const locationId = groupData?.locationId;
+                    handleLocationRowClick(group, days, 'week', locationId);
+                  } else if (groupBy === 'categories' && handleCategoryRowClick) {
+                    handleCategoryRowClick(group, days, 'week');
+                  }
+                }}
+                title="View timeline"
+              >
+                <TimelineIcon size={13} />
+              </button>
               {/* Color indicator */}
               <div
                 className="category-color"
