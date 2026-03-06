@@ -5,7 +5,7 @@ import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUt
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
-import { WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon } from './shared/CalendarIcons';
+import { WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
 const DayView = memo(({
@@ -193,15 +193,7 @@ const DayView = memo(({
                   }}
                   title={favorites?.includes(group) ? 'Unpin favorite' : 'Pin as favorite'}
                 >
-                  {favorites?.includes(group) ? (
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
-                    </svg>
-                  ) : (
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
-                      <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
-                    </svg>
-                  )}
+                  <ThumbTackIcon size={11} filled={favorites?.includes(group)} />
                 </button>
               )}
             </div>

@@ -143,6 +143,19 @@
 
 .day-cell.outside-month {
   background-color: var(--bg-tertiary);
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.day-cell.outside-month:hover {
+  background-color: var(--bg-primary);
+}
+
+.day-cell.outside-month:hover .day-number {
+  color: var(--text-primary);
+}
+
+.day-cell.outside-month:hover .month-event-snippet {
+  opacity: 1;
 }
 
 /* ==========================================================================
@@ -281,6 +294,7 @@
 }
 .day-cell.outside-month:hover .cell-add-event-btn {
   opacity: 0.7;
+  background-color: var(--color-primary-400);
 }
 .day-cell.outside-month .cell-add-event-btn:hover {
   opacity: 1;

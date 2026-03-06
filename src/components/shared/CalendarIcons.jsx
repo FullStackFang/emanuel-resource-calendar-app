@@ -77,6 +77,14 @@ export const TagIcon = ({ size = 12, className = '' }) => (
   </svg>
 );
 
+export const ThumbTackIcon = ({ size = 12, className = '', filled = false }) => (
+  <svg {...svgProps(size, className)} fill={filled ? 'currentColor' : 'none'}>
+    <path d="M5 2.5h6l-.5 5H5.5L5 2.5z" />
+    <line x1="8" y1="7.5" x2="8" y2="14" />
+    <line x1="5.5" y1="1" x2="10.5" y2="1" />
+  </svg>
+);
+
 export const CalendarIcon = ({ size = 12, className = '' }) => (
   <svg {...svgProps(size, className)}>
     <rect x="1.5" y="2.5" width="13" height="12" rx="1.5" />

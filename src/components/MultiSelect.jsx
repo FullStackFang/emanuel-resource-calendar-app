@@ -2,6 +2,7 @@
 // Multi-select dropdown component using Emanuel Modern Design System
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import './MultiSelect.css';
+import { ThumbTackIcon } from './shared/CalendarIcons';
 
 let nextInstanceId = 0;
 
@@ -362,9 +363,7 @@ function MultiSelect({
                       onMouseDown={(e) => e.stopPropagation()}
                       title="Unpin favorite"
                     >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
-                      </svg>
+                      <ThumbTackIcon size={12} filled />
                     </button>
                   </div>
                 ))}
@@ -392,9 +391,7 @@ function MultiSelect({
                       onMouseDown={(e) => e.stopPropagation()}
                       title="Pin as favorite"
                     >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1">
-                        <path d="M9.828 1.172a2 2 0 0 1 2.828 0l2.172 2.172a2 2 0 0 1 0 2.828l-1.06 1.06a1 1 0 0 1-.354.233l-1.06.424-.707.707 1.06 1.06a1 1 0 0 1-1.414 1.414l-1.06-1.06-2.83 2.828a1 1 0 0 1-.706.293H4.828a1 1 0 0 1-.707-.293L2.293 11a1 1 0 0 1 0-1.414l2.828-2.829-1.06-1.06a1 1 0 1 1 1.414-1.414l1.06 1.06.708-.707.424-1.06a1 1 0 0 1 .232-.355l1.061-1.06z"/>
-                      </svg>
+                      <ThumbTackIcon size={12} />
                     </button>
                   </div>
                 ))}
