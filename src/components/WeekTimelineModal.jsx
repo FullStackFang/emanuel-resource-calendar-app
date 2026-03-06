@@ -1,6 +1,13 @@
 // src/components/WeekTimelineModal.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import useScrollLock from '../hooks/useScrollLock';
+import {
+  HOUR_LABELS,
+  isAllDayEvent,
+  calculateOverlapLayout,
+  calculateEventPosition as calcPosition,
+  formatTimelineEventTime,
+} from '../utils/timelineUtils';
 import './WeekTimelineModal.css';
 
 /**
@@ -44,56 +51,6 @@ export default function WeekTimelineModal({
 
   // State for all-day event list modal
   const [showAllDayList, setShowAllDayList] = useState(null); // { date: 'dateKey', events: [] }
-
-  // Helper function: Check if event is all-day (>= 23 hours)
-  const isAllDayEvent = (event) => {
-    const start = new Date(event.start.dateTime);
-    const end = new Date(event.end.dateTime);
-    const durationHours = (end - start) / (1000 * 60 * 60);
-    return durationHours >= 23;
-  };
-
-  // Helper function: Calculate overlap-aware positioning for staggered layout
-  const calculateOverlapLayout = (event, dayEvents) => {
-    // Find all events that overlap with this one
-    const overlapping = dayEvents.filter(other => {
-      if (other.id === event.id || other.eventId === event.eventId) return false;
-
-      const otherStart = new Date(other.start.dateTime);
-      const otherEnd = new Date(other.end.dateTime);
-      const eventStart = new Date(event.start.dateTime);
-      const eventEnd = new Date(event.end.dateTime);
-
-      return eventStart < otherEnd && eventEnd > otherStart;
-    });
-
-    if (overlapping.length === 0) {
-      return { left: '4px', right: '4px', zIndex: 5 };
-    }
-
-    // Sort group by start time
-    const group = [event, ...overlapping].sort((a, b) => {
-      const aStart = new Date(a.start?.dateTime || a.startDateTime);
-      const bStart = new Date(b.start?.dateTime || b.startDateTime);
-      return aStart - bStart;
-    });
-
-    const index = group.findIndex(e =>
-      (e.id && e.id === event.id) || (e.eventId && e.eventId === event.eventId)
-    );
-    const totalInGroup = group.length;
-
-    // Stagger: 4px offset per layer, max 4 layers before recycling
-    const offset = (index % 4) * 4;
-    const maxOffset = (Math.min(totalInGroup - 1, 3)) * 4;
-
-    return {
-      left: `${4 + offset}px`,
-      right: `${4 + (maxOffset - offset)}px`,
-      zIndex: 5 + index,
-      hasOverlap: true
-    };
-  };
 
   // Generate array of dates for the week
   const weekDates = useMemo(() => {
@@ -176,35 +133,11 @@ export default function WeekTimelineModal({
     return grouped;
   }, [events, weekDates]);
 
-  // Calculate event block position and height
-  const calculateEventPosition = (event) => {
-    const start = new Date(event.start.dateTime);
-    const end = new Date(event.end.dateTime);
+  // Use shared calculateEventPosition (no timezone param = browser local)
+  const calculateEventPosition = (event) => calcPosition(event);
 
-    const startHour = start.getHours() + start.getMinutes() / 60;
-    const endHour = end.getHours() + end.getMinutes() / 60;
-
-    const top = (startHour / 24) * 100; // percentage from top
-    const height = ((endHour - startHour) / 24) * 100; // percentage height
-
-    return { top: `${top}%`, height: `${Math.max(height, 2)}%` }; // minimum 2% height
-  };
-
-  // Format time for event display
-  const formatEventTime = (event) => {
-    const start = new Date(event.start.dateTime);
-    const end = new Date(event.end.dateTime);
-
-    const formatTime = (date) => {
-      return date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-    };
-
-    return `${formatTime(start)} - ${formatTime(end)}`;
-  };
+  // Use shared formatTimelineEventTime
+  const formatEventTime = (event) => formatTimelineEventTime(event);
 
   // Handle overlay click
   const handleOverlayClick = (e) => {
@@ -213,12 +146,8 @@ export default function WeekTimelineModal({
     }
   };
 
-  // Generate hour labels (0-23)
-  const hourLabels = Array.from({ length: 24 }, (_, i) => {
-    const hour = i % 12 === 0 ? 12 : i % 12;
-    const period = i < 12 ? 'AM' : 'PM';
-    return `${hour} ${period}`;
-  });
+  // Use shared hour labels constant
+  const hourLabels = HOUR_LABELS;
 
   if (!isOpen) return null;
 

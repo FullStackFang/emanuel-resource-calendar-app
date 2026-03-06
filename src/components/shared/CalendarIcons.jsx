@@ -85,6 +85,14 @@ export const ThumbTackIcon = ({ size = 12, className = '', filled = false }) => 
   </svg>
 );
 
+export const TimelineIcon = ({ size = 12, className = '' }) => (
+  <svg {...svgProps(size, className)}>
+    <line x1="3" y1="4" x2="10" y2="4" />
+    <line x1="5" y1="8" x2="13" y2="8" />
+    <line x1="2" y1="12" x2="9" y2="12" />
+  </svg>
+);
+
 export const CalendarIcon = ({ size = 12, className = '' }) => (
   <svg {...svgProps(size, className)}>
     <rect x="1.5" y="2.5" width="13" height="12" rx="1.5" />

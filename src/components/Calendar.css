@@ -1129,6 +1129,21 @@
   margin-left: auto;
 }
 
+.grid-cell.category-cell:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.category-cell-timeline-icon {
+  color: var(--text-tertiary, var(--color-neutral-400));
+  flex-shrink: 0;
+  margin-right: 2px;
+  opacity: 0.6;
+}
+
+.grid-cell.category-cell:hover .category-cell-timeline-icon {
+  opacity: 1;
+}
+
 .grid-cell.category-cell:hover .grid-cell-pin-icon {
   color: var(--color-neutral-400);
 }

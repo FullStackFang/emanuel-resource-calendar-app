@@ -4095,6 +4095,55 @@ import ConflictDialog from './shared/ConflictDialog';
       });
     }, [isUnspecifiedLocation]);
 
+    const handleCategoryRowClick = useCallback((categoryName, dateOrDates, viewType) => {
+      let filteredModalEvents = [];
+      let dateRangeArray = [];
+
+      const formatDate = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const matchesCategory = (event) => {
+        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+        return (categories[0] || 'Uncategorized') === categoryName;
+      };
+
+      if (viewType === 'week' && Array.isArray(dateOrDates)) {
+        const startDate = dateOrDates[0];
+        const endDate = dateOrDates[dateOrDates.length - 1];
+        dateRangeArray = [formatDate(startDate), formatDate(endDate)];
+
+        filteredModalEvents = allEventsRef.current.filter(event => {
+          const eventStart = new Date(event.start.dateTime);
+          const inDateRange = eventStart >= startDate &&
+            eventStart <= new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+          return inDateRange && matchesCategory(event);
+        });
+      } else if (viewType === 'day') {
+        const currentDay = dateOrDates;
+        const dateStr = formatDate(currentDay);
+        dateRangeArray = [dateStr, dateStr];
+
+        filteredModalEvents = allEventsRef.current.filter(event => {
+          const eventStart = new Date(event.start.dateTime);
+          const eventDateStr = formatDate(eventStart);
+          return eventDateStr === dateStr && matchesCategory(event);
+        });
+      }
+
+      setTimelineModal({
+        isOpen: true,
+        locationName: categoryName,
+        locationId: null,
+        dateRange: dateRangeArray,
+        events: filteredModalEvents,
+        viewType: viewType === 'day' ? 'day' : 'week'
+      });
+    }, []);
+
     /**
      * Check if an event is part of a recurring series
      * @param {Object} event - The event to check
@@ -6637,7 +6686,6 @@ import ConflictDialog from './shared/ConflictDialog';
       }
     }, [groupBy, dynamicCategories]);
 
-
     // Location debugging removed for performance
 
     useEffect(() => {
@@ -6833,10 +6881,10 @@ import ConflictDialog from './shared/ConflictDialog';
                       </div>
                     </div>
                   ) : (
-                    <div 
+                    <div
                       className={`calendar-grid ${viewType}-view`}
-                      style={{ 
-                        transform: `scale(${zoomLevel / 100})`, 
+                      style={{
+                        transform: `scale(${zoomLevel / 100})`,
                         transformOrigin: 'top left',
                         width: '100%'
                       }}
@@ -6870,6 +6918,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
+                          handleCategoryRowClick={handleCategoryRowClick}
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}
@@ -6904,6 +6953,7 @@ import ConflictDialog from './shared/ConflictDialog';
                           updateUserProfilePreferences={updateUserProfilePreferences}
                           showRegistrationTimes={showRegistrationTimes}
                           handleLocationRowClick={handleLocationRowClick}
+                          handleCategoryRowClick={handleCategoryRowClick}
                           canAddEvent={canAddEvent}
                           favorites={groupBy === 'categories' ? favoriteCategories : favoriteLocations}
                           onToggleFavorite={handleToggleGridFavorite}

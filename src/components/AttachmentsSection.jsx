@@ -1,5 +1,6 @@
 // src/components/AttachmentsSection.jsx
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNotification } from '../context/NotificationContext';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
@@ -553,8 +554,8 @@ export default function AttachmentsSection({
         </div>
       )}
 
-      {/* Preview Modal */}
-      {showPreviewModal && previewFile && (
+      {/* Preview Modal — portaled to document.body to escape zoom context */}
+      {showPreviewModal && previewFile && createPortal(
         <div className="att-preview-overlay" onClick={closePreview}>
           <div className="att-preview-modal" onClick={(e) => e.stopPropagation()}>
             <div className="att-preview-header">
@@ -612,7 +613,8 @@ export default function AttachmentsSection({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

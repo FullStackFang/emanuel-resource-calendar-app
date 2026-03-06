@@ -4,7 +4,7 @@ import { logger } from '../utils/logger';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
-import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon } from './shared/CalendarIcons';
+import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
 const WeekView = memo(({
@@ -34,6 +34,7 @@ const WeekView = memo(({
   dynamicLocations,
   showRegistrationTimes,
   handleLocationRowClick, // New prop for location timeline modal
+  handleCategoryRowClick, // New prop for category timeline modal
   canAddEvent,
   favorites,
   onToggleFavorite,
@@ -139,23 +140,22 @@ const WeekView = memo(({
             <div
               className="grid-cell category-cell"
               onClick={() => {
-                // Only make clickable when grouping by locations
+                const days = getDaysInRange();
+                if (days.length === 0) return;
                 if (groupBy === 'locations' && handleLocationRowClick) {
-                  const days = getDaysInRange();
-                  if (days.length > 0) {
-                    // Pass locationId from the group data
-                    const groupData = locationGroups[group];
-                    const locationId = groupData?.locationId;
-                    handleLocationRowClick(group, days, 'week', locationId);
-                  }
+                  const groupData = locationGroups[group];
+                  const locationId = groupData?.locationId;
+                  handleLocationRowClick(group, days, 'week', locationId);
+                } else if (groupBy === 'categories' && handleCategoryRowClick) {
+                  handleCategoryRowClick(group, days, 'week');
                 }
               }}
-              style={{
-                cursor: groupBy === 'locations' && handleLocationRowClick ? 'pointer' : 'default'
-              }}
-              title={groupBy === 'locations' && handleLocationRowClick ? 'Click to view timeline' : ''}
+              style={{ cursor: 'pointer' }}
             >
-              {/* Add color indicator */}
+              <span className="category-cell-timeline-badge" title="View timeline">
+                <TimelineIcon size={11} />
+              </span>
+              {/* Color indicator */}
               <div
                 className="category-color"
                 style={{
