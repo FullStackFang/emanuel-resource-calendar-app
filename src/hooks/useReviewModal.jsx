@@ -575,7 +575,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       const result = await response.json();
       if (onSuccess) onSuccess(result);
       await closeModal(true);
-      return { success: true, data: result };
+      return {
+        success: true,
+        data: result,
+        recurringConflicts: result.recurringConflicts || null,
+      };
     } catch (error) {
       logger.error('Error approving:', error);
       if (onError) onError(error.message);

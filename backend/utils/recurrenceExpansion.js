@@ -126,7 +126,77 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
   return occurrences;
 }
 
+/**
+ * Expand ALL occurrences of a recurrence pattern (full range, not windowed).
+ * Includes additions as extra dates, honors exclusions.
+ * @param {Object} recurrence - { pattern, range, additions, exclusions }
+ * @param {string} masterStartDateTime - Master event start ISO string (e.g. '2026-03-01T14:00:00')
+ * @param {string} masterEndDateTime - Master event end ISO string (e.g. '2026-03-01T15:00:00')
+ * @returns {Array<{occurrenceDate: string, startDateTime: string, endDateTime: string}>}
+ */
+function expandAllOccurrences(recurrence, masterStartDateTime, masterEndDateTime) {
+  if (!recurrence?.pattern || !recurrence?.range) return [];
+
+  const { pattern, range, exclusions = [], additions = [] } = recurrence;
+
+  // Extract time-of-day from master datetimes
+  const startTimePart = (typeof masterStartDateTime === 'string' && masterStartDateTime.includes('T'))
+    ? masterStartDateTime.split('T')[1].replace(/Z$/, '') : '00:00:00';
+  const endTimePart = (typeof masterEndDateTime === 'string' && masterEndDateTime.includes('T'))
+    ? masterEndDateTime.split('T')[1].replace(/Z$/, '') : '23:59:00';
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const toDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  const patternStart = new Date(range.startDate + 'T00:00:00');
+  const patternEnd = range.type === 'endDate' && range.endDate
+    ? new Date(range.endDate + 'T23:59:59')
+    : new Date(patternStart.getTime() + 365 * 24 * 60 * 60 * 1000); // 1 year default
+
+  const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || MAX_OCCURRENCES) : MAX_OCCURRENCES;
+  const occurrenceDates = new Set();
+  const occurrences = [];
+
+  // Iterate through pattern range to find matching dates
+  const current = new Date(patternStart);
+  let count = 0;
+
+  while (current <= patternEnd && count < maxOcc) {
+    if (isDateInPattern(current, pattern, patternStart)) {
+      const dateStr = toDateStr(current);
+      if (!exclusions.includes(dateStr)) {
+        occurrenceDates.add(dateStr);
+        occurrences.push({
+          occurrenceDate: dateStr,
+          startDateTime: `${dateStr}T${startTimePart}`,
+          endDateTime: `${dateStr}T${endTimePart}`,
+        });
+      }
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Add ad-hoc addition dates that aren't already in the set
+  for (const addDate of additions) {
+    if (!occurrenceDates.has(addDate) && !exclusions.includes(addDate)) {
+      occurrenceDates.add(addDate);
+      occurrences.push({
+        occurrenceDate: addDate,
+        startDateTime: `${addDate}T${startTimePart}`,
+        endDateTime: `${addDate}T${endTimePart}`,
+      });
+    }
+  }
+
+  // Sort chronologically
+  occurrences.sort((a, b) => a.occurrenceDate.localeCompare(b.occurrenceDate));
+
+  return occurrences;
+}
+
 module.exports = {
   isDateInPattern,
   expandRecurringOccurrencesInWindow,
+  expandAllOccurrences,
 };

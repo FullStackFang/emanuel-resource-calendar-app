@@ -9,6 +9,7 @@ import RoomReservationFormBase from './RoomReservationFormBase';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
 import ConflictDialog from './shared/ConflictDialog';
+import RecurringConflictSummary from './RecurringConflictSummary';
 import './RoomReservationForm.css';
 
 /**
@@ -499,6 +500,25 @@ export default function RoomReservationReview({
                       </table>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Tab: Conflicts (for published recurring events) */}
+              {activeTab === 'conflicts' && reservation?.eventType === 'seriesMaster' && (
+                <div className="tab-content-pad">
+                  <RecurringConflictSummary
+                    readOnly={true}
+                    recurrence={reservation.recurrence || reservation.calendarData?.recurrence}
+                    roomIds={(reservation.calendarData?.locations || reservation.locations || []).map(id => id?.toString?.() || id)}
+                    startDateTime={reservation.calendarData?.startDateTime || reservation.startDateTime}
+                    endDateTime={reservation.calendarData?.endDateTime || reservation.endDateTime}
+                    setupTimeMinutes={reservation.calendarData?.setupTimeMinutes || 0}
+                    teardownTimeMinutes={reservation.calendarData?.teardownTimeMinutes || 0}
+                    excludeEventId={reservation._id?.toString?.() || reservation.id}
+                    apiToken={apiToken}
+                    isAllowedConcurrent={reservation.isAllowedConcurrent || false}
+                    categories={reservation.calendarData?.categories || reservation.categories || []}
+                  />
                 </div>
               )}
             </>

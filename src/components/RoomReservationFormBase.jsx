@@ -11,6 +11,7 @@ import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
+import RecurringConflictSummary from './RecurringConflictSummary';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import { extractTextFromHtml } from '../utils/textUtils';
 import { usePermissions } from '../hooks/usePermissions';
@@ -1623,6 +1624,24 @@ export default function RoomReservationFormBase({
                   </span>
                 </div>
               </div>
+            )}
+
+            {/* Recurring Conflict Summary — shown when recurrence + rooms + times are set */}
+            {recurrencePattern && formData.startDate && formData.startTime && assistantRooms.length > 0 && (
+              <RecurringConflictSummary
+                recurrence={recurrencePattern}
+                roomIds={assistantRooms.map(r => r._id?.toString?.() || r._id)}
+                startDateTime={`${formData.startDate}T${formData.startTime}:00`}
+                endDateTime={formData.endDate && formData.endTime
+                  ? `${formData.endDate}T${formData.endTime}:00`
+                  : `${formData.startDate}T${formData.endTime || '23:59'}:00`}
+                setupTimeMinutes={formData.setupTimeMinutes || 0}
+                teardownTimeMinutes={formData.teardownTimeMinutes || 0}
+                excludeEventId={initialData?._id?.toString?.() || initialData?.id || null}
+                apiToken={apiToken}
+                isAllowedConcurrent={formData.isAllowedConcurrent || false}
+                categories={formData.categories || []}
+              />
             )}
 
             {/* Date Fields - Always visible */}

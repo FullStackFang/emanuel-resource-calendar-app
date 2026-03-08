@@ -414,13 +414,18 @@ import ConflictDialog from './shared/ConflictDialog';
       apiToken,
       graphToken,
       selectedCalendarId, // Pass current calendar so published events go to correct calendar
-      onSuccess: () => {
+      onSuccess: (result) => {
         // Reload events after successful approval/rejection
         loadEvents(true);
         // Reset edit request mode
         setIsEditRequestMode(false);
         setEditRequestChangeReason('');
         setOriginalEventData(null);
+        // Show recurring conflict warning if applicable
+        if (result?.recurringConflicts?.conflictingOccurrences > 0) {
+          const rc = result.recurringConflicts;
+          showWarning(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+        }
       },
       onError: (error) => {
         logger.error('Review modal error:', error);
@@ -7243,6 +7248,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+          reservation={reviewModal.currentItem}
           onSavePendingEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'pending' ? handleSavePendingEdit : null}
           savingPendingEdit={savingPendingEdit}
           onSaveRejectedEdit={isNonAdminEditor && reviewModal.currentItem?.status === 'rejected' ? handleSaveRejectedEdit : null}

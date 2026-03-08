@@ -89,7 +89,13 @@ export default function ReservationRequests({ apiToken, graphToken }) {
     apiToken,
     graphToken,
     selectedCalendarId: selectedTargetCalendar || defaultCalendar,
-    onSuccess: () => { loadReservations(); },
+    onSuccess: (result) => {
+      loadReservations();
+      if (result?.recurringConflicts?.conflictingOccurrences > 0) {
+        const rc = result.recurringConflicts;
+        showWarning(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
+      }
+    },
     onError: (error) => { showError(error, { context: 'ReservationRequests' }); }
   });
 
@@ -1199,6 +1205,8 @@ export default function ReservationRequests({ apiToken, graphToken }) {
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
+        // Recurring event data (for Conflicts tab)
+        reservation={reviewModal.currentItem}
         // Inline diff data (flat-transformed for comparison with formData)
         originalData={flatOriginalEventData}
         // Form toggle

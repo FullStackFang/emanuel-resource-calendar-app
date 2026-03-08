@@ -149,6 +149,8 @@ export default function ReviewModal({
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
+  // Recurring event data (for Conflicts tab)
+  reservation = null,
   // Event owner info (displayed as pills in action bar)
   requesterName = '',
   requesterDepartment = ''
@@ -898,6 +900,16 @@ export default function ReviewModal({
                 onClick={() => setActiveTab('history')}
               >
                 {historyCount > 0 ? `History (${historyCount})` : 'History'}
+              </div>
+            )}
+            {reservation?.eventType === 'seriesMaster' && reservation?.status === 'published' && (
+              <div
+                className={`event-type-tab ${activeTab === 'conflicts' ? 'active' : ''}`}
+                onClick={() => setActiveTab('conflicts')}
+              >
+                {reservation?.recurringConflictSnapshot?.conflictCount > 0
+                  ? `Conflicts (${reservation.recurringConflictSnapshot.conflictCount})`
+                  : 'Conflicts'}
               </div>
             )}
             {isAdmin && (

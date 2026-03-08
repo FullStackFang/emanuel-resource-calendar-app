@@ -10,7 +10,7 @@ const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
-const { expandRecurringOccurrencesInWindow } = require('../../utils/recurrenceExpansion');
+const { expandRecurringOccurrencesInWindow, expandAllOccurrences } = require('../../utils/recurrenceExpansion');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
@@ -313,6 +313,133 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
     hardConflicts,
     softConflicts: pendingEditConflicts,
     allConflicts: [...hardConflicts, ...pendingEditConflicts]
+  };
+}
+
+/**
+ * Check recurring room conflicts for all occurrences (mirrors checkRecurringRoomConflicts in api-server.js)
+ */
+async function checkTestRecurringConflicts(params, eventsCollection) {
+  const {
+    startDateTime, endDateTime, recurrence, roomIds,
+    setupTimeMinutes = 0, teardownTimeMinutes = 0,
+    excludeEventId = null, isAllowedConcurrent = false,
+  } = params;
+
+  if (!roomIds || roomIds.length === 0 || !recurrence?.pattern || !recurrence?.range) {
+    return { totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] };
+  }
+
+  const allOccurrences = expandAllOccurrences(recurrence, startDateTime, endDateTime);
+  if (allOccurrences.length === 0) {
+    return { totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] };
+  }
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const toLocalISOString = (d) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+  const occurrenceWindows = allOccurrences.map(occ => {
+    const start = new Date(occ.startDateTime);
+    const end = new Date(occ.endDateTime);
+    const effStart = new Date(start.getTime() - (setupTimeMinutes * 60 * 1000));
+    const effEnd = new Date(end.getTime() + (teardownTimeMinutes * 60 * 1000));
+    return { ...occ, effectiveStart: toLocalISOString(effStart), effectiveEnd: toLocalISOString(effEnd) };
+  });
+
+  // Query published non-series events sharing rooms
+  const excludeIdObj = excludeEventId ? new ObjectId(excludeEventId) : null;
+  const overlapConditions = occurrenceWindows.map(w => ({
+    $and: [{
+      $or: [
+        { 'calendarData.startDateTime': { $gte: w.effectiveStart, $lt: w.effectiveEnd } },
+        { 'calendarData.endDateTime': { $gt: w.effectiveStart, $lte: w.effectiveEnd } },
+        { 'calendarData.startDateTime': { $lte: w.effectiveStart }, 'calendarData.endDateTime': { $gte: w.effectiveEnd } },
+      ]
+    }]
+  }));
+
+  const query = {
+    status: 'published',
+    eventType: { $ne: 'seriesMaster' },
+    $or: [
+      { 'calendarData.locations': { $in: roomIds } },
+      { locations: { $in: roomIds } },
+    ],
+    $and: [{ $or: overlapConditions }],
+  };
+  if (excludeIdObj) query._id = { $ne: excludeIdObj };
+
+  const potentialConflicts = await eventsCollection.find(query).toArray();
+
+  // Find published series masters sharing rooms
+  const recurringQuery = {
+    status: 'published',
+    eventType: 'seriesMaster',
+    $or: [
+      { 'calendarData.locations': { $in: roomIds } },
+      { locations: { $in: roomIds } },
+    ],
+  };
+  if (excludeIdObj) recurringQuery._id = { $ne: excludeIdObj };
+  const existingMasters = await eventsCollection.find(recurringQuery).toArray();
+
+  // Map conflicts to occurrences
+  const conflictsByDate = {};
+  for (const window of occurrenceWindows) {
+    const dateConflicts = [];
+
+    for (const conflict of potentialConflicts) {
+      const cStart = conflict.calendarData?.startDateTime || conflict.startDateTime || '';
+      const cEnd = conflict.calendarData?.endDateTime || conflict.endDateTime || '';
+      if (cStart < window.effectiveEnd && cEnd > window.effectiveStart) {
+        dateConflicts.push({
+          id: conflict._id.toString(),
+          eventTitle: conflict.eventTitle || conflict.calendarData?.eventTitle,
+          startDateTime: cStart,
+          endDateTime: cEnd,
+          roomNames: conflict.calendarData?.locationDisplayNames || [],
+          status: conflict.status,
+        });
+      }
+    }
+
+    for (const master of existingMasters) {
+      const effStartDate = new Date(window.effectiveStart);
+      const effEndDate = new Date(window.effectiveEnd);
+      const masterOccs = expandRecurringOccurrencesInWindow(master, effStartDate, effEndDate);
+      for (const mOcc of masterOccs) {
+        if (mOcc.startDateTime < window.effectiveEnd && mOcc.endDateTime > window.effectiveStart) {
+          dateConflicts.push({
+            id: master._id.toString(),
+            eventTitle: master.eventTitle || master.calendarData?.eventTitle,
+            startDateTime: mOcc.startDateTime,
+            endDateTime: mOcc.endDateTime,
+            roomNames: master.calendarData?.locationDisplayNames || [],
+            status: master.status,
+          });
+          break;
+        }
+      }
+    }
+
+    if (dateConflicts.length > 0) {
+      conflictsByDate[window.occurrenceDate] = {
+        occurrenceDate: window.occurrenceDate,
+        occurrenceStart: window.startDateTime,
+        occurrenceEnd: window.endDateTime,
+        hardConflicts: dateConflicts,
+        softConflicts: [],
+      };
+    }
+  }
+
+  const conflicts = Object.values(conflictsByDate).sort((a, b) => a.occurrenceDate.localeCompare(b.occurrenceDate));
+  return {
+    totalOccurrences: allOccurrences.length,
+    conflictingOccurrences: conflicts.length,
+    cleanOccurrences: allOccurrences.length - conflicts.length,
+    conflicts,
   };
 }
 
@@ -973,34 +1100,57 @@ function createTestApp(options = {}) {
       }
 
       // Check for scheduling conflicts (unless forcePublish)
+      // Recurring events: non-blocking (conflicts in response, not 409)
+      // Non-recurring events: blocking (409 on hard conflicts)
       const { forcePublish, acknowledgeSoftConflicts } = req.body;
+      let recurringConflicts = null;
+      const testPublishRecurrence = event.recurrence || event.calendarData?.recurrence;
+      const isTestRecurringPublish = testPublishRecurrence?.pattern && testPublishRecurrence?.range;
+
       if (!forcePublish) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
-          if (hardConflicts.length > 0) {
-            return res.status(409).json({
-              error: 'SchedulingConflict',
-              conflictTier: 'hard',
-              message: `Cannot publish: ${hardConflicts.length} scheduling conflict(s) with published events`,
-              hardConflicts,
-              softConflicts,
-              conflicts: allConflicts,
-              canForce: true,
-              forceField: 'forcePublish',
-              _version: event._version,
-            });
-          }
-          if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
-            return res.status(409).json({
-              error: 'SchedulingConflict',
-              conflictTier: 'soft',
-              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
-              hardConflicts: [],
-              softConflicts,
-              conflicts: softConflicts,
-              _version: event._version,
-            });
+          if (isTestRecurringPublish) {
+            // Non-blocking recurring conflict check
+            try {
+              recurringConflicts = await checkTestRecurringConflicts({
+                startDateTime: event.calendarData?.startDateTime || event.startDateTime,
+                endDateTime: event.calendarData?.endDateTime || event.endDateTime,
+                recurrence: testPublishRecurrence,
+                roomIds,
+                setupTimeMinutes: event.calendarData?.setupTimeMinutes || 0,
+                teardownTimeMinutes: event.calendarData?.teardownTimeMinutes || 0,
+                excludeEventId: event._id.toString(),
+              }, testCollections.events);
+            } catch (err) {
+              // Non-fatal
+            }
+          } else {
+            const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+            if (hardConflicts.length > 0) {
+              return res.status(409).json({
+                error: 'SchedulingConflict',
+                conflictTier: 'hard',
+                message: `Cannot publish: ${hardConflicts.length} scheduling conflict(s) with published events`,
+                hardConflicts,
+                softConflicts,
+                conflicts: allConflicts,
+                canForce: true,
+                forceField: 'forcePublish',
+                _version: event._version,
+              });
+            }
+            if (softConflicts.length > 0 && !acknowledgeSoftConflicts) {
+              return res.status(409).json({
+                error: 'SchedulingConflict',
+                conflictTier: 'soft',
+                message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+                hardConflicts: [],
+                softConflicts,
+                conflicts: softConflicts,
+                _version: event._version,
+              });
+            }
           }
         }
       }
@@ -1047,6 +1197,14 @@ function createTestApp(options = {}) {
       if (publishRecurrence?.pattern && publishRecurrence?.range) {
         publishSet.eventType = 'seriesMaster';
       }
+      // Store recurring conflict snapshot
+      if (recurringConflicts && recurringConflicts.totalOccurrences > 0) {
+        publishSet.recurringConflictSnapshot = {
+          checkedAt: now,
+          conflictCount: recurringConflicts.conflictingOccurrences,
+          totalOccurrences: recurringConflicts.totalOccurrences,
+        };
+      }
       await testCollections.events.updateOne(query, {
         $set: publishSet,
         $push: {
@@ -1084,11 +1242,15 @@ function createTestApp(options = {}) {
         reviewChanges: reviewChanges.length > 0 ? reviewChanges : null,
       });
 
-      res.json({
+      const publishResponse = {
         success: true,
         event: publishedEvent,
         reviewChanges: reviewChanges.length > 0 ? reviewChanges : undefined,
-      });
+      };
+      if (recurringConflicts && recurringConflicts.conflictingOccurrences > 0) {
+        publishResponse.recurringConflicts = recurringConflicts;
+      }
+      res.json(publishResponse);
     } catch (error) {
       console.error('Error publishing event:', error);
       res.status(500).json({ error: error.message });
@@ -3354,6 +3516,45 @@ function createTestApp(options = {}) {
     } catch (error) {
       console.error('Error checking room availability:', error);
       res.status(500).json({ error: 'Failed to check room availability' });
+    }
+  });
+
+  /**
+   * POST /api/rooms/recurring-conflicts - Batch recurring conflict check
+   */
+  app.post('/api/rooms/recurring-conflicts', verifyToken, async (req, res) => {
+    try {
+      const {
+        startDateTime, endDateTime, recurrence, roomIds,
+        setupTimeMinutes = 0, teardownTimeMinutes = 0,
+        excludeEventId = null, isAllowedConcurrent = false, categories = [],
+      } = req.body;
+
+      if (!startDateTime || !endDateTime) {
+        return res.status(400).json({ error: 'startDateTime and endDateTime are required' });
+      }
+      if (!recurrence?.pattern || !recurrence?.range) {
+        return res.status(400).json({ error: 'recurrence with pattern and range is required' });
+      }
+      if (!roomIds || roomIds.length === 0) {
+        return res.json({ totalOccurrences: 0, conflictingOccurrences: 0, cleanOccurrences: 0, conflicts: [] });
+      }
+
+      const roomObjectIds = roomIds.map(id => {
+        try { return new ObjectId(id); } catch { return id; }
+      });
+
+      const result = await checkTestRecurringConflicts({
+        startDateTime, endDateTime, recurrence, roomIds: roomObjectIds,
+        setupTimeMinutes: parseInt(setupTimeMinutes) || 0,
+        teardownTimeMinutes: parseInt(teardownTimeMinutes) || 0,
+        excludeEventId, isAllowedConcurrent, categories,
+      }, testCollections.events);
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error checking recurring room conflicts:', error);
+      res.status(500).json({ error: 'Failed to check recurring conflicts' });
     }
   });
 
