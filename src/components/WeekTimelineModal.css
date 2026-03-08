@@ -260,26 +260,15 @@
   z-index: 5;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 0.2s ease;
   min-height: 30px;
 }
 
 .week-timeline-event-block:hover {
-  left: 0px;
-  right: auto;
-  min-width: 250px;
-  max-width: 400px;
-  padding: var(--space-3) var(--space-4);
-  min-height: 60px;
   z-index: 200 !important;
-  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
-  border-left: 4px solid var(--color-info-700);
-  border-radius: var(--radius-xl);
   box-shadow:
-    0 0 0 3px rgba(6, 182, 212, 0.3),
-    var(--shadow-xl),
-    0 0 25px rgba(6, 182, 212, 0.25);
-  overflow: visible;
+    0 0 0 2px var(--color-primary-300),
+    var(--shadow-lg);
 }
 
 .week-timeline-event-title {
@@ -291,36 +280,6 @@
   text-overflow: ellipsis;
   line-height: 1.4;
   margin-bottom: var(--space-1);
-  transition: all 0.25s;
-}
-
-.week-timeline-event-block:hover .week-timeline-event-title {
-  font-size: var(--text-sm);
-  font-weight: var(--font-bold);
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
-  line-height: var(--leading-snug);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.week-timeline-event-time {
-  font-size: var(--text-2xs);
-  color: rgba(255, 255, 255, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
-  transition: all 0.25s;
-  display: none;
-}
-
-.week-timeline-event-block:hover .week-timeline-event-time {
-  display: block;
-  font-size: var(--text-2xs);
-  font-weight: var(--font-medium);
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 /* ==========================================================================
@@ -328,25 +287,37 @@
    ========================================================================== */
 
 .week-timeline-event-block.has-overlap {
-  box-shadow: var(--shadow-md);
+  border-left-color: var(--color-primary-800);
+  box-shadow:
+    -1px 0 0 0 rgba(255, 255, 255, 0.2),
+    var(--shadow-md);
 }
 
-.week-timeline-event-block.has-overlap:hover {
-  left: 0px;
-  right: auto;
-  min-width: 250px;
-  max-width: 400px;
-  padding: var(--space-3) var(--space-4);
-  min-height: 60px;
-  background: linear-gradient(135deg, var(--color-info-500) 0%, var(--color-info-600) 100%);
-  border-left: 4px solid var(--color-info-700);
-  border-radius: var(--radius-xl);
-  box-shadow:
-    0 0 0 3px rgba(6, 182, 212, 0.3),
-    var(--shadow-xl),
-    0 0 25px rgba(6, 182, 212, 0.25);
-  z-index: 200 !important;
-  overflow: visible;
+/* ==========================================================================
+   EVENT TOOLTIP (cursor-following, matches SchedulingAssistant pattern)
+   ========================================================================== */
+
+.week-timeline-tooltip {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 160px;
+  max-width: 280px;
+  z-index: 1000;
+  pointer-events: none;
+  font-size: var(--text-sm);
+}
+
+.week-timeline-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.week-timeline-tooltip-time {
+  opacity: 0.8;
+  font-size: var(--text-xs);
 }
 
 /* ==========================================================================
@@ -529,10 +500,6 @@
 
   .week-timeline-event-title {
     font-size: var(--text-2xs);
-  }
-
-  .week-timeline-event-time {
-    font-size: 9px;
   }
 }
 

@@ -101,25 +101,29 @@ export const calculateOverlapLayout = (event, dayEvents) => {
     return { left: '4px', right: '4px', zIndex: 5 };
   }
 
-  // Sort group by start time
+  // Sort group by start time, then by duration (longer events behind)
   const group = [event, ...overlapping].sort((a, b) => {
     const aStart = new Date(a.start?.dateTime || a.startDateTime);
     const bStart = new Date(b.start?.dateTime || b.startDateTime);
-    return aStart - bStart;
+    if (aStart.getTime() !== bStart.getTime()) return aStart - bStart;
+    const aEnd = new Date(a.end?.dateTime || a.endDateTime);
+    const bEnd = new Date(b.end?.dateTime || b.endDateTime);
+    return (bEnd - bStart) - (aEnd - aStart);
   });
 
   const index = group.findIndex(e =>
     (e.id && e.id === event.id) || (e.eventId && e.eventId === event.eventId)
   );
-  const totalInGroup = group.length;
 
-  // Stagger: 4px offset per layer, max 4 layers before recycling
-  const offset = (index % 4) * 4;
-  const maxOffset = (Math.min(totalInGroup - 1, 3)) * 4;
+  // Cascading offset: each event indented 20% from left, extends to right edge
+  const OFFSET_PERCENT = 20;
+  const MAX_LAYERS = 4;
+  const effectiveIndex = Math.min(index, MAX_LAYERS - 1);
+  const leftPercent = effectiveIndex * OFFSET_PERCENT;
 
   return {
-    left: `${4 + offset}px`,
-    right: `${4 + (maxOffset - offset)}px`,
+    left: `calc(${leftPercent}% + 2px)`,
+    right: '4px',
     zIndex: 5 + index,
     hasOverlap: true
   };

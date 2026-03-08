@@ -1,5 +1,5 @@
 // src/components/WeekTimelineModal.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import useScrollLock from '../hooks/useScrollLock';
 import {
   HOUR_LABELS,
@@ -51,6 +51,25 @@ export default function WeekTimelineModal({
 
   // State for all-day event list modal
   const [showAllDayList, setShowAllDayList] = useState(null); // { date: 'dateKey', events: [] }
+
+  // Tooltip state + ref for cursor-following tooltip
+  const [tooltipInfo, setTooltipInfo] = useState(null);
+  const tooltipRef = useRef(null);
+
+  // Smart positioning via useLayoutEffect (matches SchedulingAssistant pattern)
+  useLayoutEffect(() => {
+    if (!tooltipRef.current || !tooltipInfo) return;
+    const el = tooltipRef.current;
+    const { x, y } = tooltipInfo;
+    const rect = el.getBoundingClientRect();
+    const offset = 12;
+    el.style.top = (y + rect.height + offset > window.innerHeight)
+      ? `${y - rect.height - offset}px`
+      : `${y + offset}px`;
+    el.style.left = (x + rect.width + offset > window.innerWidth)
+      ? `${x - rect.width - offset}px`
+      : `${x + offset}px`;
+  }, [tooltipInfo]);
 
   // Generate array of dates for the week
   const weekDates = useMemo(() => {
@@ -238,12 +257,12 @@ export default function WeekTimelineModal({
                             right: layout.right,
                             zIndex: layout.zIndex
                           }}
+                          onMouseEnter={(e) => setTooltipInfo({ title: eventTitle, time: formatEventTime(event), x: e.clientX, y: e.clientY })}
+                          onMouseMove={(e) => tooltipInfo && setTooltipInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
+                          onMouseLeave={() => setTooltipInfo(null)}
                         >
                           <div className="week-timeline-event-title">
                             {eventTitle}
-                          </div>
-                          <div className="week-timeline-event-time">
-                            {formatEventTime(event)}
                           </div>
                         </div>
                       );
@@ -296,6 +315,18 @@ export default function WeekTimelineModal({
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Cursor-following tooltip */}
+        {tooltipInfo && (
+          <div
+            ref={tooltipRef}
+            className="week-timeline-tooltip"
+            style={{ position: 'fixed', zIndex: 1000, pointerEvents: 'none', top: -9999, left: -9999 }}
+          >
+            <div className="week-timeline-tooltip-title">{tooltipInfo.title}</div>
+            <div className="week-timeline-tooltip-time">{tooltipInfo.time}</div>
           </div>
         )}
 
