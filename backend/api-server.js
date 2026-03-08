@@ -22,6 +22,7 @@ const ApiError = require('./utils/ApiError');
 const { conditionalUpdate } = require('./utils/concurrencyUtils');
 const { CONFLICT_SNAPSHOT_FIELDS } = require('./utils/conflictSnapshotFields');
 const { detectEventChanges, formatChangesForEmail } = require('./utils/changeDetection');
+const { expandRecurringOccurrencesInWindow } = require('./utils/recurrenceExpansion');
 const emailService = require('./services/emailService');
 const emailTemplates = require('./services/emailTemplates');
 const errorLoggingService = require('./services/errorLoggingService');
@@ -1667,6 +1668,61 @@ function buildEffectiveEditData(event) {
 }
 
 /**
+ * Build Graph API recurrence object from internal recurrence format
+ * Shared across publish, draft-submit, and admin-save endpoints.
+ * @param {Object} recurrence - Internal recurrence { pattern, range, additions, exclusions }
+ * @param {string} timeZone - IANA timezone (e.g., 'America/New_York')
+ * @returns {Object|null} Graph API compatible { pattern, range } or null
+ */
+function buildGraphRecurrence(recurrence, timeZone) {
+  if (!recurrence?.pattern || !recurrence?.range) return null;
+
+  const pattern = {
+    type: recurrence.pattern.type || 'weekly',
+    interval: recurrence.pattern.interval || 1,
+  };
+
+  if (recurrence.pattern.daysOfWeek) {
+    pattern.daysOfWeek = recurrence.pattern.daysOfWeek;
+  }
+  if (recurrence.pattern.dayOfMonth) {
+    pattern.dayOfMonth = recurrence.pattern.dayOfMonth;
+  }
+  if (recurrence.pattern.month) {
+    pattern.month = recurrence.pattern.month;
+  }
+  if (recurrence.pattern.index) {
+    pattern.index = recurrence.pattern.index;
+  }
+  if (recurrence.pattern.firstDayOfWeek) {
+    pattern.firstDayOfWeek = recurrence.pattern.firstDayOfWeek;
+  }
+
+  const range = {
+    type: recurrence.range.type || 'noEnd',
+    startDate: recurrence.range.startDate,
+  };
+
+  if (recurrence.range.type === 'endDate' && recurrence.range.endDate) {
+    range.endDate = recurrence.range.endDate;
+  }
+  if (recurrence.range.type === 'numbered' && recurrence.range.numberOfOccurrences) {
+    range.numberOfOccurrences = recurrence.range.numberOfOccurrences;
+  }
+
+  // Map IANA timezone to Windows timezone name for Graph API
+  const tzMap = {
+    'America/New_York': 'Eastern Standard Time',
+    'America/Chicago': 'Central Standard Time',
+    'America/Denver': 'Mountain Standard Time',
+    'America/Los_Angeles': 'Pacific Standard Time',
+  };
+  range.recurrenceTimeZone = recurrence.range.recurrenceTimeZone || tzMap[timeZone] || timeZone;
+
+  return { pattern, range };
+}
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -1732,6 +1788,42 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     }
 
     const conflicts = await unifiedEventsCollection.find(query).toArray();
+
+    // Also check recurring series masters whose stored dates may not overlap but whose
+    // expanded occurrences do. Query for published seriesMasters sharing the same rooms.
+    try {
+      const recurringQuery = {
+        status: 'published',
+        eventType: 'seriesMaster',
+        'calendarData.locations': { $in: roomIds },
+      };
+      if (excludeId) {
+        recurringQuery._id = { $ne: new ObjectId(excludeId) };
+      }
+      // Exclude events already in the conflicts array
+      const conflictIds = conflicts.map(c => c._id);
+      if (conflictIds.length > 0) {
+        recurringQuery._id = { ...(recurringQuery._id || {}), $nin: conflictIds };
+      }
+      const seriesMasters = await unifiedEventsCollection.find(recurringQuery).toArray();
+
+      for (const master of seriesMasters) {
+        const occurrences = expandRecurringOccurrencesInWindow(master, effectiveStart, effectiveEnd);
+        for (const occ of occurrences) {
+          // Check time overlap with the candidate event
+          if (occ.startDateTime < effectiveEndStr && occ.endDateTime > effectiveStartStr) {
+            conflicts.push({
+              ...master,
+              _occurrenceStartDateTime: occ.startDateTime,
+              _occurrenceEndDateTime: occ.endDateTime,
+            });
+            break; // One overlap is enough to flag this master as conflicting
+          }
+        }
+      }
+    } catch (recurringError) {
+      logger.warn('Error checking recurring series conflicts (non-fatal):', recurringError.message);
+    }
 
     // Get incoming event's concurrent permission (defaults to false)
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
@@ -3479,7 +3571,14 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // Recurring event metadata (authoritative for app, graphData still has raw values)
     unifiedEvent.eventType = graphEvent.type || 'singleInstance';
     unifiedEvent.seriesMasterId = graphEvent.seriesMasterId || null;
-    unifiedEvent.recurrence = graphEvent.recurrence || null;
+    // Preserve user-defined recurrence (with additions/exclusions) if it exists;
+    // Graph format overwrites these fields, so prefer the stored version
+    if (existingEvent?.recurrence?.additions || existingEvent?.recurrence?.exclusions ||
+        existingEvent?.calendarData?.recurrence?.additions || existingEvent?.calendarData?.recurrence?.exclusions) {
+      unifiedEvent.recurrence = existingEvent.recurrence || existingEvent.calendarData?.recurrence;
+    } else {
+      unifiedEvent.recurrence = graphEvent.recurrence || null;
+    }
 
     // Timing fields from enrichment data
     unifiedEvent.setupTime = internalData.setupTime || '';
@@ -13138,6 +13237,16 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         showAs: 'busy'
       };
 
+      // Add recurrence if draft has a recurring pattern
+      const draftRecurrence = draft.recurrence || cd.recurrence;
+      if (draftRecurrence?.pattern && draftRecurrence?.range) {
+        const graphRecurrence = buildGraphRecurrence(draftRecurrence, 'America/New_York');
+        if (graphRecurrence) {
+          graphEventData.recurrence = graphRecurrence;
+          logger.info('Draft auto-publish: Added recurrence to Graph event', { patternType: draftRecurrence.pattern.type });
+        }
+      }
+
       const createdEvent = await graphApiService.createCalendarEvent(
         calendarOwner,
         draft.calendarId || null,
@@ -13145,10 +13254,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       );
 
       const now = new Date();
-      await unifiedEventsCollection.updateOne(
-        { _id: new ObjectId(draftId) },
-        {
-          $set: {
+      const draftPublishSet = {
             status: 'published',
             calendarOwner,
             publishedAt: now,
@@ -13160,7 +13266,15 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
             'graphData.id': createdEvent.id,
             'graphData.iCalUId': createdEvent.iCalUId,
             'graphData.webLink': createdEvent.webLink,
-          },
+      };
+      // Set eventType to seriesMaster for recurring events
+      if (draftRecurrence?.pattern && draftRecurrence?.range) {
+        draftPublishSet.eventType = 'seriesMaster';
+      }
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(draftId) },
+        {
+          $set: draftPublishSet,
           $unset: { draftCreatedAt: "" },
           $push: {
             statusHistory: {
@@ -13511,6 +13625,13 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
             importance: reservation.graphData?.importance || 'normal',
             showAs: reservation.graphData?.showAs || 'busy'
           };
+
+          // Add recurrence if reservation has a recurring pattern
+          const restoreRecurrence = reservation.recurrence || reservation.calendarData?.recurrence;
+          if (restoreRecurrence?.pattern && restoreRecurrence?.range) {
+            const graphRecurrence = buildGraphRecurrence(restoreRecurrence, eventTimezone || 'America/New_York');
+            if (graphRecurrence) graphEventData.recurrence = graphRecurrence;
+          }
 
           const createdEvent = await graphApiService.createCalendarEvent(
             calendarOwner, calendarId, graphEventData
@@ -17548,6 +17669,16 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           showAs: event.graphData?.showAs || 'busy'
         };
 
+        // Add recurrence if event has a recurring pattern
+        const publishRecurrence = event.recurrence || event.calendarData?.recurrence;
+        if (publishRecurrence?.pattern && publishRecurrence?.range) {
+          const graphRecurrence = buildGraphRecurrence(publishRecurrence, eventTimezone || 'America/New_York');
+          if (graphRecurrence) {
+            graphEventData.recurrence = graphRecurrence;
+            logger.info('Publish: Added recurrence to Graph event', { patternType: publishRecurrence.pattern.type });
+          }
+        }
+
         // Use graphApiService with app-only authentication (no user token needed)
         logger.info('Creating Graph event via graphApiService', {
           calendarOwner: selectedCalendarOwner,
@@ -17621,6 +17752,12 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         }
       }
     };
+
+    // Set eventType to seriesMaster when publishing a recurring event
+    const publishRecurrenceCheck = event.recurrence || event.calendarData?.recurrence;
+    if (publishRecurrenceCheck?.pattern && publishRecurrenceCheck?.range) {
+      publishUpdate.$set.eventType = 'seriesMaster';
+    }
 
     let publishedEvent;
     try {
@@ -19394,6 +19531,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    // Validate seriesMasterId matches stored event to prevent targeting arbitrary Graph events
+    if (seriesMasterId) {
+      const storedMasterId = event.graphData?.seriesMasterId || event.seriesMasterId;
+      if (storedMasterId && storedMasterId !== seriesMasterId) {
+        return res.status(400).json({ error: 'InvalidSeriesMasterId', message: 'seriesMasterId does not match stored event' });
+      }
+    }
+
     // Validate offsite fields - both name and address required when isOffsite is true
     if (updates.isOffsite && (!updates.offsiteName?.trim() || !updates.offsiteAddress?.trim())) {
       return res.status(400).json({
@@ -19727,8 +19872,7 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             contentType: updates.body.contentType === 'text' ? 'Text' : 'HTML',
             content: updates.body.content
           };
-          // Also store as eventDescription for MongoDB consistency
-          updateOperations.eventDescription = updates.body.content;
+          // eventDescription sync moved below updateOperations declaration
         } else if (updates.eventDescription) {
           graphUpdate.body = {
             contentType: 'HTML',
@@ -19750,81 +19894,12 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
 
         // Handle recurrence pattern updates (only when editing entire series)
-        // Graph API recurrence format: { pattern: {...}, range: {...} }
         if (editScope === 'allEvents' && updates.recurrence) {
-          logger.info('Processing recurrence update for series:', {
-            hasPattern: !!updates.recurrence.pattern,
-            hasRange: !!updates.recurrence.range,
-            patternType: updates.recurrence.pattern?.type,
-            rangeType: updates.recurrence.range?.type
-          });
-
-          // Build the recurrence object for Graph API
-          const recurrenceUpdate = {};
-
-          // Pattern (required for recurrence)
-          if (updates.recurrence.pattern) {
-            recurrenceUpdate.pattern = {
-              type: updates.recurrence.pattern.type || 'weekly',
-              interval: updates.recurrence.pattern.interval || 1
-            };
-
-            // Add daysOfWeek for weekly/relativeMonthly patterns
-            if (updates.recurrence.pattern.daysOfWeek) {
-              recurrenceUpdate.pattern.daysOfWeek = updates.recurrence.pattern.daysOfWeek;
-            }
-
-            // Add dayOfMonth for monthly patterns
-            if (updates.recurrence.pattern.dayOfMonth) {
-              recurrenceUpdate.pattern.dayOfMonth = updates.recurrence.pattern.dayOfMonth;
-            }
-
-            // Add month for yearly patterns
-            if (updates.recurrence.pattern.month) {
-              recurrenceUpdate.pattern.month = updates.recurrence.pattern.month;
-            }
-
-            // Add index for relativeMonthly/relativeYearly patterns
-            if (updates.recurrence.pattern.index) {
-              recurrenceUpdate.pattern.index = updates.recurrence.pattern.index;
-            }
-
-            // Add firstDayOfWeek if specified
-            if (updates.recurrence.pattern.firstDayOfWeek) {
-              recurrenceUpdate.pattern.firstDayOfWeek = updates.recurrence.pattern.firstDayOfWeek;
-            }
-          }
-
-          // Range (required for recurrence)
-          if (updates.recurrence.range) {
-            recurrenceUpdate.range = {
-              type: updates.recurrence.range.type || 'noEnd',
-              startDate: updates.recurrence.range.startDate
-            };
-
-            // Add endDate for 'endDate' range type
-            if (updates.recurrence.range.type === 'endDate' && updates.recurrence.range.endDate) {
-              recurrenceUpdate.range.endDate = updates.recurrence.range.endDate;
-            }
-
-            // Add numberOfOccurrences for 'numbered' range type
-            if (updates.recurrence.range.type === 'numbered' && updates.recurrence.range.numberOfOccurrences) {
-              recurrenceUpdate.range.numberOfOccurrences = updates.recurrence.range.numberOfOccurrences;
-            }
-
-            // Add recurrenceTimeZone if specified
-            if (updates.recurrence.range.recurrenceTimeZone) {
-              recurrenceUpdate.range.recurrenceTimeZone = updates.recurrence.range.recurrenceTimeZone;
-            }
-          }
-
-          // Only add recurrence if we have both pattern and range
-          if (recurrenceUpdate.pattern && recurrenceUpdate.range) {
+          const recurrenceTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
+          const recurrenceUpdate = buildGraphRecurrence(updates.recurrence, recurrenceTimezone);
+          if (recurrenceUpdate) {
             graphUpdate.recurrence = recurrenceUpdate;
-            logger.info('Added recurrence to Graph update:', {
-              pattern: recurrenceUpdate.pattern,
-              range: recurrenceUpdate.range
-            });
+            logger.info('Added recurrence to Graph update:', recurrenceUpdate);
           }
         }
 
@@ -19890,6 +19965,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
 
     // Build update operations with field syncing (same as creation flow)
     const updateOperations = { ...safeUpdates };
+
+    // Sync body.content to eventDescription (deferred from Graph sync block above)
+    if (updates.body?.content) {
+      updateOperations.eventDescription = updates.body.content;
+    }
 
     // IMPORTANT: Calculate startDateTime/endDateTime from separate date/time fields if provided
     // The form sends startDate + startTime separately, but we need the combined ISO string
@@ -20329,6 +20409,14 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
     if (!event) {
       logger.log('❌ Event not found in MongoDB:', id);
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Validate seriesMasterId matches stored event to prevent targeting arbitrary Graph events
+    if (seriesMasterId) {
+      const storedMasterId = event.graphData?.seriesMasterId || event.seriesMasterId;
+      if (storedMasterId && storedMasterId !== seriesMasterId) {
+        return res.status(400).json({ error: 'InvalidSeriesMasterId', message: 'seriesMasterId does not match stored event' });
+      }
     }
 
     logger.log('✅ Event found in MongoDB:', {

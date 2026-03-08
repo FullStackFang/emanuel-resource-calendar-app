@@ -10,6 +10,7 @@ const cors = require('cors');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
 const { getPermissions, isAdmin, canViewAllReservations, hasRole, getEffectiveRole } = require('../../utils/authUtils');
 const { detectEventChanges, formatChangesForEmail } = require('../../utils/changeDetection');
+const { expandRecurringOccurrencesInWindow } = require('../../utils/recurrenceExpansion');
 const { getAllowedKeys: getAllowedNotifKeys } = require('../../utils/notificationPreferenceKeys');
 const { initTestKeys, createMockToken, getTestJwks } = require('./authHelpers');
 const { COLLECTIONS, TEST_CALENDAR_OWNER } = require('./testConstants');
@@ -221,6 +222,36 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
   };
 
   const publishedConflicts = await eventsCollection.find(query).toArray();
+
+  // --- Recurring series master expansion ---
+  try {
+    const recurringQuery = {
+      status: 'published',
+      eventType: 'seriesMaster',
+      $or: [
+        { 'calendarData.locations': { $in: roomIds } },
+        { locations: { $in: roomIds } },
+      ],
+      _id: { $ne: excludeId },
+    };
+    // Exclude already-found conflicts
+    const foundIds = publishedConflicts.map(c => c._id);
+    if (foundIds.length > 0) {
+      recurringQuery._id = { $ne: excludeId, $nin: foundIds };
+    }
+    const seriesMasters = await eventsCollection.find(recurringQuery).toArray();
+    for (const master of seriesMasters) {
+      const occurrences = expandRecurringOccurrencesInWindow(master, startTime, endTime);
+      for (const occ of occurrences) {
+        if (occ.startDateTime < endTimeStr && occ.endDateTime > startTimeStr) {
+          publishedConflicts.push(master);
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    // Non-fatal: skip recurring check
+  }
 
   // --- Pending edit request conflicts ---
   const pendingEditQuery = {
@@ -638,19 +669,24 @@ function createTestApp(options = {}) {
 
       if (canAutoPublish) {
         // Auto-publish path for admins/approvers
+        const draftGraphData = {
+          subject: cd.eventTitle,
+          startDateTime: cd.startDateTime,
+          endDateTime: cd.endDateTime,
+          eventDescription: cd.eventDescription,
+        };
+        // Include recurrence if draft has recurring pattern
+        const draftRecurrence = draft.recurrence || cd.recurrence;
+        if (draftRecurrence?.pattern && draftRecurrence?.range) {
+          draftGraphData.recurrence = { pattern: draftRecurrence.pattern, range: draftRecurrence.range };
+        }
         const graphResult = await graphApiMock.createCalendarEvent(
           TEST_CALENDAR_OWNER,
           null,
-          {
-            subject: cd.eventTitle,
-            startDateTime: cd.startDateTime,
-            endDateTime: cd.endDateTime,
-            eventDescription: cd.eventDescription,
-          }
+          draftGraphData
         );
 
-        await testCollections.events.updateOne(query, {
-          $set: {
+        const draftPublishSet = {
             status: 'published',
             publishedAt: now,
             publishedBy: userEmail,
@@ -664,7 +700,13 @@ function createTestApp(options = {}) {
               iCalUId: graphResult.iCalUId,
               webLink: graphResult.webLink,
             },
-          },
+        };
+        // Set eventType for recurring events
+        if (draftRecurrence?.pattern && draftRecurrence?.range) {
+          draftPublishSet.eventType = 'seriesMaster';
+        }
+        await testCollections.events.updateOne(query, {
+          $set: draftPublishSet,
           $unset: { draftCreatedAt: "" },
           $push: {
             statusHistory: {
@@ -963,22 +1005,33 @@ function createTestApp(options = {}) {
         }
       }
 
+      // Build Graph event data
+      const graphEventData = {
+        subject: event.eventTitle,
+        startDateTime: event.startDateTime,
+        endDateTime: event.endDateTime,
+        eventDescription: event.eventDescription,
+      };
+
+      // Include recurrence if event has a recurring pattern
+      const publishRecurrence = event.recurrence || event.calendarData?.recurrence;
+      if (publishRecurrence?.pattern && publishRecurrence?.range) {
+        graphEventData.recurrence = {
+          pattern: publishRecurrence.pattern,
+          range: publishRecurrence.range,
+        };
+      }
+
       // Mock Graph API call
       const graphResult = await graphApiMock.createCalendarEvent(
         TEST_CALENDAR_OWNER,
         null,
-        {
-          subject: event.eventTitle,
-          startDateTime: event.startDateTime,
-          endDateTime: event.endDateTime,
-          eventDescription: event.eventDescription,
-        }
+        graphEventData
       );
 
       // Update event status
       const now = new Date();
-      await testCollections.events.updateOne(query, {
-        $set: {
+      const publishSet = {
           status: 'published',
           publishedAt: now,
           publishedBy: userEmail,
@@ -989,7 +1042,13 @@ function createTestApp(options = {}) {
             iCalUId: graphResult.iCalUId,
             webLink: graphResult.webLink,
           },
-        },
+      };
+      // Set eventType for recurring events
+      if (publishRecurrence?.pattern && publishRecurrence?.range) {
+        publishSet.eventType = 'seriesMaster';
+      }
+      await testCollections.events.updateOne(query, {
+        $set: publishSet,
         $push: {
           statusHistory: {
             status: 'published',

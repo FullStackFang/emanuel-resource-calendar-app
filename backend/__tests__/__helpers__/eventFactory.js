@@ -380,6 +380,25 @@ async function updateEvent(db, eventId, update) {
   return findEvent(db, eventId);
 }
 
+/**
+ * Create a recurring series master event
+ * @param {Object} options - Event options (must include recurrence)
+ * @returns {Object} Series master event
+ */
+function createRecurringSeriesMaster(options = {}) {
+  const defaultRecurrence = {
+    pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+    range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+    additions: [],
+    exclusions: [],
+  };
+  return createBaseEvent({
+    eventType: 'seriesMaster',
+    recurrence: options.recurrence || defaultRecurrence,
+    ...options,
+  });
+}
+
 module.exports = {
   createBaseEvent,
   createDraftEvent,
@@ -389,6 +408,7 @@ module.exports = {
   createPublishedEventWithGraph,
   createRejectedEvent,
   createDeletedEvent,
+  createRecurringSeriesMaster,
   insertEvent,
   insertEvents,
   createEventSetForUser,

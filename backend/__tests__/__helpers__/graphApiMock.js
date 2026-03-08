@@ -11,6 +11,7 @@ const callHistory = {
   updateCalendarEvent: [],
   deleteCalendarEvent: [],
   getAccessToken: [],
+  getRecurringEventInstances: [],
 };
 
 // Configurable responses (can be modified per-test)
@@ -19,6 +20,7 @@ const mockResponses = {
   updateCalendarEvent: null,
   deleteCalendarEvent: null,
   getAccessToken: null,
+  getRecurringEventInstances: null,
 };
 
 // Error responses to simulate failures
@@ -27,6 +29,7 @@ const mockErrors = {
   updateCalendarEvent: null,
   deleteCalendarEvent: null,
   getAccessToken: null,
+  getRecurringEventInstances: null,
 };
 
 /**
@@ -137,6 +140,29 @@ async function getAccessToken() {
 }
 
 /**
+ * Mock getRecurringEventInstances
+ * @param {string} calendarOwner
+ * @param {string|null} calendarId
+ * @param {string} seriesMasterId
+ * @param {string} startDateTime
+ * @param {string} endDateTime
+ * @returns {Promise<Array>}
+ */
+async function getRecurringEventInstances(calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime) {
+  callHistory.getRecurringEventInstances.push({ calendarOwner, calendarId, seriesMasterId, startDateTime, endDateTime });
+
+  if (mockErrors.getRecurringEventInstances) {
+    throw mockErrors.getRecurringEventInstances;
+  }
+
+  if (mockResponses.getRecurringEventInstances) {
+    return mockResponses.getRecurringEventInstances;
+  }
+
+  return [];
+}
+
+/**
  * Clear all call history (call in beforeEach)
  */
 function clearCallHistory() {
@@ -144,6 +170,7 @@ function clearCallHistory() {
   callHistory.updateCalendarEvent = [];
   callHistory.deleteCalendarEvent = [];
   callHistory.getAccessToken = [];
+  callHistory.getRecurringEventInstances = [];
 }
 
 /**
@@ -155,10 +182,12 @@ function resetMocks() {
   mockResponses.updateCalendarEvent = null;
   mockResponses.deleteCalendarEvent = null;
   mockResponses.getAccessToken = null;
+  mockResponses.getRecurringEventInstances = null;
   mockErrors.createCalendarEvent = null;
   mockErrors.updateCalendarEvent = null;
   mockErrors.deleteCalendarEvent = null;
   mockErrors.getAccessToken = null;
+  mockErrors.getRecurringEventInstances = null;
 }
 
 /**
@@ -241,6 +270,7 @@ module.exports = {
   updateCalendarEvent,
   deleteCalendarEvent,
   getAccessToken,
+  getRecurringEventInstances,
 
   // Test utilities
   clearCallHistory,

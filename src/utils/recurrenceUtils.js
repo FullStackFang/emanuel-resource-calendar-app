@@ -57,8 +57,11 @@ export function isDateInPattern(date, pattern, startDate) {
 
   switch (type) {
     case 'daily': {
-      const daysDiff = Math.floor((checkDate - start) / (1000 * 60 * 60 * 24));
-      return daysDiff % interval === 0;
+      // Use local date normalization to avoid DST off-by-one (23h or 25h days)
+      const startNorm = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const checkNorm = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
+      const daysDiff = Math.round((checkNorm - startNorm) / (1000 * 60 * 60 * 24));
+      return daysDiff >= 0 && daysDiff % interval === 0;
     }
 
     case 'weekly': {
@@ -137,7 +140,7 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
   const current = new Date(start);
   while (current <= end) {
     if (isDateInPattern(current, pattern, patternStart)) {
-      dates.push(current.toISOString().split('T')[0]);
+      dates.push(`${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,'0')}-${String(current.getDate()).padStart(2,'0')}`);
     }
 
     // Advance by one day
@@ -313,7 +316,7 @@ export function formatRecurrenceSummary(pattern, range) {
  * @returns {string[]} Array of YYYY-MM-DD strings
  */
 export function datesToStrings(dates) {
-  return dates.map(date => date.toISOString().split('T')[0]);
+  return dates.map(date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`);
 }
 
 /**

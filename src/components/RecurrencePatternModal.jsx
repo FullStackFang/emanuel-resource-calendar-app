@@ -49,7 +49,7 @@ export default function RecurrencePatternModal({
       const { pattern, range, additions, exclusions } = initialPattern;
 
       if (pattern) {
-        setFrequency(pattern.type || 'week');
+        setFrequency(pattern.type || 'weekly');
         setInterval(pattern.interval || 1);
         if (pattern.daysOfWeek && pattern.daysOfWeek.length > 0) {
           setDaysOfWeek(pattern.daysOfWeek);
@@ -116,7 +116,7 @@ export default function RecurrencePatternModal({
 
   // Handle calendar date click
   const handleCalendarDateClick = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 
     // Calculate pattern dates for this check
     const currentPatternDates = startDate ? calculateRecurrenceDates(
@@ -191,7 +191,7 @@ export default function RecurrencePatternModal({
         const daysToAdd = nextDayIndex - currentDayIndex;
         const adjustedDate = new Date(startDateObj);
         adjustedDate.setDate(adjustedDate.getDate() + daysToAdd);
-        adjustedStartDate = adjustedDate.toISOString().split('T')[0];
+        adjustedStartDate = `${adjustedDate.getFullYear()}-${String(adjustedDate.getMonth()+1).padStart(2,'0')}-${String(adjustedDate.getDate()).padStart(2,'0')}`;
 
         logger.debug('Adjusted start date to match recurrence pattern:', {
           originalStartDate: startDate,
@@ -217,12 +217,26 @@ export default function RecurrencePatternModal({
       numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined
     };
 
-    // Calculate ALL pattern dates (not just current month view)
-    const allPatternDates = startDate ? calculateRecurrenceDates(
-      pattern,
-      range,
-      new Date(startDate) // Use start date as base
-    ) : [];
+    // Calculate ALL pattern dates over full range (not just one month view)
+    // We iterate month by month from start to end to cover the entire range
+    let allPatternDates = [];
+    if (startDate) {
+      const rangeStartDate = new Date(adjustedStartDate + 'T00:00:00');
+      let rangeEndDate;
+      if (endType === 'endDate' && endDate) {
+        rangeEndDate = new Date(endDate + 'T00:00:00');
+      } else {
+        // For noEnd/numbered, compute up to 2 years out for cleanup
+        rangeEndDate = new Date(rangeStartDate);
+        rangeEndDate.setFullYear(rangeEndDate.getFullYear() + 2);
+      }
+      const monthCursor = new Date(rangeStartDate.getFullYear(), rangeStartDate.getMonth(), 1);
+      while (monthCursor <= rangeEndDate) {
+        const monthDates = calculateRecurrenceDates(pattern, range, monthCursor);
+        monthDates.forEach(d => { if (!allPatternDates.includes(d)) allPatternDates.push(d); });
+        monthCursor.setMonth(monthCursor.getMonth() + 1);
+      }
+    }
 
     // Clean up: Remove ad-hoc additions that are now covered by the pattern
     const cleanedAdditions = adHocAdditions.filter(dateStr => !allPatternDates.includes(dateStr));
@@ -303,7 +317,7 @@ export default function RecurrencePatternModal({
                 onChange={handleCalendarDateClick}
                 onMonthChange={setViewMonth}
                 dayClassName={(date) => {
-                  const dateStr = date.toISOString().split('T')[0];
+                  const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
                   if (adHocExclusions.includes(dateStr)) return 'adhoc-exclusion';
                   if (adHocAdditions.includes(dateStr)) return 'adhoc-addition';
                   if (patternDates.includes(dateStr)) return 'recurrence-pattern';

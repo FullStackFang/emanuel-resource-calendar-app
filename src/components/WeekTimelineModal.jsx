@@ -8,6 +8,7 @@ import {
   calculateEventPosition as calcPosition,
   formatTimelineEventTime,
 } from '../utils/timelineUtils';
+import { RecurringIcon } from './shared/CalendarIcons';
 import './WeekTimelineModal.css';
 
 /**
@@ -261,6 +262,19 @@ export default function WeekTimelineModal({
                           onMouseMove={(e) => tooltipInfo && setTooltipInfo(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : null)}
                           onMouseLeave={() => setTooltipInfo(null)}
                         >
+                          {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
+                            (event.seriesMasterId || event.graphData?.seriesMasterId) ||
+                            (event.recurrence || event.graphData?.recurrence)) && (
+                            <div style={{
+                              position: 'absolute',
+                              top: '2px',
+                              right: '3px',
+                              color: '#444',
+                              lineHeight: 1
+                            }}>
+                              <RecurringIcon size={12} />
+                            </div>
+                          )}
                           <div className="week-timeline-event-title">
                             {eventTitle}
                           </div>

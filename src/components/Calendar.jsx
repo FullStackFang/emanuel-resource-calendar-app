@@ -1797,10 +1797,21 @@ import ConflictDialog from './shared/ConflictDialog';
 
               try {
                 // Prepare master event in format expected by expandRecurringSeries
-                const masterForExpansion = {
-                  ...event.graphData,
-                  eventId: event.graphData.id
-                };
+                // Support both Graph-synced events (with graphData) and internal drafts (without)
+                const masterId = event.graphData?.id || event.eventId;
+                const masterForExpansion = event.graphData?.id
+                  ? {
+                      ...event.graphData,
+                      eventId: event.graphData.id,
+                      recurrence: recurrence
+                    }
+                  : {
+                      eventId: event.eventId,
+                      start: { dateTime: event.startDateTime || event.calendarData?.startDateTime, timeZone: 'America/New_York' },
+                      end: { dateTime: event.endDateTime || event.calendarData?.endDateTime, timeZone: 'America/New_York' },
+                      subject: event.eventTitle || event.calendarData?.eventTitle,
+                      recurrence: recurrence
+                    };
 
                 // Expand the master into occurrences for the current view range
                 const occurrences = expandRecurringSeries(
@@ -1818,14 +1829,14 @@ import ConflictDialog from './shared/ConflictDialog';
                     eventId: `${event.eventId}-occurrence-${occurrenceDate}`,
                     // Top-level recurring metadata (authoritative for app)
                     eventType: 'occurrence',
-                    seriesMasterId: event.graphData.id,
+                    seriesMasterId: masterId,
                     recurrence: null, // Occurrences don't have recurrence pattern
-                    graphData: {
+                    graphData: event.graphData ? {
                       ...occurrence,
-                      id: `${event.graphData.id}-occurrence-${occurrenceDate}`,
+                      id: `${masterId}-occurrence-${occurrenceDate}`,
                       type: 'occurrence',
-                      seriesMasterId: event.graphData.id
-                    },
+                      seriesMasterId: masterId
+                    } : null,
                     start: occurrence.start,
                     end: occurrence.end,
                     startDate: occurrenceDate,
