@@ -2477,7 +2477,7 @@ const verifyToken = async (req, res, next) => {
       // Extract user info from token
       req.user = {
         userId: decoded.oid || decoded.sub, // Object ID or Subject claim
-        email: decoded.preferred_username || decoded.email || decoded.upn,
+        email: (decoded.preferred_username || decoded.email || decoded.upn || '').toLowerCase() || undefined,
         name: decoded.name
       };
       
@@ -4877,9 +4877,10 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
     const userEmail = roleInfo?.userEmail;
 
     // Email-match conditions for ownership checks (reused across roles)
-    const ownerEmailConditions = userEmail ? [
-      { createdByEmail: userEmail },
-      { 'roomReservationData.requestedBy.email': userEmail }
+    const normalizedEmail = (userEmail || '').toLowerCase();
+    const ownerEmailConditions = normalizedEmail ? [
+      { createdByEmail: normalizedEmail },
+      { 'roomReservationData.requestedBy.email': normalizedEmail }
     ] : [];
 
     if (role === 'approver' || role === 'admin') {
@@ -5914,7 +5915,7 @@ app.get('/api/events/list', verifyToken, async (req, res) => {
     if (view === 'my-events') {
       query.roomReservationData = { $exists: true, $ne: null };
       // Always scope to user's own events - admins use admin-browse for all events
-      query['roomReservationData.requestedBy.email'] = userEmail;
+      query['roomReservationData.requestedBy.email'] = (userEmail || '').toLowerCase();
       // Status filtering
       if (status === 'deleted') {
         query.$or = [{ status: 'deleted' }, { isDeleted: true }];
@@ -6175,7 +6176,7 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
     if (view === 'my-events') {
       // Single aggregation instead of 7 parallel countDocuments (avoids Cosmos DB rate limits)
       const pipeline = [
-        { $match: { roomReservationData: { $exists: true, $ne: null }, 'roomReservationData.requestedBy.email': userEmail } },
+        { $match: { roomReservationData: { $exists: true, $ne: null }, 'roomReservationData.requestedBy.email': (userEmail || '').toLowerCase() } },
         { $group: {
           _id: null,
           pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
@@ -13870,8 +13871,8 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Deleted or cancelled reservation not found' });
     }
 
-    // Validate ownership using roomReservationData.requestedBy.email
-    if (reservation.roomReservationData?.requestedBy?.email !== userEmail) {
+    // Validate ownership using roomReservationData.requestedBy.email (case-insensitive)
+    if ((reservation.roomReservationData?.requestedBy?.email || '').toLowerCase() !== (userEmail || '').toLowerCase()) {
       return res.status(403).json({ error: 'You can only restore your own reservations' });
     }
 
@@ -14474,7 +14475,7 @@ app.post('/api/room-reservations/public/:token', async (req, res) => {
         requestedBy: {
           userId: `guest-${tokenDoc._id}`,
           name: requesterName,
-          email: requesterEmail,
+          email: (requesterEmail || '').toLowerCase(),
           department: department || '',
           phone: phone || ''
         },
@@ -17925,7 +17926,7 @@ app.post('/api/events/request', verifyToken, async (req, res) => {
         requestedBy: {
           userId,
           name: requesterName || userEmail,
-          email: requesterEmail || userEmail,
+          email: (requesterEmail || userEmail || '').toLowerCase(),
           department: effectiveDepartment,
           phone: phone || ''
         },
@@ -18826,9 +18827,9 @@ app.post('/api/events/:id/request-edit', verifyToken, async (req, res) => {
 
     // Check if user is the event owner
     const isOwner = originalEvent.createdBy === userId ||
-                    originalEvent.createdByEmail === userEmail ||
+                    (originalEvent.createdByEmail || '').toLowerCase() === (userEmail || '').toLowerCase() ||
                     originalEvent.roomReservationData?.requestedBy?.userId === userId ||
-                    originalEvent.roomReservationData?.requestedBy?.email === userEmail;
+                    (originalEvent.roomReservationData?.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
 
     // Check if user is in the same department as the event creator
     let isSameDepartment = false;
@@ -19973,7 +19974,7 @@ app.put('/api/events/edit-requests/:id/cancel', verifyToken, async (req, res) =>
 
     // Verify the user is the owner of the edit request
     const isOwner = pendingEditRequest.requestedBy?.userId === userId ||
-                    pendingEditRequest.requestedBy?.email === userEmail;
+                    (pendingEditRequest.requestedBy?.email || '').toLowerCase() === (userEmail || '').toLowerCase();
 
     if (!isOwner) {
       return res.status(403).json({ error: 'Only the requester can cancel their edit request' });
