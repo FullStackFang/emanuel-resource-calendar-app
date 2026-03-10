@@ -1,8 +1,9 @@
 // src/components/LocationReview.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useLocations } from '../context/LocationContext';
+import { usePolling } from '../hooks/usePolling';
 import LoadingSpinner from './shared/LoadingSpinner';
 import './LocationReview.css';
 
@@ -49,6 +50,27 @@ export default function LocationReview({ apiToken }) {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
+
+  // Silent background refresh (no loading spinner, swallow errors)
+  const silentRefresh = useCallback(async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/admin/locations`, {
+        headers: { 'Authorization': `Bearer ${apiToken}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const sorted = data.sort((a, b) => {
+          if (a.isReservable !== b.isReservable) {
+            return b.isReservable ? 1 : -1;
+          }
+          return (a.name || '').localeCompare(b.name || '');
+        });
+        setAllLocations(sorted);
+      }
+    } catch { /* silent */ }
+  }, [apiToken]);
+
+  usePolling(silentRefresh, 300_000, !!apiToken);
 
   useEffect(() => {
     loadLocations();

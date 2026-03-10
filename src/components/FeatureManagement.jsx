@@ -1,7 +1,8 @@
 // src/components/FeatureManagement.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import featureConfigService from '../services/featureConfigService';
 import LoadingSpinner from './shared/LoadingSpinner';
+import { usePolling } from '../hooks/usePolling';
 import { logger } from '../utils/logger';
 import './FeatureManagement.css';
 
@@ -39,6 +40,22 @@ export default function FeatureManagement({ apiToken }) {
     '💡', '❄️', '🌐', '🖥️', '☕', '📚', '💃', '👶', '♿', '🦻',
     '🌸', '🕯️', '📹', '✡️', '🏛️', '📍', '🎯', '🎨', '🎪', '🎻'
   ];
+
+  // Silent background refresh (no loading spinner, swallow errors)
+  const silentRefresh = useCallback(async () => {
+    try {
+      const [categoriesData, capabilitiesData, servicesData] = await Promise.all([
+        featureConfigService.getCategories(),
+        featureConfigService.getRoomCapabilityTypes(),
+        featureConfigService.getEventServiceTypes()
+      ]);
+      setCategories(categoriesData);
+      setCapabilities(capabilitiesData);
+      setServices(servicesData);
+    } catch { /* silent */ }
+  }, []);
+
+  usePolling(silentRefresh, 300_000, !!apiToken);
 
   useEffect(() => {
     loadFeatureConfig();

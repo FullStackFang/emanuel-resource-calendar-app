@@ -1,7 +1,8 @@
 // src/components/DepartmentManagement.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
+import { usePolling } from '../hooks/usePolling';
 import { logger } from '../utils/logger';
 import './DepartmentManagement.css';
 
@@ -41,6 +42,21 @@ export default function DepartmentManagement({ apiToken }) {
   const stats = useMemo(() => {
     return { total: departments.length };
   }, [departments]);
+
+  // Silent background refresh (no loading spinner, swallow errors)
+  const silentRefresh = useCallback(async () => {
+    try {
+      const response = await fetch(`${APP_CONFIG.API_BASE_URL}/departments`, {
+        headers: { Authorization: `Bearer ${apiToken}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDepartments(data);
+      }
+    } catch { /* silent */ }
+  }, [apiToken]);
+
+  usePolling(silentRefresh, 300_000, !!apiToken);
 
   useEffect(() => {
     loadDepartments();
