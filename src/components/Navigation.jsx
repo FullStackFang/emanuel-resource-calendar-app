@@ -170,6 +170,15 @@ export default function Navigation({ apiToken }) {
                 </li>
                 <li>
                   <NavLink
+                    to="/admin/departments"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    Department Management
+                  </NavLink>
+                </li>
+                <li>
+                  <NavLink
                     to="/admin/calendar-config"
                     className={({ isActive }) => isActive ? 'active' : ''}
                     onClick={handleDropdownLinkClick}

@@ -49,6 +49,7 @@ const COLLECTIONS = {
   CALENDAR_DELTAS: 'templeEvents__CalendarDeltas',
   RESERVATION_TOKENS: 'templeEvents__ReservationTokens',
   AUDIT_HISTORY: 'templeEvents__EventAuditHistory',
+  DEPARTMENTS: 'templeEvents__Departments',
 };
 
 // API endpoints

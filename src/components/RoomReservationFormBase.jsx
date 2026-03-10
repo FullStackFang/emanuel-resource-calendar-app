@@ -12,6 +12,7 @@ import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RecurringConflictSummary from './RecurringConflictSummary';
+import useDepartments from '../hooks/useDepartments';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import { extractTextFromHtml } from '../utils/textUtils';
 import { usePermissions } from '../hooks/usePermissions';
@@ -101,6 +102,9 @@ export default function RoomReservationFormBase({
   originalData = null,          // Original form data for comparison (shows strikethrough when changed)
   onConflictChange = null       // Callback when scheduling conflicts change: (hasConflicts, totalConflicts) => void
 }) {
+  // Load departments from database
+  const { departments: departmentsList } = useDepartments();
+
   // Form state
   const [formData, setFormData] = useState({
     requesterName: '',
@@ -2220,13 +2224,36 @@ export default function RoomReservationFormBase({
 
                 <div className="form-group">
                   <label htmlFor="department">Department</label>
-                  <input
-                    type="text"
+                  <select
                     id="department"
                     name="department"
-                    value={formData.department}
-                    onChange={handleInputChange}
-                  />
+                    value={departmentsList.some(d => d.name === formData.department || d.key === formData.department) ? formData.department : '__other__'}
+                    onChange={(e) => {
+                      if (e.target.value === '__other__') {
+                        handleInputChange({ target: { name: 'department', value: '' } });
+                      } else {
+                        handleInputChange({ target: { name: 'department', value: e.target.value } });
+                      }
+                    }}
+                  >
+                    <option value="">Select a department...</option>
+                    {departmentsList.filter(d => d.key !== '').map((dept) => (
+                      <option key={dept._id || dept.key} value={dept.name}>
+                        {dept.name}
+                      </option>
+                    ))}
+                    <option value="__other__">Other</option>
+                  </select>
+                  {(formData.department && !departmentsList.some(d => d.name === formData.department)) && (
+                    <input
+                      type="text"
+                      name="department"
+                      value={formData.department}
+                      onChange={handleInputChange}
+                      placeholder="Enter department name"
+                      style={{ marginTop: '8px' }}
+                    />
+                  )}
                 </div>
 
                 <div className="form-group">

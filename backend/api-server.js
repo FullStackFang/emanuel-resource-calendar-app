@@ -348,6 +348,7 @@ function setDeletionProgress(locationId, progress) {
 let eventServiceTypesCollection; // Configurable event service definitions
 let featureCategoriesCollection; // Feature groupings for UI organization
 let categoriesCollection; // Event categories (base + dynamic)
+let departmentsCollection; // Departments for user assignment and reservation forms
 let eventAuditHistoryCollection; // Audit trail for event changes
 let reservationAuditHistoryCollection; // Audit trail for room reservation changes
 let filesBucket; // GridFS bucket for file storage
@@ -783,6 +784,28 @@ async function createCategoriesIndexes() {
   }
 }
 
+async function createDepartmentsIndexes() {
+  try {
+    logger.log('Creating departments indexes...');
+
+    // Unique index for department keys
+    await departmentsCollection.createIndex(
+      { key: 1 },
+      { name: "unique_department_key", unique: true, background: true }
+    );
+
+    // Index for display order
+    await departmentsCollection.createIndex(
+      { displayOrder: 1, active: 1 },
+      { name: "department_display_order", background: true }
+    );
+
+    logger.log('Departments indexes created successfully');
+  } catch (error) {
+    logger.error('Error creating departments indexes:', error);
+  }
+}
+
 /**
  * Create indexes for the event attachments collection
  */
@@ -1057,6 +1080,95 @@ async function seedInitialCategories() {
     }
   } catch (error) {
     logger.error('Error seeding initial event categories:', error);
+  }
+}
+
+async function seedInitialDepartments() {
+  try {
+    const departmentCount = await departmentsCollection.countDocuments();
+    if (departmentCount === 0) {
+      logger.log('Seeding initial departments...');
+
+      const initialDepartments = [
+        {
+          name: 'None',
+          key: '',
+          description: 'No department-specific edit access',
+          displayOrder: 1,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Security',
+          key: 'security',
+          description: 'Can edit door times on events',
+          displayOrder: 2,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Maintenance',
+          key: 'maintenance',
+          description: 'Can edit setup/teardown times',
+          displayOrder: 3,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'IT',
+          key: 'it',
+          description: 'Information Technology',
+          displayOrder: 4,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Clergy',
+          key: 'clergy',
+          description: 'Clergy staff',
+          displayOrder: 5,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Membership',
+          key: 'membership',
+          description: 'Membership department',
+          displayOrder: 6,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Communications',
+          key: 'communications',
+          description: 'Communications department',
+          displayOrder: 7,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          name: 'Streicker',
+          key: 'streicker',
+          description: 'Streicker Center',
+          displayOrder: 8,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+
+      await departmentsCollection.insertMany(initialDepartments);
+      logger.log(`Seeded ${initialDepartments.length} initial departments`);
+    }
+  } catch (error) {
+    logger.error('Error seeding initial departments:', error);
   }
 }
 
@@ -2248,6 +2360,7 @@ async function connectToDatabase() {
     eventServiceTypesCollection = db.collection('templeEvents__EventServiceTypes'); // Configurable event service definitions
     featureCategoriesCollection = db.collection('templeEvents__FeatureCategories'); // Feature groupings for UI organization
     categoriesCollection = db.collection('templeEvents__Categories'); // Event categories (base + dynamic)
+    departmentsCollection = db.collection('templeEvents__Departments'); // Departments for user assignment and reservation forms
     eventAuditHistoryCollection = db.collection('templeEvents__EventAuditHistory'); // Audit trail for event changes
     reservationAuditHistoryCollection = db.collection('templeEvents__ReservationAuditHistory'); // Audit trail for room reservation changes
 
@@ -2280,7 +2393,8 @@ async function connectToDatabase() {
       createRoomCapabilityTypesIndexes(),
       createEventServiceTypesIndexes(),
       createFeatureCategoriesIndexes(),
-      createCategoriesIndexes()
+      createCategoriesIndexes(),
+      createDepartmentsIndexes()
     ]);
     
     // Event cache indexes removed - using unifiedEventsCollection instead
@@ -2291,6 +2405,7 @@ async function connectToDatabase() {
     await Promise.all([
       seedInitialFeatureCategories(),
       seedInitialCategories(),
+      seedInitialDepartments(),
       seedInitialRoomCapabilityTypes(),
       seedInitialEventServiceTypes()
     ]);
@@ -16522,6 +16637,245 @@ app.post('/api/admin/categories/resequence', verifyToken, async (req, res) => {
   } catch (error) {
     logger.error('Error resequencing categories:', error);
     res.status(500).json({ error: 'Failed to resequence categories' });
+  }
+});
+
+// ============================================================================
+// DEPARTMENT MANAGEMENT ENDPOINTS
+// ============================================================================
+
+/**
+ * Get all active departments
+ * Supports optional ?active=false to include inactive departments
+ */
+app.get('/api/departments', async (req, res) => {
+  try {
+    const filter = req.query.active === 'false' ? {} : { active: true };
+    const departments = await departmentsCollection.find(filter)
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    res.json(departments);
+  } catch (error) {
+    logger.error('Error fetching departments:', error);
+    res.status(500).json({ error: 'Failed to fetch departments' });
+  }
+});
+
+/**
+ * Shifts display orders to make room for a new/moved department.
+ * Only shifts departments that need to be shifted - stops at the first gap.
+ */
+async function shiftDepartmentDisplayOrders(collection, targetOrder, excludeId = null) {
+  const baseFilter = { active: true };
+  if (excludeId) {
+    baseFilter._id = { $ne: excludeId };
+  }
+
+  const targetOccupied = await collection.findOne({
+    ...baseFilter,
+    displayOrder: targetOrder
+  });
+
+  if (!targetOccupied) {
+    return;
+  }
+
+  const departmentsToCheck = await collection
+    .find({ ...baseFilter, displayOrder: { $gte: targetOrder } })
+    .sort({ displayOrder: 1 })
+    .toArray();
+
+  const idsToShift = [];
+  let expectedOrder = targetOrder;
+
+  for (const dept of departmentsToCheck) {
+    if (dept.displayOrder === expectedOrder) {
+      idsToShift.push(dept._id);
+      expectedOrder++;
+    } else {
+      break;
+    }
+  }
+
+  if (idsToShift.length > 0) {
+    await collection.updateMany(
+      { _id: { $in: idsToShift } },
+      { $inc: { displayOrder: 1 } }
+    );
+  }
+}
+
+/**
+ * Create a new department
+ */
+app.post('/api/departments', verifyToken, async (req, res) => {
+  try {
+    const { name, key, description, displayOrder } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Department name is required' });
+    }
+
+    if (!key && key !== '') {
+      return res.status(400).json({ error: 'Department key is required' });
+    }
+
+    // Check for duplicate key
+    const existingDepartment = await departmentsCollection.findOne({ key: key });
+    if (existingDepartment) {
+      return res.status(400).json({ error: 'Department with this key already exists' });
+    }
+
+    // Determine the display order to use
+    let requestedOrder = displayOrder;
+    if (requestedOrder === undefined || requestedOrder === null) {
+      const maxOrderDoc = await departmentsCollection.findOne(
+        { active: true },
+        { sort: { displayOrder: -1 }, projection: { displayOrder: 1 } }
+      );
+      requestedOrder = maxOrderDoc ? (maxOrderDoc.displayOrder || 0) + 1 : 1;
+    } else {
+      await shiftDepartmentDisplayOrders(departmentsCollection, requestedOrder, null);
+    }
+
+    const newDepartment = {
+      name: name.trim(),
+      key: key,
+      description: description || '',
+      displayOrder: requestedOrder,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await departmentsCollection.insertOne(newDepartment);
+    const createdDepartment = await departmentsCollection.findOne({ _id: result.insertedId });
+
+    res.status(201).json(createdDepartment);
+  } catch (error) {
+    logger.error('Error creating department:', error);
+    res.status(500).json({ error: 'Failed to create department' });
+  }
+});
+
+/**
+ * Update a department
+ */
+app.put('/api/departments/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, key, description, displayOrder, active } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid department ID' });
+    }
+
+    const updateData = {
+      updatedAt: new Date()
+    };
+
+    if (name !== undefined) updateData.name = name.trim();
+    if (key !== undefined) updateData.key = key;
+    if (description !== undefined) updateData.description = description;
+    if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
+    if (active !== undefined) updateData.active = active;
+
+    // If updating key, check for duplicates
+    if (key !== undefined) {
+      const existingDepartment = await departmentsCollection.findOne({
+        key: key,
+        _id: { $ne: new ObjectId(id) }
+      });
+      if (existingDepartment) {
+        return res.status(400).json({ error: 'Department with this key already exists' });
+      }
+    }
+
+    // If displayOrder is changing, shift other departments to make room
+    if (displayOrder !== undefined) {
+      const currentDepartment = await departmentsCollection.findOne({ _id: new ObjectId(id) });
+
+      if (currentDepartment && currentDepartment.displayOrder !== displayOrder) {
+        await shiftDepartmentDisplayOrders(departmentsCollection, displayOrder, new ObjectId(id));
+      }
+    }
+
+    const result = await departmentsCollection.findOneAndUpdate(
+      { _id: new ObjectId(id) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    logger.error('Error updating department:', error);
+    res.status(500).json({ error: 'Failed to update department' });
+  }
+});
+
+/**
+ * Delete a department (permanently removes from database)
+ */
+app.delete('/api/departments/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid department ID' });
+    }
+
+    const department = await departmentsCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!department) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+
+    // Check if any users are assigned to this department
+    if (department.key) {
+      const assignedUsers = await usersCollection.countDocuments({ department: department.key });
+      if (assignedUsers > 0) {
+        return res.status(409).json({
+          error: `Cannot delete department: ${assignedUsers} user(s) are currently assigned to it. Reassign them first.`,
+          assignedCount: assignedUsers
+        });
+      }
+    }
+
+    await departmentsCollection.deleteOne({ _id: new ObjectId(id) });
+
+    res.json({ message: 'Department deleted successfully', department });
+  } catch (error) {
+    logger.error('Error deleting department:', error);
+    res.status(500).json({ error: 'Failed to delete department' });
+  }
+});
+
+/**
+ * Resequence department display orders to remove gaps
+ */
+app.post('/api/admin/departments/resequence', verifyToken, async (req, res) => {
+  try {
+    const departments = await departmentsCollection
+      .find({ active: true })
+      .sort({ displayOrder: 1 })
+      .toArray();
+
+    for (let i = 0; i < departments.length; i++) {
+      await departmentsCollection.updateOne(
+        { _id: departments[i]._id },
+        { $set: { displayOrder: i + 1, updatedAt: new Date() } }
+      );
+    }
+
+    res.json({ message: 'Departments resequenced successfully', count: departments.length });
+  } catch (error) {
+    logger.error('Error resequencing departments:', error);
+    res.status(500).json({ error: 'Failed to resequence departments' });
   }
 });
 

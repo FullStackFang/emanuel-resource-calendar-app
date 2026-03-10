@@ -81,6 +81,7 @@ function setTestDatabase(db) {
     calendarDeltas: db.collection(COLLECTIONS.CALENDAR_DELTAS),
     reservationTokens: db.collection(COLLECTIONS.RESERVATION_TOKENS),
     auditHistory: db.collection(COLLECTIONS.AUDIT_HISTORY),
+    departments: db.collection(COLLECTIONS.DEPARTMENTS),
   };
 }
 

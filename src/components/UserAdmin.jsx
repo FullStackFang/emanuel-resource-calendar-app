@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useMsal } from '@azure/msal-react';
 import LoadingSpinner from './shared/LoadingSpinner';
 import APP_CONFIG from '../config/config';
+import useDepartments from '../hooks/useDepartments';
 import './UserAdmin.css';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
@@ -15,17 +16,7 @@ const ROLES = {
   admin: { name: 'Admin', description: 'Full system access' }
 };
 
-// Department definitions for specialized field editing
-const DEPARTMENTS = {
-  '': { name: 'None', description: 'No department-specific edit access' },
-  security: { name: 'Security', description: 'Can edit door times on events' },
-  maintenance: { name: 'Maintenance', description: 'Can edit setup/teardown times' },
-  it: { name: 'IT', description: 'Information Technology' },
-  clergy: { name: 'Clergy', description: 'Clergy staff' },
-  membership: { name: 'Membership', description: 'Membership department' },
-  communications: { name: 'Communications', description: 'Communications department' },
-  streicker: { name: 'Streicker', description: 'Streicker Center' }
-};
+// DEPARTMENTS is now loaded dynamically from the database via useDepartments hook
 
 // Derive role from legacy fields for backward compatibility
 const deriveRole = (user) => {
@@ -48,6 +39,16 @@ const getInitials = (name) => {
 
 export default function UserAdmin({ apiToken }) {
   const { accounts } = useMsal();
+  const { departments: departmentsList } = useDepartments();
+
+  // Build a lookup map keyed by department key for easy access
+  const DEPARTMENTS = useMemo(() => {
+    const map = {};
+    for (const dept of departmentsList) {
+      map[dept.key] = { name: dept.name, description: dept.description };
+    }
+    return map;
+  }, [departmentsList]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
