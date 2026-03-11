@@ -13,12 +13,13 @@ const { createTestApp, setTestDatabase } = require('../../__helpers__/testApp');
 const { getServerOptions } = require('../../__helpers__/testSetup');
 const { createAdmin, insertUsers } = require('../../__helpers__/userFactory');
 const {
+  createDraftEvent,
   createPendingEvent,
   createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
-const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
+const { COLLECTIONS, ENDPOINTS, STATUS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
 describe('Category-Level Concurrent Scheduling Rules (CCR-1 to CCR-6)', () => {
@@ -350,6 +351,80 @@ describe('Category-Level Concurrent Scheduling Rules (CCR-1 to CCR-6)', () => {
       const cat = await db.collection(COLLECTIONS.CATEGORIES).findOne({ _id: shabbatCatId });
       expect(cat.allowedConcurrentCategories).toHaveLength(1);
       expect(cat.allowedConcurrentCategories[0].toString()).toBe(bneiMitzvahCatId.toString());
+    });
+  });
+
+  // CCR-7: Categories only in calendarData (production shape)
+  describe('CCR-7: Conflict event with categories only in calendarData', () => {
+    it('should allow overlap when conflict event stores categories only in calendarData', async () => {
+      // Insert a published Shabbat event with categories ONLY in calendarData (strip top-level)
+      const existingEvent = createPublishedEvent({
+        eventTitle: 'Shabbat Services',
+        startDateTime: conflictStart,
+        endDateTime: conflictEnd,
+        locations: [roomId],
+        categories: ['Shabbat Services'],
+      });
+      // Strip top-level categories to simulate production data shape
+      delete existingEvent.categories;
+      await insertEvents(db, [existingEvent]);
+
+      // Verify the inserted event has no top-level categories
+      const inserted = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: existingEvent._id });
+      expect(inserted.categories).toBeUndefined();
+      expect(inserted.calendarData.categories).toEqual(['Shabbat Services']);
+
+      // New B/M event at same time/room — should be allowed by Shabbat's category rules
+      const newEvent = createPendingEvent({
+        eventTitle: 'Bar Mitzvah',
+        startDateTime: conflictStart,
+        endDateTime: conflictEnd,
+        locations: [roomId],
+        categories: ['Bnei Mitzvah'],
+      });
+      await insertEvents(db, [newEvent]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(newEvent._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ expectedVersion: newEvent._version });
+
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // CCR-8: Draft submit with category concurrent rules
+  describe('CCR-8: Draft submit respects category concurrent rules', () => {
+    it('should allow draft submit when existing event category grants draft category', async () => {
+      // Existing published Shabbat event (allows B/M)
+      const existingEvent = createPublishedEvent({
+        eventTitle: 'Shabbat Services',
+        startDateTime: conflictStart,
+        endDateTime: conflictEnd,
+        locations: [roomId],
+        categories: ['Shabbat Services'],
+      });
+      await insertEvents(db, [existingEvent]);
+
+      // Create a draft B/M event
+      const draft = createDraftEvent({
+        eventTitle: 'Bar Mitzvah',
+        startDateTime: conflictStart,
+        endDateTime: conflictEnd,
+        locations: [roomId],
+        categories: ['Bnei Mitzvah'],
+        calendarOwner: 'templeeventssandbox@emanuelnyc.org',
+        calendarId: 'default',
+      });
+      await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .post(ENDPOINTS.SUBMIT_DRAFT(draft._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ expectedVersion: draft._version });
+
+      // Admin submit auto-publishes; should succeed because Shabbat allows B/M
+      expect(res.status).toBe(200);
     });
   });
 });

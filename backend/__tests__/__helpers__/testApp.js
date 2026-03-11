@@ -322,7 +322,7 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
     // Batch-fetch conflict category docs
     const allConflictCatNames = new Set();
     for (const c of filteredConflicts) {
-      for (const n of (c.categories || [])) allConflictCatNames.add(n);
+      for (const n of (c.calendarData?.categories || c.categories || [])) allConflictCatNames.add(n);
     }
     const conflictCatMap = {};
     if (allConflictCatNames.size > 0) {
@@ -331,7 +331,7 @@ async function checkTestConflicts(event, excludeId, eventsCollection, categories
     }
 
     filteredConflicts = filteredConflicts.filter(conflict => {
-      const conflictCategories = conflict.categories || [];
+      const conflictCategories = conflict.calendarData?.categories || conflict.categories || [];
       const conflictCatIds = conflictCategories
         .map(name => conflictCatMap[name]?._id?.toString())
         .filter(Boolean);

@@ -1941,7 +1941,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     const requestAllowsConcurrent = reservation.isAllowedConcurrent ?? false;
 
     // Get incoming event's categories (for checking against allowed concurrent categories)
-    const requestCategories = reservation.categories || [];
+    const requestCategories = reservation.categories || reservation.calendarData?.categories || [];
 
     // Look up category docs for the incoming request (includes allowedConcurrentCategories rules)
     let requestCategoryIds = [];
@@ -1965,7 +1965,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     // Collect all unique category names from conflict events (for category-level rules batch fetch)
     const allConflictCategoryNames = new Set();
     for (const conflict of conflicts) {
-      for (const catName of (conflict.categories || [])) {
+      for (const catName of (conflict.calendarData?.categories || conflict.categories || [])) {
         allConflictCategoryNames.add(catName);
       }
     }
@@ -1983,7 +1983,7 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     // Filter conflicts - considers category-level rules first, then per-event fallback
     const actualConflicts = conflicts.filter(conflict => {
-      const conflictCategories = conflict.categories || [];
+      const conflictCategories = conflict.calendarData?.categories || conflict.categories || [];
       const conflictCategoryIds = conflictCategories
         .map(name => conflictCategoryDocsMap[name]?._id?.toString())
         .filter(Boolean);
@@ -2291,10 +2291,10 @@ async function checkRecurringRoomConflicts(params) {
   // Batch-fetch category docs for all potential conflict events + series masters
   const allRecurConflictCatNames = new Set();
   for (const c of potentialConflicts) {
-    for (const n of (c.categories || [])) allRecurConflictCatNames.add(n);
+    for (const n of (c.calendarData?.categories || c.categories || [])) allRecurConflictCatNames.add(n);
   }
   for (const m of existingSeriesMasters) {
-    for (const n of (m.categories || [])) allRecurConflictCatNames.add(n);
+    for (const n of (m.calendarData?.categories || m.categories || [])) allRecurConflictCatNames.add(n);
   }
   const recurConflictCatMap = {};
   if (allRecurConflictCatNames.size > 0) {
@@ -2305,7 +2305,7 @@ async function checkRecurringRoomConflicts(params) {
   // Helper: check if a conflict is filtered out by concurrent permissions
   const isFilteredByConcurrency = (conflict) => {
     // --- Category-level bilateral check ---
-    const conflictCategories = conflict.categories || [];
+    const conflictCategories = conflict.calendarData?.categories || conflict.categories || [];
     const conflictCategoryIds = conflictCategories
       .map(name => recurConflictCatMap[name]?._id?.toString())
       .filter(Boolean);
@@ -13004,7 +13004,7 @@ app.get('/api/rooms/availability', async (req, res) => {
           setupTimeMinutes: cd.setupTimeMinutes || 0,
           teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           isAllowedConcurrent: res.isAllowedConcurrent ?? false,
-          categories: res.categories || []
+          categories: res.calendarData?.categories || res.categories || []
         };
       });
 
@@ -13052,7 +13052,7 @@ app.get('/api/rooms/availability', async (req, res) => {
           teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           location: cd.locationDisplayNames || event.graphData?.location?.displayName,
           isAllowedConcurrent: event.isAllowedConcurrent ?? false,
-          categories: event.categories || []
+          categories: event.calendarData?.categories || event.categories || []
         };
       });
 
@@ -13106,6 +13106,7 @@ app.get('/api/rooms/availability', async (req, res) => {
             setupTimeMinutes: effective.setupTimeMinutes || 0,
             teardownTimeMinutes: effective.teardownTimeMinutes || 0,
             isAllowedConcurrent: peEvent.isAllowedConcurrent ?? false,
+            categories: peEvent.calendarData?.categories || peEvent.categories || [],
             isPendingEdit: true,
             currentRoomIds: (cd.locations || []).map(id => id.toString()),
             originalLocations: cd.locationDisplayNames,
@@ -13683,7 +13684,9 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         setupTimeMinutes: cd.setupTimeMinutes || 0,
         teardownTimeMinutes: cd.teardownTimeMinutes || 0,
         requestedRooms: cd.locations,
-        locations: cd.locations
+        locations: cd.locations,
+        isAllowedConcurrent: draft.isAllowedConcurrent ?? false,
+        categories: cd.categories || [],
       };
 
       const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, draftId);
