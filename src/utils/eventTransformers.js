@@ -177,11 +177,9 @@ export function transformEventToFlatStructure(event) {
   const rawTeardownTime = getField(event, 'teardownTime') || '';
   const rawDoorCloseTime = getField(event, 'doorCloseTime') || '';
 
-  // Auto-populate doorCloseTime with endTime if not set
-  const doorCloseTime = rawDoorCloseTime || endTime || '';
-
-  // Auto-populate teardownTime with endTime + 1 hour if not set
-  const teardownTime = rawTeardownTime || calculateDefaultTeardownTime(endTime);
+  // Use raw values without auto-population - null means user hasn't set it
+  const doorCloseTime = rawDoorCloseTime;
+  const teardownTime = rawTeardownTime;
 
   // Extract categories from calendarData (authoritative) or top-level fields
   const categories = getField(event, 'categories') ||

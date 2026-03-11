@@ -662,15 +662,21 @@ export default function SchedulingAssistant({
     if (!element) return null;
 
     const MIN_HEIGHT = PIXELS_PER_HOUR / 4; // 15 min = 12.5px
+    const MAX_TIMELINE_PX = 24 * PIXELS_PER_HOUR; // Bottom of 24h timeline
 
     if (resizeEdge.current === 'end') {
-      const newHeight = Math.max(MIN_HEIGHT, orig.height + offset);
+      // Bottom handle: top stays anchored, only height changes
+      // Clamp so block doesn't extend past midnight (24h)
+      const maxHeight = MAX_TIMELINE_PX - orig.top;
+      const newHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, orig.height + offset));
       element.style.height = newHeight + 'px';
       element.style.zIndex = '1000';
     } else {
-      // top handle: top moves down (positive offset = later start)
-      const maxOffset = orig.height - MIN_HEIGHT;
-      const clampedOffset = Math.min(offset, maxOffset);
+      // Top handle: bottom stays anchored, top moves
+      // Clamp so top doesn't go above midnight (0px)
+      const maxOffset = orig.height - MIN_HEIGHT; // Can't push top past bottom
+      const minOffset = -orig.top; // Can't go above 0 (midnight)
+      const clampedOffset = Math.max(minOffset, Math.min(offset, maxOffset));
       element.style.top = (orig.top + clampedOffset) + 'px';
       element.style.height = Math.max(MIN_HEIGHT, orig.height - clampedOffset) + 'px';
       element.style.zIndex = '1000';
@@ -710,8 +716,13 @@ export default function SchedulingAssistant({
       timelineRef.current.scrollTop = newScroll;
 
       // Update event position with stored mouse Y (keeps event following cursor during scroll)
+      // Use resize logic during resize, drag logic during drag
       if (lastMouseY.current && draggingEventId) {
-        updateEventPosition(lastMouseY.current);
+        if (resizeEdge.current) {
+          updateResizePosition(lastMouseY.current);
+        } else {
+          updateEventPosition(lastMouseY.current);
+        }
       }
 
       // Continue scrolling if not at limits (use !== to handle edge values)
@@ -723,7 +734,7 @@ export default function SchedulingAssistant({
     };
 
     autoScrollInterval.current = requestAnimationFrame(scroll);
-  }, [timelineRef, updateEventPosition, draggingEventId]);
+  }, [timelineRef, updateEventPosition, updateResizePosition, draggingEventId]);
 
   const stopAutoScroll = useCallback(() => {
     if (autoScrollInterval.current) {
@@ -838,6 +849,11 @@ export default function SchedulingAssistant({
     const eventRect = eventElement.getBoundingClientRect();
     const clickOffsetY = e.clientY - eventRect.top; // Viewport coordinates
     dragClickOffset.current = clickOffsetY / 0.75; // Convert to logical coordinates for zoom
+
+    // Clear any stale resize state from previous interactions
+    resizeEdge.current = null;
+    resizeStartY.current = 0;
+    resizeOriginalDims.current = null;
 
     setDraggingEventId(block.id);
     setTooltipInfo(null); // Hide tooltip during drag
@@ -963,9 +979,18 @@ export default function SchedulingAssistant({
         const orig = resizeOriginalDims.current;
         const offset = liveDragOffset.current;
 
-        // Clean up DOM overrides
+        // Clean up DOM overrides — only clear styles that updateResizePosition actually set.
+        // IMPORTANT: Do NOT clear style.top for 'end' edge or style.height for 'start' edge
+        // if we didn't override them, because clearing a React-managed inline style causes
+        // React's reconciler to skip re-applying it (it thinks nothing changed), resulting
+        // in the element jumping to top:0 (12 AM).
         const el = document.querySelector(`[data-event-id="${draggingEventId}"]`);
-        if (el) { el.style.height = ''; el.style.top = ''; el.style.zIndex = ''; }
+        if (el) {
+          el.style.zIndex = '';
+          // 'end' edge only overrides height; 'start' edge overrides both top and height
+          el.style.height = '';
+          if (edge === 'start') el.style.top = '';
+        }
 
         const hourDelta = offset / PIXELS_PER_HOUR;
         const dayStart = new Date(effectiveDate + 'T00:00:00');
@@ -980,18 +1005,19 @@ export default function SchedulingAssistant({
         const teardownDuration = orig.endTime.getTime() - eventEnd.getTime();
 
         if (edge === 'end') {
+          // Bottom handle: start is anchored, only end changes
           let newBlockEnd = snapToQuarterHour(new Date(orig.endTime.getTime() + hourDelta * 3600000));
-          const minEnd = new Date(orig.startTime.getTime() + 15 * 60 * 1000);
+          // Min end = event start + 15min (not block start, which may include setup)
+          const minEnd = new Date(eventStart.getTime() + 15 * 60 * 1000);
           newBlockEnd = new Date(Math.max(minEnd.getTime(), Math.min(dayEnd.getTime(), newBlockEnd.getTime())));
 
           const newEventEnd = new Date(newBlockEnd.getTime() - teardownDuration);
           const updatedTimes = {
-            startTime: eventStartTime,  // Keep start anchored
             endTime: fmt(newEventEnd),
-            setupTime,  // Preserve setup time (don't pass undefined)
-            teardownTime: fmt(newBlockEnd),
           };
-          // Always include door times if they exist
+          // Only include optional times if they were originally set
+          if (setupTime) updatedTimes.setupTime = setupTime;
+          if (teardownTime) updatedTimes.teardownTime = fmt(newBlockEnd);
           if (doorOpenTime) updatedTimes.doorOpenTime = doorOpenTime;
           if (doorCloseTime) {
             const doorCloseDuration = new Date(`${effectiveDate}T${doorCloseTime}`).getTime() - eventEnd.getTime();
@@ -999,15 +1025,19 @@ export default function SchedulingAssistant({
           }
           if (onEventTimeChange) onEventTimeChange(updatedTimes);
 
+          // Anchor the block position so the main useEffect rebuild preserves it
+          userEventAdjustment.current = { startTime: orig.startTime, endTime: newBlockEnd };
+
           const newHeight = (newBlockEnd.getTime() - orig.startTime.getTime()) / 3600000 * PIXELS_PER_HOUR;
           setEventBlocks(prev => prev.map(b =>
             b.isUserEvent ? { ...b, endTime: newBlockEnd, height: newHeight } : b
           ));
 
         } else {
-          // 'start' edge
+          // Top handle: end is anchored, only start changes
           let newBlockStart = snapToQuarterHour(new Date(orig.startTime.getTime() + hourDelta * 3600000));
-          const maxStart = new Date(orig.endTime.getTime() - 15 * 60 * 1000);
+          // Max start = event end - 15min (not block end, which may include teardown)
+          const maxStart = new Date(eventEnd.getTime() - 15 * 60 * 1000);
           newBlockStart = new Date(Math.max(dayStart.getTime(), Math.min(maxStart.getTime(), newBlockStart.getTime())));
 
           const newEventStart = new Date(newBlockStart.getTime() + setupDuration);
@@ -1016,11 +1046,10 @@ export default function SchedulingAssistant({
 
           const updatedTimes = {
             startTime: fmt(newEventStart),
-            endTime: eventEndTime,  // Keep end anchored
-            setupTime: fmt(newBlockStart),
-            teardownTime,  // Preserve teardown time (don't pass undefined)
           };
-          // Always include door times if they exist
+          // Only include optional times if they were originally set
+          if (setupTime) updatedTimes.setupTime = fmt(newBlockStart);
+          if (teardownTime) updatedTimes.teardownTime = teardownTime;
           if (doorCloseTime) updatedTimes.doorCloseTime = doorCloseTime;
           if (doorOpenTime) {
             const doorOpenDuration = eventStart.getTime() - new Date(`${effectiveDate}T${doorOpenTime}`).getTime();
@@ -1028,13 +1057,14 @@ export default function SchedulingAssistant({
           }
           if (onEventTimeChange) onEventTimeChange(updatedTimes);
 
+          // Anchor the block position so the main useEffect rebuild preserves it
+          userEventAdjustment.current = { startTime: newBlockStart, endTime: orig.endTime };
+
           setEventBlocks(prev => prev.map(b =>
             b.isUserEvent ? { ...b, startTime: newBlockStart, top: newTop, height: newHeight } : b
           ));
         }
 
-        resizeEdge.current = null;
-        resizeOriginalDims.current = null;
 
       } else {
         // --- DRAG MODE (existing logic) ---
@@ -1149,11 +1179,11 @@ export default function SchedulingAssistant({
             const updatedTimes = {
               startTime: formatTime(newEventStart),
               endTime: formatTime(newEventEnd),
-              setupTime: formatTime(newStartTime), // New blocking start
-              teardownTime: formatTime(newEndTime) // New blocking end
             };
 
-            // Only include door times if they were originally set
+            // Only include optional times if they were originally set
+            if (setupTime) updatedTimes.setupTime = formatTime(newStartTime);
+            if (teardownTime) updatedTimes.teardownTime = formatTime(newEndTime);
             if (doorOpenTime && newDoorOpenTime) {
               updatedTimes.doorOpenTime = formatTime(newDoorOpenTime);
             }
@@ -1208,6 +1238,11 @@ export default function SchedulingAssistant({
     // Re-enable modal scrolling
     const modal = document.querySelector('.review-modal');
     if (modal) modal.classList.remove('dragging-timeline');
+
+    // Always clear resize refs (prevents stale state on next interaction)
+    resizeEdge.current = null;
+    resizeStartY.current = 0;
+    resizeOriginalDims.current = null;
 
     // Reset drag state
     liveDragOffset.current = 0;

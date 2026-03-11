@@ -193,25 +193,18 @@ describe('transformEventToFlatStructure', () => {
   });
 
   describe('Timing calculations', () => {
-    it('auto-calculates teardownTime as endTime + 1 hour', () => {
+    it('leaves teardownTime empty when not explicitly provided', () => {
       const event = {
-        subject: 'Event with auto teardown',
+        subject: 'Event with no teardown',
         start: { dateTime: '2024-03-15T14:00:00.000Z' },
         end: { dateTime: '2024-03-15T16:00:00.000Z' }
       };
 
       const result = transformEventToFlatStructure(event);
 
-      // The teardownTime should be 1 hour after endTime
+      // teardownTime should be empty since it wasn't provided
       expect(result.endTime).toMatch(/^\d{2}:\d{2}$/);
-      expect(result.teardownTime).toMatch(/^\d{2}:\d{2}$/);
-
-      // Verify teardown is 1 hour after end by parsing times
-      const [endHours, endMinutes] = result.endTime.split(':').map(Number);
-      const [teardownHours, teardownMinutes] = result.teardownTime.split(':').map(Number);
-      const endTotalMinutes = endHours * 60 + endMinutes;
-      const teardownTotalMinutes = teardownHours * 60 + teardownMinutes;
-      expect(teardownTotalMinutes - endTotalMinutes).toBe(60);
+      expect(result.teardownTime).toBe('');
     });
 
     it('preserves explicit teardownTime if provided', () => {
@@ -227,7 +220,7 @@ describe('transformEventToFlatStructure', () => {
       expect(result.teardownTime).toBe('18:30');
     });
 
-    it('uses endTime as default for doorCloseTime', () => {
+    it('leaves doorCloseTime empty when not explicitly provided', () => {
       const event = {
         subject: 'Event',
         start: { dateTime: '2024-03-15T14:00:00.000Z' },
@@ -236,8 +229,8 @@ describe('transformEventToFlatStructure', () => {
 
       const result = transformEventToFlatStructure(event);
 
-      // doorCloseTime should match endTime
-      expect(result.doorCloseTime).toBe(result.endTime);
+      // doorCloseTime should be empty since it wasn't provided
+      expect(result.doorCloseTime).toBe('');
     });
 
     it('handles setupTime and doorOpenTime defaults', () => {

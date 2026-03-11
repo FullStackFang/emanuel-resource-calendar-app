@@ -71,7 +71,8 @@
       "Bash(git -C /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app diff --stat HEAD)",
       "Bash(git -C /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app status --short src/utils/timelineUtils.js src/components/TimelineView.css src/components/TimelineView.jsx 2>&1)",
       "Bash(cd /tmp && python test_scheduling_assistant.py 2>&1)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npx -y acorn --ecma2020 --module src/components/RoomReservationFormBase.jsx 2>&1 | tail -5)"
     ],
     "deny": []
   }

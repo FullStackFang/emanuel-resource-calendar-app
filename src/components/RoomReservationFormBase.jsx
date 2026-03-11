@@ -418,22 +418,6 @@ export default function RoomReservationFormBase({
         newData.eventDescription = extractTextFromHtml(newData.eventDescription);
       }
 
-      // Auto-populate doorCloseTime with endTime if endTime exists
-      if (newData.endTime && !newData.doorCloseTime) {
-        newData.doorCloseTime = newData.endTime;
-      }
-
-      // Auto-populate teardownTime with endTime + 1 hour if not already set
-      if (newData.endTime && !newData.teardownTime) {
-        const [hours, minutes] = newData.endTime.split(':');
-        const endTimeDate = new Date();
-        endTimeDate.setHours(parseInt(hours), parseInt(minutes));
-        endTimeDate.setHours(endTimeDate.getHours() + 1);
-        const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
-        const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
-        newData.teardownTime = `${teardownHours}:${teardownMinutes}`;
-      }
-
       // Update virtual meeting URL state if it exists in initialData
       if (newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl) {
         const url = newData.virtualMeetingUrl || initialData.graphData?.onlineMeetingUrl;
@@ -839,7 +823,7 @@ export default function RoomReservationFormBase({
   const isFormValid = useMemo(() => {
     const requiredFields = formData.isAllDayEvent
       ? ['eventTitle', 'startDate', 'endDate']
-      : ['eventTitle', 'startDate', 'endDate', 'setupTime', 'doorOpenTime', 'startTime', 'endTime'];
+      : ['eventTitle', 'startDate', 'endDate', 'startTime', 'endTime'];
     return requiredFields.every(field => isFieldValid(field)) && timeErrors.length === 0 && selectedCategories.length > 0;
   }, [isFieldValid, timeErrors, selectedCategories, formData.isAllDayEvent]);
 
@@ -919,35 +903,6 @@ export default function RoomReservationFormBase({
       }
     }
 
-    // Auto-populate doorCloseTime and teardownTime when endTime changes
-    if (name === 'endTime' && value) {
-      const oldEndTime = formData.endTime;
-      // Only auto-update doorCloseTime if user hasn't customized it
-      if (!formData.doorCloseTime || formData.doorCloseTime === oldEndTime) {
-        updatedData.doorCloseTime = value;
-      } else {
-        // If user has a custom doorCloseTime, ensure it's still >= new endTime
-        const [valH, valM] = value.split(':').map(Number);
-        const newEndMins = valH * 60 + valM;
-        const [dcH, dcM] = formData.doorCloseTime.split(':').map(Number);
-        const dcMins = dcH * 60 + dcM;
-        if (dcMins < newEndMins) {
-          updatedData.doorCloseTime = value;
-        }
-      }
-
-      // Pre-populate teardownTime with endTime + 1 hour (only if currently empty)
-      if (!formData.teardownTime) {
-        const [hours, minutes] = value.split(':');
-        const endTimeDate = new Date();
-        endTimeDate.setHours(parseInt(hours), parseInt(minutes));
-        endTimeDate.setHours(endTimeDate.getHours() + 1);
-        const teardownHours = String(endTimeDate.getHours()).padStart(2, '0');
-        const teardownMinutes = String(endTimeDate.getMinutes()).padStart(2, '0');
-        updatedData.teardownTime = `${teardownHours}:${teardownMinutes}`;
-      }
-    }
-
     setFormData(updatedData);
     setHasChanges(true);
 
@@ -975,16 +930,17 @@ export default function RoomReservationFormBase({
     setHasChanges(true);
   };
 
-  const handleEventTimeChange = ({ startTime, endTime, setupTime, teardownTime, doorOpenTime, doorCloseTime }) => {
-    const updatedData = {
-      ...formData,
-      startTime,
-      endTime,
-      ...(setupTime && { setupTime }),
-      ...(teardownTime && { teardownTime }),
-      ...(doorOpenTime && { doorOpenTime }),
-      ...(doorCloseTime && { doorCloseTime })
-    };
+  const handleEventTimeChange = (updatedTimes) => {
+    // Only update fields that were explicitly included in the update.
+    // Optional times (setupTime, teardownTime, doorOpenTime, doorCloseTime) are only
+    // included when they have values and were changed; otherwise they're preserved from formData.
+    const updatedData = { ...formData };
+    if ('startTime' in updatedTimes) updatedData.startTime = updatedTimes.startTime;
+    if ('endTime' in updatedTimes) updatedData.endTime = updatedTimes.endTime;
+    if ('setupTime' in updatedTimes) updatedData.setupTime = updatedTimes.setupTime;
+    if ('teardownTime' in updatedTimes) updatedData.teardownTime = updatedTimes.teardownTime;
+    if ('doorOpenTime' in updatedTimes) updatedData.doorOpenTime = updatedTimes.doorOpenTime;
+    if ('doorCloseTime' in updatedTimes) updatedData.doorCloseTime = updatedTimes.doorCloseTime;
 
     setFormData(updatedData);
     setHasChanges(true);
