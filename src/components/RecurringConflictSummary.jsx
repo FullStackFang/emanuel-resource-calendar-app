@@ -80,7 +80,10 @@ export default function RecurringConflictSummary({
         signal: controller.signal,
       });
 
-      if (!response.ok) throw new Error('Failed to check recurring conflicts');
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || `Server error (${response.status})`);
+      }
       const result = await response.json();
       setData(result);
     } catch (err) {
@@ -130,7 +133,7 @@ export default function RecurringConflictSummary({
     return (
       <div className="recurring-conflict-summary error">
         <span className="rcs-icon">&#9888;</span>
-        <span>Failed to check recurring conflicts.</span>
+        <span>{error}</span>
         <button className="rcs-retry-btn" onClick={fetchConflicts}>Retry</button>
       </div>
     );
@@ -142,11 +145,34 @@ export default function RecurringConflictSummary({
   if (data.conflictingOccurrences === 0) {
     return (
       <div className="recurring-conflict-summary clean">
-        <span className="rcs-icon rcs-icon-clean">&#10003;</span>
-        <span className="rcs-text">
-          All {data.totalOccurrences} occurrences are clear of room conflicts.
-        </span>
-        {loading && <span className="rcs-refreshing">Refreshing...</span>}
+        <div className="rcs-header" onClick={() => setExpanded(!expanded)}>
+          <span className="rcs-icon rcs-icon-clean">&#10003;</span>
+          <span className="rcs-text">
+            All {data.totalOccurrences} occurrences are clear of room conflicts.
+          </span>
+          <button
+            className="rcs-expand-btn"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Collapse occurrence details' : 'Expand occurrence details'}
+          >
+            {expanded ? '\u25B2' : '\u25BC'}
+          </button>
+          {loading && <span className="rcs-refreshing">Refreshing...</span>}
+        </div>
+        {expanded && data.allOccurrences && (
+          <div className="rcs-detail-list">
+            {data.allOccurrences.map((occ) => (
+              <div key={occ.occurrenceDate} className="rcs-occurrence-row rcs-occurrence-clean">
+                <div className="rcs-occurrence-date">
+                  {formatOccurrenceDate(occ.occurrenceDate)}
+                </div>
+                <div className="rcs-occurrence-time">
+                  {formatTime(occ.startDateTime)} &ndash; {formatTime(occ.endDateTime)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

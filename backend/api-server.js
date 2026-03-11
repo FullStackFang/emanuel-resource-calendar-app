@@ -2401,6 +2401,7 @@ async function checkRecurringRoomConflicts(params) {
     conflictingOccurrences: conflicts.length,
     cleanOccurrences: allOccurrences.length - conflicts.length,
     conflicts,
+    allOccurrences,
   };
 }
 
@@ -13385,6 +13386,9 @@ app.post('/api/room-reservations/draft', verifyToken, async (req, res) => {
         reason: 'Draft created'
       }],
 
+      // Set eventType when recurrence is present
+      eventType: (recurrence?.pattern && recurrence?.range) ? 'seriesMaster' : 'singleInstance',
+
       // Optimistic concurrency control
       _version: 1
     };
@@ -13549,6 +13553,8 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       } : null,
       'roomReservationData.department': department || '',
       'roomReservationData.phone': phone || '',
+      // Set eventType when recurrence is present
+      eventType: (recurrence?.pattern && recurrence?.range) ? 'seriesMaster' : 'singleInstance',
       // Concurrent scheduling settings (top-level for indexing)
       isAllowedConcurrent: isAllowedConcurrent || false,
       allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {

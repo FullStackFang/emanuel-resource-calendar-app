@@ -318,6 +318,16 @@ export default function RoomReservationFormBase({
     selectedServicesRef.current = selectedServices;
   }, [selectedServices]);
 
+  // Sync recurrencePattern when initialData changes (e.g., when loading a saved draft)
+  // Mirrors the categories/services sync pattern above
+  const recurrenceKey = JSON.stringify(initialData?.recurrence || null);
+  useEffect(() => {
+    if (initialData?.recurrence) {
+      setRecurrencePattern(initialData.recurrence);
+      recurrencePatternRef.current = initialData.recurrence;
+    }
+  }, [recurrenceKey]);
+
   const { rooms, loading: roomsLoading } = useRooms();
 
   // Refs to prevent unnecessary re-initialization of form data
@@ -418,6 +428,11 @@ export default function RoomReservationFormBase({
     // Skip first initialization if data was pre-processed by parent
     // (data is already in formData via useState spread, auxiliary state also initialized)
     if (isFirstInit && initialData?._isPreProcessed) {
+      // Sync recurrence before early return (sync useEffects handle categories/services)
+      if (initialData.recurrence) {
+        setRecurrencePattern(initialData.recurrence);
+        recurrencePatternRef.current = initialData.recurrence;
+      }
       // Just mark as initialized, skip all state updates
       isInitializedRef.current = true;
       lastReservationIdRef.current = currentReservationId;
@@ -1455,9 +1470,15 @@ export default function RoomReservationFormBase({
 
             {/* Recurrence Card — 3 modes: invite, active summary, read-only context */}
             {(() => {
-              const canEditRecurrence = ((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') || editScope === 'allEvents');
               const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
               const hasPattern = Boolean(activeRecurrence);
+              const isDraftEvent = reservationStatus === 'draft' || initialData.status === 'draft';
+              const canEditRecurrence = (
+                (!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
+                isDraftEvent ||
+                editScope === 'allEvents' ||
+                (hasPattern && editScope !== 'thisEvent')
+              );
 
               // Mode 1: Single occurrence — read-only context card
               if (editScope === 'thisEvent') {

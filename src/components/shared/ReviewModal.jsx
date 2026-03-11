@@ -1,5 +1,5 @@
 // src/components/shared/ReviewModal.jsx
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import useScrollLock from '../../hooks/useScrollLock';

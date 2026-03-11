@@ -647,6 +647,7 @@ export default function UnifiedEventForm({
         onFormDataRef={(getter) => { formDataRef.current = getter; }}
         onTimeErrorsRef={(getter) => { timeErrorsRef.current = getter; }}
         onValidateRef={(getter) => { validateRef.current = getter; }}
+        apiToken={apiToken}
         renderAdditionalContent={() => (
           <>
             {/* Attachments Tab Content */}
