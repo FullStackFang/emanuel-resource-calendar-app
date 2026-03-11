@@ -979,3 +979,189 @@
 .delete-confirm .delete-btn.confirming {
   animation: confirmPulseDelete 1.5s ease-in-out infinite;
 }
+
+/* ==========================================================================
+   CONCURRENT SCHEDULING RULES — Modal Panel
+   ========================================================================== */
+
+.concurrent-rules-panel {
+  margin-top: var(--space-5);
+  border-radius: var(--radius-xl);
+  background:
+    linear-gradient(135deg, var(--color-neutral-50) 0%, var(--bg-primary) 100%);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.concurrent-rules-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.concurrent-rules-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-50);
+  color: var(--color-primary-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.concurrent-rules-title-group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.concurrent-rules-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.concurrent-rules-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  line-height: var(--leading-relaxed);
+}
+
+.concurrent-rules-count {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  color: white;
+  font-size: 11px;
+  font-weight: var(--font-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgb(59 110 184 / 0.3);
+}
+
+/* Toggle items */
+
+.concurrent-rules-options {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--space-3) var(--space-3);
+  gap: 2px;
+}
+
+.concurrent-rule-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: var(--transition-all);
+  text-align: left;
+}
+
+.concurrent-rule-toggle:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-default);
+}
+
+.concurrent-rule-toggle.active {
+  background: var(--bg-primary);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-xs);
+}
+
+.concurrent-rule-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.concurrent-rule-toggle.active .concurrent-rule-swatch {
+  transform: scale(1.15);
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 0.08),
+    0 1px 4px rgb(0 0 0 / 0.12);
+}
+
+.concurrent-rule-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: var(--font-normal);
+  color: var(--text-secondary);
+  transition: color var(--duration-fast) var(--ease-in-out);
+}
+
+.concurrent-rule-toggle.active .concurrent-rule-name {
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+}
+
+.concurrent-rule-check {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition-all);
+  background: var(--bg-primary);
+}
+
+.concurrent-rule-toggle.active .concurrent-rule-check {
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  border-color: var(--color-primary-500);
+  color: white;
+  box-shadow: 0 1px 4px rgb(59 110 184 / 0.3);
+}
+
+.concurrent-rules-empty {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   CONCURRENT RULES — Card Badge
+   ========================================================================== */
+
+.concurrent-rules-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  letter-spacing: 0.01em;
+  color: var(--color-primary-600);
+  background: var(--color-primary-50);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-2);
+  border: 1px solid var(--color-primary-100);
+}
+
+.concurrent-rules-card-badge svg {
+  opacity: 0.7;
+}
+
+.concurrent-rules-card-badge span {
+  line-height: 1;
+}

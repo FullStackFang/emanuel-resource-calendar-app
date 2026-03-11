@@ -873,7 +873,7 @@
 
 /* Reduce timeline height inside modal to prevent form overflow */
 .review-modal .timeline-container {
-  height: 400px !important;
+  height: 700px !important;
 }
 
 .review-modal .scheduling-assistant-container {

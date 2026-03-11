@@ -185,9 +185,9 @@ export default function RoomReservationFormBase({
   // Get permissions - must be before useEffects that depend on isAdmin
   const { canEditField, isAdmin, canEditEvents } = usePermissions();
 
-  // Fetch available categories when isAllowedConcurrent is checked (for admin)
+  // Fetch available categories (for concurrent scheduling rules in SchedulingAssistant)
   useEffect(() => {
-    if (isAdmin && formData.isAllowedConcurrent && availableCategories.length === 0) {
+    if (availableCategories.length === 0) {
       const fetchCategories = async () => {
         try {
           setCategoriesLoading(true);
@@ -204,7 +204,28 @@ export default function RoomReservationFormBase({
       };
       fetchCategories();
     }
-  }, [isAdmin, formData.isAllowedConcurrent, availableCategories.length]);
+  }, [availableCategories.length]);
+
+  // Build category concurrent rules map: { categoryId: [allowedCategoryIds] }
+  const categoryConcurrentRules = useMemo(() => {
+    const rules = {};
+    for (const cat of availableCategories) {
+      const allowed = (cat.allowedConcurrentCategories || []).map(id => String(id));
+      if (allowed.length > 0) {
+        rules[String(cat._id)] = allowed;
+      }
+    }
+    return rules;
+  }, [availableCategories]);
+
+  // Build category name -> ID lookup
+  const categoryLookup = useMemo(() => {
+    const lookup = {};
+    for (const cat of availableCategories) {
+      lookup[cat.name] = String(cat._id);
+    }
+    return lookup;
+  }, [availableCategories]);
 
   // Sync selectedCategories when initialData changes (e.g., when loading an existing event)
   // Use JSON.stringify for more reliable dependency tracking
@@ -1048,31 +1069,6 @@ export default function RoomReservationFormBase({
     }
   };
 
-  // Handle toggling allowed concurrent categories
-  const handleAllowedCategoryToggle = (categoryId) => {
-    const currentAllowed = formData.allowedConcurrentCategories || [];
-    const categoryIdStr = String(categoryId);
-    let updatedAllowed;
-
-    // Use string comparison to handle ObjectId vs string mismatch
-    if (currentAllowed.some(id => String(id) === categoryIdStr)) {
-      // Remove category
-      updatedAllowed = currentAllowed.filter(id => String(id) !== categoryIdStr);
-    } else {
-      // Add category (store as string)
-      updatedAllowed = [...currentAllowed, categoryIdStr];
-    }
-
-    const updatedData = {
-      ...formData,
-      allowedConcurrentCategories: updatedAllowed
-    };
-
-    setFormData(updatedData);
-    setHasChanges(true);
-    notifyDataChange(updatedData);
-  };
-
   const checkRoomCapacity = (room) => {
     if (formData.attendeeCount && room.capacity < parseInt(formData.attendeeCount)) {
       return {
@@ -1700,7 +1696,7 @@ export default function RoomReservationFormBase({
 
             {/* Time Fields Stacked in Chronological Order */}
             <div className="time-fields-stack">
-              <div className={`form-group required-field ${isFieldValid('setupTime') ? 'field-valid' : ''} ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group ${hasFieldChanged('setupTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="setupTime">Setup Start Time</label>
                 {hasFieldChanged('setupTime') && (
                   <div className="inline-diff">
@@ -1715,13 +1711,12 @@ export default function RoomReservationFormBase({
                   value={formData.setupTime}
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
-                  required
                   className={hasFieldChanged('setupTime') ? 'input-changed' : ''}
                 />
                 <div className="help-text">When setup can begin</div>
               </div>
 
-              <div className={`form-group required-field ${isFieldValid('doorOpenTime') ? 'field-valid' : ''} ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
+              <div className={`form-group ${hasFieldChanged('doorOpenTime') ? 'field-changed' : ''}`}>
                 <label htmlFor="doorOpenTime">Door Open Time</label>
                 {hasFieldChanged('doorOpenTime') && (
                   <div className="inline-diff">
@@ -1737,7 +1732,6 @@ export default function RoomReservationFormBase({
                   onChange={handleInputChange}
                   disabled={fieldsDisabled || formData.isAllDayEvent}
                   className={hasFieldChanged('doorOpenTime') ? 'input-changed' : ''}
-                  required
                 />
                 <div className="help-text">When attendees can start entering</div>
               </div>
@@ -2003,6 +1997,9 @@ export default function RoomReservationFormBase({
                     organizerName={formData.requesterName}
                     organizerEmail={formData.requesterEmail}
                     isAllowedConcurrent={formData.isAllowedConcurrent || false}
+                    categories={formData.categories || []}
+                    categoryConcurrentRules={categoryConcurrentRules}
+                    categoryLookup={categoryLookup}
                     disabled={fieldsDisabled}
                     onConflictChange={onConflictChange}
                   />
@@ -2078,94 +2075,16 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Concurrent Events Setting (Admin only) */}
-            {isAdmin && (
-              <div className="concurrent-events-section">
-                <label className="concurrent-checkbox-label">
-                  <input
-                    type="checkbox"
-                    name="isAllowedConcurrent"
-                    checked={formData.isAllowedConcurrent || false}
-                    onChange={handleInputChange}
-                    disabled={fieldsDisabled}
-                  />
-                  <div>
-                    <span className="concurrent-label-text">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '4px' }}><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
-                      Allow concurrent events
-                    </span>
-                    <p className="concurrent-label-hint">
-                      Enable for events like Shabbat Services that can host nested events (e.g., B&apos;nei Mitzvahs) at the same time without triggering conflict warnings.
-                    </p>
-                  </div>
-                </label>
-
-                {/* Allowed Categories Selector (shown when concurrent is enabled) */}
-                {formData.isAllowedConcurrent && (
-                  <div className="concurrent-categories-selector">
-                    <label className="concurrent-categories-label">
-                      Restrict to specific categories (optional)
-                    </label>
-                    <p className="concurrent-categories-hint">
-                      Leave empty to allow any event. Select categories to restrict which events can overlap.
-                    </p>
-
-                    {categoriesLoading ? (
-                      <div className="concurrent-categories-loading">Loading categories...</div>
-                    ) : availableCategories.length > 0 ? (
-                      <div className="concurrent-categories-grid">
-                        {availableCategories.map(cat => {
-                          // Use string comparison to handle ObjectId vs string mismatch
-                          const isSelected = (formData.allowedConcurrentCategories || []).some(
-                            id => String(id) === String(cat._id)
-                          );
-                          return (
-                            <label
-                              key={cat._id}
-                              className={`concurrent-category-chip ${isSelected ? 'concurrent-category-chip--selected' : ''}`}
-                              style={{
-                                borderColor: isSelected ? (cat.color || 'var(--color-info-400)') : undefined,
-                                backgroundColor: isSelected ? `${cat.color || 'var(--color-info-400)'}15` : undefined,
-                                cursor: fieldsDisabled ? 'not-allowed' : 'pointer'
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleAllowedCategoryToggle(cat._id)}
-                                disabled={fieldsDisabled}
-                              />
-                              <span
-                                className="concurrent-category-dot"
-                                style={{ backgroundColor: cat.color || 'var(--text-tertiary)' }}
-                              />
-                              <span className="concurrent-category-name">{cat.name}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="concurrent-categories-empty">
-                        No categories available
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Read-only Concurrent Events Indicator (Non-admins) */}
-            {!isAdmin && formData.isAllowedConcurrent && (
+            {/* Concurrent Scheduling Info (read-only, governed by category rules) */}
+            {formData.isAllowedConcurrent && (
               <div className="concurrent-events-badge">
                 <div className="concurrent-events-badge-row">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
                   <span>This event allows concurrent scheduling</span>
                 </div>
-                {(formData.allowedConcurrentCategories || []).length > 0 && (
-                  <div className="concurrent-events-badge-sub">
-                    Restricted to categories: {(formData.allowedConcurrentCategories || []).length} selected
-                  </div>
-                )}
+                <div className="concurrent-events-badge-sub">
+                  Concurrent scheduling rules are managed in Admin &gt; Categories.
+                </div>
               </div>
             )}
 

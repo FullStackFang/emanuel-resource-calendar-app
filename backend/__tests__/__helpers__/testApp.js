@@ -82,6 +82,7 @@ function setTestDatabase(db) {
     reservationTokens: db.collection(COLLECTIONS.RESERVATION_TOKENS),
     auditHistory: db.collection(COLLECTIONS.AUDIT_HISTORY),
     departments: db.collection(COLLECTIONS.DEPARTMENTS),
+    categories: db.collection(COLLECTIONS.CATEGORIES),
   };
 }
 
@@ -186,7 +187,7 @@ function buildEffectiveEditData(event) {
   };
 }
 
-async function checkTestConflicts(event, excludeId, eventsCollection) {
+async function checkTestConflicts(event, excludeId, eventsCollection, categoriesCollection = null) {
   const roomIds = event.calendarData?.locations || event.locations || [];
   if (roomIds.length === 0) return { hardConflicts: [], softConflicts: [], allConflicts: [] };
 
@@ -301,7 +302,63 @@ async function checkTestConflicts(event, excludeId, eventsCollection) {
     });
   }
 
-  const hardConflicts = publishedConflicts.map(c => ({
+  // Apply category-level concurrent rules filtering
+  let filteredConflicts = publishedConflicts;
+  if (categoriesCollection) {
+    const requestCategories = event.categories || [];
+    let requestCategoryIds = [];
+    let requestCategoryAllowedIds = [];
+    if (requestCategories.length > 0) {
+      const categoryDocs = await categoriesCollection.find({ name: { $in: requestCategories } }).toArray();
+      requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
+      for (const doc of categoryDocs) {
+        for (const allowedId of (doc.allowedConcurrentCategories || [])) {
+          const idStr = allowedId.toString();
+          if (!requestCategoryAllowedIds.includes(idStr)) requestCategoryAllowedIds.push(idStr);
+        }
+      }
+    }
+
+    // Batch-fetch conflict category docs
+    const allConflictCatNames = new Set();
+    for (const c of filteredConflicts) {
+      for (const n of (c.categories || [])) allConflictCatNames.add(n);
+    }
+    const conflictCatMap = {};
+    if (allConflictCatNames.size > 0) {
+      const docs = await categoriesCollection.find({ name: { $in: [...allConflictCatNames] } }).toArray();
+      for (const doc of docs) conflictCatMap[doc.name] = doc;
+    }
+
+    filteredConflicts = filteredConflicts.filter(conflict => {
+      const conflictCategories = conflict.categories || [];
+      const conflictCatIds = conflictCategories
+        .map(name => conflictCatMap[name]?._id?.toString())
+        .filter(Boolean);
+
+      // Request's category rules grant the conflict
+      if (conflictCatIds.some(id => requestCategoryAllowedIds.includes(id))) return false;
+
+      // Conflict's category rules grant the request
+      const conflictAllowedIds = [];
+      for (const catName of conflictCategories) {
+        const doc = conflictCatMap[catName];
+        for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
+          conflictAllowedIds.push(allowedId.toString());
+        }
+      }
+      if (requestCategoryIds.some(id => conflictAllowedIds.includes(id))) return false;
+
+      // Per-event fallback
+      const requestAllows = event.isAllowedConcurrent ?? false;
+      const conflictAllows = conflict.isAllowedConcurrent ?? false;
+      if (!requestAllows && !conflictAllows) return true; // IS a conflict
+      if (conflictAllows || requestAllows) return false; // NOT a conflict
+      return true;
+    });
+  }
+
+  const hardConflicts = filteredConflicts.map(c => ({
     id: c._id.toString(),
     eventTitle: c.calendarData?.eventTitle || c.eventTitle,
     startDateTime: c.calendarData?.startDateTime || c.startDateTime,
@@ -743,8 +800,6 @@ function createTestApp(options = {}) {
       if (!cd.endDateTime) validationErrors.push('End date and time are required');
       if (!cd.locations || cd.locations.length === 0) validationErrors.push('At least one room must be selected');
       if (!cd.categories || cd.categories.length === 0) validationErrors.push('At least one category must be selected');
-      if (!cd.setupTime) validationErrors.push('Setup time is required');
-      if (!cd.doorOpenTime) validationErrors.push('Door open time is required');
 
       if (validationErrors.length > 0) {
         return res.status(400).json({
@@ -762,7 +817,7 @@ function createTestApp(options = {}) {
           endDateTime: cd.endDateTime,
           calendarData: { ...cd, locations: roomIds },
         };
-        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, draft._id, testCollections.events);
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, draft._id, testCollections.events, testCollections.categories);
         if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
@@ -1127,7 +1182,7 @@ function createTestApp(options = {}) {
               // Non-fatal
             }
           } else {
-            const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+            const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events, testCollections.categories);
             if (hardConflicts.length > 0) {
               return res.status(409).json({
                 error: 'SchedulingConflict',
@@ -1501,7 +1556,7 @@ function createTestApp(options = {}) {
       if (!forceRestore && ['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events, testCollections.categories);
           if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
@@ -1672,7 +1727,7 @@ function createTestApp(options = {}) {
       if (['pending', 'published'].includes(previousStatus)) {
         const roomIds = event.calendarData?.locations || event.locations || [];
         if (roomIds.length > 0) {
-          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events);
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(event, event._id, testCollections.events, testCollections.categories);
           if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',
@@ -2006,7 +2061,7 @@ function createTestApp(options = {}) {
             locations: editedRoomIds,
           },
         };
-        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events, testCollections.categories);
         if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
@@ -2377,7 +2432,7 @@ function createTestApp(options = {}) {
             endDateTime: effective.endDateTime,
           },
         };
-        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events, testCollections.categories);
         if (hardConflicts.length > 0) {
           return res.status(409).json({
             error: 'SchedulingConflict',
@@ -2794,7 +2849,7 @@ function createTestApp(options = {}) {
               locations: roomIds,
             },
           };
-          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events);
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, event._id, testCollections.events, testCollections.categories);
           if (hardConflicts.length > 0) {
             return res.status(409).json({
               error: 'SchedulingConflict',

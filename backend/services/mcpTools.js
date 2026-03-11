@@ -132,11 +132,11 @@ const toolDefinitions = [
         },
         setupTime: {
           type: 'string',
-          description: 'Setup start time in HH:MM format (required). Recommend 30-60 min before event.'
+          description: 'Setup start time in HH:MM format (optional). Recommend 30-60 min before event.'
         },
         doorOpenTime: {
           type: 'string',
-          description: 'Door open time in HH:MM format (required). When attendees can start arriving.'
+          description: 'Door open time in HH:MM format (optional). When attendees can start arriving.'
         },
         doorCloseTime: {
           type: 'string',
@@ -155,7 +155,7 @@ const toolDefinitions = [
           description: 'Expected number of attendees'
         }
       },
-      required: ['eventTitle', 'category', 'date', 'eventStartTime', 'eventEndTime', 'setupTime', 'doorOpenTime', 'locationId']
+      required: ['eventTitle', 'category', 'date', 'eventStartTime', 'eventEndTime', 'locationId']
     }
   }
 ];
@@ -729,9 +729,9 @@ class MCPToolExecutor {
     } = input;
 
     // Validate required fields
-    if (!eventTitle || !category || !date || !eventStartTime || !eventEndTime || !setupTime || !doorOpenTime || !locationId) {
+    if (!eventTitle || !category || !date || !eventStartTime || !eventEndTime || !locationId) {
       return {
-        error: 'Missing required fields: eventTitle, category, date, eventStartTime, eventEndTime, setupTime, doorOpenTime, and locationId are all required'
+        error: 'Missing required fields: eventTitle, category, date, eventStartTime, eventEndTime, and locationId are all required'
       };
     }
 
@@ -775,7 +775,7 @@ class MCPToolExecutor {
     const availability = await this.checkAvailability({
       locationId: locationName,
       date,
-      startTime: setupTime, // Check from setup time
+      startTime: setupTime || eventStartTime, // Check from setup time, or event start if no setup
       endTime: teardownTime || eventEndTime // To teardown time
     });
     logger.debug(`[MCP] Availability result: ${availability.available ? 'AVAILABLE' : 'NOT AVAILABLE'}`);
@@ -847,9 +847,9 @@ class MCPToolExecutor {
     } = input;
 
     // Validate required fields
-    if (!eventTitle || !category || !date || !eventStartTime || !eventEndTime || !setupTime || !doorOpenTime || !locationId) {
+    if (!eventTitle || !category || !date || !eventStartTime || !eventEndTime || !locationId) {
       return {
-        error: 'Missing required fields: eventTitle, category, date, eventStartTime, eventEndTime, setupTime, doorOpenTime, and locationId are all required'
+        error: 'Missing required fields: eventTitle, category, date, eventStartTime, eventEndTime, and locationId are all required'
       };
     }
 
@@ -897,7 +897,7 @@ class MCPToolExecutor {
     const availability = await this.checkAvailability({
       locationId: locationName,
       date,
-      startTime: setupTime, // Check from setup time
+      startTime: setupTime || eventStartTime, // Check from setup time, or event start if no setup
       endTime: teardownTime || eventEndTime // To teardown time
     });
     logger.debug(`[MCP] Availability result: ${availability.available ? 'AVAILABLE' : 'NOT AVAILABLE'}`);

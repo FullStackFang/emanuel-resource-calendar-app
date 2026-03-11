@@ -1943,17 +1943,72 @@ async function checkRoomConflicts(reservation, excludeId = null) {
     // Get incoming event's categories (for checking against allowed concurrent categories)
     const requestCategories = reservation.categories || [];
 
-    // Look up category IDs from category names for the incoming request
+    // Look up category docs for the incoming request (includes allowedConcurrentCategories rules)
     let requestCategoryIds = [];
+    let requestCategoryAllowedIds = []; // Union of allowedConcurrentCategories from request's categories
     if (requestCategories.length > 0) {
       const categoryDocs = await categoriesCollection.find({
         name: { $in: requestCategories }
       }).toArray();
       requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
+      // Collect all category-level concurrent rules for the incoming event
+      for (const doc of categoryDocs) {
+        for (const allowedId of (doc.allowedConcurrentCategories || [])) {
+          const idStr = allowedId.toString();
+          if (!requestCategoryAllowedIds.includes(idStr)) {
+            requestCategoryAllowedIds.push(idStr);
+          }
+        }
+      }
     }
 
-    // Filter conflicts - considers both isAllowedConcurrent AND allowedConcurrentCategories
+    // Collect all unique category names from conflict events (for category-level rules batch fetch)
+    const allConflictCategoryNames = new Set();
+    for (const conflict of conflicts) {
+      for (const catName of (conflict.categories || [])) {
+        allConflictCategoryNames.add(catName);
+      }
+    }
+
+    // Batch-fetch category docs for all conflict events (for category-level rules)
+    const conflictCategoryDocsMap = {}; // name -> category doc
+    if (allConflictCategoryNames.size > 0) {
+      const conflictCatDocs = await categoriesCollection.find({
+        name: { $in: [...allConflictCategoryNames] }
+      }).toArray();
+      for (const doc of conflictCatDocs) {
+        conflictCategoryDocsMap[doc.name] = doc;
+      }
+    }
+
+    // Filter conflicts - considers category-level rules first, then per-event fallback
     const actualConflicts = conflicts.filter(conflict => {
+      const conflictCategories = conflict.categories || [];
+      const conflictCategoryIds = conflictCategories
+        .map(name => conflictCategoryDocsMap[name]?._id?.toString())
+        .filter(Boolean);
+
+      // --- Category-level bilateral check ---
+      // Check if request's category rules allow any of the conflict's categories
+      const requestGrantsConflict = conflictCategoryIds.some(id =>
+        requestCategoryAllowedIds.includes(id)
+      );
+      if (requestGrantsConflict) return false; // NOT a conflict
+
+      // Check if conflict's category rules allow any of the request's categories
+      const conflictCategoryAllowedIds = [];
+      for (const catName of conflictCategories) {
+        const doc = conflictCategoryDocsMap[catName];
+        for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
+          conflictCategoryAllowedIds.push(allowedId.toString());
+        }
+      }
+      const conflictGrantsRequest = requestCategoryIds.some(id =>
+        conflictCategoryAllowedIds.includes(id)
+      );
+      if (conflictGrantsRequest) return false; // NOT a conflict
+
+      // --- Per-event fallback (legacy) ---
       const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
 
       // If BOTH events disallow concurrent, it's always a conflict
@@ -1961,23 +2016,16 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         return true; // IS a conflict
       }
 
-      // If either event allows concurrent, check category restrictions
+      // If conflict event allows concurrent, check its per-event category restrictions
       if (conflictAllowsConcurrent) {
         const allowedCategories = conflict.allowedConcurrentCategories || [];
-
-        // If no category restrictions, allow any concurrent event
         if (allowedCategories.length === 0) {
-          return false; // NOT a conflict
+          return false; // NOT a conflict (no restrictions)
         }
-
-        // Check if incoming event's categories match any allowed category
         const allowedCategoryStrings = allowedCategories.map(id => id.toString());
         const hasMatchingCategory = requestCategoryIds.some(catId =>
           allowedCategoryStrings.includes(catId)
         );
-
-        // If incoming event has a matching allowed category, NOT a conflict
-        // Otherwise, it IS a conflict (category not in allowed list)
         return !hasMatchingCategory;
       }
 
@@ -2008,6 +2056,24 @@ async function checkRoomConflicts(reservation, excludeId = null) {
 
     const pendingEditEvents = await unifiedEventsCollection.find(pendingEditQuery).toArray();
 
+    // Add pending edit categories to the lookup map if not already present
+    const missingPeCategoryNames = new Set();
+    for (const peEvent of pendingEditEvents) {
+      for (const catName of (peEvent.categories || [])) {
+        if (!conflictCategoryDocsMap[catName]) {
+          missingPeCategoryNames.add(catName);
+        }
+      }
+    }
+    if (missingPeCategoryNames.size > 0) {
+      const peCatDocs = await categoriesCollection.find({
+        name: { $in: [...missingPeCategoryNames] }
+      }).toArray();
+      for (const doc of peCatDocs) {
+        conflictCategoryDocsMap[doc.name] = doc;
+      }
+    }
+
     // In-memory filter: check effective (merged) rooms/times against candidate event
     const pendingEditConflicts = [];
     for (const peEvent of pendingEditEvents) {
@@ -2032,7 +2098,26 @@ async function checkRoomConflicts(reservation, excludeId = null) {
         (peEffectiveStart < effectiveEnd && peEffectiveEnd > effectiveStart);
       if (!timeOverlap) continue;
 
-      // Apply isAllowedConcurrent / category logic (same as published events)
+      // Apply category-level rules first, then per-event fallback
+      const peCategories = peEvent.categories || [];
+      const peCategoryIds = peCategories
+        .map(name => conflictCategoryDocsMap[name]?._id?.toString())
+        .filter(Boolean);
+
+      // Category-level bilateral check
+      const peRequestGrants = peCategoryIds.some(id => requestCategoryAllowedIds.includes(id));
+      if (peRequestGrants) continue; // NOT a conflict
+      const peCategoryAllowedIds = [];
+      for (const catName of peCategories) {
+        const doc = conflictCategoryDocsMap[catName];
+        for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
+          peCategoryAllowedIds.push(allowedId.toString());
+        }
+      }
+      const peConflictGrants = requestCategoryIds.some(id => peCategoryAllowedIds.includes(id));
+      if (peConflictGrants) continue; // NOT a conflict
+
+      // Per-event fallback
       const peAllowsConcurrent = peEvent.isAllowedConcurrent ?? false;
       if (!requestAllowsConcurrent && !peAllowsConcurrent) {
         // Both disallow concurrent — IS a conflict
@@ -2187,15 +2272,58 @@ async function checkRecurringRoomConflicts(params) {
   }
   const existingSeriesMasters = await unifiedEventsCollection.find(recurringQuery).toArray();
 
-  // Look up category IDs for concurrent filtering
+  // Look up category docs for concurrent filtering (includes category-level rules)
   let requestCategoryIds = [];
+  let requestCategoryAllowedIds = [];
   if (categories.length > 0) {
     const categoryDocs = await categoriesCollection.find({ name: { $in: categories } }).toArray();
     requestCategoryIds = categoryDocs.map(cat => cat._id.toString());
+    for (const doc of categoryDocs) {
+      for (const allowedId of (doc.allowedConcurrentCategories || [])) {
+        const idStr = allowedId.toString();
+        if (!requestCategoryAllowedIds.includes(idStr)) {
+          requestCategoryAllowedIds.push(idStr);
+        }
+      }
+    }
+  }
+
+  // Batch-fetch category docs for all potential conflict events + series masters
+  const allRecurConflictCatNames = new Set();
+  for (const c of potentialConflicts) {
+    for (const n of (c.categories || [])) allRecurConflictCatNames.add(n);
+  }
+  for (const m of existingSeriesMasters) {
+    for (const n of (m.categories || [])) allRecurConflictCatNames.add(n);
+  }
+  const recurConflictCatMap = {};
+  if (allRecurConflictCatNames.size > 0) {
+    const docs = await categoriesCollection.find({ name: { $in: [...allRecurConflictCatNames] } }).toArray();
+    for (const doc of docs) recurConflictCatMap[doc.name] = doc;
   }
 
   // Helper: check if a conflict is filtered out by concurrent permissions
   const isFilteredByConcurrency = (conflict) => {
+    // --- Category-level bilateral check ---
+    const conflictCategories = conflict.categories || [];
+    const conflictCategoryIds = conflictCategories
+      .map(name => recurConflictCatMap[name]?._id?.toString())
+      .filter(Boolean);
+
+    // Request's category rules grant the conflict
+    if (conflictCategoryIds.some(id => requestCategoryAllowedIds.includes(id))) return true;
+
+    // Conflict's category rules grant the request
+    const conflictCatAllowedIds = [];
+    for (const catName of conflictCategories) {
+      const doc = recurConflictCatMap[catName];
+      for (const allowedId of (doc?.allowedConcurrentCategories || [])) {
+        conflictCatAllowedIds.push(allowedId.toString());
+      }
+    }
+    if (requestCategoryIds.some(id => conflictCatAllowedIds.includes(id))) return true;
+
+    // --- Per-event fallback ---
     const conflictAllowsConcurrent = conflict.isAllowedConcurrent ?? false;
     if (!isAllowedConcurrent && !conflictAllowsConcurrent) return false; // IS a conflict
     if (conflictAllowsConcurrent) {
@@ -12875,7 +13003,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           effectiveEnd,
           setupTimeMinutes: cd.setupTimeMinutes || 0,
           teardownTimeMinutes: cd.teardownTimeMinutes || 0,
-          isAllowedConcurrent: res.isAllowedConcurrent ?? false
+          isAllowedConcurrent: res.isAllowedConcurrent ?? false,
+          categories: res.categories || []
         };
       });
 
@@ -12922,7 +13051,8 @@ app.get('/api/rooms/availability', async (req, res) => {
           setupTimeMinutes: cd.setupTimeMinutes || 0,
           teardownTimeMinutes: cd.teardownTimeMinutes || 0,
           location: cd.locationDisplayNames || event.graphData?.location?.displayName,
-          isAllowedConcurrent: event.isAllowedConcurrent ?? false
+          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+          categories: event.categories || []
         };
       });
 
@@ -13514,12 +13644,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     if (!cd.categories || cd.categories.length === 0) {
       validationErrors.push('At least one category must be selected');
     }
-    if (!cd.setupTime) {
-      validationErrors.push('Setup time is required');
-    }
-    if (!cd.doorOpenTime) {
-      validationErrors.push('Door open time is required');
-    }
+
 
     if (validationErrors.length > 0) {
       return res.status(400).json({
@@ -16480,7 +16605,7 @@ async function shiftCategoryDisplayOrders(collection, targetOrder, excludeId = n
  */
 app.post('/api/categories', verifyToken, async (req, res) => {
   try {
-    const { name, color, description, displayOrder, type } = req.body;
+    const { name, color, description, displayOrder, type, allowedConcurrentCategories } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Category name is required' });
@@ -16512,6 +16637,9 @@ app.post('/api/categories', verifyToken, async (req, res) => {
       color: color || '#808080',
       description: description || '',
       displayOrder: requestedOrder,
+      allowedConcurrentCategories: (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return null; }
+      }).filter(Boolean),
       active: true,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -16533,7 +16661,7 @@ app.post('/api/categories', verifyToken, async (req, res) => {
 app.put('/api/categories/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, color, description, displayOrder, active } = req.body;
+    const { name, color, description, displayOrder, active, allowedConcurrentCategories } = req.body;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ error: 'Invalid category ID' });
@@ -16548,6 +16676,11 @@ app.put('/api/categories/:id', verifyToken, async (req, res) => {
     if (description !== undefined) updateData.description = description;
     if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
     if (active !== undefined) updateData.active = active;
+    if (allowedConcurrentCategories !== undefined) {
+      updateData.allowedConcurrentCategories = (allowedConcurrentCategories || []).map(id => {
+        try { return new ObjectId(id); } catch { return null; }
+      }).filter(Boolean);
+    }
 
     // If updating name, check for duplicates
     if (name) {

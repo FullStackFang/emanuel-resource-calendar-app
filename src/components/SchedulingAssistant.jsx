@@ -25,6 +25,9 @@ export default function SchedulingAssistant({
   organizerName = '', // Organizer name for user events
   organizerEmail = '', // Organizer email for user events
   isAllowedConcurrent = false, // Whether this event allows concurrent scheduling
+  categories: userCategories = [], // Categories of the event being created/edited
+  categoryConcurrentRules = null, // Map of categoryId -> [allowedCategoryIds] from category management
+  categoryLookup = null, // Map of category name -> categoryId
   disabled = false, // Read-only mode - disables all interactions
   onConflictChange // Callback: (hasConflicts: boolean, totalConflicts: number) => void
 }) {
@@ -66,6 +69,23 @@ export default function SchedulingAssistant({
       ? `${x - rect.width - offset}px`
       : `${x + offset}px`;
   }, [tooltipInfo]);
+
+  // Check if two blocks' categories allow concurrent scheduling via category-level rules
+  const isCategoryRuleAllowed = useCallback((block1, block2) => {
+    if (!categoryConcurrentRules || !categoryLookup) return false;
+    const catIds1 = (block1.categories || []).map(name => categoryLookup[name]).filter(Boolean);
+    const catIds2 = (block2.categories || []).map(name => categoryLookup[name]).filter(Boolean);
+    // Bilateral: either side's category rules grant the other
+    for (const id of catIds1) {
+      const allowed = categoryConcurrentRules[id] || [];
+      if (catIds2.some(id2 => allowed.includes(id2))) return true;
+    }
+    for (const id of catIds2) {
+      const allowed = categoryConcurrentRules[id] || [];
+      if (catIds1.some(id1 => allowed.includes(id1))) return true;
+    }
+    return false;
+  }, [categoryConcurrentRules, categoryLookup]);
 
   const PIXELS_PER_HOUR = 50; // 50px per hour
   const START_HOUR = 0;  // Start at 12 AM (midnight)
@@ -198,6 +218,7 @@ export default function SchedulingAssistant({
             status: reservation.status,
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: reservation.isAllowedConcurrent ?? false,
+            categories: reservation.categories || [],
             originalStartTime,
             originalEndTime,
             ...position
@@ -247,6 +268,7 @@ export default function SchedulingAssistant({
             organizer: event.organizer?.emailAddress?.name || 'Unknown',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+            categories: event.categories || [],
             originalStartTime,
             originalEndTime,
             ...position
@@ -297,6 +319,7 @@ export default function SchedulingAssistant({
             organizer: pendingEdit.requesterName || pendingEdit.requesterEmail || '',
             isConflict: false, // Will be calculated later
             isAllowedConcurrent: pendingEdit.isAllowedConcurrent ?? false,
+            categories: pendingEdit.categories || [],
             isPendingEdit: true,
             originalLocations: pendingEdit.originalLocations,
             changeReason: pendingEdit.changeReason,
@@ -377,6 +400,7 @@ export default function SchedulingAssistant({
           isDraggable: true,
           isConflict: false, // Will be calculated below
           isAllowedConcurrent: isAllowedConcurrent, // Propagate from form data
+          categories: userCategories || [],
           ...position
         });
       });
@@ -394,16 +418,15 @@ export default function SchedulingAssistant({
     });
 
     // Check each event against all other events in the same room
-    // An overlap is only a conflict if BOTH events have isAllowedConcurrent: false
     blocks.forEach(block => {
       const roomBlocks = blocksByRoom[block.room._id] || [];
       const hasConflict = roomBlocks.some(otherBlock => {
         if (otherBlock.id === block.id) return false;
-        // Check for time overlap
         const overlaps = block.startTime < otherBlock.endTime && block.endTime > otherBlock.startTime;
         if (!overlaps) return false;
-        // Only a conflict if BOTH disallow concurrent scheduling
-        // If either allows concurrent, they can coexist
+        // Check category-level rules first
+        if (isCategoryRuleAllowed(block, otherBlock)) return false;
+        // Fall back to per-event isAllowedConcurrent
         return !block.isAllowedConcurrent && !otherBlock.isAllowedConcurrent;
       });
       block.isConflict = hasConflict;
@@ -420,12 +443,13 @@ export default function SchedulingAssistant({
 
       if (userEvent) {
         // Count only events that truly conflict with the user's event
-        // An overlap is only a conflict if BOTH events have isAllowedConcurrent: false
         const conflictsWithUserEvent = roomBlocks.filter(b => {
-          if (b.isUserEvent) return false; // Don't count the user event itself
+          if (b.isUserEvent) return false;
           const overlaps = b.startTime < userEvent.endTime && b.endTime > userEvent.startTime;
           if (!overlaps) return false;
-          // Only a conflict if BOTH disallow concurrent scheduling
+          // Check category-level rules first
+          if (isCategoryRuleAllowed(userEvent, b)) return false;
+          // Fall back to per-event isAllowedConcurrent
           return !userEvent.isAllowedConcurrent && !b.isAllowedConcurrent;
         });
 
@@ -1292,10 +1316,14 @@ export default function SchedulingAssistant({
     const isMultiDayBlock = originalStartDate && originalEndDate && originalStartDate !== originalEndDate;
 
     // Detect if this locked event conflicts with the user's event
-    const conflictsWithUser = isLocked && !block.isAllowedConcurrent && allVisibleBlocks.some(other =>
+    const allowedByCategory = allVisibleBlocks.some(other =>
+      other.isUserEvent && isCategoryRuleAllowed(block, other)
+    );
+    const conflictsWithUser = isLocked && !allowedByCategory && !block.isAllowedConcurrent && allVisibleBlocks.some(other =>
       other.isUserEvent &&
       block.startTime < other.endTime &&
       block.endTime > other.startTime &&
+      !isCategoryRuleAllowed(block, other) &&
       !other.isAllowedConcurrent
     );
 
@@ -1340,10 +1368,11 @@ export default function SchedulingAssistant({
       boxShadow = conflictsWithUser
         ? 'inset 3px 0 0 0 #dc2626'
         : 'inset 0 1px 3px rgba(0, 0, 0, 0.15)';
-      backgroundColor = block.isAllowedConcurrent
+      const allowsConcurrent = block.isAllowedConcurrent || allowedByCategory;
+      backgroundColor = allowsConcurrent
         ? '#4aba6d'
         : (conflictsWithUser ? '#6b7280' : '#9ca3af');
-      filter = block.isAllowedConcurrent ? 'none' : (conflictsWithUser ? 'saturate(0.3)' : 'saturate(0)');
+      filter = allowsConcurrent ? 'none' : (conflictsWithUser ? 'saturate(0.3)' : 'saturate(0)');
     } else {
       opacity = hasConflict ? 0.95 : 0.8;
       cursor = disabled ? 'default' : (isDragging ? 'grabbing' : 'grab');
@@ -1362,7 +1391,7 @@ export default function SchedulingAssistant({
       isLocked ? 'locked' : '',
       isUserEvent ? 'user-event' : '',
       isCurrentReservation ? 'current-event' : '',
-      block.isAllowedConcurrent ? 'allows-concurrent' : '',
+      (block.isAllowedConcurrent || allowedByCategory) ? 'allows-concurrent' : '',
       conflictsWithUser ? 'conflicts-with-user' : '',
       block.status === 'pending' ? 'sa-pending' : '',
       block.isPendingEdit ? 'sa-pending-edit' : '',
@@ -1469,7 +1498,7 @@ export default function SchedulingAssistant({
           <div className="event-time">
             {formatTime(block.startTime)} - {formatTime(block.endTime)}
           </div>
-          {block.isAllowedConcurrent && !isUserEvent && (
+          {(block.isAllowedConcurrent || allowedByCategory) && !isUserEvent && (
             <div className="event-concurrent-label">Allows Overlap</div>
           )}
           {isMultiDayBlock && (

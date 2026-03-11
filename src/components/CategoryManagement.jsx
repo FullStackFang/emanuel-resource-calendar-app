@@ -62,7 +62,8 @@ export default function CategoryManagement({ apiToken }) {
     name: '',
     color: '#3b6eb8',
     description: '',
-    displayOrder: 1
+    displayOrder: 1,
+    allowedConcurrentCategories: []
   });
 
   // Calculate stats
@@ -148,7 +149,8 @@ export default function CategoryManagement({ apiToken }) {
       name: '',
       color: '#3b6eb8',
       description: '',
-      displayOrder: categories.length + 1
+      displayOrder: categories.length + 1,
+      allowedConcurrentCategories: []
     });
   };
 
@@ -160,7 +162,8 @@ export default function CategoryManagement({ apiToken }) {
       name: category.name,
       color: category.color || '#3b6eb8',
       description: category.description || '',
-      displayOrder: category.displayOrder || 1
+      displayOrder: category.displayOrder || 1,
+      allowedConcurrentCategories: (category.allowedConcurrentCategories || []).map(id => String(id))
     });
   };
 
@@ -298,6 +301,22 @@ export default function CategoryManagement({ apiToken }) {
     }
   };
 
+  // Toggle a category in the allowed concurrent list
+  const handleConcurrentCategoryToggle = (categoryId) => {
+    const current = formData.allowedConcurrentCategories || [];
+    const idStr = String(categoryId);
+    const updated = current.includes(idStr)
+      ? current.filter(id => id !== idStr)
+      : [...current, idStr];
+    updateFormData({ allowedConcurrentCategories: updated });
+  };
+
+  // Categories available for the concurrent selector (exclude the one being edited)
+  const concurrentCategoryOptions = useMemo(() => {
+    if (!editingCategory) return categories;
+    return categories.filter(c => String(c._id) !== String(editingCategory._id));
+  }, [categories, editingCategory]);
+
   if (loading) {
     return <LoadingSpinner />;
   }
@@ -399,6 +418,17 @@ export default function CategoryManagement({ apiToken }) {
                 <p className="category-card-description">
                   {category.description}
                 </p>
+
+                {(category.allowedConcurrentCategories || []).length > 0 && (
+                  <div className="concurrent-rules-card-badge">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                      <line x1="8" y1="21" x2="16" y2="21" />
+                      <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                    <span>Overlaps with {category.allowedConcurrentCategories.length} {category.allowedConcurrentCategories.length === 1 ? 'category' : 'categories'}</span>
+                  </div>
+                )}
 
                 <div className="category-card-actions">
                   <button
@@ -517,6 +547,63 @@ export default function CategoryManagement({ apiToken }) {
                     }
                     min="1"
                   />
+                </div>
+
+                {/* Concurrent Scheduling Rules */}
+                <div className="concurrent-rules-panel">
+                  <div className="concurrent-rules-header">
+                    <div className="concurrent-rules-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                      </svg>
+                    </div>
+                    <div className="concurrent-rules-title-group">
+                      <span className="concurrent-rules-title">Overlap Rules</span>
+                      <span className="concurrent-rules-subtitle">
+                        Select categories that can share the same room and time slot without triggering a scheduling conflict.
+                      </span>
+                    </div>
+                    {(formData.allowedConcurrentCategories || []).length > 0 && (
+                      <span className="concurrent-rules-count">
+                        {formData.allowedConcurrentCategories.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {concurrentCategoryOptions.length > 0 ? (
+                    <div className="concurrent-rules-options">
+                      {concurrentCategoryOptions.map(cat => {
+                        const isSelected = (formData.allowedConcurrentCategories || []).includes(String(cat._id));
+                        return (
+                          <button
+                            key={cat._id}
+                            type="button"
+                            className={`concurrent-rule-toggle ${isSelected ? 'active' : ''}`}
+                            onClick={() => handleConcurrentCategoryToggle(cat._id)}
+                          >
+                            <span
+                              className="concurrent-rule-swatch"
+                              style={{ backgroundColor: cat.color || '#9ca3af' }}
+                            />
+                            <span className="concurrent-rule-name">{cat.name}</span>
+                            <span className="concurrent-rule-check">
+                              {isSelected && (
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="concurrent-rules-empty">
+                      Create more categories to set up overlap rules.
+                    </div>
+                  )}
                 </div>
               </div>
 

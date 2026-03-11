@@ -255,17 +255,17 @@ export const getOverlapType = (event, allEvents) => {
 };
 
 /**
- * Check if two events are in conflict (considering isAllowedConcurrent flag and allowedConcurrentCategories)
- * An overlap is only considered a conflict if:
- * - BOTH events have isAllowedConcurrent: false, OR
- * - One event allows concurrent but has category restrictions, and the other event doesn't match
+ * Check if two events are in conflict, considering:
+ * 1. Category-level concurrent rules (from categoryConcurrentRules map)
+ * 2. Per-event isAllowedConcurrent flag (legacy fallback)
  *
- * @param {Object} event1 - First event object (must have start, end, and optionally isAllowedConcurrent)
- * @param {Object} event2 - Second event object (must have start, end, and optionally isAllowedConcurrent)
- * @param {Object} categoryLookup - Optional map of category names to IDs for validation
+ * @param {Object} event1 - First event object
+ * @param {Object} event2 - Second event object
+ * @param {Object} categoryLookup - Optional map of category names to IDs
+ * @param {Object} categoryConcurrentRules - Optional map of categoryId -> [allowedCategoryIds]
  * @returns {boolean} - True if events are in conflict
  */
-export const areEventsConflicting = (event1, event2, categoryLookup = null) => {
+export const areEventsConflicting = (event1, event2, categoryLookup = null, categoryConcurrentRules = null) => {
   // Get bounds for both events (includes setup/teardown times)
   const bounds1 = getEventBounds(event1);
   const bounds2 = getEventBounds(event2);
@@ -277,7 +277,31 @@ export const areEventsConflicting = (event1, event2, categoryLookup = null) => {
     return false;
   }
 
-  // Events overlap - check concurrent scheduling rules
+  // --- Category-level bilateral check ---
+  if (categoryConcurrentRules && categoryLookup) {
+    const e1Categories = event1.categories || [];
+    const e2Categories = event2.categories || [];
+    const e1CatIds = e1Categories.map(name => categoryLookup[name]).filter(Boolean);
+    const e2CatIds = e2Categories.map(name => categoryLookup[name]).filter(Boolean);
+
+    // Check if event1's category rules allow event2's categories
+    for (const catId of e1CatIds) {
+      const allowedIds = categoryConcurrentRules[catId] || [];
+      if (e2CatIds.some(id => allowedIds.includes(id))) {
+        return false; // NOT a conflict
+      }
+    }
+
+    // Check if event2's category rules allow event1's categories
+    for (const catId of e2CatIds) {
+      const allowedIds = categoryConcurrentRules[catId] || [];
+      if (e1CatIds.some(id => allowedIds.includes(id))) {
+        return false; // NOT a conflict
+      }
+    }
+  }
+
+  // --- Per-event fallback (legacy) ---
   const event1AllowsConcurrent = event1.isAllowedConcurrent ?? false;
   const event2AllowsConcurrent = event2.isAllowedConcurrent ?? false;
 
@@ -300,35 +324,29 @@ export const areEventsConflicting = (event1, event2, categoryLookup = null) => {
 
     // If we have a categoryLookup, compare by ID
     if (categoryLookup && otherCategories.length > 0) {
-      // Convert category names to IDs
       const otherCategoryIds = otherCategories
         .map(name => categoryLookup[name])
         .filter(id => id);
 
-      // Convert allowed categories to strings for comparison
       const allowedCategoryStrings = allowedCategories.map(id =>
         typeof id === 'object' ? id.toString() : id
       );
 
-      // Check if any of the other event's categories are in the allowed list
       return otherCategoryIds.some(id => allowedCategoryStrings.includes(id));
     }
 
-    // Without categoryLookup, we can't validate - assume no match (is a conflict)
-    // The backend will do proper validation
     return false;
   };
 
-  // Check category restrictions
   if (event1AllowsConcurrent) {
     if (!checkCategoryMatch(event1, event2)) {
-      return true; // Conflict - event2's categories not in event1's allowed list
+      return true;
     }
   }
 
   if (event2AllowsConcurrent) {
     if (!checkCategoryMatch(event2, event1)) {
-      return true; // Conflict - event1's categories not in event2's allowed list
+      return true;
     }
   }
 

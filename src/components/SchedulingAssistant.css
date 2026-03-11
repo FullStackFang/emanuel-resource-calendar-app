@@ -312,7 +312,7 @@
 }
 
 .timeline-container {
-  height: 600px;
+  height: 1000px;
   overflow-y: auto;
   overflow-x: hidden;
   border: none;
