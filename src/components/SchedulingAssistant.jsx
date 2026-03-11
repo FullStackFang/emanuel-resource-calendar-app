@@ -1024,7 +1024,10 @@ export default function SchedulingAssistant({
           `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
 
         const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
-        const eventEnd   = new Date(`${effectiveDate}T${eventEndTime}`);
+        // Treat "00:00" end time as end-of-day (it means midnight, not start-of-day)
+        const eventEnd   = eventEndTime === '00:00'
+          ? new Date(`${effectiveDate}T23:59:00`)
+          : new Date(`${effectiveDate}T${eventEndTime}`);
         const setupDuration    = eventStart.getTime() - orig.startTime.getTime();
         const teardownDuration = orig.endTime.getTime() - eventEnd.getTime();
 
@@ -1104,8 +1107,7 @@ export default function SchedulingAssistant({
 
         // Clamp times to stay within 0:00 - 24:00 (midnight to midnight) on the effective date
         const dayStart = new Date(effectiveDate + 'T00:00:00');
-        const dayEnd = new Date(effectiveDate + 'T00:00:00');
-        dayEnd.setDate(dayEnd.getDate() + 1); // Next day's midnight (24:00)
+        const dayEnd = new Date(effectiveDate + 'T23:59:00'); // End of day
 
         // If event would start before midnight, clamp to midnight
         if (newStartTime < dayStart) {

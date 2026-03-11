@@ -235,9 +235,15 @@ export default function ReviewModal({
     };
   }, [isOpen, handleEscKey]);
 
-  // Close on overlay click
+  // Close on overlay click — only if mousedown also started on the overlay.
+  // This prevents closing when a drag starts inside the modal (e.g. SchedulingAssistant
+  // event block resize) and the cursor ends up on the overlay on mouseup.
+  const mouseDownTargetRef = useRef(null);
+  const handleOverlayMouseDown = (e) => {
+    mouseDownTargetRef.current = e.target;
+  };
   const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) {
+    if (e.target === e.currentTarget && mouseDownTargetRef.current === e.currentTarget) {
       onClose();
     }
   };
@@ -250,7 +256,7 @@ export default function ReviewModal({
     : { display: 'flex', flexDirection: 'column' };
 
   const modalContent = (
-    <div className={overlayClassName} onClick={handleOverlayClick}>
+    <div className={overlayClassName} onMouseDown={handleOverlayMouseDown} onClick={handleOverlayClick}>
       <div className={modalClassName} style={inlineStyles}>
         {/* Sticky Action Bar */}
         <div className="review-action-bar">

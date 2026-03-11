@@ -12,6 +12,7 @@ import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import RecurringConflictSummary from './RecurringConflictSummary';
+import { RecurringIcon } from './shared/CalendarIcons';
 import useDepartments from '../hooks/useDepartments';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
 import { extractTextFromHtml } from '../utils/textUtils';
@@ -860,12 +861,17 @@ export default function RoomReservationFormBase({
 
   // Helper function to notify parent of data changes
   // Uses refs to always get latest categories/services (prevents stale closure issues)
+  // Ref to always have latest recurrencePattern available in notifyDataChange
+  const recurrencePatternRef = useRef(recurrencePattern);
+  useEffect(() => { recurrencePatternRef.current = recurrencePattern; }, [recurrencePattern]);
+
   const notifyDataChange = useCallback((updatedData) => {
     if (onDataChange) {
       onDataChange({
         ...updatedData,
         categories: selectedCategoriesRef.current,  // Use 'categories' (mecCategories is deprecated)
-        services: selectedServicesRef.current
+        services: selectedServicesRef.current,
+        recurrence: updatedData.recurrence !== undefined ? updatedData.recurrence : recurrencePatternRef.current
       });
     }
   }, [onDataChange]); // Removed state dependencies - using refs instead
@@ -1204,14 +1210,22 @@ export default function RoomReservationFormBase({
             {/* Edit Scope Indicator for Recurring Events */}
             {editScope === 'thisEvent' && (
               <div className="edit-scope-indicator single-occurrence">
-                <span className="edit-scope-icon">📌</span>
-                <span className="edit-scope-text">Editing this occurrence only. Changes will not affect other events in the series.</span>
+                <span className="edit-scope-icon"><RecurringIcon size={18} /></span>
+                <span className="edit-scope-text">
+                  <span className="edit-scope-title">Editing this occurrence only</span>
+                  <span className="edit-scope-subtitle">Changes will not affect other events in the series.</span>
+                </span>
+                <span className="scope-badge occurrence-badge">Single occurrence</span>
               </div>
             )}
             {editScope === 'allEvents' && (
               <div className="edit-scope-indicator all-events">
-                <span className="edit-scope-icon">🔄</span>
-                <span className="edit-scope-text">Editing entire series. Changes will apply to all events in the series.</span>
+                <span className="edit-scope-icon"><RecurringIcon size={18} /></span>
+                <span className="edit-scope-text">
+                  <span className="edit-scope-title">Editing entire series</span>
+                  <span className="edit-scope-subtitle">Changes will apply to all events in the series.</span>
+                </span>
+                <span className="scope-badge series-badge">Series master</span>
               </div>
             )}
 
@@ -1439,24 +1453,124 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Make Recurring + Set All Day Button Row */}
+            {/* Recurrence Card — 3 modes: invite, active summary, read-only context */}
+            {(() => {
+              const canEditRecurrence = ((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') || editScope === 'allEvents');
+              const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
+              const hasPattern = Boolean(activeRecurrence);
+
+              // Mode 1: Single occurrence — read-only context card
+              if (editScope === 'thisEvent') {
+                return (
+                  <div className="recurrence-trigger-section">
+                    <div className="recurrence-readonly-card">
+                      <RecurringIcon size={18} />
+                      <span>This event is part of a recurring series. To edit the recurrence pattern, choose &quot;All events in the series&quot; when opening the event.</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Mode 2: Has pattern — active summary card
+              if (hasPattern && canEditRecurrence) {
+                const summary = formatRecurrenceSummaryEnhanced(
+                  activeRecurrence.pattern,
+                  activeRecurrence.range,
+                  activeRecurrence.additions,
+                  activeRecurrence.exclusions
+                );
+
+                return (
+                  <div className="recurrence-trigger-section">
+                    <div className="recurrence-active-card">
+                      <div className="recurrence-active-header">
+                        <div className="recurrence-active-header-left">
+                          <RecurringIcon size={18} />
+                          <span className="recurrence-active-title">Recurring Series</span>
+                          {editScope === 'allEvents' && (
+                            <span className="recurrence-scope-badge">Series Master</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="recurrence-edit-link"
+                          onClick={() => setShowRecurrenceModal(true)}
+                          disabled={fieldsDisabled}
+                        >
+                          Edit Recurrence
+                        </button>
+                      </div>
+                      <div className="recurrence-active-body">
+                        {summary.base}
+                        {summary.exclusions && summary.exclusions.length > 0 && (
+                          <> {summary.exclusions.map((d, i) => (
+                            <span key={`exc-${i}`} style={{color: 'red', fontWeight: '500'}}>
+                              {i === 0 ? ' (excluded: ' : ', '}{d.text}
+                            </span>
+                          ))}<span style={{color: 'red'}}>)</span></>
+                        )}
+                        {summary.additions && summary.additions.length > 0 && (
+                          <> {summary.additions.map((d, i) => (
+                            <span key={`add-${i}`} style={{color: 'green', fontWeight: '500'}}>
+                              {i === 0 ? ' (ad-hoc: ' : ', '}{d.text}
+                            </span>
+                          ))}<span style={{color: 'green'}}>)</span></>
+                        )}
+                      </div>
+                      {(summary.occurrenceCount || summary.nextOccurrences?.length > 0) && (
+                        <div className="recurrence-stats-row">
+                          {summary.occurrenceCount && (
+                            <span className="recurrence-stat">
+                              <strong>{summary.occurrenceCount}</strong> occurrences
+                            </span>
+                          )}
+                          {summary.seriesRange?.start && summary.seriesRange?.end && (
+                            <span className="recurrence-stat">
+                              <strong>{summary.seriesRange.start}</strong> &ndash; <strong>{summary.seriesRange.end}</strong>
+                            </span>
+                          )}
+                          {summary.nextOccurrences?.length > 0 && (
+                            <div className="recurrence-next-occurrences">
+                              <strong>Next:</strong> {summary.nextOccurrences.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              // Mode 3: No pattern — invitation card
+              if (canEditRecurrence) {
+                return (
+                  <div className="recurrence-trigger-section">
+                    <div className="recurrence-trigger-card">
+                      <div className="recurrence-trigger-left">
+                        <RecurringIcon size={20} />
+                        <div>
+                          <span className="recurrence-trigger-title">Recurring Event</span>
+                          <span className="recurrence-trigger-desc">Repeat this event on a schedule</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="recurrence-trigger-btn"
+                        onClick={() => setShowRecurrenceModal(true)}
+                        disabled={fieldsDisabled}
+                      >
+                        Set Up Recurrence
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return null;
+            })()}
+
+            {/* Set All Day */}
             <div className="time-field-row">
-              {/* Make Recurring - conditional */}
-              {((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-                editScope === 'allEvents') && (
-                <div className="form-group">
-                  <button
-                    type="button"
-                    className={`all-day-toggle ${recurrencePattern || initialData.graphData?.recurrence ? 'active' : ''}`}
-                    onClick={() => setShowRecurrenceModal(true)}
-                    disabled={fieldsDisabled}
-                    style={{ width: '100%', justifyContent: 'center' }}
-                  >
-                    {(recurrencePattern || initialData.graphData?.recurrence) ? '↻ Edit Recurrence' : '↻ Make Recurring'}
-                  </button>
-                </div>
-              )}
-              {/* Set All Day - always visible */}
               <div className="form-group">
                 <button
                   type="button"
@@ -1493,9 +1607,7 @@ export default function RoomReservationFormBase({
                   {formData.isAllDayEvent ? '✓ ' : ''}Set All Day
                 </button>
               </div>
-              {/* Empty spacer when Make Recurring is hidden */}
-              {!((!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-                editScope === 'allEvents') && <div className="form-group"></div>}
+              <div className="form-group"></div>
             </div>
 
             {/* Ad Hoc Calendar Picker - Show when toggled on */}
@@ -1558,50 +1670,7 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Recurrence Summary - Moved above date fields */}
-            {/* Show when: recurrencePattern exists AND not editing single occurrence */}
-            {/* Also use initialData.graphData?.recurrence as fallback for existing events */}
-            {(recurrencePattern || (editScope === 'allEvents' && initialData.graphData?.recurrence)) && editScope !== 'thisEvent' && (
-              <div className="recurrence-summary-display">
-                <div className="recurrence-summary-content">
-                  <span className="recurrence-icon">↻</span>
-                  <span className="recurrence-text">
-                    {(() => {
-                      // Use recurrencePattern state, or fall back to initialData for existing events
-                      const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
-                      if (!activeRecurrence) return 'Recurring event';
-
-                      const summary = formatRecurrenceSummaryEnhanced(
-                        activeRecurrence.pattern,
-                        activeRecurrence.range,
-                        activeRecurrence.additions,
-                        activeRecurrence.exclusions
-                      );
-
-                      return (
-                        <>
-                          {summary.base}
-                          {summary.exclusions && summary.exclusions.length > 0 && (
-                            <> {summary.exclusions.map((d, i) => (
-                              <span key={`exc-${i}`} style={{color: 'red', fontWeight: '500'}}>
-                                {i === 0 ? ' (excluded: ' : ', '}{d.text}
-                              </span>
-                            ))}<span style={{color: 'red'}}>)</span></>
-                          )}
-                          {summary.additions && summary.additions.length > 0 && (
-                            <> {summary.additions.map((d, i) => (
-                              <span key={`add-${i}`} style={{color: 'green', fontWeight: '500'}}>
-                                {i === 0 ? ' (ad-hoc: ' : ', '}{d.text}
-                              </span>
-                            ))}<span style={{color: 'green'}}>)</span></>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </span>
-                </div>
-              </div>
-            )}
+            {/* Recurrence summary is now integrated into the recurrence card above */}
 
             {/* Recurring Conflict Summary — shown when recurrence + rooms + times are set */}
             {recurrencePattern && formData.startDate && formData.startTime && assistantRooms.length > 0 && (
@@ -1624,7 +1693,10 @@ export default function RoomReservationFormBase({
             {/* Date Fields - Always visible */}
             <div className="time-field-row">
               <div className={`form-group required-field ${isFieldValid('startDate') ? 'field-valid' : ''} ${hasFieldChanged('startDate') ? 'field-changed' : ''}`}>
-                <label htmlFor="startDate">Event Date</label>
+                <label htmlFor="startDate">
+                  {recurrencePattern ? 'Occurrence Start Date' : 'Event Date'}
+                  {recurrencePattern && <span className="occurrence-date-sublabel">Date of each occurrence</span>}
+                </label>
                 {hasFieldChanged('startDate') && (
                   <div className="inline-diff">
                     <span className="diff-old">{getOriginalValue('startDate') || '(empty)'}</span>
@@ -1644,7 +1716,10 @@ export default function RoomReservationFormBase({
               </div>
 
               <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
-                <label htmlFor="endDate">End Date</label>
+                <label htmlFor="endDate">
+                  {recurrencePattern ? 'Occurrence End Date' : 'End Date'}
+                  {recurrencePattern && <span className="occurrence-date-sublabel">When each occurrence ends (not the series)</span>}
+                </label>
                 {hasFieldChanged('endDate') && (
                   <div className="inline-diff">
                     <span className="diff-old">{getOriginalValue('endDate') || '(empty)'}</span>

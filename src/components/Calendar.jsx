@@ -3575,6 +3575,11 @@ import ConflictDialog from './shared/ConflictDialog';
         });
 
         if (!response.ok) {
+          if (response.status === 409) {
+            // Category already exists in Outlook — not an error; refresh cache so we don't retry
+            queryClient.invalidateQueries({ queryKey: OUTLOOK_CATEGORIES_QUERY_KEY });
+            return null;
+          }
           const errorData = await response.json();
           logger.error(`Failed to create category ${categoryName}:`, errorData);
           return null;

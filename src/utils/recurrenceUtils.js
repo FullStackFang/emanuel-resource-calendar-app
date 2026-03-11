@@ -358,10 +358,80 @@ export function formatRecurrenceSummaryEnhanced(pattern, range, additions = [], 
     };
   });
 
-  // Return object with base summary and colored dates for React rendering
+  // Calculate occurrence count and series date range
+  let occurrenceCount = null;
+  let seriesRange = null;
+  let nextOccurrences = [];
+
+  if (range) {
+    const dateFormat = { month: 'short', day: 'numeric', year: 'numeric' };
+    const startDate = range.startDate ? new Date(range.startDate + 'T00:00:00') : null;
+
+    seriesRange = {
+      start: startDate ? startDate.toLocaleDateString('en-US', dateFormat) : null,
+      end: null
+    };
+
+    if (range.type === 'numbered' && range.numberOfOccurrences) {
+      occurrenceCount = range.numberOfOccurrences;
+    } else if (range.type === 'endDate' && range.endDate) {
+      const endDate = new Date(range.endDate + 'T00:00:00');
+      seriesRange.end = endDate.toLocaleDateString('en-US', dateFormat);
+
+      // Count occurrences by iterating month-by-month from start to end
+      let count = 0;
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const limit = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
+      while (cursor <= limit && count < 500) {
+        const monthDates = calculateRecurrenceDates(pattern, range, cursor);
+        count += monthDates.length;
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+      // Adjust for exclusions/additions
+      count = count - exclusions.length + additions.length;
+      occurrenceCount = Math.max(0, count);
+    }
+
+    // Find next 3 upcoming occurrences from today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const shortDateFormat = { weekday: 'short', month: 'short', day: 'numeric' };
+    const maxLookahead = new Date(today);
+    maxLookahead.setMonth(maxLookahead.getMonth() + 6);
+    const exclusionSet = new Set(exclusions);
+    const cursor2 = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    while (nextOccurrences.length < 3 && cursor2 <= maxLookahead) {
+      const monthDates = calculateRecurrenceDates(pattern, range, cursor2);
+      for (const dateStr of monthDates) {
+        if (exclusionSet.has(dateStr)) continue;
+        const d = new Date(dateStr + 'T00:00:00');
+        if (d >= today && nextOccurrences.length < 3) {
+          nextOccurrences.push(d.toLocaleDateString('en-US', shortDateFormat));
+        }
+      }
+      cursor2.setMonth(cursor2.getMonth() + 1);
+    }
+
+    // Also include ad-hoc additions that are upcoming
+    for (const dateStr of additions) {
+      const d = new Date(dateStr + 'T00:00:00');
+      if (d >= today && nextOccurrences.length < 3) {
+        nextOccurrences.push(d.toLocaleDateString('en-US', shortDateFormat));
+      }
+    }
+    // Sort and limit
+    nextOccurrences.sort((a, b) => new Date(a) - new Date(b));
+    nextOccurrences = nextOccurrences.slice(0, 3);
+  }
+
+  // Return object with base summary and enriched data for React rendering
   return {
     base: baseSummary,
     exclusions: formattedExclusions,
-    additions: formattedAdditions
+    additions: formattedAdditions,
+    occurrenceCount,
+    nextOccurrences,
+    seriesRange
   };
 }

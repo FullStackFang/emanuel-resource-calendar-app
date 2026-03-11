@@ -1669,103 +1669,209 @@
 }
 
 /* ==========================================================================
-   RECURRENCE UI STYLES
+   RECURRENCE TRIGGER CARD
    ========================================================================== */
 
-.recurrence-button-wrapper {
-  margin: var(--space-4) 0;
+.recurrence-trigger-section {
+  margin-bottom: var(--space-4);
 }
 
-.make-recurring-btn {
-  padding: var(--space-3) var(--space-5);
-  background: var(--bg-primary);
-  border: 1px solid var(--color-primary-500);
-  border-radius: var(--radius-lg);
-  color: var(--color-primary-600);
-  font-family: var(--font-body);
-  font-size: var(--text-base);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  transition: var(--transition-all);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.make-recurring-btn:hover:not(:disabled) {
-  background: var(--color-primary-50);
-  border-color: var(--color-primary-600);
-  color: var(--color-primary-700);
-}
-
-.make-recurring-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.recurrence-summary {
-  background: var(--color-primary-50);
-  border: 1px solid var(--color-primary-500);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3) var(--space-4);
-  margin: var(--space-4) 0;
-}
-
-.recurrence-summary-text {
+/* Invitation card — dashed border when no pattern is set */
+.recurrence-trigger-card {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-  color: var(--color-primary-600);
-  font-weight: var(--font-medium);
-}
-
-.recurrence-summary-actions {
-  display: flex;
+  justify-content: space-between;
   gap: var(--space-3);
-  margin-top: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-primary-50);
+  border: 1.5px dashed var(--color-primary-300);
+  border-radius: var(--radius-lg);
+  transition: var(--transition-all);
 }
 
-.recurrence-edit-btn,
-.recurrence-remove-btn {
-  padding: var(--space-2) var(--space-3);
+.recurrence-trigger-card:hover {
+  border-color: var(--color-primary-400);
+  background: var(--color-primary-100);
+}
+
+.recurrence-trigger-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-primary-600);
+}
+
+.recurrence-trigger-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--color-primary-700);
+  display: block;
+}
+
+.recurrence-trigger-desc {
+  font-size: var(--text-xs);
+  color: var(--color-primary-500);
+  display: block;
+}
+
+.recurrence-trigger-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-primary-500);
+  color: var(--text-inverse);
   border: none;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
   transition: var(--transition-all);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.recurrence-edit-btn {
-  background: var(--bg-primary);
-  color: var(--color-primary-600);
-  border: 1px solid var(--color-primary-500);
+.recurrence-trigger-btn:hover:not(:disabled) {
+  background: var(--color-primary-600);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
-.recurrence-edit-btn:hover:not(:disabled) {
-  background: var(--color-primary-100);
-}
-
-.recurrence-remove-btn {
-  background: var(--color-error-500);
-  color: var(--text-inverse);
-}
-
-.recurrence-remove-btn:hover:not(:disabled) {
-  background: var(--color-error-600);
-}
-
-.recurrence-edit-btn:disabled,
-.recurrence-remove-btn:disabled {
+.recurrence-trigger-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Active card — solid border when pattern is configured */
+.recurrence-active-card {
+  background: var(--color-primary-50);
+  border: 1px solid var(--color-primary-500);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+
+.recurrence-active-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.recurrence-active-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-primary-600);
+}
+
+.recurrence-active-title {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+  color: var(--color-primary-700);
+}
+
+.recurrence-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+  flex-shrink: 0;
+}
+
+.recurrence-edit-link {
+  background: none;
+  border: none;
+  color: var(--color-primary-600);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-all);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  flex-shrink: 0;
+}
+
+.recurrence-edit-link:hover:not(:disabled) {
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
+.recurrence-edit-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recurrence-active-body {
+  color: var(--color-primary-600);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-relaxed);
+  white-space: pre-line;
+}
+
+.recurrence-stats-row {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-primary-200);
+}
+
+.recurrence-stat {
+  font-size: var(--text-xs);
+  color: var(--color-primary-500);
+}
+
+.recurrence-stat strong {
+  color: var(--color-primary-700);
+  font-weight: var(--font-semibold);
+}
+
+.recurrence-next-occurrences {
+  font-size: var(--text-xs);
+  color: var(--color-primary-500);
+  margin-top: var(--space-1);
+}
+
+.recurrence-next-occurrences strong {
+  color: var(--color-primary-700);
+  font-weight: var(--font-semibold);
+}
+
+/* Read-only card for single occurrence context */
+.recurrence-readonly-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-warning-100);
+  border: 1px solid var(--color-warning-300);
+  border-radius: var(--radius-lg);
+  color: var(--color-warning-700);
+  font-size: var(--text-sm);
+}
+
+.recurrence-readonly-card .cal-icon {
+  flex-shrink: 0;
+}
+
+.occurrence-date-sublabel {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  font-weight: normal;
+  margin-top: 1px;
 }
 
 /* Edit Scope Indicator */
 .edit-scope-indicator {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
@@ -1787,12 +1893,45 @@
 }
 
 .edit-scope-icon {
-  font-size: var(--text-lg);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .edit-scope-text {
   flex: 1;
+}
+
+.edit-scope-title {
+  font-weight: var(--font-semibold);
+  display: block;
+}
+
+.edit-scope-subtitle {
+  font-weight: normal;
+  font-size: var(--text-xs);
+  opacity: 0.85;
+  display: block;
+}
+
+.scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  flex-shrink: 0;
+}
+
+.scope-badge.occurrence-badge {
+  background: var(--color-warning-200);
+  color: var(--color-warning-700);
+}
+
+.scope-badge.series-badge {
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
 }
 
 /* ==========================================================================
