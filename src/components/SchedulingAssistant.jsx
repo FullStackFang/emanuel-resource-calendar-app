@@ -47,6 +47,9 @@ export default function SchedulingAssistant({
   const dragClickOffset = useRef(0); // Track where on event block user clicked (for accurate cursor tracking)
   const liveDragOffset = useRef(0); // Track live drag offset during drag (for smooth CSS transform without re-renders)
   const lastMouseY = useRef(0); // Track last mouse Y position for position updates during auto-scroll
+  const resizeEdge = useRef(null); // 'start' | 'end' | null
+  const resizeStartY = useRef(0); // initial cursor Y in logical timeline px
+  const resizeOriginalDims = useRef(null); // { top, height, startTime: Date, endTime: Date }
 
   // Measure tooltip and position near cursor, flipping if near viewport edge
   useLayoutEffect(() => {
@@ -640,6 +643,51 @@ export default function SchedulingAssistant({
     };
   }, [draggingEventId, eventBlocks, timelineRef, effectiveDate, PIXELS_PER_HOUR]);
 
+  // Update resize position during resize drag
+  const updateResizePosition = useCallback((mouseY) => {
+    if (!draggingEventId || !resizeEdge.current || !resizeOriginalDims.current) return null;
+    if (!timelineRef.current) return null;
+
+    const timelineRect = timelineRef.current.getBoundingClientRect();
+    const clampedMouseY = Math.max(timelineRect.top, Math.min(mouseY, timelineRect.bottom));
+    const cursorYLogical = (clampedMouseY - timelineRect.top) / 0.75;
+    const currentScroll = timelineRef.current.scrollTop;
+    const cursorYInTimeline = cursorYLogical + currentScroll;
+
+    const offset = cursorYInTimeline - resizeStartY.current;
+    liveDragOffset.current = offset;
+
+    const orig = resizeOriginalDims.current;
+    const element = document.querySelector(`[data-event-id="${draggingEventId}"]`);
+    if (!element) return null;
+
+    const MIN_HEIGHT = PIXELS_PER_HOUR / 4; // 15 min = 12.5px
+
+    if (resizeEdge.current === 'end') {
+      const newHeight = Math.max(MIN_HEIGHT, orig.height + offset);
+      element.style.height = newHeight + 'px';
+      element.style.zIndex = '1000';
+    } else {
+      // top handle: top moves down (positive offset = later start)
+      const maxOffset = orig.height - MIN_HEIGHT;
+      const clampedOffset = Math.min(offset, maxOffset);
+      element.style.top = (orig.top + clampedOffset) + 'px';
+      element.style.height = Math.max(MIN_HEIGHT, orig.height - clampedOffset) + 'px';
+      element.style.zIndex = '1000';
+    }
+
+    const mouseYRelativeToViewport = clampedMouseY - timelineRect.top;
+    const rectHeight = timelineRect.height;
+    return {
+      hitTopBoundary: cursorYInTimeline <= 0,
+      hitBottomBoundary: cursorYInTimeline >= 24 * PIXELS_PER_HOUR,
+      mouseYRelativeToViewport,
+      rectHeight,
+      isAtTopEdge: clampedMouseY === timelineRect.top,
+      isAtBottomEdge: clampedMouseY === timelineRect.bottom
+    };
+  }, [draggingEventId, PIXELS_PER_HOUR]);
+
   // Auto-scroll timeline when dragging near edges
   const startAutoScroll = useCallback((direction, speed) => {
     // Clear any existing auto-scroll
@@ -807,6 +855,34 @@ export default function SchedulingAssistant({
     if (modal) modal.classList.add('dragging-timeline');
   };
 
+  // Handle resize handle mouse down - start resize
+  const handleResizeMouseDown = (e, block, edge) => {
+    if (!block.isUserEvent || disabled) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const timelineRect = timelineRef.current.getBoundingClientRect();
+    const cursorYLogical = (e.clientY - timelineRect.top) / 0.75;
+    const currentScroll = timelineRef.current.scrollTop;
+
+    resizeEdge.current = edge;
+    resizeStartY.current = cursorYLogical + currentScroll;
+    resizeOriginalDims.current = {
+      top: block.top,
+      height: block.height,
+      startTime: new Date(block.startTime),
+      endTime: new Date(block.endTime)
+    };
+
+    liveDragOffset.current = 0;
+    lastMouseY.current = e.clientY;
+    setDraggingEventId(block.id);
+    setTooltipInfo(null);
+
+    const modal = document.querySelector('.review-modal');
+    if (modal) modal.classList.add('dragging-timeline');
+  };
+
   // Handle mouse move - store position and update event
   const handleMouseMove = useCallback((e) => {
     if (!draggingEventId) return;
@@ -817,8 +893,10 @@ export default function SchedulingAssistant({
     // Store mouse Y for use during auto-scroll
     lastMouseY.current = e.clientY;
 
-    // Update event position and get scroll info
-    const scrollInfo = updateEventPosition(e.clientY);
+    // Update event position and get scroll info (dispatch between resize and drag)
+    const scrollInfo = resizeEdge.current
+      ? updateResizePosition(e.clientY)
+      : updateEventPosition(e.clientY);
     if (!scrollInfo) return;
 
     const { hitTopBoundary, hitBottomBoundary, mouseYRelativeToViewport, rectHeight, isAtTopEdge, isAtBottomEdge } = scrollInfo;
@@ -858,7 +936,7 @@ export default function SchedulingAssistant({
     else {
       stopAutoScroll();
     }
-  }, [draggingEventId, updateEventPosition, SCROLL_HOT_ZONE, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, startAutoScroll, stopAutoScroll]);
+  }, [draggingEventId, updateEventPosition, updateResizePosition, SCROLL_HOT_ZONE, SCROLL_SPEED_BASE, SCROLL_SPEED_MAX, startAutoScroll, stopAutoScroll]);
 
   // Handle mouse up - end drag (replaces HTML5 drag API)
   const handleMouseUp = useCallback(() => {
@@ -878,10 +956,92 @@ export default function SchedulingAssistant({
     }
 
     if (dragOffset !== 0) {
-      const hourOffset = dragOffset / PIXELS_PER_HOUR;
-      const draggedBlock = eventBlocks.find(b => b.id === draggingEventId);
+      // Handle resize mode separately from drag mode
+      if (resizeEdge.current && resizeOriginalDims.current) {
+        // --- RESIZE MODE ---
+        const edge = resizeEdge.current;
+        const orig = resizeOriginalDims.current;
+        const offset = liveDragOffset.current;
 
-      if (draggedBlock) {
+        // Clean up DOM overrides
+        const el = document.querySelector(`[data-event-id="${draggingEventId}"]`);
+        if (el) { el.style.height = ''; el.style.top = ''; el.style.zIndex = ''; }
+
+        const hourDelta = offset / PIXELS_PER_HOUR;
+        const dayStart = new Date(effectiveDate + 'T00:00:00');
+        const dayEnd = new Date(effectiveDate + 'T23:59:59');
+
+        const fmt = (date) =>
+          `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+
+        const eventStart = new Date(`${effectiveDate}T${eventStartTime}`);
+        const eventEnd   = new Date(`${effectiveDate}T${eventEndTime}`);
+        const setupDuration    = eventStart.getTime() - orig.startTime.getTime();
+        const teardownDuration = orig.endTime.getTime() - eventEnd.getTime();
+
+        if (edge === 'end') {
+          let newBlockEnd = snapToQuarterHour(new Date(orig.endTime.getTime() + hourDelta * 3600000));
+          const minEnd = new Date(orig.startTime.getTime() + 15 * 60 * 1000);
+          newBlockEnd = new Date(Math.max(minEnd.getTime(), Math.min(dayEnd.getTime(), newBlockEnd.getTime())));
+
+          const newEventEnd = new Date(newBlockEnd.getTime() - teardownDuration);
+          const updatedTimes = {
+            startTime: eventStartTime,  // Keep start anchored
+            endTime: fmt(newEventEnd),
+            setupTime,  // Preserve setup time (don't pass undefined)
+            teardownTime: fmt(newBlockEnd),
+          };
+          // Always include door times if they exist
+          if (doorOpenTime) updatedTimes.doorOpenTime = doorOpenTime;
+          if (doorCloseTime) {
+            const doorCloseDuration = new Date(`${effectiveDate}T${doorCloseTime}`).getTime() - eventEnd.getTime();
+            updatedTimes.doorCloseTime = fmt(new Date(newEventEnd.getTime() + doorCloseDuration));
+          }
+          if (onEventTimeChange) onEventTimeChange(updatedTimes);
+
+          const newHeight = (newBlockEnd.getTime() - orig.startTime.getTime()) / 3600000 * PIXELS_PER_HOUR;
+          setEventBlocks(prev => prev.map(b =>
+            b.isUserEvent ? { ...b, endTime: newBlockEnd, height: newHeight } : b
+          ));
+
+        } else {
+          // 'start' edge
+          let newBlockStart = snapToQuarterHour(new Date(orig.startTime.getTime() + hourDelta * 3600000));
+          const maxStart = new Date(orig.endTime.getTime() - 15 * 60 * 1000);
+          newBlockStart = new Date(Math.max(dayStart.getTime(), Math.min(maxStart.getTime(), newBlockStart.getTime())));
+
+          const newEventStart = new Date(newBlockStart.getTime() + setupDuration);
+          const newTop = (newBlockStart.getHours() + newBlockStart.getMinutes() / 60) * PIXELS_PER_HOUR;
+          const newHeight = (orig.endTime.getTime() - newBlockStart.getTime()) / 3600000 * PIXELS_PER_HOUR;
+
+          const updatedTimes = {
+            startTime: fmt(newEventStart),
+            endTime: eventEndTime,  // Keep end anchored
+            setupTime: fmt(newBlockStart),
+            teardownTime,  // Preserve teardown time (don't pass undefined)
+          };
+          // Always include door times if they exist
+          if (doorCloseTime) updatedTimes.doorCloseTime = doorCloseTime;
+          if (doorOpenTime) {
+            const doorOpenDuration = eventStart.getTime() - new Date(`${effectiveDate}T${doorOpenTime}`).getTime();
+            updatedTimes.doorOpenTime = fmt(new Date(newEventStart.getTime() - doorOpenDuration));
+          }
+          if (onEventTimeChange) onEventTimeChange(updatedTimes);
+
+          setEventBlocks(prev => prev.map(b =>
+            b.isUserEvent ? { ...b, startTime: newBlockStart, top: newTop, height: newHeight } : b
+          ));
+        }
+
+        resizeEdge.current = null;
+        resizeOriginalDims.current = null;
+
+      } else {
+        // --- DRAG MODE (existing logic) ---
+        const hourOffset = dragOffset / PIXELS_PER_HOUR;
+        const draggedBlock = eventBlocks.find(b => b.id === draggingEventId);
+
+        if (draggedBlock) {
         const durationMs = draggedBlock.endTime - draggedBlock.startTime;
         let newStartTime = new Date(draggedBlock.startTime.getTime() + hourOffset * 60 * 60 * 1000);
         // Snap to nearest 15-minute increment
@@ -1041,6 +1201,7 @@ export default function SchedulingAssistant({
             return block;
           }));
         }
+      }
       }
     }
 
@@ -1203,6 +1364,20 @@ export default function SchedulingAssistant({
         }}
         onMouseLeave={() => setTooltipInfo(null)}
       >
+        {isUserEvent && !disabled && (
+          <>
+            <div
+              className="sa-resize-handle sa-resize-handle-top"
+              style={{ backgroundColor }}
+              onMouseDown={(e) => handleResizeMouseDown(e, block, 'start')}
+            />
+            <div
+              className="sa-resize-handle sa-resize-handle-bottom"
+              style={{ backgroundColor }}
+              onMouseDown={(e) => handleResizeMouseDown(e, block, 'end')}
+            />
+          </>
+        )}
         <div className="event-block-content">
           {isUserEvent && (
             <span className="sa-user-label">YOUR EVENT</span>

@@ -944,28 +944,91 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: rgba(255, 255, 255, 0.2);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.15);
   color: white;
   cursor: pointer;
   margin-left: auto;
   flex-shrink: 0;
   padding: 0;
-  opacity: 0.7;
-  transition: opacity var(--duration-fast), background var(--duration-fast);
+  opacity: 1;
+  transition: all var(--duration-fast);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .sa-clear-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
-  opacity: 1;
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 8px rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
 }
 
-/* Hide in very compact mode (block too small) */
+.sa-clear-btn:active {
+  transform: scale(0.95);
+}
+
+/* Keep visible even in very compact mode - important for usability */
 .very-compact .sa-clear-btn {
-  display: none;
+  display: flex;
+  width: 24px;
+  height: 24px;
+}
+
+/* ==========================================================================
+   RESIZE HANDLES FOR USER EVENT BLOCK
+   ========================================================================== */
+
+/* Allow handles positioned outside block bounds */
+.event-block.user-event {
+  overflow: visible;
+}
+
+.sa-resize-handle {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  cursor: ns-resize;
+  z-index: 25;
+  opacity: 1;
+  transition: all var(--duration-fast);
+  backdrop-filter: brightness(1.1);
+}
+
+.sa-resize-handle:hover {
+  border-color: rgba(255, 255, 255, 1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6), inset 0 1px 4px rgba(0, 0, 0, 0.25), 0 0 12px rgba(255, 255, 255, 0.5);
+  transform: scale(1.15);
+}
+
+.sa-resize-handle-top {
+  top: -12px;
+  right: 20px;
+  transform: translateY(-50%);
+}
+
+.sa-resize-handle-top:hover {
+  transform: translateY(-50%) scale(1.15);
+}
+
+.sa-resize-handle-bottom {
+  bottom: -12px;
+  left: 20px;
+  transform: translateY(50%);
+}
+
+.sa-resize-handle-bottom:hover {
+  transform: translateY(50%) scale(1.15);
+}
+
+/* Keep visible even in very compact mode - important for usability */
+.event-block.very-compact .sa-resize-handle {
+  display: block;
 }
 
 /* ==========================================================================
