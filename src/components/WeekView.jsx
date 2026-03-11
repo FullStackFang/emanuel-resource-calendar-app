@@ -96,7 +96,7 @@ const WeekView = memo(({
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
-        sorted = sorted.filter(cat => filteredEvents.some(event => {
+        sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
           const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
           return (categories[0] || 'Uncategorized') === cat;
         }));
@@ -113,7 +113,7 @@ const WeekView = memo(({
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
-        sorted = sorted.filter(group => locationGroups[group]?.events?.length > 0);
+        sorted = sorted.filter(group => favorites?.includes(group) || locationGroups[group]?.events?.length > 0);
       }
     }
     return sorted;

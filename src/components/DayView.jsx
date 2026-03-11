@@ -105,7 +105,7 @@ const DayView = memo(({
         return a.localeCompare(b);
       });
       if (hideEmptyGroups) {
-        sorted = sorted.filter(cat => filteredEvents.some(event => {
+        sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
           if (!getEventPosition(event, currentDay)) return false;
           const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
           return (categories[0] || 'Uncategorized') === cat;
@@ -124,7 +124,7 @@ const DayView = memo(({
       });
       if (hideEmptyGroups) {
         sorted = sorted.filter(group =>
-          locationGroups[group]?.events?.some(e => getEventPosition(e, currentDay))
+          favorites?.includes(group) || locationGroups[group]?.events?.some(e => getEventPosition(e, currentDay))
         );
       }
     }

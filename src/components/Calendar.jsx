@@ -1068,6 +1068,7 @@ import ConflictDialog from './shared/ConflictDialog';
               </div>
               <button
                 className={`group-by-btn hide-empty-btn ${hideEmptyGroups ? 'active' : ''}`}
+                title="Hides groups without events (pinned groups always stay visible)"
                 onClick={() => {
                   const next = !hideEmptyGroups;
                   setHideEmptyGroups(next);
