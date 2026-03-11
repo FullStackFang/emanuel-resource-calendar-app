@@ -69,7 +69,8 @@
       "Bash(npm audit --json 2>/dev/null | jq '.metadata.vulnerabilities' 2>/dev/null || echo \"npm audit not available\")",
       "Bash(chmod +x /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/.git/hooks/commit-msg)",
       "Bash(git -C /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app diff --stat HEAD)",
-      "Bash(git -C /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app status --short src/utils/timelineUtils.js src/components/TimelineView.css src/components/TimelineView.jsx 2>&1)"
+      "Bash(git -C /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app status --short src/utils/timelineUtils.js src/components/TimelineView.css src/components/TimelineView.jsx 2>&1)",
+      "Bash(cd /tmp && python test_scheduling_assistant.py 2>&1)"
     ],
     "deny": []
   }

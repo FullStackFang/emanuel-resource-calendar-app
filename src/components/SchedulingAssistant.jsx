@@ -18,6 +18,7 @@ export default function SchedulingAssistant({
   onTimeSlotClick,
   onRoomRemove, // Callback to remove a room from selection
   onEventTimeChange, // Callback to update event times when dragging
+  onClearEventTime, // Callback: () => void — clears start/end times from parent form
   currentReservationId, // ID of the current reservation being reviewed (only this one is draggable)
   onLockedEventClick, // Callback when a locked reservation event is clicked
   defaultCalendar = '', // Calendar name to display in header
@@ -33,6 +34,7 @@ export default function SchedulingAssistant({
   const [draggingEventId, setDraggingEventId] = useState(null);
   const [tooltipInfo, setTooltipInfo] = useState(null);
   const [dragOffsets, setDragOffsets] = useState({}); // Track drag offset for each event
+  const [hoverPreview, setHoverPreview] = useState(null); // Ghost block position on hover
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tooltipRef = useRef(null);
@@ -1220,6 +1222,25 @@ export default function SchedulingAssistant({
             <span className="event-time-inline">
               {formatTime(block.startTime)} - {formatTime(block.endTime)}
             </span>
+            {/* Clear button for user event */}
+            {isUserEvent && !disabled && (
+              <button
+                type="button"
+                className="sa-clear-btn"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onClearEventTime) onClearEventTime();
+                }}
+                title="Remove scheduled time"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
             {/* Navigation button for locked reservations */}
             {isLocked && block.type === 'reservation' && onLockedEventClick && (
               <button
@@ -1435,10 +1456,109 @@ export default function SchedulingAssistant({
 
   // Handle time slot click
   const handleTimeSlotClick = (hour) => {
+    if (eventStartTime && eventEndTime) return; // Block already created
+
     if (onTimeSlotClick) {
       onTimeSlotClick(hour);
     }
+
+    // Also set the event times (1-hour block)
+    const startTime = `${String(hour).padStart(2, '0')}:00`;
+    const endHour = Math.min(hour + 1, 23);
+    const endMinute = hour >= 23 ? '59' : '00';
+    const endTime = `${String(endHour).padStart(2, '0')}:${endMinute}`;
+
+    if (onEventTimeChange) {
+      onEventTimeChange({ startTime, endTime });
+    }
+
+    userEventAdjustment.current = null;
+    setHoverPreview(null);
   };
+
+  // Handle click on events area (timeline)
+  const handleEventsAreaClick = useCallback((e) => {
+    if (disabled || draggingEventId) return;
+    if (eventStartTime && eventEndTime) return; // Block already created
+
+    // Get timeline position
+    const timelineRect = timelineRef.current.getBoundingClientRect();
+    const cursorYInViewport = e.clientY - timelineRect.top;
+    const cursorYLogical = cursorYInViewport / 0.75; // Account for 75% zoom
+    const currentScroll = timelineRef.current.scrollTop;
+    const cursorYInTimeline = cursorYLogical + currentScroll;
+
+    // Convert pixel position to hour decimal
+    const rawHours = cursorYInTimeline / PIXELS_PER_HOUR;
+    const dayStart = new Date(effectiveDate + 'T00:00:00');
+    const clickedTime = new Date(dayStart.getTime() + rawHours * 60 * 60 * 1000);
+
+    // Snap to nearest 15-minute increment
+    const snappedTime = snapToQuarterHour(clickedTime);
+
+    // Extract hours and minutes
+    const hours = snappedTime.getHours();
+    const minutes = snappedTime.getMinutes();
+    const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+    // End time: 1 hour later (clamped at 23:59)
+    let endHours = hours + 1;
+    let endMinutes = minutes;
+    if (endHours >= 24) {
+      endHours = 23;
+      endMinutes = 59;
+    }
+    const endTime = `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
+
+    if (onEventTimeChange) {
+      onEventTimeChange({ startTime, endTime });
+    }
+
+    userEventAdjustment.current = null;
+    setHoverPreview(null);
+  }, [disabled, draggingEventId, effectiveDate, PIXELS_PER_HOUR, onEventTimeChange]);
+
+  // Handle mouse move on events area for ghost preview
+  const handleEventsAreaMouseMove = useCallback((e) => {
+    if (disabled || draggingEventId) return;
+    // Only show ghost if event times are not already set (creation mode)
+    if (eventStartTime && eventEndTime) return;
+
+    const timelineRect = timelineRef.current.getBoundingClientRect();
+    const cursorYInViewport = e.clientY - timelineRect.top;
+    const cursorYLogical = cursorYInViewport / 0.75;
+    const currentScroll = timelineRef.current.scrollTop;
+    const cursorYInTimeline = cursorYLogical + currentScroll;
+
+    // Clamp to valid timeline range
+    const clampedY = Math.max(0, Math.min(cursorYInTimeline, (END_HOUR - START_HOUR) * PIXELS_PER_HOUR));
+
+    const rawHours = clampedY / PIXELS_PER_HOUR;
+    const dayStart = new Date(effectiveDate + 'T00:00:00');
+    const hoverTime = new Date(dayStart.getTime() + rawHours * 60 * 60 * 1000);
+    const snappedTime = snapToQuarterHour(hoverTime);
+
+    const hours = snappedTime.getHours();
+    const minutes = snappedTime.getMinutes();
+
+    setHoverPreview({
+      top: (hours + minutes / 60) * PIXELS_PER_HOUR,
+      hour: hours,
+      minute: minutes
+    });
+  }, [disabled, draggingEventId, eventStartTime, eventEndTime, effectiveDate, PIXELS_PER_HOUR, END_HOUR, START_HOUR]);
+
+  // Handle mouse leave on events area
+  const handleEventsAreaMouseLeave = useCallback(() => {
+    setHoverPreview(null);
+  }, []);
+
+  // Clear hover preview when times are set
+  useEffect(() => {
+    if (eventStartTime && eventEndTime) {
+      setHoverPreview(null);
+    }
+  }, [eventStartTime, eventEndTime]);
 
   // Current time indicator — only shown when selectedDate is today
   const currentTimePosition = useMemo(() => {
@@ -1637,8 +1757,11 @@ export default function SchedulingAssistant({
 
             {/* Event blocks area */}
             <div
-              className="events-area"
+              className={`events-area ${!disabled && !(eventStartTime && eventEndTime) ? 'sa-clickable' : ''}`}
               style={{ height: `${(END_HOUR - START_HOUR) * PIXELS_PER_HOUR}px` }}
+              onClick={handleEventsAreaClick}
+              onMouseMove={handleEventsAreaMouseMove}
+              onMouseLeave={handleEventsAreaMouseLeave}
             >
               {/* Alternating hour backgrounds */}
               {Array.from({ length: END_HOUR - START_HOUR }).map((_, index) => (
@@ -1689,6 +1812,18 @@ export default function SchedulingAssistant({
                 >
                   <span className="sa-current-time-label">{currentTimePosition.label}</span>
                 </div>
+              )}
+
+              {/* Ghost block on hover (for time creation) */}
+              {hoverPreview && !disabled && !draggingEventId && !(eventStartTime && eventEndTime) && (
+                <div
+                  className="sa-ghost-block"
+                  style={{
+                    top: `${hoverPreview.top}px`,
+                    height: `${PIXELS_PER_HOUR}px`
+                  }}
+                  title={`Click to schedule event at ${String(hoverPreview.hour).padStart(2, '0')}:${String(hoverPreview.minute).padStart(2, '0')}`}
+                />
               )}
 
               {/* Event blocks - all draggable */}

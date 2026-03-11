@@ -993,8 +993,29 @@ export default function RoomReservationFormBase({
     notifyDataChange(updatedData);
   };
 
+  const handleClearEventTime = () => {
+    const updatedData = {
+      ...formData,
+      startTime: '',
+      endTime: '',
+      setupTime: '',
+      teardownTime: '',
+      doorOpenTime: '',
+      doorCloseTime: '',
+    };
+    setFormData(updatedData);
+    setHasChanges(true);
+    notifyDataChange(updatedData);
+  };
+
   const handleTimeSlotClick = (hour) => {
     logger.debug('Time slot clicked:', hour);
+    // Create a 1-hour event block at the clicked hour
+    const startTime = `${String(hour).padStart(2, '0')}:00`;
+    const endHour = Math.min(hour + 1, 23);
+    const endMinute = hour >= 23 ? '59' : '00';
+    const endTime = `${String(endHour).padStart(2, '0')}:${endMinute}`;
+    handleEventTimeChange({ startTime, endTime });
   };
 
   // Toggle ad hoc calendar picker visibility
@@ -2018,6 +2039,7 @@ export default function RoomReservationFormBase({
                     onTimeSlotClick={handleTimeSlotClick}
                     onRoomRemove={handleRemoveAssistantRoom}
                     onEventTimeChange={handleEventTimeChange}
+                    onClearEventTime={handleClearEventTime}
                     currentReservationId={currentReservationId}
                     onLockedEventClick={onLockedEventClick}
                     defaultCalendar={defaultCalendar}
