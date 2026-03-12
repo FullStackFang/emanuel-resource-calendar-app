@@ -21915,7 +21915,7 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
     const userId = req.user.oid || req.user.userId;
     const userEmail = req.user.email || req.user.preferred_username;
     const userName = req.user.name;
-    const modelName = process.env.AI_MODEL || 'claude-3-5-haiku-20241022';
+    const modelName = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 
     if (!message) {
       return res.status(400).json({ error: 'Message required' });
@@ -21956,18 +21956,129 @@ app.post('/api/ai/chat', verifyToken, async (req, res) => {
       day: 'numeric'
     });
 
+    // Fetch user preferences and role info
+    let startOfWeek = 'Sunday';
+    let role = 'viewer';
+    let department = '';
+    try {
+      const user = await usersCollection.findOne(
+        { $or: [{ azureId: userId }, { email: userEmail }] },
+        { projection: {
+          'preferences.startOfWeek': 1,
+          role: 1,
+          isAdmin: 1,
+          'permissions.canViewAllReservations': 1,
+          'permissions.canGenerateReservationTokens': 1,
+          department: 1
+        }}
+      );
+      if (user?.preferences?.startOfWeek) {
+        startOfWeek = user.preferences.startOfWeek;
+      }
+      if (user) {
+        const permissions = getPermissions(user, userEmail);
+        role = permissions.role;
+        department = permissions.department || user?.department || '';
+      }
+    } catch (prefError) {
+      logger.debug('[AI] Could not fetch user preferences, using defaults');
+    }
+
+    // Calculate this week's date range based on user preference
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayDayOfWeek = today.getDay(); // 0=Sunday, 1=Monday, ...
+    const weekStartOffset = startOfWeek === 'Monday'
+      ? (todayDayOfWeek === 0 ? -6 : -(todayDayOfWeek - 1))
+      : -todayDayOfWeek;
+    const thisWeekStart = new Date(today);
+    thisWeekStart.setDate(today.getDate() + weekStartOffset);
+    const thisWeekEnd = new Date(thisWeekStart);
+    thisWeekEnd.setDate(thisWeekStart.getDate() + 6);
+    const thisWeekStartStr = `${thisWeekStart.getFullYear()}-${pad(thisWeekStart.getMonth() + 1)}-${pad(thisWeekStart.getDate())}`;
+    const thisWeekEndStr = `${thisWeekEnd.getFullYear()}-${pad(thisWeekEnd.getMonth() + 1)}-${pad(thisWeekEnd.getDate())}`;
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const thirtyDaysOut = new Date(today);
+    thirtyDaysOut.setDate(today.getDate() + 30);
+    const thirtyDaysStr = `${thirtyDaysOut.getFullYear()}-${pad(thirtyDaysOut.getMonth() + 1)}-${pad(thirtyDaysOut.getDate())}`;
+
+    // Fetch user's upcoming reservations (non-blocking)
+    let upcomingEventsSummary = 'No upcoming reservations found.';
+    try {
+      const upcomingDocs = await unifiedEventsCollection
+        .find({
+          'roomReservationData.requestedBy.email': { $regex: new RegExp('^' + userEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+          status: { $in: ['pending', 'draft', 'published'] },
+          startDateTime: { $gte: `${todayStr}T00:00:00`, $lte: `${thirtyDaysStr}T23:59:59` }
+        })
+        .project({ eventTitle: 1, startDate: 1, startTime: 1, endTime: 1, status: 1, locationDisplayNames: 1 })
+        .sort({ startDateTime: 1 })
+        .limit(5)
+        .toArray();
+      if (upcomingDocs.length > 0) {
+        upcomingEventsSummary = upcomingDocs.map(e => {
+          const title = e.eventTitle || 'Untitled';
+          const date = e.startDate || 'TBD';
+          const time = e.startTime && e.endTime ? `${e.startTime}-${e.endTime}` : 'TBD';
+          const loc = e.locationDisplayNames || '';
+          const st = e.status || '';
+          return `- ${title} | ${date} ${time} | ${loc} [${st}]`;
+        }).join('\n');
+      }
+    } catch (upcomingError) {
+      logger.debug('[AI] Could not fetch upcoming events:', upcomingError.message);
+    }
+
+    // Role-based behavior constants
+    const ROLE_DESCRIPTIONS = {
+      viewer:    'can view the calendar only, cannot submit reservations',
+      requester: 'can submit reservation requests that require approval',
+      approver:  'can create events that auto-publish and approve/reject requests',
+      admin:     'full access - events auto-publish, can manage all settings'
+    };
+    const ROLE_BEHAVIORS = {
+      viewer:    'Do NOT offer to prepare bookings. If they ask to book, explain they need a requester account.',
+      requester: 'Requests go to PENDING APPROVAL - NOT immediately confirmed. Always mention approval is needed.',
+      approver:  'Events created via prepare_event_request are AUTO-PUBLISHED immediately. No approval step.',
+      admin:     'Events are AUTO-PUBLISHED immediately. Full management access via admin panel.'
+    };
+
     const systemPrompt = `You are a helpful calendar assistant for Temple Emanuel, a synagogue in New York City.
 
 IMPORTANT: Today's date is ${currentDate}. Always use the current year (${today.getFullYear()}) when scheduling events unless the user specifically requests a different year.
 
 You are running as model "${modelName}". If asked about your model, respond with "${modelName}".
 
+DATE & WEEK CALCULATIONS:
+- The user's week starts on ${startOfWeek}.
+- "This week" = ${thisWeekStartStr} to ${thisWeekEndStr} (${startOfWeek} through ${startOfWeek === 'Monday' ? 'Sunday' : 'Saturday'}).
+- "Next week" = the 7 days immediately after this week ends.
+- "This weekend" = the upcoming Saturday and Sunday.
+- Always calculate date ranges carefully from today's date. Do NOT guess — compute the actual dates.
+
+USER CONTEXT:
+- Name: ${userName || 'Unknown'}
+- Role: ${role} (${ROLE_DESCRIPTIONS[role] || 'unknown role'})${department ? `\n- Department: ${department}` : ''}
+
 You have access to tools to help users:
 - list_locations: Show available rooms/spaces
 - list_categories: Show available event categories
-- search_events: Find events on the calendar
+- search_events: Find events on the calendar (returns description, attendeeCount, and recurring event info)
 - check_availability: Check if a room is free at a specific time
 - prepare_event_request: Prepare a room reservation form for the user to review and submit
+
+ROLE-BASED BEHAVIOR:
+${ROLE_BEHAVIORS[role] || ''}
+
+EVENT DATA GUIDE:
+When search_events returns results, pay attention to these fields:
+- services: An object where keys are service type IDs and values are objects with { enabled: true/false, cost, notes }. Common service keys include needsCatering, needsBeverages, needsKosherCatering, needsTablecloths, needsAV, needsSecurity, etc. When the user asks about services (e.g., "which events need catering?"), check the services object for entries with enabled: true.
+- categories: Array of category names (e.g., ["Worship", "Education"]). Use this when the user asks about event types.
+- location: Where the event takes place. locationDisplayNames has the room name(s).
+- setupTime/teardownTime/doorOpenTime/doorCloseTime: Buffer times around the event.
+- status: The event status (draft, pending, published, rejected, deleted).
+- description: A brief description of what the event is about (when available).
+- attendeeCount: Expected number of attendees (when > 0).
+- eventType: For recurring events, will be 'seriesMaster' or 'occurrence'. If present, mention the event is part of a recurring series.
 
 When a user wants to book/reserve a room:
 1. First use list_locations if they need to see room options
@@ -21985,11 +22096,16 @@ Required times for booking:
 
 Be concise and helpful. When you use tools, explain what you found or did.
 
+YOUR UPCOMING RESERVATIONS (next 30 days):
+${upcomingEventsSummary}
+Use this to answer questions like "what do I have coming up?" or to warn about double-bookings.
+
 FORMATTING GUIDELINES:
 When listing events, use a clean, easy-to-read format with each event on its own line.
 Use this format for each event: "• [Event Title] - [Start Time] to [End Time]"
 Group by date with a blank line between dates.
 For availability checks, be direct: "Available" or "Conflict: [event name] at [time]"
+If an event has services enabled, mention them when relevant to the user's question.
 
 Example format:
 
@@ -22003,7 +22119,9 @@ January 17, 2026:
     const userContext = {
       userId,
       email: userEmail,
-      name: userName
+      name: userName,
+      role,
+      department
     };
 
     // Call Claude with tools
@@ -22101,7 +22219,7 @@ January 17, 2026:
 app.get('/api/ai/status', verifyToken, (req, res) => {
   res.json({
     enabled: !!process.env.ANTHROPIC_API_KEY,
-    model: process.env.AI_MODEL || 'claude-3-5-haiku-20241022'
+    model: process.env.AI_MODEL || 'claude-haiku-4-5-20251001'
   });
 });
 

@@ -51,7 +51,7 @@ const toolDefinitions = [
   },
   {
     name: 'search_events',
-    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events.',
+    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events. Returns description, attendeeCount, and recurring event info when available.',
     input_schema: {
       type: 'object',
       properties: {
@@ -565,7 +565,16 @@ class MCPToolExecutor {
         organizer: 1,
         status: 1,
         syncStatus: 1,
-        calendarData: 1
+        calendarData: 1,
+        services: 1,
+        categories: 1,
+        setupTime: 1,
+        teardownTime: 1,
+        doorOpenTime: 1,
+        doorCloseTime: 1,
+        eventDescription: 1,
+        attendeeCount: 1,
+        eventType: 1
       })
       .limit(50)
       .toArray();
@@ -588,16 +597,40 @@ class MCPToolExecutor {
     const result = {
       count: limitedEvents.length,
       dateRange: { start: startDateStr, end: endDateStr },
-      events: limitedEvents.map(e => ({
-        id: e._id.toString(),
-        title: e.eventTitle || e.calendarData?.eventTitle || e.subject || 'Untitled',
-        start: e.startTime || e.calendarData?.startTime || e.startDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.startDateTime?.split('T')[1]?.substring(0, 5) || e.start?.dateTime?.split('T')[1]?.substring(0, 5),
-        end: e.endTime || e.calendarData?.endTime || e.endDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.endDateTime?.split('T')[1]?.substring(0, 5) || e.end?.dateTime?.split('T')[1]?.substring(0, 5),
-        date: e.startDate || e.calendarData?.startDate || e.startDateTime?.split('T')[0] || e.calendarData?.startDateTime?.split('T')[0] || e.start?.dateTime?.split('T')[0],
-        location: e.locationDisplayNames || e.calendarData?.locationDisplayNames || e.locationDisplayName || e.location?.displayName || e.location,
-        status: e.status,
-        syncStatus: e.syncStatus
-      }))
+      events: limitedEvents.map(e => {
+        // Build services summary: only include enabled services
+        const services = e.services || e.calendarData?.services || {};
+        const enabledServices = Object.entries(services)
+          .filter(([, v]) => v && v.enabled)
+          .map(([key, v]) => ({ key, notes: v.notes || undefined, cost: v.cost || undefined }));
+
+        return {
+          id: e._id.toString(),
+          title: e.eventTitle || e.calendarData?.eventTitle || e.subject || 'Untitled',
+          start: e.startTime || e.calendarData?.startTime || e.startDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.startDateTime?.split('T')[1]?.substring(0, 5) || e.start?.dateTime?.split('T')[1]?.substring(0, 5),
+          end: e.endTime || e.calendarData?.endTime || e.endDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.endDateTime?.split('T')[1]?.substring(0, 5) || e.end?.dateTime?.split('T')[1]?.substring(0, 5),
+          date: e.startDate || e.calendarData?.startDate || e.startDateTime?.split('T')[0] || e.calendarData?.startDateTime?.split('T')[0] || e.start?.dateTime?.split('T')[0],
+          location: e.locationDisplayNames || e.calendarData?.locationDisplayNames || e.locationDisplayName || e.location?.displayName || e.location,
+          categories: e.categories || e.calendarData?.categories || [],
+          services: enabledServices.length > 0 ? enabledServices : undefined,
+          setupTime: e.setupTime || e.calendarData?.setupTime || undefined,
+          teardownTime: e.teardownTime || e.calendarData?.teardownTime || undefined,
+          doorOpenTime: e.doorOpenTime || e.calendarData?.doorOpenTime || undefined,
+          doorCloseTime: e.doorCloseTime || e.calendarData?.doorCloseTime || undefined,
+          status: e.status,
+          syncStatus: e.syncStatus,
+          ...((e.eventDescription || e.calendarData?.eventDescription) ? {
+            description: (e.eventDescription || e.calendarData?.eventDescription || '').substring(0, 200)
+          } : {}),
+          ...((e.attendeeCount || e.calendarData?.attendeeCount) > 0 ? {
+            attendeeCount: e.attendeeCount || e.calendarData?.attendeeCount
+          } : {}),
+          ...((e.eventType && e.eventType !== 'singleInstance') ? {
+            eventType: e.eventType,
+            isRecurring: true
+          } : {})
+        };
+      })
     };
 
     // Include location matching info if a location search was performed

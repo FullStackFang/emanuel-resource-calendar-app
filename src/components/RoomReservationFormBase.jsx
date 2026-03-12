@@ -1731,7 +1731,7 @@ export default function RoomReservationFormBase({
               <div className={`form-group required-field ${isFieldValid('endDate') ? 'field-valid' : ''} ${hasFieldChanged('endDate') ? 'field-changed' : ''}`}>
                 <label htmlFor="endDate">
                   {recurrencePattern ? 'Occurrence End Date' : 'End Date'}
-                  {recurrencePattern && <span className="occurrence-date-sublabel">When each occurrence ends (not the series)</span>}
+                  {recurrencePattern && <span className="occurrence-date-sublabel">End date of each occurrence</span>}
                 </label>
                 {hasFieldChanged('endDate') && (
                   <div className="inline-diff">

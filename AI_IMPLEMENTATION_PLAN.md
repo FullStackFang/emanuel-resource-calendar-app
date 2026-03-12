@@ -531,7 +531,7 @@ Add to `.env`:
 ```bash
 # AI Configuration
 ANTHROPIC_API_KEY=sk-ant-xxxxx
-AI_MODEL=claude-3-5-sonnet-20241022  # or claude-3-5-haiku-20241022 for dev
+AI_MODEL=claude-sonnet-4-6  # or claude-haiku-4-5-20251001 for dev
 AI_MAX_TOKENS=1024
 AI_ENABLED=true
 
