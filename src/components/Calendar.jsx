@@ -4023,6 +4023,75 @@ import ConflictDialog from './shared/ConflictDialog';
     }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, groupBy, selectedCalendarId, availableCalendars, outlookCategories, createOutlookCategory, standardizeDate, currentUser]);
 
     /**
+     * Handle quick-add from WeekTimelineModal grid click
+     * @param {string} locationId - ObjectId of the location
+     * @param {string} dateStr - Date string in YYYY-MM-DD format
+     * @param {number} decimalHour - Decimal hour (e.g., 9.5 for 9:30 AM)
+     */
+    const handleTimelineQuickAdd = useCallback((locationId, dateStr, decimalHour) => {
+      if (!effectivePermissions.createEvents && !effectivePermissions.submitReservation) return;
+
+      const mode = effectivePermissions.createEvents ? 'event' : 'create';
+
+      // Convert decimal hour to HH:MM strings
+      const startHours = Math.floor(decimalHour);
+      const startMinutes = Math.round((decimalHour - startHours) * 60);
+      const startTime = `${String(startHours).padStart(2, '0')}:${String(startMinutes).padStart(2, '0')}`;
+
+      // Default 1-hour block
+      const endDecimal = Math.min(decimalHour + 1, 24);
+      const endHours = Math.floor(endDecimal);
+      const endMinutes = Math.round((endDecimal - endHours) * 60);
+      const endTime = `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
+
+      const newReservation = {
+        requesterName: currentUser?.name || '',
+        requesterEmail: currentUser?.email || '',
+        department: '',
+        phone: '',
+        contactEmail: '',
+        contactName: '',
+        isOnBehalfOf: false,
+        eventTitle: '',
+        eventDescription: '',
+        startDate: dateStr,
+        startTime,
+        endDate: dateStr,
+        endTime,
+        isAllDayEvent: false,
+        locations: locationId ? [locationId] : [],
+        setupTime: '',
+        teardownTime: '',
+        doorOpenTime: '',
+        doorCloseTime: '',
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+        setupNotes: '',
+        doorNotes: '',
+        eventNotes: '',
+        attendeeCount: '',
+        specialRequirements: '',
+        reviewNotes: '',
+        calendarId: selectedCalendarId,
+        calendarName: availableCalendars.find(cal => cal.id === selectedCalendarId)?.name,
+        categories: [],
+        virtualMeetingUrl: null,
+        graphData: null
+      };
+
+      // Close timeline modal and open reservation form
+      setTimelineModal(prev => ({ ...prev, isOpen: false }));
+      setEventReviewModal({
+        isOpen: true,
+        event: newReservation,
+        mode: mode,
+        hasChanges: false
+      });
+
+      logger.debug('EventReviewModal opened from timeline quick-add', { mode, dateStr, decimalHour, locationId });
+    }, [effectivePermissions.createEvents, effectivePermissions.submitReservation, selectedCalendarId, availableCalendars, currentUser]);
+
+    /**
      * Handle clicking on a location row to open timeline modal
      * @param {string} locationName - The name of the location
      * @param {Date|Array<Date>} dateOrDates - Single date for day view, array of dates for week view
@@ -7161,6 +7230,8 @@ import ConflictDialog from './shared/ConflictDialog';
             events={timelineModal.events}
             calendarName={availableCalendars.find(cal => cal.id === selectedCalendarId)?.name || ''}
             generalLocations={generalLocations}
+            onQuickAdd={handleTimelineQuickAdd}
+            canAddEvent={canAddEvent}
           />
         )}
 

@@ -570,3 +570,37 @@
   .week-timeline-hour-line:nth-child(23) { top: 880px; }
   .week-timeline-hour-line:nth-child(24) { top: 920px; }
 }
+
+/* ==========================================================================
+   QUICK-ADD INDICATOR
+   ========================================================================== */
+
+.week-timeline-day-grid.quick-add-enabled {
+  cursor: crosshair;
+}
+
+.week-timeline-quick-add-indicator {
+  position: absolute;
+  left: var(--space-1);
+  right: var(--space-1);
+  height: 2px;
+  background: var(--color-success-500);
+  z-index: 8;
+  pointer-events: none;
+}
+
+.week-timeline-quick-add-label {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-success-500);
+  color: var(--text-inverse);
+  padding: 1px 8px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}

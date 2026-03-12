@@ -28,9 +28,12 @@ export default function WeekTimelineModal({
   isOpen,
   onClose,
   locationName,
+  locationId,
   dateRange = [],
   events = [],
-  calendarName = ''
+  calendarName = '',
+  onQuickAdd,
+  canAddEvent = false
 }) {
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -56,6 +59,51 @@ export default function WeekTimelineModal({
   // Tooltip state + ref for cursor-following tooltip
   const [tooltipInfo, setTooltipInfo] = useState(null);
   const tooltipRef = useRef(null);
+
+  // Quick-add hover state
+  const [hoverInfo, setHoverInfo] = useState(null);
+
+  const quickAddEnabled = canAddEvent && !!onQuickAdd;
+
+  // Format decimal hour to display string (e.g., 9.5 → "9:30 AM")
+  const formatHour = (decimalHour) => {
+    const hours = Math.floor(decimalHour);
+    const minutes = Math.round((decimalHour - hours) * 60);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${displayHour}:${String(minutes).padStart(2, '0')} ${period}`;
+  };
+
+  // Compute snapped decimal hour from mouse Y position within grid
+  const getDecimalHourFromEvent = (e, gridEl) => {
+    const rect = gridEl.getBoundingClientRect();
+    const rawHour = ((e.clientY - rect.top) / rect.height) * 24;
+    return Math.max(0, Math.min(23.5, Math.round(rawHour * 2) / 2));
+  };
+
+  const handleGridClick = (e, dateKey) => {
+    if (!quickAddEnabled) return;
+    // Don't trigger on existing event blocks or all-day badges
+    if (e.target.closest('.week-timeline-event-block') || e.target.closest('.week-timeline-all-day-badge')) return;
+    const grid = e.currentTarget;
+    const hour = getDecimalHourFromEvent(e, grid);
+    onQuickAdd(locationId, dateKey, hour);
+  };
+
+  const handleGridMouseMove = (e, dateKey) => {
+    if (!quickAddEnabled) return;
+    if (e.target.closest('.week-timeline-event-block') || e.target.closest('.week-timeline-all-day-badge')) {
+      setHoverInfo(null);
+      return;
+    }
+    const grid = e.currentTarget;
+    const hour = getDecimalHourFromEvent(e, grid);
+    setHoverInfo({ dateKey, hour });
+  };
+
+  const handleGridMouseLeave = () => {
+    setHoverInfo(null);
+  };
 
   // Smart positioning via useLayoutEffect (matches SchedulingAssistant pattern)
   useLayoutEffect(() => {
@@ -221,10 +269,25 @@ export default function WeekTimelineModal({
                   </div>
 
                   {/* Timeline grid with hour lines */}
-                  <div className="week-timeline-day-grid">
+                  <div
+                    className={`week-timeline-day-grid${quickAddEnabled ? ' quick-add-enabled' : ''}`}
+                    onClick={(e) => handleGridClick(e, dateKey)}
+                    onMouseMove={(e) => handleGridMouseMove(e, dateKey)}
+                    onMouseLeave={handleGridMouseLeave}
+                  >
                     {Array.from({ length: 24 }, (_, i) => (
                       <div key={i} className="week-timeline-hour-line"></div>
                     ))}
+
+                    {/* Quick-add ghost indicator */}
+                    {hoverInfo?.dateKey === dateKey && (
+                      <div
+                        className="week-timeline-quick-add-indicator"
+                        style={{ top: `${(hoverInfo.hour / 24) * 100}%` }}
+                      >
+                        <span className="week-timeline-quick-add-label">+ {formatHour(hoverInfo.hour)}</span>
+                      </div>
+                    )}
 
                     {/* All-Day Event Overlay */}
                     {allDayEvents.length > 0 && (
