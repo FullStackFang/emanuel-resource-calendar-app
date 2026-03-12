@@ -270,9 +270,21 @@ export default function WeekTimelineModal({
                               top: '2px',
                               right: '3px',
                               color: '#444',
-                              lineHeight: 1
+                              lineHeight: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '2px'
                             }}>
                               <RecurringIcon size={12} />
+                              {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                                <span style={{
+                                  fontSize: '7px', fontWeight: 700, color: '#1e40af',
+                                  backgroundColor: '#dbeafe', padding: '1px 3px',
+                                  borderRadius: '3px', border: '1px solid rgba(96, 165, 250, 0.5)'
+                                }}>
+                                  {event.occurrenceNumber}/{event.totalOccurrences}
+                                </span>
+                              )}
                             </div>
                           )}
                           <div className="week-timeline-event-title">

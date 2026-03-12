@@ -124,7 +124,7 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
 
   // Start from beginning of view month or pattern start, whichever is later
   const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
-  const patternStart = new Date(range.startDate);
+  const patternStart = new Date(range.startDate + 'T00:00:00');
   const start = monthStart > patternStart ? monthStart : patternStart;
 
   // End at end of view month or pattern end, whichever is earlier
@@ -132,7 +132,7 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
   let end = monthEnd;
 
   if (range.type === 'endDate' && range.endDate) {
-    const patternEnd = new Date(range.endDate);
+    const patternEnd = new Date(range.endDate + 'T00:00:00');
     end = patternEnd < monthEnd ? patternEnd : monthEnd;
   }
 
@@ -158,23 +158,36 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
  * @param {Array} exceptions - Array of exception events
  * @returns {Array} Array of occurrence events
  */
-export function expandRecurringSeries(masterEvent, startDate, endDate, exceptions = []) {
+export function expandRecurringSeries(masterEvent, startDate, endDate, exceptions = [], occurrenceOverrides = []) {
   if (!masterEvent.recurrence) return [];
 
   const occurrences = [];
-  const { pattern, range } = masterEvent.recurrence;
+  const { pattern, range, exclusions = [], additions = [] } = masterEvent.recurrence;
 
-  // Calculate pattern dates
-  const rangeStart = new Date(Math.max(new Date(startDate), new Date(range.startDate)));
-  const rangeEnd = new Date(endDate);
+  // Build a lookup map for occurrence overrides (array → keyed by date)
+  const overrideMap = {};
+  if (Array.isArray(occurrenceOverrides)) {
+    for (const o of occurrenceOverrides) {
+      if (o.occurrenceDate) overrideMap[o.occurrenceDate] = o;
+    }
+  }
+
+  const exclusionSet = new Set(exclusions);
+
+  // Calculate pattern dates — append T00:00:00 to parse as local midnight, not UTC
+  const rangeStart = new Date(Math.max(new Date(startDate + 'T00:00:00'), new Date(range.startDate + 'T00:00:00')));
+  const rangeEnd = new Date(endDate + 'T23:59:59');
 
   // Apply end date if specified
   if (range.type === 'endDate' && range.endDate) {
-    const patternEnd = new Date(range.endDate);
+    const patternEnd = new Date(range.endDate + 'T23:59:59');
     if (patternEnd < rangeEnd) {
       rangeEnd.setTime(patternEnd.getTime());
     }
   }
+
+  // Track generated dates to avoid duplicates with additions
+  const generatedDates = new Set();
 
   // Generate all pattern dates in range
   const current = new Date(rangeStart);
@@ -189,54 +202,107 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       const day = String(current.getDate()).padStart(2, '0');
       const occurrenceDate = `${year}-${month}-${day}`;
 
-      // Check if this occurrence has an exception
+      count++;
+
+      // Skip excluded dates
+      if (exclusionSet.has(occurrenceDate)) {
+        current.setDate(current.getDate() + 1);
+        continue;
+      }
+
+      generatedDates.add(occurrenceDate);
+
+      // Check if this occurrence has a Graph API exception
       const exception = exceptions.find(ex =>
         ex.originalStartDateTime?.split('T')[0] === occurrenceDate
       );
 
       if (exception) {
         if (!exception.isCancelled) {
-          // Use exception data
           occurrences.push({
             ...exception,
             isRecurring: true,
             isException: true
           });
         }
-        // If cancelled, skip this occurrence
       } else {
-        // Create occurrence from master
         // Extract time portion, keeping Graph API format (HH:MM:SS.0000000, no Z)
-        // Explicitly strip any Z suffix before taking substring
         const startTime = masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
         const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
 
+        // Check for per-occurrence override
+        const override = overrideMap[occurrenceDate] || {};
+        const hasOverride = Object.keys(override).length > 0;
+        const effectiveStartTime = override.startTime
+          ? `${occurrenceDate}T${override.startTime}:00.0000000`
+          : `${occurrenceDate}T${startTime}`;
+        const effectiveEndTime = override.endTime
+          ? `${occurrenceDate}T${override.endTime}:00.0000000`
+          : `${occurrenceDate}T${endTime}`;
+
         occurrences.push({
-          // Include fields from master first, then override with occurrence-specific values
           ...masterEvent,
-          // Override with occurrence-specific fields
+          ...override,
           eventId: `${masterEvent.eventId}-${occurrenceDate}`,
           seriesMasterId: masterEvent.eventId,
-          subject: masterEvent.subject,
+          subject: override.eventTitle || masterEvent.subject,
           start: {
-            dateTime: `${occurrenceDate}T${startTime}`,
+            dateTime: effectiveStartTime,
             timeZone: masterEvent.start.timeZone
           },
           end: {
-            dateTime: `${occurrenceDate}T${endTime}`,
+            dateTime: effectiveEndTime,
             timeZone: masterEvent.end.timeZone
           },
           location: masterEvent.location,
           isRecurring: true,
-          isException: false
+          isException: hasOverride,
+          hasOccurrenceOverride: hasOverride,
         });
       }
-
-      count++;
     }
 
-    // Advance by one day
     current.setDate(current.getDate() + 1);
+  }
+
+  // Add ad-hoc additions that fall within the view window
+  const viewStart = new Date(startDate + 'T00:00:00');
+  const viewEnd = new Date(endDate + 'T23:59:59');
+  for (const addDate of additions) {
+    if (generatedDates.has(addDate) || exclusionSet.has(addDate)) continue;
+    const addDateObj = new Date(addDate + 'T00:00:00');
+    if (addDateObj < viewStart || addDateObj > viewEnd) continue;
+
+    const startTime = masterEvent.start.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+    const endTime = masterEvent.end.dateTime.split('T')[1].replace(/Z$/, '').substring(0, 17);
+    const override = overrideMap[addDate] || {};
+    const hasOverride = Object.keys(override).length > 0;
+    const effectiveStartTime = override.startTime
+      ? `${addDate}T${override.startTime}:00.0000000`
+      : `${addDate}T${startTime}`;
+    const effectiveEndTime = override.endTime
+      ? `${addDate}T${override.endTime}:00.0000000`
+      : `${addDate}T${endTime}`;
+
+    occurrences.push({
+      ...masterEvent,
+      ...override,
+      eventId: `${masterEvent.eventId}-${addDate}`,
+      seriesMasterId: masterEvent.eventId,
+      subject: override.eventTitle || masterEvent.subject,
+      start: {
+        dateTime: effectiveStartTime,
+        timeZone: masterEvent.start.timeZone
+      },
+      end: {
+        dateTime: effectiveEndTime,
+        timeZone: masterEvent.end.timeZone
+      },
+      location: masterEvent.location,
+      isRecurring: true,
+      isException: hasOverride,
+      hasOccurrenceOverride: hasOverride,
+    });
   }
 
   return occurrences;
@@ -248,6 +314,58 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
  * @param {Object} range - Recurrence range
  * @returns {string}
  */
+/**
+ * Calculate all occurrence dates for the full series range (not windowed).
+ * Returns a sorted array of YYYY-MM-DD strings, honoring exclusions and additions.
+ * Used for computing occurrence position (e.g., "2/5") in calendar display.
+ * @param {Object} recurrence - { pattern, range, exclusions, additions }
+ * @returns {string[]} Sorted array of YYYY-MM-DD date strings
+ */
+export function calculateAllSeriesDates(recurrence) {
+  if (!recurrence?.pattern || !recurrence?.range) return [];
+
+  const { pattern, range, exclusions = [], additions = [] } = recurrence;
+  const exclusionSet = new Set(exclusions);
+  const dates = new Set();
+
+  const patternStart = new Date(range.startDate + 'T00:00:00');
+  let patternEnd;
+  if (range.type === 'endDate' && range.endDate) {
+    patternEnd = new Date(range.endDate + 'T00:00:00');
+  } else {
+    // For noEnd/numbered, cap at 2 years
+    patternEnd = new Date(patternStart);
+    patternEnd.setFullYear(patternEnd.getFullYear() + 2);
+  }
+
+  const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || 500) : 500;
+  const current = new Date(patternStart);
+  let count = 0;
+
+  while (current <= patternEnd && count < maxOcc) {
+    if (isDateInPattern(current, pattern, patternStart)) {
+      const y = current.getFullYear();
+      const m = String(current.getMonth() + 1).padStart(2, '0');
+      const d = String(current.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+      if (!exclusionSet.has(dateStr)) {
+        dates.add(dateStr);
+      }
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Add ad-hoc additions
+  for (const addDate of additions) {
+    if (!exclusionSet.has(addDate)) {
+      dates.add(addDate);
+    }
+  }
+
+  return Array.from(dates).sort();
+}
+
 export function formatRecurrenceSummary(pattern, range) {
   if (!pattern) return '';
 

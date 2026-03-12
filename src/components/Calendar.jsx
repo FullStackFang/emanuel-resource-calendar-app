@@ -14,7 +14,7 @@
   import DayTimelineModal from './DayTimelineModal';
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
-  import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
+  import { transformRecurrenceForGraphAPI, expandRecurringSeries, calculateAllSeriesDates } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
   import { computeApproverChanges } from '../utils/editRequestUtils';
   import './Calendar.css';
@@ -1637,8 +1637,14 @@ import ConflictDialog from './shared/ConflictDialog';
         return false;
       }
 
+      // Clear recurring expansion cache on force refresh so edited series masters
+      // are re-expanded with their updated data (locations, times, title, etc.)
+      if (forceRefresh) {
+        expansionCacheRef.current.clear();
+      }
+
       if (!silent) setLoading(true);
-      
+
       try {
         // Prepare parameters for sync
         const { start, end } = formatDateRangeForAPI(dateRange.start, dateRange.end);
@@ -1820,15 +1826,25 @@ import ConflictDialog from './shared/ConflictDialog';
                     };
 
                 // Expand the master into occurrences for the current view range
+                const eventOverrides = event.occurrenceOverrides || [];
                 const occurrences = expandRecurringSeries(
                   masterForExpansion,
                   expandStart,
-                  expandEnd
+                  expandEnd,
+                  [],  // exceptions (Graph API only)
+                  eventOverrides
                 );
+
+                // Calculate full series dates for occurrence position (e.g., "2/5")
+                const allSeriesDates = calculateAllSeriesDates(recurrence);
+                const totalInSeries = allSeriesDates.length;
 
                 // Convert each occurrence to our event format
                 occurrences.forEach(occurrence => {
                   const occurrenceDate = occurrence.start.dateTime.split('T')[0];
+                  const occurrenceNumber = totalInSeries > 0
+                    ? allSeriesDates.indexOf(occurrenceDate) + 1
+                    : 0;
 
                   expandedOccurrences.push({
                     ...event,
@@ -1852,7 +1868,14 @@ import ConflictDialog from './shared/ConflictDialog';
                     endTime: occurrence.end.dateTime.split('T')[1]?.substring(0, 5),
                     startTime: occurrence.start.dateTime.split('T')[1]?.substring(0, 5),
                     isRecurringOccurrence: true,
-                    masterEventId: event.eventId
+                    masterEventId: event.eventId,
+                    hasOccurrenceOverride: occurrence.hasOccurrenceOverride || false,
+                    // Occurrence position in series (e.g., 2 of 5)
+                    occurrenceNumber,
+                    totalOccurrences: totalInSeries,
+                    // Apply any title/description overrides from the expansion
+                    subject: occurrence.subject || event.subject,
+                    eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,
                   });
                 });
               } catch (error) {
@@ -4217,7 +4240,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {string} scope - 'thisEvent' or 'allEvents'
      */
     const handleRecurringScopeSelected = useCallback(async (scope) => {
-      const event = recurringScopeDialog.pendingEvent;
+      let event = recurringScopeDialog.pendingEvent;
 
       // Close the scope dialog
       setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
@@ -4225,13 +4248,30 @@ import ConflictDialog from './shared/ConflictDialog';
       if (!event) return;
 
       try {
+        // For draft occurrences with 'allEvents' scope, resolve to the series master
+        if (scope === 'allEvents' && event.isRecurringOccurrence && event.masterEventId) {
+          const found = allEventsRef.current.find(e => e.eventId === event.masterEventId);
+          if (found) {
+            event = found;
+          } else {
+            // Master not in current view — fetch via API
+            try {
+              const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${event._id}`, {
+                headers: { 'Authorization': `Bearer ${apiToken}` }
+              });
+              if (res.ok) event = await res.json();
+            } catch (err) {
+              logger.warn('Could not fetch series master, using occurrence data');
+            }
+          }
+        }
         // Open review modal with the selected scope
         await reviewModal.openModal(event, { editScope: scope });
       } catch (error) {
         logger.error('Error opening review modal:', error);
         showError(error, { context: 'Calendar.handleRecurringScopeSelected', userMessage: 'Failed to open review modal' });
       }
-    }, [recurringScopeDialog.pendingEvent, reviewModal, showError]);
+    }, [recurringScopeDialog.pendingEvent, reviewModal, showError, apiToken]);
 
     /**
      * Handle closing the recurring scope dialog

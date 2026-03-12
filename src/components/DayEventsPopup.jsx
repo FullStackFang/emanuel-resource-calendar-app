@@ -192,7 +192,7 @@ const DayEventsPopup = ({
                   {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
                     (event.seriesMasterId || event.graphData?.seriesMasterId) ||
                     (event.recurrence || event.graphData?.recurrence)) && (
-                    <div className="dep-recurring-icon">
+                    <div className="dep-recurring-icon" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
                       <RecurringIcon size={14} />
                     </div>
                   )}
@@ -254,6 +254,11 @@ const DayEventsPopup = ({
                   {/* Status badges */}
                   {isPending && <div className="dep-status-badge dep-badge-pending">PENDING</div>}
                   {hasPendingEditRequest && <div className="dep-status-badge dep-badge-edit-pending">EDIT PENDING</div>}
+                  {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                    <span className="dep-status-badge" style={{ color: '#1e40af', backgroundColor: '#dbeafe', border: '1px solid rgba(96, 165, 250, 0.5)' }}>
+                      {event.occurrenceNumber}/{event.totalOccurrences}
+                    </span>
+                  )}
 
                   {/* Request Edit button */}
                   {event.status === 'published' && canSubmitReservation && !canEditEvents && onRequestEdit && event.pendingEditRequest?.status !== 'pending' && (

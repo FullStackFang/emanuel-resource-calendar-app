@@ -5123,6 +5123,14 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       if (!event.categories && event.calendarData?.categories) {
         event.categories = event.calendarData.categories;
       }
+      // Promote recurrence for Calendar.jsx recurring expansion
+      if (!event.recurrence && event.calendarData?.recurrence) {
+        event.recurrence = event.calendarData.recurrence;
+      }
+      // Promote occurrenceOverrides for per-occurrence exception display
+      if (!event.occurrenceOverrides && event.calendarData?.occurrenceOverrides) {
+        event.occurrenceOverrides = event.calendarData.occurrenceOverrides;
+      }
 
       // Also populate graphData for components that use it
       if (!event.graphData) {
@@ -13473,8 +13481,52 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       offsiteLon,
       // Concurrent scheduling settings (admin-only)
       isAllowedConcurrent,
-      allowedConcurrentCategories
+      allowedConcurrentCategories,
+      // Per-occurrence editing
+      editScope,
+      occurrenceDate,
+      clearOccurrenceOverrides
     } = req.body;
+
+    // --- thisEvent scope: write per-occurrence override and return early ---
+    if (editScope === 'thisEvent' && occurrenceDate) {
+      const dateKey = occurrenceDate.split('T')[0];
+
+      // Validate dateKey falls within series range
+      const draft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      if (!draft) {
+        return res.status(404).json({ error: 'Draft not found for occurrence edit' });
+      }
+      const recRange = draft.calendarData?.recurrence?.range;
+      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+        return res.status(400).json({ error: 'Occurrence date is outside series range' });
+      }
+
+      // Build override from changed fields
+      const overrideFields = { occurrenceDate: dateKey };
+      if (startTime !== undefined) overrideFields.startTime = startTime;
+      if (endTime !== undefined) overrideFields.endTime = endTime;
+      if (eventTitle !== undefined) overrideFields.eventTitle = eventTitle?.trim();
+      if (eventDescription !== undefined) overrideFields.eventDescription = eventDescription;
+      if (startTime) overrideFields.startDateTime = `${dateKey}T${startTime}`;
+      if (endTime) overrideFields.endDateTime = `${dateKey}T${endTime}`;
+
+      // Remove existing override for this date (if any), then add new one
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(draftId) },
+        { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+      );
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(draftId) },
+        {
+          $push: { occurrenceOverrides: overrideFields },
+          $set: { lastDraftSaved: new Date(), lastModified: new Date() }
+        }
+      );
+
+      const updatedDraft = await unifiedEventsCollection.findOne({ _id: new ObjectId(draftId) });
+      return res.json(updatedDraft);
+    }
 
     // Validation - eventTitle and dates required
     if (!eventTitle || !eventTitle.trim()) {
@@ -13564,6 +13616,11 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       lastDraftSaved: new Date(),
       lastModified: new Date()
     };
+
+    // Clear per-occurrence overrides when saving all events (full master update)
+    if (editScope === 'allEvents' || clearOccurrenceOverrides) {
+      updateData.occurrenceOverrides = [];
+    }
 
     await unifiedEventsCollection.updateOne(
       { _id: new ObjectId(draftId) },

@@ -883,6 +883,17 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     try {
       const payload = buildDraftPayload(formData);
 
+      // For thisEvent scope, add scope context and strip master-level fields
+      if (editScope === 'thisEvent') {
+        payload.editScope = 'thisEvent';
+        payload.occurrenceDate = currentItem?.startDate || currentItem?.start?.dateTime?.split('T')[0];
+        delete payload.recurrence;   // Don't overwrite master's recurrence
+        delete payload.eventType;    // Don't overwrite master's eventType
+      } else if (editScope === 'allEvents') {
+        payload.editScope = 'allEvents';
+        payload.clearOccurrenceOverrides = true;  // Signal backend to wipe overrides
+      }
+
       const endpoint = draftId
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;

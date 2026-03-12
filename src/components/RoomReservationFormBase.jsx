@@ -1475,7 +1475,7 @@ export default function RoomReservationFormBase({
               const isDraftEvent = reservationStatus === 'draft' || initialData.status === 'draft';
               const canEditRecurrence = (
                 (!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-                isDraftEvent ||
+                (isDraftEvent && editScope !== 'thisEvent') ||
                 editScope === 'allEvents' ||
                 (hasPattern && editScope !== 'thisEvent')
               );

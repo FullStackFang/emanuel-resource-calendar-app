@@ -183,7 +183,10 @@ const DayEventPanel = memo(({
                       top: '4px',
                       right: '6px',
                       color: '#444',
-                      lineHeight: 1
+                      lineHeight: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '3px'
                     }}>
                       <RecurringIcon size={14} />
                     </div>
@@ -282,6 +285,11 @@ const DayEventPanel = memo(({
                     }}>
                       EDIT PENDING
                     </div>
+                  )}
+                  {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                    <span className="event-status-badge badge-recurrence" style={{ fontSize: '10px', padding: '2px 8px' }}>
+                      {event.occurrenceNumber}/{event.totalOccurrences}
+                    </span>
                   )}
 
                   {/* Request Edit button for published events - visible to requesters and above */}

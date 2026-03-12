@@ -687,6 +687,44 @@ function createTestApp(options = {}) {
         return res.status(403).json({ error: 'Permission denied. Only the owner or an approver can edit this draft.' });
       }
 
+      const { editScope, occurrenceDate, clearOccurrenceOverrides } = req.body;
+
+      // --- thisEvent scope: write per-occurrence override and return early ---
+      if (editScope === 'thisEvent' && occurrenceDate) {
+        const dateKey = occurrenceDate.split('T')[0];
+
+        // Validate dateKey falls within series range
+        const recRange = draft.calendarData?.recurrence?.range;
+        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+          return res.status(400).json({ error: 'Occurrence date is outside series range' });
+        }
+
+        // Build override from changed fields
+        const overrideFields = { occurrenceDate: dateKey };
+        if (req.body.startTime !== undefined) overrideFields.startTime = req.body.startTime;
+        if (req.body.endTime !== undefined) overrideFields.endTime = req.body.endTime;
+        if (req.body.eventTitle !== undefined) overrideFields.eventTitle = req.body.eventTitle?.trim();
+        if (req.body.eventDescription !== undefined) overrideFields.eventDescription = req.body.eventDescription;
+        if (req.body.startTime) overrideFields.startDateTime = `${dateKey}T${req.body.startTime}`;
+        if (req.body.endTime) overrideFields.endDateTime = `${dateKey}T${req.body.endTime}`;
+
+        // Remove existing override for this date, then add new one
+        await testCollections.events.updateOne(
+          query,
+          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+        );
+        await testCollections.events.updateOne(
+          query,
+          {
+            $push: { occurrenceOverrides: overrideFields },
+            $set: { lastDraftSaved: new Date(), lastModified: new Date() }
+          }
+        );
+
+        const updatedDraft = await testCollections.events.findOne(query);
+        return res.json(updatedDraft);
+      }
+
       const updateFields = {};
       // All calendar fields go inside calendarData (source of truth)
       const calendarDataFields = [
@@ -701,6 +739,7 @@ function createTestApp(options = {}) {
         'locations',
         'categories',
         'services',
+        'recurrence',
       ];
 
       for (const field of calendarDataFields) {
@@ -721,6 +760,18 @@ function createTestApp(options = {}) {
         if (req.body[field] !== undefined) {
           updateFields[`roomReservationData.${field}`] = req.body[field];
         }
+      }
+
+      // Set eventType based on recurrence
+      if (req.body.recurrence?.pattern && req.body.recurrence?.range) {
+        updateFields.eventType = 'seriesMaster';
+      } else if (req.body.recurrence !== undefined) {
+        updateFields.eventType = 'singleInstance';
+      }
+
+      // Clear per-occurrence overrides when saving all events
+      if (editScope === 'allEvents' || clearOccurrenceOverrides) {
+        updateFields.occurrenceOverrides = [];
       }
 
       updateFields.lastModifiedDateTime = new Date();
@@ -3366,6 +3417,13 @@ function createTestApp(options = {}) {
         }
         if (!event.subject && event.calendarData?.eventTitle) {
           event.subject = event.calendarData.eventTitle;
+        }
+        // Promote recurrence and occurrenceOverrides for frontend expansion
+        if (!event.recurrence && event.calendarData?.recurrence) {
+          event.recurrence = event.calendarData.recurrence;
+        }
+        if (!event.occurrenceOverrides && event.calendarData?.occurrenceOverrides) {
+          event.occurrenceOverrides = event.calendarData.occurrenceOverrides;
         }
         return event;
       });

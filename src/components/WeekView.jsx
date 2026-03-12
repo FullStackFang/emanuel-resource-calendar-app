@@ -434,7 +434,10 @@ const WeekView = memo(({
                                 top: '2px',
                                 right: '3px',
                                 color: '#444',
-                                lineHeight: 1
+                                lineHeight: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '2px'
                               }}>
                                 <RecurringIcon size={12} />
                               </div>
@@ -509,6 +512,11 @@ const WeekView = memo(({
                             {isMultiDay && (
                               <span className="event-status-badge badge-multi-day">
                                 Day {event._multiDayInfo.dayNumber}/{event._multiDayInfo.totalDays}
+                              </span>
+                            )}
+                            {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                              <span className="event-status-badge badge-recurrence">
+                                {event.occurrenceNumber}/{event.totalOccurrences}
                               </span>
                             )}
                             {/* Pending Edit Request indicator */}

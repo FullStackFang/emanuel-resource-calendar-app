@@ -79,6 +79,15 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
   const { pattern, range, exclusions = [] } = recurrence;
   const occurrences = [];
 
+  // Build override lookup from top-level occurrenceOverrides array
+  const overrides = masterEvent.occurrenceOverrides || [];
+  const overrideMap = {};
+  if (Array.isArray(overrides)) {
+    for (const o of overrides) {
+      if (o.occurrenceDate) overrideMap[o.occurrenceDate] = o;
+    }
+  }
+
   const patternStart = new Date(range.startDate + 'T00:00:00');
   const rangeStart = windowStart > patternStart ? windowStart : patternStart;
   const rangeEnd = new Date(windowEnd);
@@ -113,9 +122,12 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
 
       // Skip excluded dates
       if (!exclusions.includes(dateStr)) {
+        // Apply per-occurrence override times if present
+        const override = overrideMap[dateStr];
         occurrences.push({
-          startDateTime: `${dateStr}T${startTimePart}`,
-          endDateTime: `${dateStr}T${endTimePart}`,
+          occurrenceDate: dateStr,
+          startDateTime: (override?.startDateTime) || `${dateStr}T${startTimePart}`,
+          endDateTime: (override?.endDateTime) || `${dateStr}T${endTimePart}`,
         });
       }
       count++;
