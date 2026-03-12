@@ -199,12 +199,10 @@ export function generateCalendarPdf({
 
   const colConfig = [
     { name: 'DATE', width: 0.06 },
-    { name: 'TIME', width: hasExtraTimes ? 0.11 : 0.09 },
-    { name: '', width: 0.08 },
-    { name: 'LOCATION', width: 0.14 },
+    { name: 'TIME', width: hasExtraTimes ? 0.16 : 0.14 },
+    { name: 'LOCATION', width: 0.20 },
     { name: 'CATEGORY', width: 0.10 },
-    { name: '', width: 0.06 },
-    { name: hasNotes ? 'EVENT & INTERNAL NOTES' : 'EVENT', width: hasNotes ? 0.45 : 0.47 },
+    { name: hasNotes ? 'EVENT & INTERNAL NOTES' : 'EVENT', width: hasNotes ? 0.48 : 0.50 },
   ];
 
   const colPositions = [];
@@ -327,7 +325,7 @@ export function generateCalendarPdf({
       weekday: 'short'
     });
 
-    const eventColIdx = 6;
+    const eventColIdx = 4;
     const eventColWidth = colWidths[eventColIdx];
     const evtContentWidth = eventColWidth - 4;
 
@@ -345,11 +343,30 @@ export function generateCalendarPdf({
       ? doc.splitTextToSize(`Door/Access: ${event.doorNotes}`, evtContentWidth)
       : [];
 
+    // Normalize multi-location strings: semicolons → newlines, arrays → newlines
+    let locationRaw = event.location?.displayName || '\u2014';
+    if (Array.isArray(locationRaw)) {
+      locationRaw = locationRaw.join('\n');
+    } else if (typeof locationRaw === 'string' && locationRaw.includes(';')) {
+      locationRaw = locationRaw.split(';').map(s => s.trim()).filter(Boolean).join('\n');
+    }
+    const wrappedLocation = doc.splitTextToSize(locationRaw, colWidths[2] - 4);
+    const locationHeight = wrappedLocation.length * 3.5;
+
+    const categoryText = event.categories?.[0] || '\u2014';
+    const wrappedCategory = doc.splitTextToSize(categoryText, colWidths[3] - 4);
+    const categoryHeight = wrappedCategory.length * 3.5;
+
     const titleHeight = wrappedTitle.length * 3.5;
     const bodyHeight = wrappedBody.length > 0 ? (wrappedBody.length * 3) + 2 : 0;
     const setupNotesHeight = wrappedSetupNotes.length > 0 ? (wrappedSetupNotes.length * 3) + 2 : 0;
     const doorNotesHeight = wrappedDoorNotes.length * 3;
-    rowHeight = Math.max(rowHeight, titleHeight + bodyHeight + setupNotesHeight + doorNotesHeight + 4);
+    rowHeight = Math.max(
+      rowHeight,
+      titleHeight + bodyHeight + setupNotesHeight + doorNotesHeight + 4,
+      locationHeight + 4,
+      categoryHeight + 4
+    );
 
     if (showMaintenanceTimes || showSecurityTimes) {
       let extraLines = 0;
@@ -453,13 +470,9 @@ export function generateCalendarPdf({
 
     doc.setFontSize(fontSize.small);
     doc.setTextColor(...colors.secondary);
-    const locationText = event.location?.displayName || '\u2014';
-    const wrappedLocation = doc.splitTextToSize(locationText, colWidths[3] - 4);
-    doc.text(wrappedLocation, colPositions[3] + 2, y);
+    doc.text(wrappedLocation, colPositions[2] + 2, y);
 
-    const categoryText = event.categories?.[0] || '\u2014';
-    const wrappedCategory = doc.splitTextToSize(categoryText, colWidths[4] - 4);
-    doc.text(wrappedCategory, colPositions[4] + 2, y);
+    doc.text(wrappedCategory, colPositions[3] + 2, y);
 
     const eventColX = colPositions[eventColIdx];
     let contentY = y;
