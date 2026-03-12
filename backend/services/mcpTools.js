@@ -51,7 +51,7 @@ const toolDefinitions = [
   },
   {
     name: 'search_events',
-    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events. Returns description, attendeeCount, and recurring event info when available.',
+    description: 'Search for events on the calendar. Use this when the user asks about upcoming events, what\'s scheduled, or wants to find specific events. Supports filtering by time of day (e.g., morning events, after 3pm, before noon). Returns description, attendeeCount, and recurring event info when available.',
     input_schema: {
       type: 'object',
       properties: {
@@ -70,6 +70,14 @@ const toolDefinitions = [
         locationId: {
           type: 'string',
           description: 'Filter by specific location/room ID'
+        },
+        afterTime: {
+          type: 'string',
+          description: 'Only return events starting at or after this time. HH:MM 24-hour format (e.g., "14:00" for 2pm). Use for "afternoon", "after 3pm", etc.'
+        },
+        beforeTime: {
+          type: 'string',
+          description: 'Only return events starting before this time. HH:MM 24-hour format (e.g., "12:00" for before noon). Use for "morning", "before 2pm", etc.'
         }
       }
     }
@@ -112,7 +120,9 @@ const toolDefinitions = [
         locations: { type: 'array', items: { type: 'string' }, description: 'Location display names to filter by (optional)' },
         sortBy: { type: 'string', enum: ['date', 'category', 'location'], description: 'Sort/group order (default: date)' },
         showMaintenanceTimes: { type: 'boolean', description: 'Include setup/teardown times (default: false)' },
-        showSecurityTimes: { type: 'boolean', description: 'Include door open/close times (default: false)' }
+        showSecurityTimes: { type: 'boolean', description: 'Include door open/close times (default: false)' },
+        afterTime: { type: 'string', description: 'Only include events starting at or after this time (HH:MM, 24-hour). Use for morning/afternoon/evening filtering.' },
+        beforeTime: { type: 'string', description: 'Only include events starting before this time (HH:MM, 24-hour). Use for morning/afternoon/evening filtering.' }
       },
       required: ['startDate', 'endDate']
     }
@@ -464,9 +474,9 @@ class MCPToolExecutor {
    * Search for events
    */
   async searchEvents(input) {
-    let { startDate, endDate, searchText, locationId } = input || {};
+    let { startDate, endDate, searchText, locationId, afterTime, beforeTime } = input || {};
 
-    logger.info(`[MCP] searchEvents called with:`, { startDate, endDate, searchText, locationId });
+    logger.info(`[MCP] searchEvents called with:`, { startDate, endDate, searchText, locationId, afterTime, beforeTime });
 
     // Smart detection: if searchText looks like a location, treat it as locationId
     if (searchText && !locationId) {
@@ -564,9 +574,18 @@ class MCPToolExecutor {
       query.$and.push(locationMatch);
     }
 
+    // Time-of-day filtering on the startTime field (stored as zero-padded "HH:MM")
+    if (afterTime || beforeTime) {
+      const timeFilter = {};
+      if (afterTime)  timeFilter.$gte = afterTime;
+      if (beforeTime) timeFilter.$lt  = beforeTime;
+      query.$and = query.$and || [];
+      query.$and.push({ 'calendarData.startTime': timeFilter });
+    }
+
     logger.info(`[MCP] searchEvents query:`, JSON.stringify(query, null, 2));
 
-    const events = await this.eventsCollection
+    let events = await this.eventsCollection
       .find(query)
       .project({
         _id: 1,
@@ -598,6 +617,19 @@ class MCPToolExecutor {
       .limit(50)
       .toArray();
 
+    // Post-query time filter for events missing top-level startTime field
+    if (afterTime || beforeTime) {
+      events = events.filter(e => {
+        const t = e.calendarData?.startTime
+          || e.startTime
+          || e.calendarData?.startDateTime?.substring(11, 16)
+          || e.startDateTime?.substring(11, 16)
+          || e.start?.dateTime?.substring(11, 16);
+        if (!t) return true; // fail open — keep events with no time data
+        return (!afterTime || t >= afterTime) && (!beforeTime || t < beforeTime);
+      });
+    }
+
     logger.info(`[MCP] searchEvents found ${events.length} events`);
     if (events.length > 0) {
       logger.info(`[MCP] First event:`, events[0]);
@@ -616,6 +648,7 @@ class MCPToolExecutor {
     const result = {
       count: limitedEvents.length,
       dateRange: { start: startDateStr, end: endDateStr },
+      ...(afterTime || beforeTime ? { timeFilter: { afterTime, beforeTime } } : {}),
       events: limitedEvents.map(e => {
         // Build services summary: only include enabled services
         const services = e.services || e.calendarData?.services || {};
@@ -789,7 +822,7 @@ class MCPToolExecutor {
    * for client-side PDF generation
    */
   async exportCalendarPdf(input) {
-    const { startDate, endDate, categories, locations, sortBy = 'date', showMaintenanceTimes = false, showSecurityTimes = false } = input;
+    const { startDate, endDate, categories, locations, sortBy = 'date', showMaintenanceTimes = false, showSecurityTimes = false, afterTime, beforeTime } = input;
 
     // Validate date format
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
@@ -884,9 +917,17 @@ class MCPToolExecutor {
       query.$and.push({ $or: locationConditions });
     }
 
+    // Add time-of-day filter (morning/afternoon/evening)
+    if (afterTime || beforeTime) {
+      const timeFilter = {};
+      if (afterTime)  timeFilter.$gte = afterTime;
+      if (beforeTime) timeFilter.$lt  = beforeTime;
+      query.$and.push({ 'calendarData.startTime': timeFilter });
+    }
+
     logger.info(`[MCP] exportCalendarPdf query for ${startDate} to ${endDate}`);
 
-    const events = await this.eventsCollection
+    let events = await this.eventsCollection
       .find(query)
       .project({
         eventId: 1, subject: 1, eventTitle: 1,
@@ -905,6 +946,19 @@ class MCPToolExecutor {
       })
       .limit(2000)
       .toArray();
+
+    // Post-query time-of-day filter (safety net for events missing calendarData.startTime)
+    if (afterTime || beforeTime) {
+      events = events.filter(e => {
+        const t = e.calendarData?.startTime
+          || e.startTime
+          || e.calendarData?.startDateTime?.substring(11, 16)
+          || e.startDateTime?.substring(11, 16)
+          || e.start?.dateTime?.substring(11, 16);
+        if (!t) return true;
+        return (!afterTime || t >= afterTime) && (!beforeTime || t < beforeTime);
+      });
+    }
 
     logger.info(`[MCP] exportCalendarPdf found ${events.length} events`);
 
@@ -957,7 +1011,9 @@ class MCPToolExecutor {
         showSecurityTimes,
         categories: categories || [],
         locations: locations || [],
-        dateRange: { start: startDate, end: endDate }
+        dateRange: { start: startDate, end: endDate },
+        afterTime,
+        beforeTime
       },
       message: `Generating PDF with ${transformedEvents.length} events from ${startDate} to ${endDate}.`
     };

@@ -22120,9 +22120,10 @@ January 17, 2026:
 PDF EXPORT BEHAVIOR:
 When a user wants a PDF export/report/printout of the calendar:
 1. Date range is REQUIRED. Resolve relative dates ('this week', 'next month', etc.) to YYYY-MM-DD using the date calculations above.
-2. Ask clarifying questions if needed - but don't ask about every option. Only ask about categories/locations if the user hasn't specified and it seems relevant.
-3. Briefly confirm filters before calling the tool (e.g., 'Generating PDF for Mar 1-31, sorted by date.').
-4. The PDF downloads automatically in the user's browser.`;
+2. CRITICAL — PRESERVE CONVERSATION CONTEXT: Before calling export_calendar_pdf, ALWAYS review the entire conversation for prior search_events calls. If a search_events call was made earlier in the conversation, carry forward ALL of its filters (locations, categories, afterTime, beforeTime, startDate, endDate, etc.) into the PDF export UNLESS the user explicitly says to remove or change them. This applies even when the user adds new filters or rephrases — merge the new filters with the prior ones. For example, if the user searched for 'library events this week' and then says 'print the morning ones to pdf', you MUST include both the locations filter from the prior search AND the new afterTime/beforeTime filter. Never silently drop filters.
+3. Ask clarifying questions if needed - but don't ask about every option. Only ask about categories/locations if the user hasn't specified and there was no prior search.
+4. Briefly confirm ALL filters before calling the tool so the user can catch mistakes (e.g., 'Generating PDF for Mar 9-15 at the Library, morning events only, sorted by date.').
+5. The PDF downloads automatically in the user's browser.`;
 
     const userContext = {
       userId,
