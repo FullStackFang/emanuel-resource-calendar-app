@@ -460,8 +460,11 @@ class MCPToolExecutor {
     }
 
     // Default date range: today + 7 days
+    // Use local date getters (not toISOString which returns UTC and shifts dates near midnight)
     const today = new Date();
-    const startDateStr = startDate || today.toISOString().split('T')[0];
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const startDateStr = startDate || todayStr;
 
     let endDateStr;
     if (endDate) {
@@ -469,40 +472,54 @@ class MCPToolExecutor {
     } else {
       const defaultEnd = new Date(today);
       defaultEnd.setDate(defaultEnd.getDate() + 7);
-      endDateStr = defaultEnd.toISOString().split('T')[0];
+      endDateStr = `${defaultEnd.getFullYear()}-${pad(defaultEnd.getMonth() + 1)}-${pad(defaultEnd.getDate())}`;
     }
 
     // Build datetime range strings for comparison (local time, NO UTC conversion)
+    // Use next-day T00:00:00 with $lt for precise end-of-day boundary
     const startDateTimeStr = `${startDateStr}T00:00:00`;
-    const endDateTimeStr = `${endDateStr}T23:59:59`;
+    const nextDay = new Date(`${endDateStr}T00:00:00`);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endNextDayStr = `${nextDay.getFullYear()}-${pad(nextDay.getMonth() + 1)}-${pad(nextDay.getDate())}`;
+    const endDateTimeStr = `${endNextDayStr}T00:00:00`;
 
-    // Query using multiple field paths (events may use different structures)
+    // Query using overlap detection: event.start < queryEnd AND event.end > queryStart
+    // Check multiple field paths (calendarData.*, top-level, Graph API nested)
     const dateQuery = {
-      $or: [
-        // Top-level startDateTime (normalized events)
-        {
-          startDateTime: { $gte: startDateTimeStr, $lte: endDateTimeStr }
-        },
-        // Nested start.dateTime (Graph API structure)
-        {
-          'start.dateTime': { $gte: startDateTimeStr, $lte: endDateTimeStr }
-        },
-        // Date-only field (fallback)
-        {
-          startDate: { $gte: startDateStr, $lte: endDateStr }
-        }
+      $and: [
+        // Event starts before query window ends
+        { $or: [
+          { 'calendarData.startDateTime': { $lt: endDateTimeStr } },
+          { startDateTime: { $lt: endDateTimeStr } },
+          { 'start.dateTime': { $lt: endDateTimeStr } },
+          { startDate: { $lte: endDateStr } }
+        ]},
+        // Event ends after query window starts
+        { $or: [
+          { 'calendarData.endDateTime': { $gt: startDateTimeStr } },
+          { endDateTime: { $gt: startDateTimeStr } },
+          { 'end.dateTime': { $gt: startDateTimeStr } },
+          { endDate: { $gte: startDateStr } }
+        ]}
       ]
     };
 
-    const query = { ...dateQuery, isDeleted: { $ne: true } };
+    const query = {
+      ...dateQuery,
+      isDeleted: { $ne: true },
+      status: { $nin: ['rejected', 'deleted', 'cancelled'] }
+    };
 
     if (searchText) {
-      query.$and = [
-        { $or: [
+      // Ensure $and exists (dateQuery already uses $and)
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
           { subject: { $regex: searchText, $options: 'i' } },
-          { eventTitle: { $regex: searchText, $options: 'i' } }
-        ]}
-      ];
+          { eventTitle: { $regex: searchText, $options: 'i' } },
+          { 'calendarData.eventTitle': { $regex: searchText, $options: 'i' } }
+        ]
+      });
     }
 
     // Track location matching info for response
@@ -518,6 +535,7 @@ class MCPToolExecutor {
       const locationMatch = {
         $or: [
           { 'locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
+          { 'calendarData.locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
           { 'locationDisplayName': { $regex: matchedLocation, $options: 'i' } },
           { 'location': { $regex: matchedLocation, $options: 'i' } },
           { 'graphData.location.displayName': { $regex: matchedLocation, $options: 'i' } }
@@ -546,7 +564,8 @@ class MCPToolExecutor {
         locationDisplayNames: 1,
         organizer: 1,
         status: 1,
-        syncStatus: 1
+        syncStatus: 1,
+        calendarData: 1
       })
       .limit(50)
       .toArray();
@@ -556,10 +575,10 @@ class MCPToolExecutor {
       logger.info(`[MCP] First event:`, events[0]);
     }
 
-    // Sort by start time
+    // Sort by start time (check calendarData fields too)
     events.sort((a, b) => {
-      const aTime = a.startDateTime || a.start?.dateTime || '';
-      const bTime = b.startDateTime || b.start?.dateTime || '';
+      const aTime = a.calendarData?.startDateTime || a.startDateTime || a.start?.dateTime || '';
+      const bTime = b.calendarData?.startDateTime || b.startDateTime || b.start?.dateTime || '';
       return aTime.localeCompare(bTime);
     });
 
@@ -571,11 +590,11 @@ class MCPToolExecutor {
       dateRange: { start: startDateStr, end: endDateStr },
       events: limitedEvents.map(e => ({
         id: e._id.toString(),
-        title: e.eventTitle || e.subject || 'Untitled',
-        start: e.startTime || e.startDateTime?.split('T')[1]?.substring(0, 5) || e.start?.dateTime?.split('T')[1]?.substring(0, 5),
-        end: e.endTime || e.endDateTime?.split('T')[1]?.substring(0, 5) || e.end?.dateTime?.split('T')[1]?.substring(0, 5),
-        date: e.startDate || e.startDateTime?.split('T')[0] || e.start?.dateTime?.split('T')[0],
-        location: e.locationDisplayNames || e.locationDisplayName || e.location?.displayName || e.location,
+        title: e.eventTitle || e.calendarData?.eventTitle || e.subject || 'Untitled',
+        start: e.startTime || e.calendarData?.startTime || e.startDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.startDateTime?.split('T')[1]?.substring(0, 5) || e.start?.dateTime?.split('T')[1]?.substring(0, 5),
+        end: e.endTime || e.calendarData?.endTime || e.endDateTime?.split('T')[1]?.substring(0, 5) || e.calendarData?.endDateTime?.split('T')[1]?.substring(0, 5) || e.end?.dateTime?.split('T')[1]?.substring(0, 5),
+        date: e.startDate || e.calendarData?.startDate || e.startDateTime?.split('T')[0] || e.calendarData?.startDateTime?.split('T')[0] || e.start?.dateTime?.split('T')[0],
+        location: e.locationDisplayNames || e.calendarData?.locationDisplayNames || e.locationDisplayName || e.location?.displayName || e.location,
         status: e.status,
         syncStatus: e.syncStatus
       }))
@@ -630,6 +649,7 @@ class MCPToolExecutor {
     const locationQuery = matchedLocation ? {
       $or: [
         { 'locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
+        { 'calendarData.locationDisplayNames': { $regex: matchedLocation, $options: 'i' } },
         { 'locationDisplayName': { $regex: matchedLocation, $options: 'i' } },
         { 'location': { $regex: matchedLocation, $options: 'i' } },
         { 'locations': { $regex: matchedLocation, $options: 'i' } },
@@ -647,6 +667,7 @@ class MCPToolExecutor {
         // Event must start before query end (check multiple field paths)
         {
           $or: [
+            { 'calendarData.startDateTime': { $lt: endDateTimeStr } },
             { startDateTime: { $lt: endDateTimeStr } },
             { 'start.dateTime': { $lt: endDateTimeStr } },
             { startDate: { $lte: date } }  // Date-only fallback
@@ -655,6 +676,7 @@ class MCPToolExecutor {
         // Event must end after query start (check multiple field paths)
         {
           $or: [
+            { 'calendarData.endDateTime': { $gt: startDateTimeStr } },
             { endDateTime: { $gt: startDateTimeStr } },
             { 'end.dateTime': { $gt: startDateTimeStr } },
             { endDate: { $gte: date } }  // Date-only fallback
@@ -662,7 +684,7 @@ class MCPToolExecutor {
         }
       ],
       isDeleted: { $ne: true },
-      status: { $ne: 'rejected' }
+      status: { $nin: ['rejected', 'deleted', 'cancelled', 'draft'] }
     }).toArray();
 
     logger.info(`[MCP] checkAvailability found ${conflicts.length} conflicts`);
@@ -696,10 +718,10 @@ class MCPToolExecutor {
       available: false,
       conflictCount: conflicts.length,
       conflicts: conflicts.slice(0, 5).map(c => ({
-        title: c.eventTitle || c.graphData?.subject || 'Untitled Event',
-        start: c.startTime || c.startDateTime?.split('T')[1]?.substring(0, 5),
-        end: c.endTime || c.endDateTime?.split('T')[1]?.substring(0, 5),
-        date: c.startDate || c.startDateTime?.split('T')[0]
+        title: c.eventTitle || c.calendarData?.eventTitle || c.graphData?.subject || 'Untitled Event',
+        start: c.startTime || c.calendarData?.startTime || c.startDateTime?.split('T')[1]?.substring(0, 5) || c.calendarData?.startDateTime?.split('T')[1]?.substring(0, 5),
+        end: c.endTime || c.calendarData?.endTime || c.endDateTime?.split('T')[1]?.substring(0, 5) || c.calendarData?.endDateTime?.split('T')[1]?.substring(0, 5),
+        date: c.startDate || c.calendarData?.startDate || c.startDateTime?.split('T')[0] || c.calendarData?.startDateTime?.split('T')[0]
       })),
       message: `Found ${conflicts.length} conflicting event(s) at ${matchedLocation || 'this location'}`
     };

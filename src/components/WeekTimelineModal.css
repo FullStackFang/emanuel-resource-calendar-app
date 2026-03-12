@@ -124,7 +124,6 @@
   min-height: 1200px; /* 24 hours x 50px per hour */
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
-  overflow: hidden;
   box-shadow: var(--shadow-md);
 }
 
@@ -143,6 +142,9 @@
   height: 50px;
   border-bottom: 2px solid var(--border-default);
   background: var(--bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 11;
 }
 
 .week-timeline-hour-label {

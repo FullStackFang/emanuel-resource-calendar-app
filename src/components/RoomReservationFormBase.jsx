@@ -1223,16 +1223,6 @@ export default function RoomReservationFormBase({
             )}
 
             {/* Edit Scope Indicator for Recurring Events */}
-            {editScope === 'thisEvent' && (
-              <div className="edit-scope-indicator single-occurrence">
-                <span className="edit-scope-icon"><RecurringIcon size={18} /></span>
-                <span className="edit-scope-text">
-                  <span className="edit-scope-title">Editing this occurrence only</span>
-                  <span className="edit-scope-subtitle">Changes will not affect other events in the series.</span>
-                </span>
-                <span className="scope-badge occurrence-badge">Single occurrence</span>
-              </div>
-            )}
             {editScope === 'allEvents' && (
               <div className="edit-scope-indicator all-events">
                 <span className="edit-scope-icon"><RecurringIcon size={18} /></span>
