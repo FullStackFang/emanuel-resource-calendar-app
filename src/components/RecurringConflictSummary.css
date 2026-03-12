@@ -169,3 +169,58 @@
   background: var(--color-success-50);
   border-color: var(--color-success-200);
 }
+
+/* ==========================================================================
+   INLINE MODE — nested inside recurrence-active-card
+   Removes outer chrome so it reads as part of the recurrence card.
+   ========================================================================== */
+.recurring-conflict-summary.inline {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid var(--color-primary-200);
+  margin-top: var(--space-3);
+  padding: var(--space-3) 0 0 0;
+}
+
+.recurring-conflict-summary.inline.clean {
+  background: transparent;
+}
+
+.recurring-conflict-summary.inline.clean .rcs-icon-clean {
+  color: var(--color-success-600);
+}
+
+.recurring-conflict-summary.inline.clean .rcs-text {
+  color: var(--color-primary-600);
+}
+
+.recurring-conflict-summary.inline.warning {
+  background: transparent;
+}
+
+.recurring-conflict-summary.inline.warning .rcs-icon-warning {
+  color: var(--color-warning-600);
+}
+
+.recurring-conflict-summary.inline.warning .rcs-text {
+  color: var(--color-primary-700);
+}
+
+.recurring-conflict-summary.inline.loading {
+  background: transparent;
+  border-color: var(--color-primary-200);
+}
+
+.recurring-conflict-summary.inline.error {
+  background: transparent;
+}
+
+.recurring-conflict-summary.inline .rcs-occurrence-row {
+  border-color: var(--color-primary-100);
+}
+
+.recurring-conflict-summary.inline .rcs-occurrence-clean {
+  background: transparent;
+  border-color: var(--color-primary-100);
+}

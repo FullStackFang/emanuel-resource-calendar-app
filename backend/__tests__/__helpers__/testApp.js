@@ -405,17 +405,10 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
     return { ...occ, effectiveStart: toLocalISOString(effStart), effectiveEnd: toLocalISOString(effEnd) };
   });
 
-  // Query published non-series events sharing rooms
+  // Query published non-series events sharing rooms (single span query to avoid N*3 $or branches)
   const excludeIdObj = excludeEventId ? new ObjectId(excludeEventId) : null;
-  const overlapConditions = occurrenceWindows.map(w => ({
-    $and: [{
-      $or: [
-        { 'calendarData.startDateTime': { $gte: w.effectiveStart, $lt: w.effectiveEnd } },
-        { 'calendarData.endDateTime': { $gt: w.effectiveStart, $lte: w.effectiveEnd } },
-        { 'calendarData.startDateTime': { $lte: w.effectiveStart }, 'calendarData.endDateTime': { $gte: w.effectiveEnd } },
-      ]
-    }]
-  }));
+  const spanEffectiveStart = occurrenceWindows[0].effectiveStart;
+  const spanEffectiveEnd = occurrenceWindows[occurrenceWindows.length - 1].effectiveEnd;
 
   const query = {
     status: 'published',
@@ -424,7 +417,8 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
       { 'calendarData.locations': { $in: roomIds } },
       { locations: { $in: roomIds } },
     ],
-    $and: [{ $or: overlapConditions }],
+    'calendarData.startDateTime': { $lt: spanEffectiveEnd },
+    'calendarData.endDateTime': { $gt: spanEffectiveStart },
   };
   if (excludeIdObj) query._id = { $ne: excludeIdObj };
 

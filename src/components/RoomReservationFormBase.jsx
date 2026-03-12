@@ -1557,6 +1557,24 @@ export default function RoomReservationFormBase({
                           )}
                         </div>
                       )}
+                      {/* Recurring Conflict Summary — integrated into recurrence card */}
+                      {formData.startDate && formData.startTime && assistantRooms.length > 0 && (
+                        <RecurringConflictSummary
+                          recurrence={activeRecurrence}
+                          roomIds={assistantRooms.map(r => r._id?.toString?.() || r._id)}
+                          startDateTime={`${formData.startDate}T${formData.startTime}:00`}
+                          endDateTime={formData.endDate && formData.endTime
+                            ? `${formData.endDate}T${formData.endTime}:00`
+                            : `${formData.startDate}T${formData.endTime || '23:59'}:00`}
+                          setupTimeMinutes={formData.setupTimeMinutes || 0}
+                          teardownTimeMinutes={formData.teardownTimeMinutes || 0}
+                          excludeEventId={initialData?._id?.toString?.() || initialData?.id || null}
+                          apiToken={apiToken}
+                          isAllowedConcurrent={formData.isAllowedConcurrent || false}
+                          categories={formData.categories || []}
+                          inline
+                        />
+                      )}
                     </div>
                   </div>
                 );
@@ -1693,23 +1711,7 @@ export default function RoomReservationFormBase({
 
             {/* Recurrence summary is now integrated into the recurrence card above */}
 
-            {/* Recurring Conflict Summary — shown when recurrence + rooms + times are set */}
-            {recurrencePattern && formData.startDate && formData.startTime && assistantRooms.length > 0 && (
-              <RecurringConflictSummary
-                recurrence={recurrencePattern}
-                roomIds={assistantRooms.map(r => r._id?.toString?.() || r._id)}
-                startDateTime={`${formData.startDate}T${formData.startTime}:00`}
-                endDateTime={formData.endDate && formData.endTime
-                  ? `${formData.endDate}T${formData.endTime}:00`
-                  : `${formData.startDate}T${formData.endTime || '23:59'}:00`}
-                setupTimeMinutes={formData.setupTimeMinutes || 0}
-                teardownTimeMinutes={formData.teardownTimeMinutes || 0}
-                excludeEventId={initialData?._id?.toString?.() || initialData?.id || null}
-                apiToken={apiToken}
-                isAllowedConcurrent={formData.isAllowedConcurrent || false}
-                categories={formData.categories || []}
-              />
-            )}
+            {/* Recurring Conflict Summary is now integrated into the recurrence-active-card above */}
 
             {/* Date Fields - Always visible */}
             <div className="time-field-row">

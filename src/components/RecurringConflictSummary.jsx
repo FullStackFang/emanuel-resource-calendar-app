@@ -33,6 +33,7 @@ export default function RecurringConflictSummary({
   apiToken = null,
   isAllowedConcurrent = false,
   categories = [],
+  inline = false,
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -108,7 +109,7 @@ export default function RecurringConflictSummary({
     }
     debounceTimerRef.current = setTimeout(() => {
       fetchConflicts();
-    }, 500);
+    }, 1200);
 
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -116,13 +117,15 @@ export default function RecurringConflictSummary({
     };
   }, [fetchConflicts, readOnly]);
 
+  const inlineClass = inline ? ' inline' : '';
+
   // Don't render anything until we have data or are loading
   if (!loading && !data && !error) return null;
 
   // Loading skeleton
   if (loading && !data) {
     return (
-      <div className="recurring-conflict-summary loading">
+      <div className={`recurring-conflict-summary loading${inlineClass}`}>
         <div className="rcs-skeleton-bar" />
       </div>
     );
@@ -131,7 +134,7 @@ export default function RecurringConflictSummary({
   // Error state
   if (error) {
     return (
-      <div className="recurring-conflict-summary error">
+      <div className={`recurring-conflict-summary error${inlineClass}`}>
         <span className="rcs-icon">&#9888;</span>
         <span>{error}</span>
         <button className="rcs-retry-btn" onClick={fetchConflicts}>Retry</button>
@@ -144,7 +147,7 @@ export default function RecurringConflictSummary({
   // No conflicts — green checkmark
   if (data.conflictingOccurrences === 0) {
     return (
-      <div className="recurring-conflict-summary clean">
+      <div className={`recurring-conflict-summary clean${inlineClass}`}>
         <div className="rcs-header" onClick={() => setExpanded(!expanded)}>
           <span className="rcs-icon rcs-icon-clean">&#10003;</span>
           <span className="rcs-text">
@@ -179,7 +182,7 @@ export default function RecurringConflictSummary({
 
   // Conflicts found — warning
   return (
-    <div className="recurring-conflict-summary warning">
+    <div className={`recurring-conflict-summary warning${inlineClass}`}>
       <div className="rcs-header" onClick={() => setExpanded(!expanded)}>
         <span className="rcs-icon rcs-icon-warning">&#9888;</span>
         <span className="rcs-text">
@@ -212,8 +215,8 @@ export default function RecurringConflictSummary({
                     <span className="rcs-conflict-time">
                       {formatTime(c.startDateTime)} &ndash; {formatTime(c.endDateTime)}
                     </span>
-                    {c.roomNames?.length > 0 && (
-                      <span className="rcs-conflict-rooms">{c.roomNames.join(', ')}</span>
+                    {c.roomNames && (Array.isArray(c.roomNames) ? c.roomNames : [c.roomNames]).length > 0 && (
+                      <span className="rcs-conflict-rooms">{Array.isArray(c.roomNames) ? c.roomNames.join(', ') : c.roomNames}</span>
                     )}
                   </div>
                 ))}

@@ -2236,30 +2236,24 @@ async function checkRecurringRoomConflicts(params) {
     };
   });
 
-  // Build ONE $or query covering all occurrence windows against published events
-  const overlapConditions = occurrenceWindows.map(w => ({
-    $and: [
-      {
-        $or: [
-          { 'calendarData.startDateTime': { $gte: w.effectiveStart, $lt: w.effectiveEnd } },
-          { 'calendarData.endDateTime': { $gt: w.effectiveStart, $lte: w.effectiveEnd } },
-          { 'calendarData.startDateTime': { $lte: w.effectiveStart }, 'calendarData.endDateTime': { $gte: w.effectiveEnd } },
-        ]
-      }
-    ]
-  }));
+  // Single date-range query covering entire recurrence span (avoids Cosmos DB 429 from N*3 $or branches)
+  const spanEffectiveStart = occurrenceWindows[0].effectiveStart;
+  const spanEffectiveEnd = occurrenceWindows[occurrenceWindows.length - 1].effectiveEnd;
 
   const query = {
     status: 'published',
-    eventType: { $ne: 'seriesMaster' }, // Handle series masters separately below
+    eventType: { $ne: 'seriesMaster' },
     'calendarData.locations': { $in: roomIds },
-    $or: overlapConditions,
+    'calendarData.startDateTime': { $lt: spanEffectiveEnd },
+    'calendarData.endDateTime': { $gt: spanEffectiveStart },
   };
   if (excludeEventId) {
     query._id = { $ne: new ObjectId(excludeEventId) };
   }
 
-  const potentialConflicts = await unifiedEventsCollection.find(query).toArray();
+  const potentialConflicts = await withCosmosRetry(() =>
+    unifiedEventsCollection.find(query).toArray()
+  );
 
   // Also find published series masters sharing rooms (excluding self)
   const recurringQuery = {
@@ -2270,7 +2264,9 @@ async function checkRecurringRoomConflicts(params) {
   if (excludeEventId) {
     recurringQuery._id = { $ne: new ObjectId(excludeEventId) };
   }
-  const existingSeriesMasters = await unifiedEventsCollection.find(recurringQuery).toArray();
+  const existingSeriesMasters = await withCosmosRetry(() =>
+    unifiedEventsCollection.find(recurringQuery).toArray()
+  );
 
   // Look up category docs for concurrent filtering (includes category-level rules)
   let requestCategoryIds = [];
@@ -2353,7 +2349,7 @@ async function checkRecurringRoomConflicts(params) {
             eventTitle: conflict.eventTitle || conflict.calendarData?.eventTitle,
             startDateTime: cStart,
             endDateTime: cEnd,
-            roomNames: conflict.calendarData?.locationDisplayNames || [],
+            roomNames: Array.isArray(conflict.calendarData?.locationDisplayNames) ? conflict.calendarData.locationDisplayNames : (conflict.calendarData?.locationDisplayNames ? [conflict.calendarData.locationDisplayNames] : []),
             status: conflict.status,
           });
         }
@@ -2373,7 +2369,7 @@ async function checkRecurringRoomConflicts(params) {
             eventTitle: master.eventTitle || master.calendarData?.eventTitle,
             startDateTime: mOcc.startDateTime,
             endDateTime: mOcc.endDateTime,
-            roomNames: master.calendarData?.locationDisplayNames || [],
+            roomNames: Array.isArray(master.calendarData?.locationDisplayNames) ? master.calendarData.locationDisplayNames : (master.calendarData?.locationDisplayNames ? [master.calendarData.locationDisplayNames] : []),
             status: master.status,
           });
           break; // one overlap per master per occurrence is enough
