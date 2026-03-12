@@ -72,8 +72,39 @@ export default function AIChat({ isOpen, onClose, apiToken, onCalendarRefresh })
       });
       const data = await res.json();
 
+      // Check if this is a PDF generation request
+      if (data.generatePdf && data.pdfEvents) {
+        try {
+          const { generateCalendarPdf } = await import('../utils/calendarPdfGenerator');
+          const { blobUrl, fileName, eventCount } = generateCalendarPdf({
+            events: data.pdfEvents,
+            sortBy: data.pdfFilters?.sortBy || 'date',
+            showMaintenanceTimes: data.pdfFilters?.showMaintenanceTimes || false,
+            showSecurityTimes: data.pdfFilters?.showSecurityTimes || false,
+            timezone: 'America/New_York',
+            searchCriteria: {
+              categories: data.pdfFilters?.categories,
+              locations: data.pdfFilters?.locations
+            }
+          });
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: data.message || `PDF ready with ${eventCount} events.`,
+            type: 'pdf-download',
+            pdfBlobUrl: blobUrl,
+            pdfFileName: fileName,
+            pdfEventCount: eventCount
+          }]);
+        } catch (pdfErr) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'Failed to generate PDF: ' + pdfErr.message
+          }]);
+        }
+      }
       // Check if this is a reservation form request
-      if (data.openReservationForm && data.formData) {
+      else if (data.openReservationForm && data.formData) {
         // Show summary with form data stored in message
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -154,11 +185,43 @@ export default function AIChat({ isOpen, onClose, apiToken, onCalendarRefresh })
           {messages.length === 0 && (
             <div className="ai-chat-welcome">
               Ask me anything about calendars and scheduling!
+              <div className="ai-chat-welcome-suggestions">
+                <span className="ai-chat-suggestion">"What events are happening this week in the Library?"</span>
+                <span className="ai-chat-suggestion">"Print a PDF of all events this month"</span>
+                <span className="ai-chat-suggestion">"Is Blumenthal Hall available next Tuesday at 3pm?"</span>
+                <span className="ai-chat-suggestion">"Book the Greenwald Room for a meeting on Friday"</span>
+                <span className="ai-chat-suggestion">"Show me all worship events this weekend"</span>
+              </div>
             </div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={`ai-chat-msg ai-chat-msg-${m.role}`}>
               {m.content}
+              {m.type === 'pdf-download' && m.pdfBlobUrl && (
+                <a
+                  href={m.pdfBlobUrl}
+                  download={m.pdfFileName}
+                  className="ai-chat-pdf-card"
+                >
+                  <div className="ai-chat-pdf-icon">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                      <path d="M5 2h7l5 5v11a1 1 0 01-1 1H5a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M12 2v5h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                      <text x="10" y="15.5" textAnchor="middle" fill="currentColor" fontSize="5" fontWeight="700" fontFamily="sans-serif">PDF</text>
+                    </svg>
+                  </div>
+                  <div className="ai-chat-pdf-info">
+                    <span className="ai-chat-pdf-name">{m.pdfFileName}</span>
+                    <span className="ai-chat-pdf-meta">{m.pdfEventCount} events</span>
+                  </div>
+                  <div className="ai-chat-pdf-download-icon">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 2v9M4.5 7.5L8 11l3.5-3.5" />
+                      <path d="M2.5 13h11" />
+                    </svg>
+                  </div>
+                </a>
+              )}
               {m.type === 'reservation-summary' && m.summary && (
                 <div className="ai-chat-reservation-summary">
                   <div className="ai-chat-summary-header">Reservation Details</div>

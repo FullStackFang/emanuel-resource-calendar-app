@@ -22065,6 +22065,7 @@ You have access to tools to help users:
 - search_events: Find events on the calendar (returns description, attendeeCount, and recurring event info)
 - check_availability: Check if a room is free at a specific time
 - prepare_event_request: Prepare a room reservation form for the user to review and submit
+- export_calendar_pdf: Generate a PDF calendar report. REQUIRES a date range. Can filter by categories/locations.
 
 ROLE-BASED BEHAVIOR:
 ${ROLE_BEHAVIORS[role] || ''}
@@ -22114,7 +22115,14 @@ January 16, 2026:
 • Intro to Judaism - 6:30 PM to 8:30 PM
 
 January 17, 2026:
-• Shabbat Service - 10:00 AM to 12:00 PM`;
+• Shabbat Service - 10:00 AM to 12:00 PM
+
+PDF EXPORT BEHAVIOR:
+When a user wants a PDF export/report/printout of the calendar:
+1. Date range is REQUIRED. Resolve relative dates ('this week', 'next month', etc.) to YYYY-MM-DD using the date calculations above.
+2. Ask clarifying questions if needed - but don't ask about every option. Only ask about categories/locations if the user hasn't specified and it seems relevant.
+3. Briefly confirm filters before calling the tool (e.g., 'Generating PDF for Mar 1-31, sorted by date.').
+4. The PDF downloads automatically in the user's browser.`;
 
     const userContext = {
       userId,
@@ -22138,6 +22146,7 @@ January 17, 2026:
     let shouldRefreshCalendar = false;  // Track if calendar needs refresh
     let reservationFormData = null;     // Track if reservation form should open
     let reservationSummary = null;      // Track reservation summary
+    let pdfGenerationData = null;       // Track if PDF should be generated
 
     while (response.stop_reason === 'tool_use' && iterations < 5) {
       iterations++;
@@ -22161,6 +22170,11 @@ January 17, 2026:
           if (result.openReservationForm && result.formData) {
             reservationFormData = result.formData;
             reservationSummary = result.summary;
+          }
+
+          // Check if tool wants to generate PDF
+          if (result.generatePdf) {
+            pdfGenerationData = { events: result.events, pdfFilters: result.pdfFilters };
           }
 
           toolResults.push({
@@ -22206,6 +22220,13 @@ January 17, 2026:
       responseData.openReservationForm = true;
       responseData.formData = reservationFormData;
       responseData.summary = reservationSummary;
+    }
+
+    // Include PDF generation data if present
+    if (pdfGenerationData) {
+      responseData.generatePdf = true;
+      responseData.pdfEvents = pdfGenerationData.events;
+      responseData.pdfFilters = pdfGenerationData.pdfFilters;
     }
 
     res.json(responseData);

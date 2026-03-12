@@ -101,6 +101,23 @@ const toolDefinitions = [
     }
   },
   {
+    name: 'export_calendar_pdf',
+    description: 'Generate a PDF calendar report for a date range. REQUIRES startDate and endDate. Optionally filter by categories and/or locations. The PDF downloads in the user\'s browser.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        startDate: { type: 'string', description: 'Start date YYYY-MM-DD (REQUIRED)' },
+        endDate: { type: 'string', description: 'End date YYYY-MM-DD (REQUIRED)' },
+        categories: { type: 'array', items: { type: 'string' }, description: 'Category names to filter by (optional)' },
+        locations: { type: 'array', items: { type: 'string' }, description: 'Location display names to filter by (optional)' },
+        sortBy: { type: 'string', enum: ['date', 'category', 'location'], description: 'Sort/group order (default: date)' },
+        showMaintenanceTimes: { type: 'boolean', description: 'Include setup/teardown times (default: false)' },
+        showSecurityTimes: { type: 'boolean', description: 'Include door open/close times (default: false)' }
+      },
+      required: ['startDate', 'endDate']
+    }
+  },
+  {
     name: 'prepare_event_request',
     description: 'Prepare an event/room reservation request for user review. This validates the inputs and returns data to open a pre-populated reservation form. The user will review and submit the form themselves. Use this when the user wants to book/reserve a room or space. IMPORTANT: You MUST use list_locations first to get a valid location ID.',
     input_schema: {
@@ -188,6 +205,8 @@ class MCPToolExecutor {
           return await this.searchEvents(input);
         case 'check_availability':
           return await this.checkAvailability(input);
+        case 'export_calendar_pdf':
+          return await this.exportCalendarPdf(input);
         case 'prepare_event_request':
           return await this.prepareEventRequest(input, userContext);
         default:
@@ -762,6 +781,186 @@ class MCPToolExecutor {
       result.locationSearch = locationInfo;
     }
     return result;
+  }
+
+  /**
+   * Export calendar events as PDF
+   * Fetches events directly from DB (same pattern as searchEvents) and returns them
+   * for client-side PDF generation
+   */
+  async exportCalendarPdf(input) {
+    const { startDate, endDate, categories, locations, sortBy = 'date', showMaintenanceTimes = false, showSecurityTimes = false } = input;
+
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+      return { error: 'Dates must be in YYYY-MM-DD format' };
+    }
+    if (startDate > endDate) {
+      return { error: 'startDate must be before or equal to endDate' };
+    }
+
+    // Validate categories if provided
+    if (categories && categories.length > 0) {
+      const validCategories = await this.categoriesCollection
+        .find({ name: { $in: categories.map(c => new RegExp(`^${c}$`, 'i')) } })
+        .project({ name: 1 })
+        .toArray();
+      const validNames = validCategories.map(c => c.name);
+      const invalid = categories.filter(c => !validNames.some(v => v.toLowerCase() === c.toLowerCase()));
+      if (invalid.length > 0) {
+        const allCats = await this.categoriesCollection.find({}).project({ name: 1 }).toArray();
+        return {
+          error: `Unknown categories: ${invalid.join(', ')}. Available: ${allCats.map(c => c.name).join(', ')}`
+        };
+      }
+    }
+
+    // Validate locations if provided
+    if (locations && locations.length > 0) {
+      const validLocations = await this.locationsCollection
+        .find({ displayName: { $in: locations.map(l => new RegExp(`^${l}$`, 'i')) } })
+        .project({ displayName: 1 })
+        .toArray();
+      const validNames = validLocations.map(l => l.displayName);
+      const invalid = locations.filter(l => !validNames.some(v => v.toLowerCase() === l.toLowerCase()));
+      if (invalid.length > 0) {
+        const allLocs = await this.locationsCollection.find({ isReservable: true }).project({ displayName: 1 }).toArray();
+        return {
+          error: `Unknown locations: ${invalid.join(', ')}. Available: ${allLocs.map(l => l.displayName).join(', ')}`
+        };
+      }
+    }
+
+    // Build date range query (same pattern as searchEvents)
+    const pad = (n) => String(n).padStart(2, '0');
+    const startDateTimeStr = `${startDate}T00:00:00`;
+    const nextDay = new Date(`${endDate}T00:00:00`);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const endNextDayStr = `${nextDay.getFullYear()}-${pad(nextDay.getMonth() + 1)}-${pad(nextDay.getDate())}`;
+    const endDateTimeStr = `${endNextDayStr}T00:00:00`;
+
+    const query = {
+      $and: [
+        { $or: [
+          { 'calendarData.startDateTime': { $lt: endDateTimeStr } },
+          { startDateTime: { $lt: endDateTimeStr } },
+          { 'start.dateTime': { $lt: endDateTimeStr } },
+          { startDate: { $lte: endDate } }
+        ]},
+        { $or: [
+          { 'calendarData.endDateTime': { $gt: startDateTimeStr } },
+          { endDateTime: { $gt: startDateTimeStr } },
+          { 'end.dateTime': { $gt: startDateTimeStr } },
+          { endDate: { $gte: startDate } }
+        ]}
+      ],
+      isDeleted: { $ne: true },
+      status: { $nin: ['rejected', 'deleted', 'cancelled', 'draft'] }
+    };
+
+    // Add category filter
+    if (categories && categories.length > 0) {
+      const categoryRegexes = categories.map(c => new RegExp(c, 'i'));
+      query.$and.push({
+        $or: [
+          { categories: { $in: categoryRegexes } },
+          { 'calendarData.categories': { $in: categoryRegexes } }
+        ]
+      });
+    }
+
+    // Add location filter
+    if (locations && locations.length > 0) {
+      const locationConditions = [];
+      for (const loc of locations) {
+        locationConditions.push(
+          { locationDisplayNames: { $regex: loc, $options: 'i' } },
+          { 'calendarData.locationDisplayNames': { $regex: loc, $options: 'i' } },
+          { locationDisplayName: { $regex: loc, $options: 'i' } },
+          { location: { $regex: loc, $options: 'i' } }
+        );
+      }
+      query.$and.push({ $or: locationConditions });
+    }
+
+    logger.info(`[MCP] exportCalendarPdf query for ${startDate} to ${endDate}`);
+
+    const events = await this.eventsCollection
+      .find(query)
+      .project({
+        eventId: 1, subject: 1, eventTitle: 1,
+        startDateTime: 1, endDateTime: 1,
+        start: 1, end: 1,
+        location: 1, locationDisplayNames: 1, locationDisplayName: 1,
+        categories: 1,
+        eventDescription: 1,
+        calendarData: 1,
+        graphData: 1,
+        setupTime: 1, teardownTime: 1,
+        doorOpenTime: 1, doorCloseTime: 1,
+        setupNotes: 1, doorNotes: 1,
+        roomReservationData: 1,
+        isAllDayEvent: 1, lastSyncedAt: 1
+      })
+      .limit(2000)
+      .toArray();
+
+    logger.info(`[MCP] exportCalendarPdf found ${events.length} events`);
+
+    if (events.length === 0) {
+      return {
+        success: true,
+        generatePdf: false,
+        events: [],
+        message: `No events found between ${startDate} and ${endDate}${categories ? ' for categories: ' + categories.join(', ') : ''}${locations ? ' at locations: ' + locations.join(', ') : ''}.`
+      };
+    }
+
+    // Transform to the flat format expected by the PDF generator
+    const transformedEvents = events.map(event => ({
+      id: event.eventId,
+      subject: event.calendarData?.eventTitle || event.eventTitle || event.subject || event.graphData?.subject || 'Untitled',
+      start: {
+        dateTime: event.calendarData?.startDateTime || event.startDateTime || event.graphData?.start?.dateTime
+      },
+      end: {
+        dateTime: event.calendarData?.endDateTime || event.endDateTime || event.graphData?.end?.dateTime
+      },
+      location: {
+        displayName: event.calendarData?.locationDisplayNames || event.locationDisplayNames || event.locationDisplayName || event.location || event.graphData?.location?.displayName || ''
+      },
+      categories: event.calendarData?.categories || event.categories || event.graphData?.categories || [],
+      bodyPreview: event.calendarData?.eventDescription || event.eventDescription || event.graphData?.bodyPreview || '',
+      setupTime: event.calendarData?.setupTime || event.setupTime || '',
+      teardownTime: event.calendarData?.teardownTime || event.teardownTime || '',
+      doorOpenTime: event.calendarData?.doorOpenTime || event.doorOpenTime || '',
+      doorCloseTime: event.calendarData?.doorCloseTime || event.doorCloseTime || '',
+      setupNotes: event.calendarData?.setupNotes || event.roomReservationData?.internalNotes?.setupNotes || event.setupNotes || '',
+      doorNotes: event.calendarData?.doorNotes || event.roomReservationData?.internalNotes?.doorNotes || event.doorNotes || ''
+    }));
+
+    // Sort by start time
+    transformedEvents.sort((a, b) => {
+      const aTime = a.start?.dateTime || '';
+      const bTime = b.start?.dateTime || '';
+      return aTime.localeCompare(bTime);
+    });
+
+    return {
+      success: true,
+      generatePdf: true,
+      events: transformedEvents,
+      pdfFilters: {
+        sortBy,
+        showMaintenanceTimes,
+        showSecurityTimes,
+        categories: categories || [],
+        locations: locations || [],
+        dateRange: { start: startDate, end: endDate }
+      },
+      message: `Generating PDF with ${transformedEvents.length} events from ${startDate} to ${endDate}.`
+    };
   }
 
   /**
