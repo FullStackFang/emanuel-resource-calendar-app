@@ -201,15 +201,18 @@ export function transformEventToFlatStructure(event) {
     _id: event._id,
 
     // Handle event title from multiple formats:
-    // 1. Already-flat (UI-created): use eventTitle directly (may be empty for new events)
-    // 2. Calendar events: use event.subject
-    // 3. Reservation events: prefer calendarData.eventTitle, then graphData.subject
+    // 1. Recurring occurrences: top-level eventTitle is the override, takes priority
+    // 2. Already-flat (UI-created): use eventTitle directly (may be empty for new events)
+    // 3. Calendar events: use event.subject
+    // 4. Reservation events: prefer calendarData.eventTitle, then graphData.subject
     // Only default to 'Untitled Event' for existing events (those with an id), not new events
-    eventTitle: isAlreadyFlat
-      ? (getField(event, 'eventTitle') ?? '')
-      : (isCalendarEvent
-        ? (event.subject || '')
-        : (getField(event, 'eventTitle') || event.graphData?.subject || (event._id ? 'Untitled Event' : ''))),
+    eventTitle: (event.isRecurringOccurrence && event.eventTitle !== undefined)
+      ? event.eventTitle
+      : (isAlreadyFlat
+        ? (getField(event, 'eventTitle') ?? '')
+        : (isCalendarEvent
+          ? (event.subject || '')
+          : (getField(event, 'eventTitle') || event.graphData?.subject || (event._id ? 'Untitled Event' : '')))),
     eventDescription,
     startDateTime,
     endDateTime,
@@ -219,7 +222,12 @@ export function transformEventToFlatStructure(event) {
     endTime,
 
     // Room reservation data - can come from roomReservationData, calendarData, or direct properties
+    // For recurring occurrences (synthesized with ...override spread), top-level fields
+    // represent the override and must take priority over calendarData (which has master values)
     requestedRooms: (() => {
+      if (event.isRecurringOccurrence && event.locations !== undefined) {
+        return event.locations;
+      }
       const locs = getField(event, 'locations', []);
       return locs.length > 0 ? locs : (event.roomReservationData?.requestedRooms || event.requestedRooms || []);
     })(),
@@ -290,7 +298,9 @@ export function transformEventToFlatStructure(event) {
     // Calendar-specific enrichments
     assignedTo: getField(event, 'assignedTo', ''),
     location: isCalendarEvent ? event.location?.displayName : (event.graphData?.location?.displayName || ''),
-    locationDisplayNames: getField(event, 'locationDisplayNames', ''),
+    locationDisplayNames: (event.isRecurringOccurrence && event.locationDisplayNames !== undefined)
+      ? event.locationDisplayNames
+      : getField(event, 'locationDisplayNames', ''),
 
     // Preserve full graphData for fallback access
     graphData: event.graphData || null,

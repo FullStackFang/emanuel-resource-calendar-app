@@ -20425,6 +20425,132 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       }
     }
 
+    // --- thisEvent scope: write per-occurrence override and return early ---
+    if (updates.editScope === 'thisEvent' && updates.occurrenceDate) {
+      const dateKey = updates.occurrenceDate.split('T')[0];
+
+      // Validate dateKey falls within series range
+      const recRange = event.calendarData?.recurrence?.range || event.recurrence?.range;
+      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+        return res.status(400).json({ error: 'Occurrence date is outside series range' });
+      }
+
+      // Build override from changed fields
+      const overrideFields = { occurrenceDate: dateKey };
+      if (updates.startTime !== undefined) overrideFields.startTime = updates.startTime;
+      if (updates.endTime !== undefined) overrideFields.endTime = updates.endTime;
+      if (updates.eventTitle !== undefined) overrideFields.eventTitle = updates.eventTitle?.trim();
+      if (updates.eventDescription !== undefined) overrideFields.eventDescription = updates.eventDescription;
+      if (updates.startTime) overrideFields.startDateTime = `${dateKey}T${updates.startTime}`;
+      if (updates.endTime) overrideFields.endDateTime = `${dateKey}T${updates.endTime}`;
+      if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
+      if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
+      if (updates.doorOpenTime !== undefined) overrideFields.doorOpenTime = updates.doorOpenTime;
+      if (updates.doorCloseTime !== undefined) overrideFields.doorCloseTime = updates.doorCloseTime;
+      if (updates.categories !== undefined) overrideFields.categories = updates.categories;
+      if (updates.services !== undefined) overrideFields.services = updates.services;
+      if (updates.assignedTo !== undefined) overrideFields.assignedTo = updates.assignedTo;
+
+      // Handle locations: convert requestedRooms/locations to ObjectIds + display names
+      const rawLocations = updates.requestedRooms || updates.locations;
+      if (rawLocations !== undefined) {
+        if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+          try {
+            const locationIds = rawLocations.map(lid =>
+              typeof lid === 'string' ? new ObjectId(lid) : lid
+            );
+            overrideFields.locations = locationIds;
+
+            const locationDocs = await locationsCollection.find({
+              _id: { $in: locationIds }
+            }).toArray();
+            const displayNames = locationDocs
+              .map(loc => loc.displayName || loc.name || '')
+              .filter(Boolean)
+              .join('; ');
+            if (displayNames) {
+              overrideFields.locationDisplayNames = displayNames;
+            }
+          } catch (locErr) {
+            logger.warn('Failed to process occurrence override locations:', locErr.message);
+            overrideFields.locations = rawLocations;
+          }
+        } else {
+          overrideFields.locations = [];
+          overrideFields.locationDisplayNames = '';
+        }
+      }
+
+      // Graph sync: if published, update the specific occurrence in Graph
+      const storedGraphEventId = event.graphData?.id;
+      if (storedGraphEventId && event.calendarOwner) {
+        try {
+          const occDate = new Date(updates.occurrenceDate);
+          const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
+          const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
+          const instances = await graphApiService.getRecurringEventInstances(
+            event.calendarOwner, event.calendarId, seriesMasterId || storedGraphEventId,
+            dayStart.toISOString(), dayEnd.toISOString()
+          );
+          const match = (instances || []).find(occ =>
+            new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
+          );
+          if (match) {
+            const graphUpdate = {};
+            if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
+            if (overrideFields.startDateTime) {
+              graphUpdate.start = {
+                dateTime: overrideFields.startDateTime + ':00',
+                timeZone: event.graphData?.start?.timeZone || 'America/New_York'
+              };
+            }
+            if (overrideFields.endDateTime) {
+              graphUpdate.end = {
+                dateTime: overrideFields.endDateTime + ':00',
+                timeZone: event.graphData?.end?.timeZone || 'America/New_York'
+              };
+            }
+            if (Object.keys(graphUpdate).length > 0) {
+              await graphApiService.updateCalendarEvent(
+                event.calendarOwner, event.calendarId, match.id, graphUpdate
+              );
+            }
+          }
+        } catch (graphErr) {
+          logger.warn('Non-fatal: Graph sync for occurrence override failed:', graphErr.message);
+        }
+      }
+
+      // Remove existing override for this date, then add new one
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+      );
+      await unifiedEventsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $push: { occurrenceOverrides: overrideFields },
+          $set: {
+            'calendarData.occurrenceOverrides': null, // Will be set after re-fetch
+            lastModifiedDateTime: new Date(),
+            lastModifiedBy: userEmail
+          }
+        }
+      );
+
+      // Mirror occurrenceOverrides into calendarData
+      const updatedDoc = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+      if (updatedDoc) {
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { 'calendarData.occurrenceOverrides': updatedDoc.occurrenceOverrides || [] } }
+        );
+      }
+
+      const finalDoc = await unifiedEventsCollection.findOne({ _id: new ObjectId(id) });
+      return res.json({ success: true, event: finalDoc, graphSynced: false });
+    }
+
     // Validate offsite fields - both name and address required when isOffsite is true
     if (updates.isOffsite && (!updates.offsiteName?.trim() || !updates.offsiteAddress?.trim())) {
       return res.status(400).json({

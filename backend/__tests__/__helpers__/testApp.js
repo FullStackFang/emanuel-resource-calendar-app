@@ -3008,6 +3008,89 @@ function createTestApp(options = {}) {
         return res.status(404).json({ error: 'Event not found' });
       }
 
+      // --- thisEvent scope: write per-occurrence override and return early ---
+      const editScope = updates.editScope;
+      const occurrenceDate = updates.occurrenceDate;
+      if (editScope === 'thisEvent' && occurrenceDate) {
+        const dateKey = occurrenceDate.split('T')[0];
+
+        // Validate dateKey falls within series range
+        const recRange = event.calendarData?.recurrence?.range || event.recurrence?.range;
+        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+          return res.status(400).json({ error: 'Occurrence date is outside series range' });
+        }
+
+        // Build override from changed fields
+        const overrideFields = { occurrenceDate: dateKey };
+        if (updates.startTime !== undefined) overrideFields.startTime = updates.startTime;
+        if (updates.endTime !== undefined) overrideFields.endTime = updates.endTime;
+        if (updates.eventTitle !== undefined) overrideFields.eventTitle = updates.eventTitle?.trim();
+        if (updates.eventDescription !== undefined) overrideFields.eventDescription = updates.eventDescription;
+        if (updates.startTime) overrideFields.startDateTime = `${dateKey}T${updates.startTime}`;
+        if (updates.endTime) overrideFields.endDateTime = `${dateKey}T${updates.endTime}`;
+        if (updates.setupTime !== undefined) overrideFields.setupTime = updates.setupTime;
+        if (updates.teardownTime !== undefined) overrideFields.teardownTime = updates.teardownTime;
+        if (updates.doorOpenTime !== undefined) overrideFields.doorOpenTime = updates.doorOpenTime;
+        if (updates.doorCloseTime !== undefined) overrideFields.doorCloseTime = updates.doorCloseTime;
+        if (updates.categories !== undefined) overrideFields.categories = updates.categories;
+        if (updates.services !== undefined) overrideFields.services = updates.services;
+        if (updates.assignedTo !== undefined) overrideFields.assignedTo = updates.assignedTo;
+
+        // Handle locations
+        const rawLocations = updates.requestedRooms || updates.locations;
+        if (rawLocations !== undefined) {
+          if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+            try {
+              const locationIds = rawLocations.map(lid =>
+                typeof lid === 'string' ? new ObjectId(lid) : lid
+              );
+              overrideFields.locations = locationIds;
+
+              const locationDocs = await testCollections.locations.find({
+                _id: { $in: locationIds }
+              }).toArray();
+              const displayNames = locationDocs
+                .map(loc => loc.displayName || loc.name || '')
+                .filter(Boolean)
+                .join('; ');
+              if (displayNames) {
+                overrideFields.locationDisplayNames = displayNames;
+              }
+            } catch (locErr) {
+              overrideFields.locations = rawLocations;
+            }
+          } else {
+            overrideFields.locations = [];
+            overrideFields.locationDisplayNames = '';
+          }
+        }
+
+        // Remove existing override for this date, then add new one
+        await testCollections.events.updateOne(
+          query,
+          { $pull: { occurrenceOverrides: { occurrenceDate: dateKey } } }
+        );
+        await testCollections.events.updateOne(
+          query,
+          {
+            $push: { occurrenceOverrides: overrideFields },
+            $set: { lastModifiedDateTime: new Date() }
+          }
+        );
+
+        // Mirror to calendarData.occurrenceOverrides
+        const updatedDoc = await testCollections.events.findOne(query);
+        if (updatedDoc) {
+          await testCollections.events.updateOne(
+            query,
+            { $set: { 'calendarData.occurrenceOverrides': updatedDoc.occurrenceOverrides || [] } }
+          );
+        }
+
+        const finalDoc = await testCollections.events.findOne(query);
+        return res.json({ success: true, event: finalDoc, graphSynced: false });
+      }
+
       // Determine if Graph-syncable fields changed
       const storedGraphEventId = event.graphData?.id;
       const hasGraphSyncableChanges = !!(
