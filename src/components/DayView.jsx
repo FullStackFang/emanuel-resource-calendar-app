@@ -5,7 +5,7 @@ import { processEventsForOverlap, getOverlapType } from '../utils/eventOverlapUt
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
-import { WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
+import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
 const DayView = memo(({
@@ -497,6 +497,23 @@ const DayView = memo(({
                               <span className="event-status-badge badge-multi-day" style={{ fontSize: '9px', padding: '2px 6px' }}>
                                 Day {event._multiDayInfo.dayNumber}/{event._multiDayInfo.totalDays}
                               </span>
+                            )}
+                            {/* Recurring event indicator */}
+                            {((event.eventType || event.graphData?.type) === 'seriesMaster' ||
+                              (event.seriesMasterId || event.graphData?.seriesMasterId) ||
+                              (event.recurrence || event.graphData?.recurrence)) && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: hasPendingEditRequest ? '24px' : '4px',
+                                color: '#444',
+                                lineHeight: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '2px'
+                              }}>
+                                <RecurringIcon size={12} />
+                              </div>
                             )}
                             {/* Pending Edit Request indicator */}
                             {hasPendingEditRequest && (

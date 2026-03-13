@@ -82,10 +82,10 @@ export default function RecurrencePatternModal({
       // Set default start date to event start date or today
       const defaultStart = eventStartDate || new Date().toISOString().split('T')[0];
       setStartDate(defaultStart);
-      setViewMonth(new Date(defaultStart));
+      setViewMonth(new Date(defaultStart + 'T00:00:00'));
 
       // Auto-calculate day of week from event start date
-      const startDateObj = new Date(defaultStart);
+      const startDateObj = new Date(defaultStart + 'T00:00:00');
       const dayOfWeekIndex = startDateObj.getDay(); // 0=Sunday, 1=Monday, etc.
       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const defaultDay = dayNames[dayOfWeekIndex];
@@ -170,7 +170,7 @@ export default function RecurrencePatternModal({
     // Validate and adjust start date for weekly recurrence
     let adjustedStartDate = startDate;
     if (frequency === 'weekly' && daysOfWeek && daysOfWeek.length > 0) {
-      const startDateObj = new Date(startDate);
+      const startDateObj = new Date(startDate + 'T00:00:00');
       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
       const startDayOfWeek = dayNames[startDateObj.getDay()];
 
@@ -371,7 +371,7 @@ export default function RecurrencePatternModal({
                   min="1"
                   max="999"
                   value={interval}
-                  onChange={(e) => setInterval(e.target.value)}
+                  onChange={(e) => setInterval(Math.max(1, parseInt(e.target.value) || 1))}
                   className="recurrence-interval-input"
                 />
                 <select

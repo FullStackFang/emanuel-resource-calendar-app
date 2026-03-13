@@ -76,15 +76,19 @@ export function isDateInPattern(date, pattern, startDate) {
       if (!normalizedDaysOfWeek.includes(checkDayName)) return false;
 
       // Check if it's the right week interval
-      // Normalize both dates to midnight to avoid time-of-day and timezone issues
+      // Anchor to the Sunday of each week so multi-day patterns (e.g., Tue+Thu)
+      // are grouped into the same week before checking the interval
       const checkMidnight = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
       const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
 
-      // Calculate days difference first, then weeks (more reliable than millisecond division)
-      const daysDiff = Math.floor((checkMidnight - startMidnight) / (1000 * 60 * 60 * 24));
-      const weeksDiff = Math.floor(daysDiff / 7);
+      const startSunday = new Date(startMidnight);
+      startSunday.setDate(startSunday.getDate() - startMidnight.getDay());
+      const checkSunday = new Date(checkMidnight);
+      checkSunday.setDate(checkSunday.getDate() - checkMidnight.getDay());
 
-      return weeksDiff % interval === 0;
+      const weeksDiff = Math.round((checkSunday - startSunday) / (7 * 24 * 60 * 60 * 1000));
+
+      return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
 
     case 'monthly': {
@@ -136,10 +140,27 @@ export function calculateRecurrenceDates(pattern, range, viewMonth) {
     end = patternEnd < monthEnd ? patternEnd : monthEnd;
   }
 
+  // For numbered ranges, count occurrences from pattern start to enforce the cap.
+  // We must count from patternStart (not monthStart) to know which occurrences
+  // in this month are within the limit.
+  const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || Infinity) : Infinity;
+  let priorCount = 0;
+  if (range.type === 'numbered' && monthStart > patternStart) {
+    const counter = new Date(patternStart);
+    while (counter < monthStart && priorCount < maxOcc) {
+      if (isDateInPattern(counter, pattern, patternStart)) {
+        priorCount++;
+      }
+      counter.setDate(counter.getDate() + 1);
+    }
+  }
+
   // Generate dates
+  let count = priorCount;
   const current = new Date(start);
-  while (current <= end) {
+  while (current <= end && count < maxOcc) {
     if (isDateInPattern(current, pattern, patternStart)) {
+      count++;
       dates.push(`${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,'0')}-${String(current.getDate()).padStart(2,'0')}`);
     }
 
@@ -202,14 +223,13 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       const day = String(current.getDate()).padStart(2, '0');
       const occurrenceDate = `${year}-${month}-${day}`;
 
-      count++;
-
-      // Skip excluded dates
+      // Skip excluded dates — don't count them toward numbered limit
       if (exclusionSet.has(occurrenceDate)) {
         current.setDate(current.getDate() + 1);
         continue;
       }
 
+      count++;
       generatedDates.add(occurrenceDate);
 
       // Check if this occurrence has a Graph API exception
@@ -350,8 +370,8 @@ export function calculateAllSeriesDates(recurrence) {
       const dateStr = `${y}-${m}-${d}`;
       if (!exclusionSet.has(dateStr)) {
         dates.add(dateStr);
+        count++;
       }
-      count++;
     }
     current.setDate(current.getDate() + 1);
   }

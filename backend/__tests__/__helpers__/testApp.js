@@ -854,35 +854,57 @@ function createTestApp(options = {}) {
       }
 
       // Check for scheduling conflicts
+      // For recurring events: non-blocking (conflicts reported in response)
+      // For non-recurring events: blocking (409 on hard conflicts)
+      let draftRecurringConflicts = null;
+      const draftSubmitRecurrence = draft.recurrence || cd.recurrence;
+      const isDraftRecurringSubmit = draftSubmitRecurrence?.pattern && draftSubmitRecurrence?.range;
+
       const roomIds = cd.locations || [];
       if (roomIds.length > 0) {
-        const conflictEvent = {
-          ...draft,
-          startDateTime: cd.startDateTime,
-          endDateTime: cd.endDateTime,
-          calendarData: { ...cd, locations: roomIds },
-        };
-        const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, draft._id, testCollections.events, testCollections.categories);
-        if (hardConflicts.length > 0) {
-          return res.status(409).json({
-            error: 'SchedulingConflict',
-            conflictTier: 'hard',
-            message: `Cannot submit: ${hardConflicts.length} scheduling conflict(s) with published events`,
-            hardConflicts,
-            softConflicts,
-            conflicts: allConflicts,
-            canForce: false,
-          });
-        }
-        if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
-          return res.status(409).json({
-            error: 'SchedulingConflict',
-            conflictTier: 'soft',
-            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
-            hardConflicts: [],
-            softConflicts,
-            conflicts: softConflicts,
-          });
+        if (isDraftRecurringSubmit) {
+          try {
+            draftRecurringConflicts = await checkTestRecurringConflicts({
+              startDateTime: cd.startDateTime,
+              endDateTime: cd.endDateTime,
+              recurrence: draftSubmitRecurrence,
+              roomIds,
+              setupTimeMinutes: cd.setupTimeMinutes || 0,
+              teardownTimeMinutes: cd.teardownTimeMinutes || 0,
+              excludeEventId: draft._id.toString(),
+            }, testCollections.events);
+          } catch (err) {
+            // Non-fatal
+          }
+        } else {
+          const conflictEvent = {
+            ...draft,
+            startDateTime: cd.startDateTime,
+            endDateTime: cd.endDateTime,
+            calendarData: { ...cd, locations: roomIds },
+          };
+          const { hardConflicts, softConflicts, allConflicts } = await checkTestConflicts(conflictEvent, draft._id, testCollections.events, testCollections.categories);
+          if (hardConflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'hard',
+              message: `Cannot submit: ${hardConflicts.length} scheduling conflict(s) with published events`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: false,
+            });
+          }
+          if (softConflicts.length > 0 && !req.body.acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
+            });
+          }
         }
       }
 
@@ -893,6 +915,16 @@ function createTestApp(options = {}) {
       const simulatedRole = req.headers['x-simulated-role'];
       if (simulatedRole && !['approver', 'admin'].includes(simulatedRole)) {
         canAutoPublish = false;
+      }
+
+      // Downgrade approver auto-publish to pending when recurring hard conflicts exist
+      // Only admins can auto-publish recurring events with conflicts
+      let conflictDowngradedToPending = false;
+      if (canAutoPublish && isDraftRecurringSubmit &&
+          draftRecurringConflicts?.conflictingOccurrences > 0 &&
+          !isAdmin(userDoc, userEmail)) {
+        canAutoPublish = false;
+        conflictDowngradedToPending = true;
       }
 
       if (canAutoPublish) {
@@ -1009,10 +1041,15 @@ function createTestApp(options = {}) {
           });
         }
 
-        res.json({
+        const pendingResponse = {
           success: true,
           event: submittedEvent,
-        });
+        };
+        if (conflictDowngradedToPending) {
+          pendingResponse.conflictDowngradedToPending = true;
+          pendingResponse.recurringConflicts = draftRecurringConflicts;
+        }
+        res.json(pendingResponse);
       }
     } catch (error) {
       console.error('Error submitting draft:', error);

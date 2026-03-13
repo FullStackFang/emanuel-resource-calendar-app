@@ -422,7 +422,10 @@ import ConflictDialog from './shared/ConflictDialog';
         setEditRequestChangeReason('');
         setOriginalEventData(null);
         // Show recurring conflict warning if applicable
-        if (result?.recurringConflicts?.conflictingOccurrences > 0) {
+        if (result?.conflictDowngradedToPending) {
+          const rc = result.recurringConflicts;
+          showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+        } else if (result?.recurringConflicts?.conflictingOccurrences > 0) {
           const rc = result.recurringConflicts;
           showWarning(`Event published. ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrences have room conflicts.`);
         }

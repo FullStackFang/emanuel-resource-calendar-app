@@ -3992,10 +3992,10 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // Recurring event metadata (authoritative for app, graphData still has raw values)
     unifiedEvent.eventType = graphEvent.type || 'singleInstance';
     unifiedEvent.seriesMasterId = graphEvent.seriesMasterId || null;
-    // Preserve user-defined recurrence (with additions/exclusions) if it exists;
-    // Graph format overwrites these fields, so prefer the stored version
-    if (existingEvent?.recurrence?.additions || existingEvent?.recurrence?.exclusions ||
-        existingEvent?.calendarData?.recurrence?.additions || existingEvent?.calendarData?.recurrence?.exclusions) {
+    // Preserve user-defined recurrence if it exists;
+    // Graph format is incompatible (different field names, Windows timezone strings),
+    // so prefer any stored user recurrence over the Graph version
+    if (existingEvent?.recurrence?.pattern || existingEvent?.calendarData?.recurrence?.pattern) {
       unifiedEvent.recurrence = existingEvent.recurrence || existingEvent.calendarData?.recurrence;
     } else {
       unifiedEvent.recurrence = graphEvent.recurrence || null;
@@ -13772,6 +13772,19 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       }
     }
 
+    // Downgrade approver auto-publish to pending when recurring hard conflicts exist
+    // Only admins can auto-publish recurring events with conflicts
+    let conflictDowngradedToPending = false;
+    if (canAutoPublish && isDraftRecurringSubmit &&
+        draftRecurringConflicts?.conflictingOccurrences > 0 &&
+        !isAdmin(user, userEmail)) {
+      canAutoPublish = false;
+      conflictDowngradedToPending = true;
+      logger.info('Approver recurring draft downgraded to pending due to hard conflicts:', {
+        draftId, conflictingOccurrences: draftRecurringConflicts.conflictingOccurrences
+      });
+    }
+
     const calendarOwner = draft.calendarOwner || getDefaultCalendarOwner();
 
     if (canAutoPublish) {
@@ -13954,7 +13967,12 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         eventTitle: cd.eventTitle
       });
 
-      res.json(submittedReservation);
+      const pendingResponse = { ...submittedReservation };
+      if (conflictDowngradedToPending) {
+        pendingResponse.conflictDowngradedToPending = true;
+        pendingResponse.recurringConflicts = draftRecurringConflicts;
+      }
+      res.json(pendingResponse);
     }
   } catch (error) {
     logger.error('Error submitting draft reservation:', error);
@@ -15346,6 +15364,8 @@ app.put('/api/room-reservations/:id/edit', verifyToken, async (req, res) => {
         'calendarData.isOnBehalfOf': isOnBehalfOf || false,
         'calendarData.contactName': isOnBehalfOf ? contactName : '',
         'calendarData.contactEmail': isOnBehalfOf ? contactEmail : '',
+        // Update eventType when recurrence changes
+        eventType: (recurrence?.pattern && recurrence?.range) ? 'seriesMaster' : 'singleInstance',
         // roomReservationData fields
         'roomReservationData.contactPerson': isOnBehalfOf ? {
           name: contactName || '',
@@ -20542,39 +20562,74 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     if (timeOrRoomChanged && activeStatuses.includes(event.status) && !updates.forceUpdate) {
       const roomIds = updates.locations || updates.requestedRooms || cd.locations || [];
       if (roomIds.length > 0) {
-        const reservationForConflict = {
-          startDateTime: updates.startDateTime || cd.startDateTime,
-          endDateTime: updates.endDateTime || cd.endDateTime,
-          setupTimeMinutes: updates.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
-          teardownTimeMinutes: updates.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
-          calendarData: { locations: roomIds },
-          isAllowedConcurrent: event.isAllowedConcurrent ?? false,
-          categories: updates.categories || cd.categories || []
-        };
-        const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, id);
-        if (hardConflicts.length > 0) {
-          return res.status(409).json({
-            error: 'SchedulingConflict',
-            conflictTier: 'hard',
-            message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
-            hardConflicts,
-            softConflicts,
-            conflicts: allConflicts,
-            canForce: true,
-            forceField: 'forceUpdate',
-            _version: event._version
-          });
-        }
-        if (softConflicts.length > 0 && !updates.acknowledgeSoftConflicts) {
-          return res.status(409).json({
-            error: 'SchedulingConflict',
-            conflictTier: 'soft',
-            message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
-            hardConflicts: [],
-            softConflicts,
-            conflicts: softConflicts,
-            _version: event._version
-          });
+        // Check if this is a recurring series master
+        const saveRecurrence = updates.recurrence || event.recurrence || cd.recurrence;
+        const isRecurringSave = saveRecurrence?.pattern && saveRecurrence?.range;
+
+        if (isRecurringSave) {
+          // Recurring series: expand occurrences and check each one
+          try {
+            const recurringConflicts = await checkRecurringRoomConflicts({
+              startDateTime: updates.startDateTime || cd.startDateTime,
+              endDateTime: updates.endDateTime || cd.endDateTime,
+              recurrence: saveRecurrence,
+              roomIds,
+              setupTimeMinutes: updates.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+              teardownTimeMinutes: updates.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+              excludeEventId: id,
+              isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+              categories: updates.categories || cd.categories || [],
+            });
+            if (recurringConflicts && recurringConflicts.totalHardConflicts > 0) {
+              return res.status(409).json({
+                error: 'SchedulingConflict',
+                conflictTier: 'hard',
+                message: `Cannot save: ${recurringConflicts.totalHardConflicts} scheduling conflict(s) across ${recurringConflicts.occurrencesWithConflicts} occurrence(s)`,
+                recurringConflicts,
+                canForce: true,
+                forceField: 'forceUpdate',
+                _version: event._version
+              });
+            }
+          } catch (err) {
+            logger.warn('Non-fatal: recurring conflict check failed during admin save:', err.message);
+          }
+        } else {
+          // Single event: use standard conflict check
+          const reservationForConflict = {
+            startDateTime: updates.startDateTime || cd.startDateTime,
+            endDateTime: updates.endDateTime || cd.endDateTime,
+            setupTimeMinutes: updates.setupTimeMinutes ?? cd.setupTimeMinutes ?? 0,
+            teardownTimeMinutes: updates.teardownTimeMinutes ?? cd.teardownTimeMinutes ?? 0,
+            calendarData: { locations: roomIds },
+            isAllowedConcurrent: event.isAllowedConcurrent ?? false,
+            categories: updates.categories || cd.categories || []
+          };
+          const { hardConflicts, softConflicts, allConflicts } = await checkRoomConflicts(reservationForConflict, id);
+          if (hardConflicts.length > 0) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'hard',
+              message: `Cannot save: ${hardConflicts.length} scheduling conflict(s) with published events`,
+              hardConflicts,
+              softConflicts,
+              conflicts: allConflicts,
+              canForce: true,
+              forceField: 'forceUpdate',
+              _version: event._version
+            });
+          }
+          if (softConflicts.length > 0 && !updates.acknowledgeSoftConflicts) {
+            return res.status(409).json({
+              error: 'SchedulingConflict',
+              conflictTier: 'soft',
+              message: `${softConflicts.length} pending edit request(s) may conflict with this time`,
+              hardConflicts: [],
+              softConflicts,
+              conflicts: softConflicts,
+              _version: event._version
+            });
+          }
         }
       }
     }

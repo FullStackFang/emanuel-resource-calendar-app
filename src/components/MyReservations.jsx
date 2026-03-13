@@ -40,7 +40,13 @@ export default function MyReservations({ apiToken }) {
   // --- useReviewModal hook (replaces manual modal state) ---
   const reviewModal = useReviewModal({
     apiToken,
-    onSuccess: () => { loadMyReservations(); },
+    onSuccess: (result) => {
+      loadMyReservations();
+      if (result?.conflictDowngradedToPending) {
+        const rc = result.recurringConflicts;
+        showWarning(`Recurring event sent to pending: ${rc.conflictingOccurrences} of ${rc.totalOccurrences} occurrence(s) have scheduling conflicts. An admin must review before publishing.`);
+      }
+    },
     onError: (error) => { showError(error, { context: 'MyReservations' }); }
   });
 

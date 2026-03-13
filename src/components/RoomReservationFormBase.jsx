@@ -322,10 +322,9 @@ export default function RoomReservationFormBase({
   // Mirrors the categories/services sync pattern above
   const recurrenceKey = JSON.stringify(initialData?.recurrence || null);
   useEffect(() => {
-    if (initialData?.recurrence) {
-      setRecurrencePattern(initialData.recurrence);
-      recurrencePatternRef.current = initialData.recurrence;
-    }
+    const newRecurrence = initialData?.recurrence || null;
+    setRecurrencePattern(newRecurrence);
+    recurrencePatternRef.current = newRecurrence;
   }, [recurrenceKey]);
 
   const { rooms, loading: roomsLoading } = useRooms();

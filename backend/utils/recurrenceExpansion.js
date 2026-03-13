@@ -40,11 +40,18 @@ function isDateInPattern(date, pattern, startDate) {
       const normalizedDays = daysOfWeek.map(d => d.toLowerCase());
       if (!normalizedDays.includes(checkDayName)) return false;
 
+      // Anchor to the Sunday of each week so multi-day patterns (e.g., Tue+Thu)
+      // are grouped into the same week before checking the interval
       const checkMidnight = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
       const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      const daysDiff = Math.floor((checkMidnight - startMidnight) / (1000 * 60 * 60 * 24));
-      const weeksDiff = Math.floor(daysDiff / 7);
-      return weeksDiff % interval === 0;
+
+      const startSunday = new Date(startMidnight);
+      startSunday.setDate(startSunday.getDate() - startMidnight.getDay());
+      const checkSunday = new Date(checkMidnight);
+      checkSunday.setDate(checkSunday.getDate() - checkMidnight.getDay());
+
+      const weeksDiff = Math.round((checkSunday - startSunday) / (7 * 24 * 60 * 60 * 1000));
+      return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
 
     case 'monthly': {
@@ -120,7 +127,7 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
       const pad = (n) => String(n).padStart(2, '0');
       const dateStr = `${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(current.getDate())}`;
 
-      // Skip excluded dates
+      // Skip excluded dates — don't count them toward numbered limit
       if (!exclusions.includes(dateStr)) {
         // Apply per-occurrence override times if present
         const override = overrideMap[dateStr];
@@ -129,8 +136,8 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
           startDateTime: (override?.startDateTime) || `${dateStr}T${startTimePart}`,
           endDateTime: (override?.endDateTime) || `${dateStr}T${endTimePart}`,
         });
+        count++;
       }
-      count++;
     }
     current.setDate(current.getDate() + 1);
   }
@@ -161,9 +168,13 @@ function expandAllOccurrences(recurrence, masterStartDateTime, masterEndDateTime
   const toDateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
   const patternStart = new Date(range.startDate + 'T00:00:00');
+  // For noEnd/numbered ranges, cap at 2 years from now (not from startDate)
+  // so that old series still produce future occurrences for conflict detection
+  const now = new Date();
+  const twoYearsFromNow = new Date(now.getTime() + 2 * 365 * 24 * 60 * 60 * 1000);
   const patternEnd = range.type === 'endDate' && range.endDate
     ? new Date(range.endDate + 'T23:59:59')
-    : new Date(patternStart.getTime() + 365 * 24 * 60 * 60 * 1000); // 1 year default
+    : twoYearsFromNow;
 
   const maxOcc = range.type === 'numbered' ? (range.numberOfOccurrences || MAX_OCCURRENCES) : MAX_OCCURRENCES;
   const occurrenceDates = new Set();
@@ -183,8 +194,8 @@ function expandAllOccurrences(recurrence, masterStartDateTime, masterEndDateTime
           startDateTime: `${dateStr}T${startTimePart}`,
           endDateTime: `${dateStr}T${endTimePart}`,
         });
+        count++;
       }
-      count++;
     }
     current.setDate(current.getDate() + 1);
   }

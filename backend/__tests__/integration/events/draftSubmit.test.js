@@ -1,11 +1,12 @@
 /**
- * Draft Submit Tests (DS-1 to DS-10)
+ * Draft Submit Tests (DS-1 to DS-13)
  *
  * Tests the draft submission workflow including:
  * - Requester submit → pending
  * - Admin/Approver submit → auto-published with Graph event
  * - Cross-user permissions
  * - Validation
+ * - Recurring draft conflict downgrade (approver → pending, admin → published)
  */
 
 const request = require('supertest');
@@ -24,13 +25,14 @@ const {
 } = require('../../__helpers__/userFactory');
 const {
   createDraftEvent,
+  createPublishedEvent,
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Draft Submit Tests (DS-1 to DS-10)', () => {
+describe('Draft Submit Tests (DS-1 to DS-13)', () => {
   let mongoServer;
   let mongoClient;
   let db;
@@ -381,6 +383,140 @@ describe('Draft Submit Tests (DS-1 to DS-10)', () => {
           expect.stringMatching(/category/i),
         ])
       );
+    });
+  });
+
+  describe('DS-11: Approver recurring draft with hard conflicts goes to pending', () => {
+    it('should downgrade to pending when recurring occurrences conflict with published events', async () => {
+      // Use a fixed Tuesday start date matching the recurring pattern
+      const tuesdayStart = new Date('2026-03-17T10:00:00');
+      const tuesdayEnd = new Date('2026-03-17T11:00:00');
+
+      // Create a published event at the same time/room on a Tuesday that the recurring pattern will hit
+      const conflictingEvent = createPublishedEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Blocking Published Event',
+        startDateTime: tuesdayStart,
+        endDateTime: tuesdayEnd,
+        locations: [{ displayName: 'Room A' }],
+        locationDisplayNames: ['Room A'],
+        categories: ['Meeting'],
+      });
+      await insertEvents(db, [conflictingEvent]);
+
+      // Create a recurring draft for the approver with same room/time
+      const recurringDraft = createCompleteDraft({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Recurring Draft',
+        startDateTime: tuesdayStart,
+        endDateTime: tuesdayEnd,
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-17', endDate: '2026-04-14' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+      const [savedDraft] = await insertEvents(db, [recurringDraft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PENDING);
+      expect(res.body.autoPublished).toBeUndefined();
+      expect(res.body.conflictDowngradedToPending).toBe(true);
+      expect(res.body.recurringConflicts).toBeDefined();
+      expect(res.body.recurringConflicts.conflictingOccurrences).toBeGreaterThan(0);
+      // No Graph event should have been created
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls).toHaveLength(0);
+    });
+  });
+
+  describe('DS-12: Admin recurring draft with hard conflicts still auto-publishes', () => {
+    it('should auto-publish for admin even when recurring occurrences have conflicts', async () => {
+      const tuesdayStart = new Date('2026-03-17T10:00:00');
+      const tuesdayEnd = new Date('2026-03-17T11:00:00');
+
+      // Create a conflicting published event
+      const conflictingEvent = createPublishedEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Blocking Published Event',
+        startDateTime: tuesdayStart,
+        endDateTime: tuesdayEnd,
+        locations: [{ displayName: 'Room A' }],
+        locationDisplayNames: ['Room A'],
+        categories: ['Meeting'],
+      });
+      await insertEvents(db, [conflictingEvent]);
+
+      // Create a recurring draft for the admin
+      const recurringDraft = createCompleteDraft({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Admin Recurring Draft',
+        startDateTime: tuesdayStart,
+        endDateTime: tuesdayEnd,
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-17', endDate: '2026-04-14' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+      const [savedDraft] = await insertEvents(db, [recurringDraft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
+      expect(res.body.conflictDowngradedToPending).toBeUndefined();
+      expect(res.body.graphEventId).toBeDefined();
+    });
+  });
+
+  describe('DS-13: Approver recurring draft without conflicts still auto-publishes', () => {
+    it('should auto-publish for approver when no recurring conflicts exist', async () => {
+      const tuesdayStart = new Date('2026-03-17T10:00:00');
+      const tuesdayEnd = new Date('2026-03-17T11:00:00');
+
+      // No conflicting events inserted — rooms are free
+
+      const recurringDraft = createCompleteDraft({
+        userId: approverUser.odataId,
+        requesterEmail: approverUser.email,
+        eventTitle: 'Approver Recurring No Conflict',
+        startDateTime: tuesdayStart,
+        endDateTime: tuesdayEnd,
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-17', endDate: '2026-04-14' },
+          additions: [],
+          exclusions: [],
+        },
+      });
+      const [savedDraft] = await insertEvents(db, [recurringDraft]);
+
+      const res = await request(app)
+        .post(`/api/room-reservations/draft/${savedDraft._id}/submit`)
+        .set('Authorization', `Bearer ${approverToken}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.event.status).toBe(STATUS.PUBLISHED);
+      expect(res.body.autoPublished).toBe(true);
+      expect(res.body.conflictDowngradedToPending).toBeUndefined();
+      expect(res.body.graphEventId).toBeDefined();
     });
   });
 });
