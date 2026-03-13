@@ -1516,7 +1516,121 @@ function createTestApp(options = {}) {
         });
       }
 
-      // Soft delete
+      const { editScope, occurrenceDate, _version } = req.body;
+
+      // Handle single occurrence deletion for recurring events
+      if (editScope === 'thisEvent') {
+        // Resolve recurrence from top-level or calendarData (production stores in calendarData)
+        const recurrence = event.recurrence || event.calendarData?.recurrence;
+        const recurrencePath = event.recurrence ? 'recurrence' : 'calendarData.recurrence';
+
+        // Validate series master
+        if (event.eventType !== 'seriesMaster' || !recurrence) {
+          return res.status(400).json({
+            error: 'InvalidEventType',
+            message: 'Cannot delete single occurrence: event is not a recurring series master'
+          });
+        }
+
+        const dateKey = occurrenceDate ? occurrenceDate.split('T')[0] : null;
+        if (!dateKey) {
+          return res.status(400).json({
+            error: 'MissingOccurrenceDate',
+            message: 'occurrenceDate is required for single occurrence deletion'
+          });
+        }
+
+        // OCC version check
+        if (_version != null && event._version != null && event._version !== _version) {
+          return res.status(409).json({
+            error: 'VERSION_CONFLICT',
+            details: {
+              code: 'VERSION_CONFLICT',
+              expectedVersion: _version,
+              currentVersion: event._version
+            }
+          });
+        }
+
+        const now = new Date();
+
+        // Add to exclusions and push statusHistory
+        await testCollections.events.updateOne(query, {
+          $addToSet: { [recurrencePath + '.exclusions']: dateKey },
+          $push: {
+            statusHistory: {
+              status: event.status,
+              changedAt: now,
+              changedBy: userId,
+              changedByEmail: userEmail,
+              reason: `Occurrence ${dateKey} excluded (deleted)`
+            }
+          },
+          $set: {
+            lastModifiedDateTime: now,
+            lastModifiedBy: userId,
+            _version: (event._version || 0) + 1
+          }
+        });
+
+        // Clean up overrides and additions
+        const cleanupOps = {};
+        if (event.occurrenceOverrides && event.occurrenceOverrides.some(o => o.occurrenceDate === dateKey)) {
+          cleanupOps.$pull = { occurrenceOverrides: { occurrenceDate: dateKey } };
+        }
+        if (recurrence.additions && recurrence.additions.includes(dateKey)) {
+          if (!cleanupOps.$pull) cleanupOps.$pull = {};
+          cleanupOps.$pull[recurrencePath + '.additions'] = dateKey;
+        }
+        if (Object.keys(cleanupOps).length > 0) {
+          await testCollections.events.updateOne(query, cleanupOps);
+        }
+
+        // Check remaining occurrences
+        const masterStart = event.calendarData?.startDateTime || event.startDateTime;
+        const masterEnd = event.calendarData?.endDateTime || event.endDateTime;
+        const updatedExclusions = [...new Set([...(recurrence.exclusions || []), dateKey])];
+        const updatedAdditions = (recurrence.additions || []).filter(a => a !== dateKey);
+        const updatedRecurrence = {
+          ...recurrence,
+          exclusions: updatedExclusions,
+          additions: updatedAdditions
+        };
+        const remaining = expandAllOccurrences(updatedRecurrence, masterStart, masterEnd);
+        let autoDeleted = false;
+
+        if (remaining.length === 0) {
+          await testCollections.events.updateOne(query, {
+            $set: {
+              status: 'deleted',
+              isDeleted: true,
+              deletedAt: now,
+              deletedBy: userId
+            },
+            $push: {
+              statusHistory: {
+                status: 'deleted',
+                changedAt: now,
+                changedBy: userId,
+                changedByEmail: userEmail,
+                reason: 'Auto-deleted: all occurrences excluded'
+              }
+            }
+          });
+          autoDeleted = true;
+        }
+
+        return res.json({
+          success: true,
+          occurrenceExcluded: true,
+          excludedDate: dateKey,
+          remainingOccurrences: remaining.length,
+          autoDeleted,
+          _version: (event._version || 0) + 1
+        });
+      }
+
+      // Soft delete (allEvents scope or non-recurring)
       const now = new Date();
       await testCollections.events.updateOne(query, {
         $set: {

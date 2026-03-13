@@ -4001,6 +4001,11 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       unifiedEvent.recurrence = graphEvent.recurrence || null;
     }
 
+    // Preserve per-occurrence overrides — app-only, Graph has no equivalent
+    if (existingEvent?.occurrenceOverrides?.length) {
+      unifiedEvent.occurrenceOverrides = existingEvent.occurrenceOverrides;
+    }
+
     // Timing fields from enrichment data
     unifiedEvent.setupTime = internalData.setupTime || '';
     unifiedEvent.teardownTime = internalData.teardownTime || '';
@@ -4061,6 +4066,11 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
     // Preserve original user-defined recurrence pattern if it exists
     if (existingEvent?.calendarData?.recurrence || existingEvent?.internalData?.recurrence) {
       unifiedEvent.calendarData.recurrence = existingEvent.calendarData?.recurrence || existingEvent.internalData.recurrence;
+    }
+
+    // Preserve per-occurrence overrides in calendarData — app-only, Graph has no equivalent
+    if (existingEvent?.occurrenceOverrides?.length) {
+      unifiedEvent.calendarData.occurrenceOverrides = existingEvent.occurrenceOverrides;
     }
 
     // Use upsert to handle updates while preserving internal data
@@ -21443,7 +21453,139 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
       });
     }
 
-    // Step 3: Soft delete with version guard
+    // Step 3: For 'thisEvent' scope on a seriesMaster, exclude the occurrence instead of soft-deleting
+    if (editScope === 'thisEvent') {
+      // Resolve recurrence from top-level or calendarData (production stores in calendarData)
+      const recurrence = event.recurrence || event.calendarData?.recurrence;
+      const recurrencePath = event.recurrence ? 'recurrence' : 'calendarData.recurrence';
+
+      // Validate that this is actually a series master with recurrence
+      if (event.eventType !== 'seriesMaster' || !recurrence) {
+        return res.status(400).json({
+          error: 'InvalidEventType',
+          message: 'Cannot delete single occurrence: event is not a recurring series master'
+        });
+      }
+
+      const dateKey = occurrenceDate ? occurrenceDate.split('T')[0] : null;
+      if (!dateKey) {
+        return res.status(400).json({
+          error: 'MissingOccurrenceDate',
+          message: 'occurrenceDate is required for single occurrence deletion'
+        });
+      }
+
+      logger.log('🔄 Excluding single occurrence from series:', { dateKey });
+
+      // Build the update: add to exclusions, clean up overrides/additions
+      const updateOps = {
+        $addToSet: { [recurrencePath + '.exclusions']: dateKey },
+        $push: {
+          statusHistory: {
+            status: event.status,
+            changedAt: new Date(),
+            changedBy: userId,
+            changedByEmail: userEmail,
+            reason: `Occurrence ${dateKey} excluded (deleted)`
+          }
+        },
+        $set: {
+          lastModifiedDateTime: new Date(),
+          lastModifiedBy: userId,
+          lastModifiedByEmail: userEmail
+        }
+      };
+
+      let updatedEvent;
+      try {
+        updatedEvent = await conditionalUpdate(
+          unifiedEventsCollection,
+          { _id: new ObjectId(id) },
+          updateOps,
+          {
+            expectedVersion: _version || null,
+            modifiedBy: userEmail,
+            snapshotFields: CONFLICT_SNAPSHOT_FIELDS
+          }
+        );
+      } catch (err) {
+        if (err.statusCode === 409) {
+          return res.status(409).json(err.toJSON());
+        }
+        throw err;
+      }
+
+      // Clean up: pull matching occurrenceOverrides and additions (separate update to avoid $addToSet + $pull conflict)
+      const cleanupOps = {};
+      if (event.occurrenceOverrides && event.occurrenceOverrides.some(o => o.occurrenceDate === dateKey)) {
+        cleanupOps.$pull = { occurrenceOverrides: { occurrenceDate: dateKey } };
+      }
+      if (recurrence.additions && recurrence.additions.includes(dateKey)) {
+        if (!cleanupOps.$pull) cleanupOps.$pull = {};
+        cleanupOps.$pull[recurrencePath + '.additions'] = dateKey;
+      }
+      if (Object.keys(cleanupOps).length > 0) {
+        await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, cleanupOps);
+      }
+
+      // Check remaining occurrences - auto-delete master if series is now empty
+      const masterStart = event.calendarData?.startDateTime || event.startDateTime;
+      const masterEnd = event.calendarData?.endDateTime || event.endDateTime;
+      // Build updated recurrence with the new exclusion applied
+      const updatedExclusions = [...new Set([...(recurrence.exclusions || []), dateKey])];
+      const updatedAdditions = (recurrence.additions || []).filter(a => a !== dateKey);
+      const updatedRecurrence = {
+        ...recurrence,
+        exclusions: updatedExclusions,
+        additions: updatedAdditions
+      };
+      const remaining = expandAllOccurrences(updatedRecurrence, masterStart, masterEnd);
+      let autoDeleted = false;
+
+      if (remaining.length === 0) {
+        logger.log('⚠️ No remaining occurrences - auto-deleting series master');
+        await unifiedEventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status: 'deleted',
+              isDeleted: true,
+              deletedAt: new Date(),
+              deletedBy: userId,
+              deletedByEmail: userEmail
+            },
+            $push: {
+              statusHistory: {
+                status: 'deleted',
+                changedAt: new Date(),
+                changedBy: userId,
+                changedByEmail: userEmail,
+                reason: 'Auto-deleted: all occurrences excluded'
+              }
+            }
+          }
+        );
+        autoDeleted = true;
+      }
+
+      logger.log('✅ Occurrence excluded from series:', {
+        dateKey,
+        remainingOccurrences: remaining.length,
+        autoDeleted
+      });
+      logger.log('========== DELETE COMPLETE ==========\n');
+
+      return res.json({
+        success: true,
+        occurrenceExcluded: true,
+        excludedDate: dateKey,
+        remainingOccurrences: remaining.length,
+        autoDeleted,
+        _version: updatedEvent._version
+      });
+    }
+
+    // Step 3b: Soft delete with version guard (for allEvents scope or non-recurring)
     logger.log('🔄 Soft-deleting from MongoDB...');
     let deletedEvent;
     try {

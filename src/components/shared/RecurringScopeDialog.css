@@ -223,6 +223,16 @@
   background: var(--color-primary-600);
 }
 
+.recurring-scope-btn-delete {
+  background: var(--color-error-500);
+  border: none;
+  color: var(--text-inverse);
+}
+
+.recurring-scope-btn-delete:hover {
+  background: var(--color-error-600);
+}
+
 /* ==========================================================================
    RESPONSIVE DESIGN
    ========================================================================== */

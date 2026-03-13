@@ -15,13 +15,15 @@ import './RecurringScopeDialog.css';
  * @param {Function} onSelectScope - Called with scope ('thisEvent' | 'allEvents')
  * @param {string} eventSubject - The event title to display
  * @param {string} eventDate - The occurrence date to display
+ * @param {'edit'|'delete'} mode - Whether this is for editing or deleting
  */
 export default function RecurringScopeDialog({
   isOpen,
   onClose,
   onSelectScope,
   eventSubject = 'Recurring Event',
-  eventDate = ''
+  eventDate = '',
+  mode = 'edit'
 }) {
   const [selectedScope, setSelectedScope] = useState('thisEvent');
 
@@ -86,7 +88,9 @@ export default function RecurringScopeDialog({
             <p className="recurring-scope-date">{eventDate}</p>
           )}
           <p className="recurring-scope-prompt">
-            This event is part of a series. What would you like to edit?
+            {mode === 'delete'
+              ? 'This event is part of a series. What would you like to delete?'
+              : 'This event is part of a series. What would you like to edit?'}
           </p>
 
           {/* Options */}
@@ -102,9 +106,13 @@ export default function RecurringScopeDialog({
                 onChange={() => setSelectedScope('thisEvent')}
               />
               <div className="recurring-scope-option-content">
-                <span className="recurring-scope-option-title">This event only</span>
+                <span className="recurring-scope-option-title">
+                  {mode === 'delete' ? 'Delete just this occurrence' : 'This event only'}
+                </span>
                 <span className="recurring-scope-option-desc">
-                  Edit just this occurrence
+                  {mode === 'delete'
+                    ? 'The rest of the series will remain unchanged'
+                    : 'Edit just this occurrence'}
                 </span>
               </div>
             </label>
@@ -120,9 +128,13 @@ export default function RecurringScopeDialog({
                 onChange={() => setSelectedScope('allEvents')}
               />
               <div className="recurring-scope-option-content">
-                <span className="recurring-scope-option-title">All events in the series</span>
+                <span className="recurring-scope-option-title">
+                  {mode === 'delete' ? 'Delete the entire recurring series' : 'All events in the series'}
+                </span>
                 <span className="recurring-scope-option-desc">
-                  Edit the entire recurring event including recurrence pattern
+                  {mode === 'delete'
+                    ? 'All occurrences of this event will be deleted'
+                    : 'Edit the entire recurring event including recurrence pattern'}
                 </span>
               </div>
             </label>
@@ -138,10 +150,10 @@ export default function RecurringScopeDialog({
             Cancel
           </button>
           <button
-            className="recurring-scope-btn recurring-scope-btn-continue"
+            className={`recurring-scope-btn ${mode === 'delete' ? 'recurring-scope-btn-delete' : 'recurring-scope-btn-continue'}`}
             onClick={handleContinue}
           >
-            Continue
+            {mode === 'delete' ? 'Delete' : 'Continue'}
           </button>
         </div>
       </div>

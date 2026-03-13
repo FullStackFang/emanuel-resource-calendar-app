@@ -745,7 +745,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       }
 
       const result = await response.json();
-      if (onSuccess) onSuccess({ ...result, deleted: true });
+      if (result.occurrenceExcluded) {
+        // Single occurrence was excluded from series - series still alive
+        if (onSuccess) onSuccess({ ...result, occurrenceExcluded: true });
+      } else {
+        if (onSuccess) onSuccess({ ...result, deleted: true });
+      }
       await closeModal(true);
       return { success: true, data: result };
     } catch (error) {

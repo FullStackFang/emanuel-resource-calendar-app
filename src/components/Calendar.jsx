@@ -406,7 +406,8 @@ import ConflictDialog from './shared/ConflictDialog';
     // Recurring event scope dialog state
     const [recurringScopeDialog, setRecurringScopeDialog] = useState({
       isOpen: false,
-      pendingEvent: null
+      pendingEvent: null,
+      mode: 'edit'
     });
 
     // Review modal hook for handling review functionality
@@ -7273,6 +7274,7 @@ import ConflictDialog from './shared/ConflictDialog';
               })
             : ''
           }
+          mode={recurringScopeDialog.mode}
         />
 
         {/* Review Modal for Room Reservations and Event Review */}
