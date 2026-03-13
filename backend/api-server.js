@@ -13669,9 +13669,7 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
     }
 
     // Look up user and check role for auto-publish
-    const user = await usersCollection.findOne({
-      $or: [{ odataId: userId }, { email: userEmail }]
-    });
+    const user = await findUserByIdentity(usersCollection, userId, userEmail);
 
     // Permission check: requester role or higher required
     if (!canSubmitReservation(user, userEmail)) {
