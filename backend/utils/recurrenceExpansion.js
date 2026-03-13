@@ -54,12 +54,14 @@ function isDateInPattern(date, pattern, startDate) {
       return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
 
+    case 'absoluteMonthly':
     case 'monthly': {
       const monthsDiff = (checkDate.getFullYear() - start.getFullYear()) * 12 +
                          (checkDate.getMonth() - start.getMonth());
       return checkDate.getDate() === start.getDate() && monthsDiff % interval === 0;
     }
 
+    case 'absoluteYearly':
     case 'yearly': {
       const yearsDiff = checkDate.getFullYear() - start.getFullYear();
       return checkDate.getMonth() === start.getMonth() &&
@@ -129,12 +131,13 @@ function expandRecurringOccurrencesInWindow(masterEvent, windowStart, windowEnd)
 
       // Skip excluded dates — don't count them toward numbered limit
       if (!exclusions.includes(dateStr)) {
-        // Apply per-occurrence override times if present
+        // Apply per-occurrence override times and locations if present
         const override = overrideMap[dateStr];
         occurrences.push({
           occurrenceDate: dateStr,
           startDateTime: (override?.startDateTime) || `${dateStr}T${startTimePart}`,
           endDateTime: (override?.endDateTime) || `${dateStr}T${endTimePart}`,
+          ...(override?.locations !== undefined && { locations: override.locations }),
         });
         count++;
       }

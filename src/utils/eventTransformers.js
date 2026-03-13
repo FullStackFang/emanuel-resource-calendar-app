@@ -33,6 +33,11 @@ import { extractTextFromHtml } from './textUtils';
  * @returns {*} The field value from appropriate source or default
  */
 function getField(event, field, defaultValue = undefined) {
+  // For recurring occurrences with overrides, top-level fields ARE the override
+  // and must take priority over calendarData (which has master values)
+  if (event.isRecurringOccurrence && event.hasOccurrenceOverride) {
+    if (event[field] !== undefined) return event[field];
+  }
   // First check calendarData (authoritative for MongoDB documents)
   if (event.calendarData?.[field] !== undefined) {
     return event.calendarData[field];

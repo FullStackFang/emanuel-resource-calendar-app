@@ -496,6 +496,99 @@ async function checkTestRecurringConflicts(params, eventsCollection) {
 }
 
 /**
+ * Extract time portion (HH:MM:SS) from a value that may be a Date, string, or null.
+ */
+function extractTimePart(val, fallback) {
+  if (!val) return fallback;
+  if (val instanceof Date) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}`;
+  }
+  if (typeof val === 'string' && val.includes('T')) return val.split('T')[1].replace(/Z$/, '') || fallback;
+  return fallback;
+}
+
+/**
+ * Build Graph API compatible recurrence object from internal format.
+ * Mirrors buildGraphRecurrence() in api-server.js.
+ */
+function buildGraphRecurrence(recurrence) {
+  if (!recurrence?.pattern || !recurrence?.range) return null;
+
+  const graphTypeMap = { 'monthly': 'absoluteMonthly', 'yearly': 'absoluteYearly' };
+  const rawType = recurrence.pattern.type || 'weekly';
+
+  const pattern = {
+    type: graphTypeMap[rawType] || rawType,
+    interval: recurrence.pattern.interval || 1,
+  };
+  if (recurrence.pattern.daysOfWeek) pattern.daysOfWeek = recurrence.pattern.daysOfWeek;
+  if (recurrence.pattern.dayOfMonth) pattern.dayOfMonth = recurrence.pattern.dayOfMonth;
+  if (recurrence.pattern.month) pattern.month = recurrence.pattern.month;
+  if (recurrence.pattern.index) pattern.index = recurrence.pattern.index;
+  if (recurrence.pattern.firstDayOfWeek && rawType === 'weekly') {
+    pattern.firstDayOfWeek = recurrence.pattern.firstDayOfWeek;
+  }
+
+  const range = {
+    type: recurrence.range.type || 'noEnd',
+    startDate: recurrence.range.startDate,
+    recurrenceTimeZone: recurrence.range.recurrenceTimeZone || 'Eastern Standard Time',
+  };
+  if (recurrence.range.type === 'endDate' && recurrence.range.endDate) range.endDate = recurrence.range.endDate;
+  if (recurrence.range.type === 'numbered' && recurrence.range.numberOfOccurrences) {
+    range.numberOfOccurrences = recurrence.range.numberOfOccurrences;
+  }
+  return { pattern, range };
+}
+
+/**
+ * Sync recurrence exclusions/additions to Graph after series creation.
+ * Mirrors syncRecurrenceExceptionsToGraph() in api-server.js.
+ */
+async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, seriesId, recurrence, eventData) {
+  const results = { cancelledOccurrences: [], additionEventIds: [] };
+
+  if (recurrence.exclusions?.length) {
+    for (const exclusionDate of recurrence.exclusions) {
+      try {
+        const dayStart = `${exclusionDate}T00:00:00`;
+        const dayEnd = `${exclusionDate}T23:59:59`;
+        const instances = await graphApiMock.getRecurringEventInstances(
+          calendarOwner, calendarId, seriesId, dayStart, dayEnd
+        );
+        const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+        const match = instanceList.find(inst => inst.start?.dateTime?.startsWith(exclusionDate));
+        if (match) {
+          await graphApiMock.deleteCalendarEvent(calendarOwner, calendarId, match.id);
+          results.cancelledOccurrences.push({ date: exclusionDate, graphId: match.id });
+        }
+      } catch (err) { /* ignore per-exclusion errors in tests */ }
+    }
+  }
+
+  if (recurrence.additions?.length) {
+    const timePart = eventData.start?.dateTime?.split('T')[1] || eventData.startDateTime?.split('T')[1] || '09:00:00';
+    const endTimePart = eventData.end?.dateTime?.split('T')[1] || eventData.endDateTime?.split('T')[1] || '10:00:00';
+    for (const additionDate of recurrence.additions) {
+      try {
+        const additionEvent = {
+          subject: eventData.subject || eventData.eventTitle,
+          start: { dateTime: `${additionDate}T${timePart}`, timeZone: 'America/New_York' },
+          end: { dateTime: `${additionDate}T${endTimePart}`, timeZone: 'America/New_York' },
+          body: eventData.body,
+          categories: eventData.categories,
+        };
+        const created = await graphApiMock.createCalendarEvent(calendarOwner, calendarId, additionEvent);
+        results.additionEventIds.push({ date: additionDate, graphId: created.id });
+      } catch (err) { /* ignore per-addition errors in tests */ }
+    }
+  }
+
+  return results;
+}
+
+/**
  * Create the test Express application
  * @param {Object} options - App configuration options
  * @returns {Express} Configured Express app
@@ -701,6 +794,44 @@ function createTestApp(options = {}) {
         if (req.body.eventDescription !== undefined) overrideFields.eventDescription = req.body.eventDescription;
         if (req.body.startTime) overrideFields.startDateTime = `${dateKey}T${req.body.startTime}`;
         if (req.body.endTime) overrideFields.endDateTime = `${dateKey}T${req.body.endTime}`;
+        if (req.body.setupTime !== undefined) overrideFields.setupTime = req.body.setupTime;
+        if (req.body.teardownTime !== undefined) overrideFields.teardownTime = req.body.teardownTime;
+        if (req.body.doorOpenTime !== undefined) overrideFields.doorOpenTime = req.body.doorOpenTime;
+        if (req.body.doorCloseTime !== undefined) overrideFields.doorCloseTime = req.body.doorCloseTime;
+        if (req.body.categories !== undefined || req.body.mecCategories !== undefined) overrideFields.categories = req.body.categories || req.body.mecCategories;
+        if (req.body.services !== undefined) overrideFields.services = req.body.services;
+        if (req.body.isOffsite !== undefined) overrideFields.isOffsite = req.body.isOffsite;
+        if (req.body.offsiteName !== undefined) overrideFields.offsiteName = req.body.offsiteName;
+        if (req.body.offsiteAddress !== undefined) overrideFields.offsiteAddress = req.body.offsiteAddress;
+
+        // Handle locations
+        const rawLocations = req.body.requestedRooms || req.body.locations;
+        if (rawLocations !== undefined) {
+          if (Array.isArray(rawLocations) && rawLocations.length > 0) {
+            try {
+              const locationIds = rawLocations.map(lid =>
+                typeof lid === 'string' ? new ObjectId(lid) : lid
+              );
+              overrideFields.locations = locationIds;
+
+              const locationDocs = await testCollections.locations.find({
+                _id: { $in: locationIds }
+              }).toArray();
+              const displayNames = locationDocs
+                .map(loc => loc.displayName || loc.name || '')
+                .filter(Boolean)
+                .join('; ');
+              if (displayNames) {
+                overrideFields.locationDisplayNames = displayNames;
+              }
+            } catch (locErr) {
+              overrideFields.locations = rawLocations;
+            }
+          } else {
+            overrideFields.locations = [];
+            overrideFields.locationDisplayNames = '';
+          }
+        }
 
         // Remove existing override for this date, then add new one
         await testCollections.events.updateOne(
@@ -763,8 +894,8 @@ function createTestApp(options = {}) {
         updateFields.eventType = 'singleInstance';
       }
 
-      // Clear per-occurrence overrides when saving all events
-      if (editScope === 'allEvents' || clearOccurrenceOverrides) {
+      // Clear per-occurrence overrides only when explicitly requested (recurrence pattern changed)
+      if (clearOccurrenceOverrides) {
         updateFields.occurrenceOverrides = [];
       }
 
@@ -938,13 +1069,34 @@ function createTestApp(options = {}) {
         // Include recurrence if draft has recurring pattern
         const draftRecurrence = draft.recurrence || cd.recurrence;
         if (draftRecurrence?.pattern && draftRecurrence?.range) {
-          draftGraphData.recurrence = { pattern: draftRecurrence.pattern, range: draftRecurrence.range };
+          const graphRecurrence = buildGraphRecurrence(draftRecurrence);
+          if (graphRecurrence) {
+            draftGraphData.recurrence = graphRecurrence;
+            // Align start/end dates with range.startDate
+            const rangeStart = graphRecurrence.range.startDate;
+            if (rangeStart) {
+              const startTime = extractTimePart(draftGraphData.startDateTime, '00:00:00');
+              const endTime = extractTimePart(draftGraphData.endDateTime, '23:59:00');
+              draftGraphData.start = { dateTime: `${rangeStart}T${startTime}`, timeZone: 'America/New_York' };
+              draftGraphData.end = { dateTime: `${rangeStart}T${endTime}`, timeZone: 'America/New_York' };
+            }
+          }
         }
         const graphResult = await graphApiMock.createCalendarEvent(
           TEST_CALENDAR_OWNER,
           null,
           draftGraphData
         );
+
+        // Sync exclusions/additions to Graph after series creation
+        let draftSyncResults = null;
+        if (draftRecurrence && (draftRecurrence.exclusions?.length || draftRecurrence.additions?.length)) {
+          try {
+            draftSyncResults = await syncRecurrenceExceptionsToGraph(
+              TEST_CALENDAR_OWNER, null, graphResult.id, draftRecurrence, draftGraphData
+            );
+          } catch (syncError) { /* ignore in tests */ }
+        }
 
         const draftPublishSet = {
             status: 'published',
@@ -964,6 +1116,13 @@ function createTestApp(options = {}) {
         // Set eventType for recurring events
         if (draftRecurrence?.pattern && draftRecurrence?.range) {
           draftPublishSet.eventType = 'seriesMaster';
+        }
+        // Persist recurrence exception sync results
+        if (draftSyncResults?.cancelledOccurrences?.length) {
+          draftPublishSet.graphData.cancelledOccurrences = draftSyncResults.cancelledOccurrences;
+        }
+        if (draftSyncResults?.additionEventIds?.length) {
+          draftPublishSet.exceptionEventIds = draftSyncResults.additionEventIds;
         }
         await testCollections.events.updateOne(query, {
           $set: draftPublishSet,
@@ -1304,10 +1463,18 @@ function createTestApp(options = {}) {
       // Include recurrence if event has a recurring pattern
       const publishRecurrence = event.recurrence || event.calendarData?.recurrence;
       if (publishRecurrence?.pattern && publishRecurrence?.range) {
-        graphEventData.recurrence = {
-          pattern: publishRecurrence.pattern,
-          range: publishRecurrence.range,
-        };
+        const graphRecurrence = buildGraphRecurrence(publishRecurrence);
+        if (graphRecurrence) {
+          graphEventData.recurrence = graphRecurrence;
+          // Align start/end dates with range.startDate
+          const rangeStart = graphRecurrence.range.startDate;
+          if (rangeStart) {
+            const startTime = extractTimePart(graphEventData.startDateTime, '00:00:00');
+            const endTime = extractTimePart(graphEventData.endDateTime, '23:59:00');
+            graphEventData.start = { dateTime: `${rangeStart}T${startTime}`, timeZone: 'America/New_York' };
+            graphEventData.end = { dateTime: `${rangeStart}T${endTime}`, timeZone: 'America/New_York' };
+          }
+        }
       }
 
       // Mock Graph API call
@@ -1316,6 +1483,16 @@ function createTestApp(options = {}) {
         null,
         graphEventData
       );
+
+      // Sync exclusions/additions to Graph after series creation
+      let publishSyncResults = null;
+      if (publishRecurrence && (publishRecurrence.exclusions?.length || publishRecurrence.additions?.length)) {
+        try {
+          publishSyncResults = await syncRecurrenceExceptionsToGraph(
+            TEST_CALENDAR_OWNER, null, graphResult.id, publishRecurrence, graphEventData
+          );
+        } catch (syncError) { /* ignore in tests */ }
+      }
 
       // Update event status
       const now = new Date();
@@ -1334,6 +1511,13 @@ function createTestApp(options = {}) {
       // Set eventType for recurring events
       if (publishRecurrence?.pattern && publishRecurrence?.range) {
         publishSet.eventType = 'seriesMaster';
+      }
+      // Persist recurrence exception sync results
+      if (publishSyncResults?.cancelledOccurrences?.length) {
+        publishSet.graphData.cancelledOccurrences = publishSyncResults.cancelledOccurrences;
+      }
+      if (publishSyncResults?.additionEventIds?.length) {
+        publishSet.exceptionEventIds = publishSyncResults.additionEventIds;
       }
       // Store recurring conflict snapshot
       if (recurringConflicts && recurringConflicts.totalOccurrences > 0) {
@@ -1827,23 +2011,55 @@ function createTestApp(options = {}) {
       const hadGraphEvent = !!(event.graphData?.id);
       if (hadGraphEvent && event.calendarOwner) {
         try {
-          const graphResult = await graphApiMock.createCalendarEvent(
-            TEST_CALENDAR_OWNER, null,
-            {
-              subject: event.eventTitle,
-              start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
-              end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
-              body: { contentType: 'Text', content: event.eventDescription || '' },
+          const graphEventData = {
+            subject: event.eventTitle,
+            start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
+            end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
+            body: { contentType: 'Text', content: event.eventDescription || '' },
+          };
+
+          // Add recurrence if event has a recurring pattern
+          const adminRestoreRecurrence = event.recurrence || event.calendarData?.recurrence;
+          if (adminRestoreRecurrence?.pattern && adminRestoreRecurrence?.range) {
+            const graphRecurrence = buildGraphRecurrence(adminRestoreRecurrence);
+            if (graphRecurrence) {
+              graphEventData.recurrence = graphRecurrence;
+              const rangeStart = graphRecurrence.range.startDate;
+              if (rangeStart) {
+                const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+                const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+                graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+                graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+              }
             }
+          }
+
+          const graphResult = await graphApiMock.createCalendarEvent(
+            TEST_CALENDAR_OWNER, null, graphEventData
           );
 
-          await testCollections.events.updateOne(query, {
-            $set: {
-              'graphData.id': graphResult.id,
-              'graphData.iCalUId': graphResult.iCalUId,
-              'graphData.webLink': graphResult.webLink,
-            }
-          });
+          const graphUpdate = {
+            'graphData.id': graphResult.id,
+            'graphData.iCalUId': graphResult.iCalUId,
+            'graphData.webLink': graphResult.webLink,
+          };
+
+          // Sync exclusions/additions to Graph after series creation
+          if (adminRestoreRecurrence && (adminRestoreRecurrence.exclusions?.length || adminRestoreRecurrence.additions?.length)) {
+            try {
+              const syncResults = await syncRecurrenceExceptionsToGraph(
+                TEST_CALENDAR_OWNER, null, graphResult.id, adminRestoreRecurrence, graphEventData
+              );
+              if (syncResults.cancelledOccurrences.length) {
+                graphUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              }
+              if (syncResults.additionEventIds.length) {
+                graphUpdate.exceptionEventIds = syncResults.additionEventIds;
+              }
+            } catch (syncError) { /* ignore */ }
+          }
+
+          await testCollections.events.updateOne(query, { $set: graphUpdate });
           graphPublished = true;
         } catch (graphError) {
           // Don't fail restore if Graph fails
@@ -1991,23 +2207,55 @@ function createTestApp(options = {}) {
       const hadGraphEvent = !!(event.graphData?.id);
       if (hadGraphEvent && event.calendarOwner) {
         try {
-          const graphResult = await graphApiMock.createCalendarEvent(
-            TEST_CALENDAR_OWNER, null,
-            {
-              subject: event.eventTitle,
-              start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
-              end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
-              body: { contentType: 'Text', content: event.eventDescription || '' },
+          const graphEventData = {
+            subject: event.eventTitle,
+            start: { dateTime: event.startDateTime, timeZone: 'America/New_York' },
+            end: { dateTime: event.endDateTime, timeZone: 'America/New_York' },
+            body: { contentType: 'Text', content: event.eventDescription || '' },
+          };
+
+          // Add recurrence if reservation has a recurring pattern
+          const ownerRestoreRecurrence = event.recurrence || event.calendarData?.recurrence;
+          if (ownerRestoreRecurrence?.pattern && ownerRestoreRecurrence?.range) {
+            const graphRecurrence = buildGraphRecurrence(ownerRestoreRecurrence);
+            if (graphRecurrence) {
+              graphEventData.recurrence = graphRecurrence;
+              const rangeStart = graphRecurrence.range.startDate;
+              if (rangeStart) {
+                const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+                const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+                graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+                graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+              }
             }
+          }
+
+          const graphResult = await graphApiMock.createCalendarEvent(
+            TEST_CALENDAR_OWNER, null, graphEventData
           );
 
-          await testCollections.events.updateOne(query, {
-            $set: {
-              'graphData.id': graphResult.id,
-              'graphData.iCalUId': graphResult.iCalUId,
-              'graphData.webLink': graphResult.webLink,
-            }
-          });
+          const graphUpdate = {
+            'graphData.id': graphResult.id,
+            'graphData.iCalUId': graphResult.iCalUId,
+            'graphData.webLink': graphResult.webLink,
+          };
+
+          // Sync exclusions/additions to Graph after series creation
+          if (ownerRestoreRecurrence && (ownerRestoreRecurrence.exclusions?.length || ownerRestoreRecurrence.additions?.length)) {
+            try {
+              const syncResults = await syncRecurrenceExceptionsToGraph(
+                TEST_CALENDAR_OWNER, null, graphResult.id, ownerRestoreRecurrence, graphEventData
+              );
+              if (syncResults.cancelledOccurrences.length) {
+                graphUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              }
+              if (syncResults.additionEventIds.length) {
+                graphUpdate.exceptionEventIds = syncResults.additionEventIds;
+              }
+            } catch (syncError) { /* ignore */ }
+          }
+
+          await testCollections.events.updateOne(query, { $set: graphUpdate });
           graphPublished = true;
         } catch (graphError) {
           // Don't fail restore if Graph fails

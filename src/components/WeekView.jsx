@@ -97,7 +97,9 @@ const WeekView = memo(({
       });
       if (hideEmptyGroups) {
         sorted = sorted.filter(cat => favorites?.includes(cat) || filteredEvents.some(event => {
-          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+            ? event.categories
+            : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
           return (categories[0] || 'Uncategorized') === cat;
         }));
       }
@@ -226,8 +228,10 @@ const WeekView = memo(({
                   if (groupBy === 'categories') {
                     // For categories, filter from filteredEvents
                     groupEvents = filteredEvents.filter(event => {
-                      // Check calendarData.categories first (authoritative), then top-level, then graphData fallback
-                      const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                      // Occurrence overrides take priority over master's calendarData
+                      const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+                        ? event.categories
+                        : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
                       const category = categories[0] || 'Uncategorized';
                       return category === group;
                     });
@@ -373,7 +377,9 @@ const WeekView = memo(({
                         }
                         
                         // Get primary category for color
-                        const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+                        const eventCategories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+                          ? event.categories
+                          : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
                         const primaryCategory = eventCategories[0] || 'Uncategorized';
                         const eventColor = groupBy === 'categories'
                           ? getCategoryColor(primaryCategory)

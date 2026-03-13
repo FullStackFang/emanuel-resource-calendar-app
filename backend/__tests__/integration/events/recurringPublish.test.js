@@ -1,8 +1,9 @@
 /**
- * Recurring Event Publish Tests (RP-1 to RP-6)
+ * Recurring Event Publish Tests (RP-1 to RP-12)
  *
  * Tests that recurring events are properly published with recurrence data
- * sent to the Graph API.
+ * sent to the Graph API, including type mapping, date alignment,
+ * firstDayOfWeek cleanup, and exclusion/addition sync.
  */
 
 const request = require('supertest');
@@ -27,7 +28,7 @@ const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers
 const { COLLECTIONS, STATUS, ENDPOINTS } = require('../../__helpers__/testConstants');
 const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Recurring Event Publish Tests (RP-1 to RP-6)', () => {
+describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
   let mongoServer, mongoClient, db, app;
   let requesterUser, approverUser, adminUser;
   let requesterToken, approverToken, adminToken;
@@ -198,9 +199,193 @@ describe('Recurring Event Publish Tests (RP-1 to RP-6)', () => {
         .expect(200);
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
-      expect(graphCalls[0].eventData.recurrence.pattern.type).toBe('monthly');
+      expect(graphCalls[0].eventData.recurrence.pattern.type).toBe('absoluteMonthly');
       expect(graphCalls[0].eventData.recurrence.range.type).toBe('numbered');
       expect(graphCalls[0].eventData.recurrence.range.numberOfOccurrences).toBe(12);
+    });
+  });
+
+  describe('RP-7: Monthly recurrence sends absoluteMonthly to Graph', () => {
+    it('should map monthly to absoluteMonthly in Graph API call', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Monthly Board Meeting',
+        recurrence: {
+          pattern: { type: 'monthly', interval: 1 },
+          range: { type: 'endDate', startDate: '2026-03-15', endDate: '2026-12-15' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.recurrence.pattern.type).toBe('absoluteMonthly');
+    });
+  });
+
+  describe('RP-8: Yearly recurrence sends absoluteYearly to Graph', () => {
+    it('should map yearly to absoluteYearly in Graph API call', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Annual Gala',
+        recurrence: {
+          pattern: { type: 'yearly', interval: 1 },
+          range: { type: 'endDate', startDate: '2026-03-15', endDate: '2030-03-15' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.recurrence.pattern.type).toBe('absoluteYearly');
+    });
+  });
+
+  describe('RP-9: start.dateTime aligns with range.startDate for recurring events', () => {
+    it('should overwrite start/end date portion with range.startDate', async () => {
+      // Event created on Wednesday 3/12, but recurrence starts Tuesday 3/17
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Tuesday Recurring',
+        startDateTime: new Date('2026-03-12T14:00:00'),
+        endDateTime: new Date('2026-03-12T15:00:00'),
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-17', endDate: '2026-06-30' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      // start.dateTime date portion should match range.startDate (2026-03-17), not original (2026-03-12)
+      expect(graphCalls[0].eventData.start.dateTime).toMatch(/^2026-03-17T14:00:00/);
+      expect(graphCalls[0].eventData.end.dateTime).toMatch(/^2026-03-17T15:00:00/);
+    });
+  });
+
+  describe('RP-10: firstDayOfWeek stripped for non-weekly patterns', () => {
+    it('should not include firstDayOfWeek for monthly pattern', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Monthly with firstDayOfWeek',
+        recurrence: {
+          pattern: { type: 'monthly', interval: 1, firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-15', endDate: '2026-12-15' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.recurrence.pattern.firstDayOfWeek).toBeUndefined();
+    });
+  });
+
+  describe('RP-11: Exclusions trigger deleteCalendarEvent after publish', () => {
+    it('should cancel excluded occurrences in Graph', async () => {
+      const exclusionDate = '2026-04-07';
+      const mockOccurrenceId = 'mock-occurrence-id-0407';
+      // Set up mock to return an instance for the exclusion date
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccurrenceId, start: { dateTime: `${exclusionDate}T14:00:00` }, end: { dateTime: `${exclusionDate}T15:00:00` } }
+      ]);
+
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly with Exclusion',
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+          exclusions: [exclusionDate],
+          additions: [],
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      // Verify deleteCalendarEvent was called for the exclusion
+      const deleteCalls = graphApiMock.getCallHistory('deleteCalendarEvent');
+      expect(deleteCalls.length).toBe(1);
+      expect(deleteCalls[0].eventId).toBe(mockOccurrenceId);
+
+      // Verify cancelledOccurrences stored in MongoDB
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.graphData.cancelledOccurrences).toEqual(
+        expect.arrayContaining([expect.objectContaining({ date: exclusionDate, graphId: mockOccurrenceId })])
+      );
+    });
+  });
+
+  describe('RP-12: Additions trigger createCalendarEvent for single-instance events', () => {
+    it('should create standalone events for addition dates', async () => {
+      const additionDate = '2026-04-09';
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly with Addition',
+        startDateTime: new Date('2026-03-10T14:00:00'),
+        endDateTime: new Date('2026-03-10T15:00:00'),
+        recurrence: {
+          pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+          range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+          exclusions: [],
+          additions: [additionDate],
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      // createCalendarEvent called twice: once for series, once for addition
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(createCalls.length).toBe(2);
+
+      // Second call should be the addition event
+      const additionCall = createCalls[1];
+      expect(additionCall.eventData.subject).toBe('Weekly with Addition');
+      expect(additionCall.eventData.start.dateTime).toMatch(new RegExp(`^${additionDate}T`));
+      expect(additionCall.eventData.recurrence).toBeUndefined();
+
+      // Verify exceptionEventIds stored in MongoDB
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: saved._id });
+      expect(updated.exceptionEventIds).toEqual(
+        expect.arrayContaining([expect.objectContaining({ date: additionDate })])
+      );
     });
   });
 
@@ -224,6 +409,164 @@ describe('Recurring Event Publish Tests (RP-1 to RP-6)', () => {
 
       const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
       expect(graphCalls[0].eventData.recurrence).toBeUndefined();
+    });
+  });
+
+  // --- Draft occurrence override field tests (RP-7 to RP-10) ---
+
+  describe('RP-7: Draft occurrence override saves location change', () => {
+    it('should persist locations and locationDisplayNames in occurrenceOverrides', async () => {
+      // Create a location in the DB
+      const locationId = new (require('mongodb').ObjectId)();
+      await db.collection(COLLECTIONS.LOCATIONS).insertOne({
+        _id: locationId,
+        displayName: 'Chapel',
+        name: 'Chapel',
+        isReservable: true,
+      });
+
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly Chapel Service',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-17',
+          requestedRooms: [locationId.toString()],
+        })
+        .expect(200);
+
+      const overrides = res.body.occurrenceOverrides;
+      expect(overrides).toHaveLength(1);
+      expect(overrides[0].occurrenceDate).toBe('2026-03-17');
+      expect(overrides[0].locations).toHaveLength(1);
+      expect(overrides[0].locations[0].toString()).toBe(locationId.toString());
+      expect(overrides[0].locationDisplayNames).toBe('Chapel');
+    });
+  });
+
+  describe('RP-8: Draft occurrence override saves setup/teardown/door times', () => {
+    it('should persist timing fields in occurrenceOverrides', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly Setup Test',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-17',
+          setupTime: '08:30',
+          teardownTime: '17:30',
+          doorOpenTime: '09:00',
+          doorCloseTime: '17:00',
+        })
+        .expect(200);
+
+      const override = res.body.occurrenceOverrides[0];
+      expect(override.setupTime).toBe('08:30');
+      expect(override.teardownTime).toBe('17:30');
+      expect(override.doorOpenTime).toBe('09:00');
+      expect(override.doorCloseTime).toBe('17:00');
+    });
+  });
+
+  describe('RP-9: Draft occurrence override saves categories', () => {
+    it('should persist categories in occurrenceOverrides', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly Category Test',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-17',
+          categories: ['Special Service', 'Holiday'],
+        })
+        .expect(200);
+
+      const override = res.body.occurrenceOverrides[0];
+      expect(override.categories).toEqual(['Special Service', 'Holiday']);
+    });
+  });
+
+  describe('RP-10: Draft occurrence override saves services and offsite fields', () => {
+    it('should persist services and offsite fields in occurrenceOverrides', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly Services Test',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-17',
+          services: ['Catering', 'AV Setup'],
+          isOffsite: true,
+          offsiteName: 'Central Park',
+          offsiteAddress: '59th St, New York, NY',
+        })
+        .expect(200);
+
+      const override = res.body.occurrenceOverrides[0];
+      expect(override.services).toEqual(['Catering', 'AV Setup']);
+      expect(override.isOffsite).toBe(true);
+      expect(override.offsiteName).toBe('Central Park');
+      expect(override.offsiteAddress).toBe('59th St, New York, NY');
+    });
+  });
+
+  describe('RP-11: Draft occurrence override clears locations', () => {
+    it('should set locations to empty array when requestedRooms is empty', async () => {
+      const draft = createDraftEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly Clear Location Test',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-17',
+          requestedRooms: [],
+        })
+        .expect(200);
+
+      const override = res.body.occurrenceOverrides[0];
+      expect(override.locations).toEqual([]);
+      expect(override.locationDisplayNames).toBe('');
     });
   });
 });

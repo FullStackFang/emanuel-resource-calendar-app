@@ -1,9 +1,10 @@
 /**
- * Draft Occurrence Edit Tests (DOE-1 to DOE-5)
+ * Draft Occurrence Edit Tests (DOE-1 to DOE-7)
  *
  * Tests per-occurrence editing of draft recurring events:
  * - thisEvent scope writes to occurrenceOverrides without touching recurrence/eventType
- * - allEvents scope clears occurrenceOverrides
+ * - allEvents scope preserves occurrenceOverrides when recurrence unchanged
+ * - allEvents scope clears occurrenceOverrides when recurrence pattern/range changes
  * - Occurrence date validation against series range
  * - Multiple thisEvent edits accumulate correctly
  * - Calendar load normalizer promotes recurrence to top level
@@ -28,7 +29,7 @@ const {
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, STATUS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
 
-describe('Draft Occurrence Edit Tests (DOE-1 to DOE-5)', () => {
+describe('Draft Occurrence Edit Tests (DOE-1 to DOE-7)', () => {
   let mongoServer;
   let mongoClient;
   let db;
@@ -144,8 +145,8 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-5)', () => {
     });
   });
 
-  describe('DOE-2: allEvents save clears occurrenceOverrides', () => {
-    it('should clear all overrides when saving with allEvents scope', async () => {
+  describe('DOE-2: allEvents save preserves occurrenceOverrides when recurrence unchanged', () => {
+    it('should preserve overrides when saving allEvents with same recurrence', async () => {
       const draft = createRecurringDraft({
         occurrenceOverrides: [
           { occurrenceDate: '2026-03-12', startTime: '16:00', endTime: '17:00' },
@@ -169,7 +170,8 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-5)', () => {
       expect(res.status).toBe(200);
 
       const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
-      expect(updated.occurrenceOverrides).toEqual([]);
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-12');
       expect(updated.calendarData.eventTitle).toBe('Updated All Events');
     });
   });
@@ -267,6 +269,84 @@ describe('Draft Occurrence Edit Tests (DOE-1 to DOE-5)', () => {
       expect(updated.occurrenceOverrides).toHaveLength(1);
       expect(updated.occurrenceOverrides[0].eventTitle).toBe('Second edit');
       expect(updated.occurrenceOverrides[0].startTime).toBe('18:00');
+    });
+  });
+
+  describe('DOE-6: allEvents with recurrence change clears occurrenceOverrides', () => {
+    it('should clear overrides when recurrence pattern changes', async () => {
+      const draft = createRecurringDraft({
+        occurrenceOverrides: [
+          { occurrenceDate: '2026-03-12', startTime: '16:00', endTime: '17:00' },
+        ],
+      });
+      await insertEvents(db, [draft]);
+
+      const changedRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['wednesday'] },
+        range: { type: 'endDate', startDate: '2026-03-11', endDate: '2026-04-01' },
+        additions: [],
+        exclusions: [],
+      };
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'allEvents',
+          clearOccurrenceOverrides: true,
+          eventTitle: 'Changed Pattern',
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: changedRecurrence,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      expect(updated.occurrenceOverrides).toEqual([]);
+      expect(updated.calendarData.eventTitle).toBe('Changed Pattern');
+      expect(updated.calendarData.recurrence.pattern.type).toBe('weekly');
+    });
+  });
+
+  describe('DOE-7: allEvents without recurrence change preserves overrides and updates fields', () => {
+    it('should update series-level fields while keeping overrides intact', async () => {
+      const draft = createRecurringDraft({
+        occurrenceOverrides: [
+          { occurrenceDate: '2026-03-12', startTime: '16:00', endTime: '17:00', eventTitle: 'Custom 3/12' },
+          { occurrenceDate: '2026-03-13', categories: ['Special'] },
+        ],
+      });
+      await insertEvents(db, [draft]);
+
+      const res = await request(app)
+        .put(`/api/room-reservations/draft/${draft._id}`)
+        .set('Authorization', `Bearer ${requesterToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'New Series Title',
+          categories: ['Program'],
+          startDate: '2026-03-11',
+          endDate: '2026-03-11',
+          startTime: '14:00',
+          endTime: '15:00',
+          recurrence: draft.calendarData.recurrence,
+        });
+
+      expect(res.status).toBe(200);
+
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: draft._id });
+      // Series-level fields updated
+      expect(updated.calendarData.eventTitle).toBe('New Series Title');
+      expect(updated.calendarData.categories).toEqual(['Program']);
+      // Overrides preserved
+      expect(updated.occurrenceOverrides).toHaveLength(2);
+      expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-12');
+      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Custom 3/12');
+      expect(updated.occurrenceOverrides[1].occurrenceDate).toBe('2026-03-13');
+      expect(updated.occurrenceOverrides[1].categories).toEqual(['Special']);
     });
   });
 

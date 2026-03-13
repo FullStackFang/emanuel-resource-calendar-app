@@ -81,6 +81,11 @@ import ConflictDialog from './shared/ConflictDialog';
    */
   function getEventField(event, field, defaultValue = undefined) {
     if (!event) return defaultValue;
+    // For recurring occurrences with overrides, top-level fields ARE the override
+    // and must take priority over calendarData (which has master values)
+    if (event.isRecurringOccurrence && event.hasOccurrenceOverride) {
+      if (event[field] !== undefined) return event[field];
+    }
     // Check calendarData first (authoritative after migration)
     if (event.calendarData?.[field] !== undefined) {
       return event.calendarData[field];
@@ -192,8 +197,10 @@ import ConflictDialog from './shared/ConflictDialog';
         const categoryCounts = {};
         const locationCounts = {};
         newEvents.forEach(event => {
-          // Extract categories from calendarData (authoritative), then top-level, then graphData fallback
-          const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+          // Extract categories - occurrence overrides take priority over master's calendarData
+          const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+            ? event.categories
+            : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
           const primaryCategory = categories[0] || 'Uncategorized';
           const location = event.location?.displayName || 'Unspecified';
           categoryCounts[primaryCategory] = (categoryCounts[primaryCategory] || 0) + 1;
@@ -1229,6 +1236,10 @@ import ConflictDialog from './shared/ConflictDialog';
        * Helper to extract categories from event (checks both top-level and graphData)
        */
       const getEventCategories = useCallback((event) => {
+        // For recurring occurrences with overrides, top-level categories ARE the override
+        if (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories && Array.isArray(event.categories) && event.categories.length > 0) {
+          return event.categories;
+        }
         // Check calendarData.categories first (authoritative for MongoDB documents)
         if (event.calendarData?.categories && Array.isArray(event.calendarData.categories) && event.calendarData.categories.length > 0) {
           return event.calendarData.categories;
@@ -1880,6 +1891,17 @@ import ConflictDialog from './shared/ConflictDialog';
                     // Apply any title/description overrides from the expansion
                     subject: occurrence.subject || event.subject,
                     eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,
+                    // Apply location/timing/category overrides from occurrenceOverrides
+                    ...(occurrence.hasOccurrenceOverride ? {
+                      ...(occurrence.locations !== undefined && { locations: occurrence.locations }),
+                      ...(occurrence.locationDisplayNames !== undefined && { locationDisplayNames: occurrence.locationDisplayNames }),
+                      ...(occurrence.setupTime !== undefined && { setupTime: occurrence.setupTime }),
+                      ...(occurrence.teardownTime !== undefined && { teardownTime: occurrence.teardownTime }),
+                      ...(occurrence.doorOpenTime !== undefined && { doorOpenTime: occurrence.doorOpenTime }),
+                      ...(occurrence.doorCloseTime !== undefined && { doorCloseTime: occurrence.doorCloseTime }),
+                      ...(occurrence.categories !== undefined && { categories: occurrence.categories }),
+                      ...(occurrence.services !== undefined && { services: occurrence.services }),
+                    } : {}),
                   });
                 });
               } catch (error) {
@@ -4225,7 +4247,9 @@ import ConflictDialog from './shared/ConflictDialog';
       };
 
       const matchesCategory = (event) => {
-        const categories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
+        const categories = (event.isRecurringOccurrence && event.hasOccurrenceOverride && event.categories !== undefined)
+          ? event.categories
+          : (event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']));
         return (categories[0] || 'Uncategorized') === categoryName;
       };
 

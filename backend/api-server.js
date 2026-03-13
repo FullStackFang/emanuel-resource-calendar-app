@@ -1789,8 +1789,15 @@ function buildEffectiveEditData(event) {
 function buildGraphRecurrence(recurrence, timeZone) {
   if (!recurrence?.pattern || !recurrence?.range) return null;
 
+  // Map internal type names to Graph API enum values
+  const graphTypeMap = {
+    'monthly': 'absoluteMonthly',
+    'yearly': 'absoluteYearly',
+  };
+
+  const rawType = recurrence.pattern.type || 'weekly';
   const pattern = {
-    type: recurrence.pattern.type || 'weekly',
+    type: graphTypeMap[rawType] || rawType,
     interval: recurrence.pattern.interval || 1,
   };
 
@@ -1806,7 +1813,8 @@ function buildGraphRecurrence(recurrence, timeZone) {
   if (recurrence.pattern.index) {
     pattern.index = recurrence.pattern.index;
   }
-  if (recurrence.pattern.firstDayOfWeek) {
+  // Graph API only uses firstDayOfWeek for weekly patterns
+  if (recurrence.pattern.firstDayOfWeek && rawType === 'weekly') {
     pattern.firstDayOfWeek = recurrence.pattern.firstDayOfWeek;
   }
 
@@ -1832,6 +1840,76 @@ function buildGraphRecurrence(recurrence, timeZone) {
   range.recurrenceTimeZone = recurrence.range.recurrenceTimeZone || tzMap[timeZone] || timeZone;
 
   return { pattern, range };
+}
+
+/**
+ * Sync recurrence exclusions and additions to Graph API after creating a recurring series.
+ * Exclusions: Cancel specific occurrence instances via deleteCalendarEvent.
+ * Additions: Create standalone single-instance events via createCalendarEvent.
+ * @param {string} calendarOwner - Calendar owner email
+ * @param {string|null} calendarId - Calendar ID
+ * @param {string} seriesId - Graph ID of the series master
+ * @param {Object} recurrence - Internal recurrence { exclusions, additions, ... }
+ * @param {Object} eventData - Graph event data (for building addition events)
+ * @returns {Promise<{cancelledOccurrences: Array, additionEventIds: Array}>}
+ */
+async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, seriesId, recurrence, eventData) {
+  const results = { cancelledOccurrences: [], additionEventIds: [] };
+
+  // --- EXCLUSIONS: Cancel specific occurrences ---
+  if (recurrence.exclusions?.length) {
+    for (const exclusionDate of recurrence.exclusions) {
+      try {
+        const dayStart = `${exclusionDate}T00:00:00`;
+        const dayEnd = `${exclusionDate}T23:59:59`;
+
+        const instances = await graphApiService.getRecurringEventInstances(
+          calendarOwner, calendarId, seriesId, dayStart, dayEnd
+        );
+
+        // getRecurringEventInstances returns an array directly
+        const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+        const match = instanceList.find(inst =>
+          inst.start?.dateTime?.startsWith(exclusionDate)
+        );
+
+        if (match) {
+          await graphApiService.deleteCalendarEvent(calendarOwner, calendarId, match.id);
+          results.cancelledOccurrences.push({ date: exclusionDate, graphId: match.id });
+        } else {
+          logger.warn('No Graph occurrence found for exclusion date:', { exclusionDate, seriesId });
+        }
+      } catch (err) {
+        logger.warn('Failed to cancel Graph occurrence for exclusion:', { exclusionDate, error: err.message });
+      }
+    }
+  }
+
+  // --- ADDITIONS: Create single-instance events ---
+  if (recurrence.additions?.length) {
+    const timePart = eventData.start?.dateTime?.split('T')[1] || '09:00:00';
+    const endTimePart = eventData.end?.dateTime?.split('T')[1] || '10:00:00';
+
+    for (const additionDate of recurrence.additions) {
+      try {
+        const additionEvent = {
+          subject: eventData.subject,
+          start: { dateTime: `${additionDate}T${timePart}`, timeZone: eventData.start?.timeZone || 'America/New_York' },
+          end: { dateTime: `${additionDate}T${endTimePart}`, timeZone: eventData.end?.timeZone || 'America/New_York' },
+          location: eventData.location,
+          body: eventData.body,
+          categories: eventData.categories,
+        };
+
+        const created = await graphApiService.createCalendarEvent(calendarOwner, calendarId, additionEvent);
+        results.additionEventIds.push({ date: additionDate, graphId: created.id });
+      } catch (err) {
+        logger.warn('Failed to create Graph event for addition date:', { additionDate, error: err.message });
+      }
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -13516,6 +13594,46 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (eventDescription !== undefined) overrideFields.eventDescription = eventDescription;
       if (startTime) overrideFields.startDateTime = `${dateKey}T${startTime}`;
       if (endTime) overrideFields.endDateTime = `${dateKey}T${endTime}`;
+      if (setupTime !== undefined) overrideFields.setupTime = setupTime;
+      if (teardownTime !== undefined) overrideFields.teardownTime = teardownTime;
+      if (doorOpenTime !== undefined) overrideFields.doorOpenTime = doorOpenTime;
+      if (doorCloseTime !== undefined) overrideFields.doorCloseTime = doorCloseTime;
+      if (categories !== undefined || mecCategories !== undefined) overrideFields.categories = categories || mecCategories;
+      if (services !== undefined) overrideFields.services = services;
+
+      // Handle locations: convert requestedRooms to ObjectIds + display names
+      if (requestedRooms !== undefined) {
+        if (Array.isArray(requestedRooms) && requestedRooms.length > 0) {
+          try {
+            const locationIds = requestedRooms.map(lid =>
+              typeof lid === 'string' ? new ObjectId(lid) : lid
+            );
+            overrideFields.locations = locationIds;
+
+            const locationDocs = await locationsCollection.find({
+              _id: { $in: locationIds }
+            }).toArray();
+            const displayNames = locationDocs
+              .map(loc => loc.displayName || loc.name || '')
+              .filter(Boolean)
+              .join('; ');
+            if (displayNames) {
+              overrideFields.locationDisplayNames = displayNames;
+            }
+          } catch (locErr) {
+            logger.warn('Failed to process occurrence override locations:', locErr.message);
+            overrideFields.locations = requestedRooms;
+          }
+        } else {
+          overrideFields.locations = [];
+          overrideFields.locationDisplayNames = '';
+        }
+      }
+
+      // Handle offsite fields
+      if (isOffsite !== undefined) overrideFields.isOffsite = isOffsite;
+      if (offsiteName !== undefined) overrideFields.offsiteName = offsiteName;
+      if (offsiteAddress !== undefined) overrideFields.offsiteAddress = offsiteAddress;
 
       // Remove existing override for this date (if any), then add new one
       await unifiedEventsCollection.updateOne(
@@ -13623,8 +13741,8 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       lastModified: new Date()
     };
 
-    // Clear per-occurrence overrides when saving all events (full master update)
-    if (editScope === 'allEvents' || clearOccurrenceOverrides) {
+    // Clear per-occurrence overrides only when explicitly requested (recurrence pattern changed)
+    if (clearOccurrenceOverrides) {
       updateData.occurrenceOverrides = [];
     }
 
@@ -13822,9 +13940,19 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       // Add recurrence if draft has a recurring pattern
       const draftRecurrence = draft.recurrence || cd.recurrence;
       if (draftRecurrence?.pattern && draftRecurrence?.range) {
-        const graphRecurrence = buildGraphRecurrence(draftRecurrence, 'America/New_York');
+        // Fix 4: Read timezone from draft data instead of hardcoding
+        const draftTimezone = draft.graphData?.start?.timeZone || 'America/New_York';
+        const graphRecurrence = buildGraphRecurrence(draftRecurrence, draftTimezone);
         if (graphRecurrence) {
           graphEventData.recurrence = graphRecurrence;
+          // Fix 3: Align start/end dates with recurrence range.startDate
+          const rangeStart = graphRecurrence.range.startDate;
+          if (rangeStart) {
+            const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+            const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+            graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+            graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+          }
           logger.info('Draft auto-publish: Added recurrence to Graph event', { patternType: draftRecurrence.pattern.type });
         }
       }
@@ -13834,6 +13962,18 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
         draft.calendarId || null,
         graphEventData
       );
+
+      // Fix 6: Sync exclusions/additions to Graph after series creation
+      let draftSyncResults = null;
+      if (draftRecurrence && (draftRecurrence.exclusions?.length || draftRecurrence.additions?.length)) {
+        try {
+          draftSyncResults = await syncRecurrenceExceptionsToGraph(
+            calendarOwner, draft.calendarId || null, createdEvent.id, draftRecurrence, graphEventData
+          );
+        } catch (syncError) {
+          logger.warn('Failed to sync recurrence exceptions to Graph on draft auto-publish:', syncError.message);
+        }
+      }
 
       const now = new Date();
       const draftPublishSet = {
@@ -13852,6 +13992,13 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       // Set eventType to seriesMaster for recurring events
       if (draftRecurrence?.pattern && draftRecurrence?.range) {
         draftPublishSet.eventType = 'seriesMaster';
+      }
+      // Persist recurrence exception sync results
+      if (draftSyncResults?.cancelledOccurrences?.length) {
+        draftPublishSet['graphData.cancelledOccurrences'] = draftSyncResults.cancelledOccurrences;
+      }
+      if (draftSyncResults?.additionEventIds?.length) {
+        draftPublishSet.exceptionEventIds = draftSyncResults.additionEventIds;
       }
       // Store recurring conflict snapshot if available
       if (draftRecurringConflicts && draftRecurringConflicts.totalOccurrences > 0) {
@@ -14229,12 +14376,46 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
           const restoreRecurrence = reservation.recurrence || reservation.calendarData?.recurrence;
           if (restoreRecurrence?.pattern && restoreRecurrence?.range) {
             const graphRecurrence = buildGraphRecurrence(restoreRecurrence, eventTimezone || 'America/New_York');
-            if (graphRecurrence) graphEventData.recurrence = graphRecurrence;
+            if (graphRecurrence) {
+              graphEventData.recurrence = graphRecurrence;
+              // Fix 3: Align start/end dates with recurrence range.startDate
+              const rangeStart = graphRecurrence.range.startDate;
+              if (rangeStart) {
+                const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+                const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+                graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+                graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+              }
+            }
           }
 
           const createdEvent = await graphApiService.createCalendarEvent(
             calendarOwner, calendarId, graphEventData
           );
+
+          // Sync exclusions/additions to Graph after series creation
+          if (restoreRecurrence && (restoreRecurrence.exclusions?.length || restoreRecurrence.additions?.length)) {
+            try {
+              const syncResults = await syncRecurrenceExceptionsToGraph(
+                calendarOwner, calendarId, createdEvent.id, restoreRecurrence, graphEventData
+              );
+              const exceptionUpdate = {};
+              if (syncResults.cancelledOccurrences.length) {
+                exceptionUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              }
+              if (syncResults.additionEventIds.length) {
+                exceptionUpdate.exceptionEventIds = syncResults.additionEventIds;
+              }
+              if (Object.keys(exceptionUpdate).length) {
+                await unifiedEventsCollection.updateOne(
+                  { _id: new ObjectId(reservationId) },
+                  { $set: exceptionUpdate }
+                );
+              }
+            } catch (syncError) {
+              logger.warn('Failed to sync recurrence exceptions to Graph on owner restore:', syncError.message);
+            }
+          }
 
           // Store new Graph data in MongoDB
           await unifiedEventsCollection.updateOne(
@@ -14436,9 +14617,50 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
             showAs: event.graphData?.showAs || 'busy'
           };
 
+          // Add recurrence if event has a recurring pattern
+          const adminRestoreRecurrence = event.recurrence || event.calendarData?.recurrence;
+          if (adminRestoreRecurrence?.pattern && adminRestoreRecurrence?.range) {
+            const graphRecurrence = buildGraphRecurrence(adminRestoreRecurrence, eventTimezone || 'America/New_York');
+            if (graphRecurrence) {
+              graphEventData.recurrence = graphRecurrence;
+              // Fix 3: Align start/end dates with recurrence range.startDate
+              const rangeStart = graphRecurrence.range.startDate;
+              if (rangeStart) {
+                const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+                const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+                graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+                graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+              }
+            }
+          }
+
           const createdEvent = await graphApiService.createCalendarEvent(
             calendarOwner, calendarId, graphEventData
           );
+
+          // Sync exclusions/additions to Graph after series creation
+          if (adminRestoreRecurrence && (adminRestoreRecurrence.exclusions?.length || adminRestoreRecurrence.additions?.length)) {
+            try {
+              const syncResults = await syncRecurrenceExceptionsToGraph(
+                calendarOwner, calendarId, createdEvent.id, adminRestoreRecurrence, graphEventData
+              );
+              const exceptionUpdate = {};
+              if (syncResults.cancelledOccurrences.length) {
+                exceptionUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              }
+              if (syncResults.additionEventIds.length) {
+                exceptionUpdate.exceptionEventIds = syncResults.additionEventIds;
+              }
+              if (Object.keys(exceptionUpdate).length) {
+                await unifiedEventsCollection.updateOne(
+                  { _id: new ObjectId(eventId) },
+                  { $set: exceptionUpdate }
+                );
+              }
+            } catch (syncError) {
+              logger.warn('Failed to sync recurrence exceptions to Graph on admin restore:', syncError.message);
+            }
+          }
 
           // Store new Graph data in MongoDB
           await unifiedEventsCollection.updateOne(
@@ -18549,6 +18771,14 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           const graphRecurrence = buildGraphRecurrence(publishRecurrence, eventTimezone || 'America/New_York');
           if (graphRecurrence) {
             graphEventData.recurrence = graphRecurrence;
+            // Fix 3: Align start/end dates with recurrence range.startDate
+            const rangeStart = graphRecurrence.range.startDate;
+            if (rangeStart) {
+              const startTime = graphEventData.start.dateTime.split('T')[1] || '00:00:00';
+              const endTime = graphEventData.end.dateTime.split('T')[1] || '23:59:00';
+              graphEventData.start.dateTime = `${rangeStart}T${startTime}`;
+              graphEventData.end.dateTime = `${rangeStart}T${endTime}`;
+            }
             logger.info('Publish: Added recurrence to Graph event', { patternType: publishRecurrence.pattern.type });
           }
         }
@@ -18575,6 +18805,19 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
           calendarId: selectedCalendarId
         };
         logger.info('Graph calendar event created:', { graphEventId, calendarOwner: selectedCalendarOwner });
+
+        // Fix 6: Sync exclusions/additions to Graph after series creation
+        if (publishRecurrence && (publishRecurrence.exclusions?.length || publishRecurrence.additions?.length)) {
+          try {
+            const syncResults = await syncRecurrenceExceptionsToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence, graphEventData
+            );
+            // Store results — will be persisted in the Graph update step below
+            calendarEventResult.recurrenceSyncResults = syncResults;
+          } catch (syncError) {
+            logger.warn('Failed to sync recurrence exceptions to Graph on publish:', syncError.message);
+          }
+        }
       } catch (error) {
         calendarEventResult = {
           success: false,
@@ -18678,6 +18921,14 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
       }
       if (selectedCalendarOwner) {
         graphUpdate.$set.calendarOwner = selectedCalendarOwner;
+      }
+      // Persist recurrence exception sync results
+      const syncResults = calendarEventResult?.recurrenceSyncResults;
+      if (syncResults?.cancelledOccurrences?.length) {
+        graphUpdate.$set['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+      }
+      if (syncResults?.additionEventIds?.length) {
+        graphUpdate.$set.exceptionEventIds = syncResults.additionEventIds;
       }
       await unifiedEventsCollection.updateOne({ _id: new ObjectId(id) }, graphUpdate);
     }

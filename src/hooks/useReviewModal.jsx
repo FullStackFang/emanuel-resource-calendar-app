@@ -846,6 +846,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       isOnBehalfOf: formData.isOnBehalfOf || false,
       contactName: formData.contactName || '',
       contactEmail: formData.contactEmail || '',
+      categories: formData.categories || formData.mecCategories || [],
       mecCategories: formData.categories || formData.mecCategories || [],  // Read from 'categories' (mecCategories is deprecated)
       services: formData.services || {},
       recurrence: formData.recurrence || null,
@@ -896,7 +897,14 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
         delete payload.eventType;    // Don't overwrite master's eventType
       } else if (editScope === 'allEvents') {
         payload.editScope = 'allEvents';
-        payload.clearOccurrenceOverrides = true;  // Signal backend to wipe overrides
+        // Only clear occurrence overrides when recurrence pattern/range changes
+        // (shifted dates make old overrides invalid)
+        const oldRecurrence = currentItem?.calendarData?.recurrence || currentItem?.recurrence || null;
+        const newRecurrence = formData.recurrence || null;
+        if (JSON.stringify(oldRecurrence?.pattern) !== JSON.stringify(newRecurrence?.pattern) ||
+            JSON.stringify(oldRecurrence?.range) !== JSON.stringify(newRecurrence?.range)) {
+          payload.clearOccurrenceOverrides = true;
+        }
       }
 
       const endpoint = draftId

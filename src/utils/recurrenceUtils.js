@@ -17,13 +17,21 @@ export function transformRecurrenceForGraphAPI(recurrence, timeZone = 'Eastern S
 
   const { pattern, range } = recurrence;
 
+  // Map internal type names to Graph API enum values
+  const graphTypeMap = {
+    'monthly': 'absoluteMonthly',
+    'yearly': 'absoluteYearly',
+  };
+  const graphType = graphTypeMap[pattern.type] || pattern.type;
+
   // Build Graph API recurrence object
   const graphRecurrence = {
     pattern: {
-      type: pattern.type,
+      type: graphType,
       interval: pattern.interval || 1,
       ...(pattern.daysOfWeek && pattern.daysOfWeek.length > 0 && { daysOfWeek: pattern.daysOfWeek }),
-      ...(pattern.firstDayOfWeek && { firstDayOfWeek: pattern.firstDayOfWeek })
+      // Graph API only uses firstDayOfWeek for weekly patterns
+      ...(pattern.firstDayOfWeek && pattern.type === 'weekly' && { firstDayOfWeek: pattern.firstDayOfWeek })
     },
     range: {
       type: range.type,
@@ -91,6 +99,7 @@ export function isDateInPattern(date, pattern, startDate) {
       return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
 
+    case 'absoluteMonthly':
     case 'monthly': {
       const monthsDiff = (checkDate.getFullYear() - start.getFullYear()) * 12 +
                          (checkDate.getMonth() - start.getMonth());
@@ -99,6 +108,7 @@ export function isDateInPattern(date, pattern, startDate) {
       return checkDate.getDate() === start.getDate() && monthsDiff % interval === 0;
     }
 
+    case 'absoluteYearly':
     case 'yearly': {
       const yearsDiff = checkDate.getFullYear() - start.getFullYear();
 
@@ -417,10 +427,12 @@ export function formatRecurrenceSummary(pattern, range) {
       break;
     }
 
+    case 'absoluteMonthly':
     case 'monthly':
       summary += interval === 1 ? 'month' : `${interval} months`;
       break;
 
+    case 'absoluteYearly':
     case 'yearly':
       summary += interval === 1 ? 'year' : `${interval} years`;
       break;
