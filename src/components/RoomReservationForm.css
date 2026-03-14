@@ -343,12 +343,17 @@
 .time-fields-stack {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-3) var(--space-4);
   margin-top: var(--space-4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-4) var(--space-3);
 }
 
 .time-fields-stack .form-group {
   width: 100%;
+  position: relative;
 }
 
 .time-fields-stack .form-group label {
@@ -356,14 +361,41 @@
   margin-bottom: var(--space-2);
 }
 
-.time-fields-stack .form-group input {
+.time-fields-stack .form-group input[type="time"] {
   font-size: var(--text-sm);
+  height: 38px;
+  padding-right: 36px;
+  border-radius: var(--radius-md);
+}
+
+/* Custom decorative clock icon for time inputs */
+.time-fields-stack .form-group::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  bottom: 30px;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  opacity: 0.45;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 6v6l4 2'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+/* Required time fields (startTime, endTime) get a subtle left accent */
+.time-fields-stack .form-group.required-field {
+  border-left: 3px solid var(--color-primary-400);
+  padding-left: var(--space-3);
+  border-radius: var(--radius-sm);
 }
 
 .time-fields-stack .help-text {
   font-size: var(--text-xs);
   margin-top: var(--space-1);
   margin-bottom: 0;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
 }
 
 /* ==========================================================================
@@ -610,9 +642,8 @@
   box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
-/* Date/Time Picker Icons */
-.form-group input[type="date"]::-webkit-calendar-picker-indicator,
-.form-group input[type="time"]::-webkit-calendar-picker-indicator {
+/* Date Picker Icon (kept — useful for opening the date picker popup) */
+.form-group input[type="date"]::-webkit-calendar-picker-indicator {
   background-color: var(--color-primary-500);
   border-radius: var(--radius-sm);
   padding: 3px;
@@ -622,10 +653,21 @@
   height: 18px;
 }
 
-.form-group input[type="date"]::-webkit-calendar-picker-indicator:hover,
-.form-group input[type="time"]::-webkit-calendar-picker-indicator:hover {
+.form-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
   background-color: var(--color-primary-600);
+}
+
+/* Time Picker Icon — hidden to remove extra tab stop.
+   The HH:MM:AM/PM segments remain fully keyboard-accessible. */
+.time-fields-stack input[type="time"]::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+
+/* Hide Firefox inner clear button on time inputs */
+.time-fields-stack input[type="time"]::-moz-clear {
+  display: none;
 }
 
 /* Read-only fields */

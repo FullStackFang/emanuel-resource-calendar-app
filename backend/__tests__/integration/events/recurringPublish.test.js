@@ -569,4 +569,221 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(override.locationDisplayNames).toBe('');
     });
   });
+
+  // --- Graph payload tests for categories & locations ---
+
+  describe('RP-13: Publish sends categories in Graph payload', () => {
+    it('should include categories array in Graph API createCalendarEvent', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Categorized Event',
+        categories: ['Religious Services', 'Community'],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.categories).toEqual(['Religious Services', 'Community']);
+    });
+  });
+
+  describe('RP-14: Publish sends locations array to Graph', () => {
+    it('should include locations array with individual displayNames', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Multi-Room Event',
+        locationDisplayNames: 'Chapel; Social Hall',
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.location.displayName).toBe('Chapel; Social Hall');
+      expect(graphCalls[0].eventData.locations).toEqual([
+        { displayName: 'Chapel', locationType: 'default' },
+        { displayName: 'Social Hall', locationType: 'default' },
+      ]);
+    });
+  });
+
+  describe('RP-15: Publish handles array locationDisplayNames', () => {
+    it('should join array locationDisplayNames with semicolons', async () => {
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Array Location Event',
+        locationDisplayNames: ['Chapel', 'Social Hall'],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.location.displayName).toBe('Chapel; Social Hall');
+      expect(graphCalls[0].eventData.locations).toHaveLength(2);
+    });
+  });
+
+  describe('RP-16: Occurrence override syncs categories to Graph', () => {
+    it('should PATCH Graph occurrence with categories when admin edits published series', async () => {
+      const occurrenceDate = '2026-03-17';
+      const mockOccId = 'mock-occ-id-categories';
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccId, start: { dateTime: `${occurrenceDate}T14:00:00` }, end: { dateTime: `${occurrenceDate}T15:00:00` } }
+      ]);
+
+      const event = createRecurringSeriesMaster({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Weekly Service',
+        status: 'published',
+        recurrence: weeklyRecurrence,
+        calendarOwner: 'templeeventssandbox@emanuelnyc.org',
+        graphData: {
+          id: 'graph-series-master-id',
+          iCalUId: 'ical-series-master',
+          start: { timeZone: 'America/New_York' },
+          end: { timeZone: 'America/New_York' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate,
+          categories: ['Special Service', 'Holiday'],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+      const occUpdate = updateCalls.find(c => c.eventId === mockOccId);
+      expect(occUpdate).toBeDefined();
+      expect(occUpdate.eventData.categories).toEqual(['Special Service', 'Holiday']);
+    });
+  });
+
+  describe('RP-17: Occurrence override syncs location to Graph', () => {
+    it('should PATCH Graph occurrence with location when admin edits published series', async () => {
+      const occurrenceDate = '2026-03-17';
+      const mockOccId = 'mock-occ-id-location';
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccId, start: { dateTime: `${occurrenceDate}T14:00:00` }, end: { dateTime: `${occurrenceDate}T15:00:00` } }
+      ]);
+
+      const locationId = new (require('mongodb').ObjectId)();
+      await db.collection(COLLECTIONS.LOCATIONS).insertOne({
+        _id: locationId,
+        displayName: 'Sanctuary',
+        name: 'Sanctuary',
+        isReservable: true,
+      });
+
+      const event = createRecurringSeriesMaster({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Weekly Service',
+        status: 'published',
+        recurrence: weeklyRecurrence,
+        calendarOwner: 'templeeventssandbox@emanuelnyc.org',
+        graphData: {
+          id: 'graph-series-master-id-2',
+          iCalUId: 'ical-series-master-2',
+          start: { timeZone: 'America/New_York' },
+          end: { timeZone: 'America/New_York' },
+        },
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate,
+          requestedRooms: [locationId.toString()],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      const occUpdate = updateCalls.find(c => c.eventId === mockOccId);
+      expect(occUpdate).toBeDefined();
+      expect(occUpdate.eventData.location.displayName).toBe('Sanctuary');
+      expect(occUpdate.eventData.locations).toEqual([
+        { displayName: 'Sanctuary', locationType: 'default' },
+      ]);
+    });
+  });
+
+  describe('RP-18: Publish syncs occurrenceOverrides to Graph', () => {
+    it('should PATCH Graph occurrences with override categories after publish', async () => {
+      const occurrenceDate = '2026-03-17';
+      const mockOccId = 'mock-occ-override-id';
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccId, start: { dateTime: `${occurrenceDate}T14:00:00` }, end: { dateTime: `${occurrenceDate}T15:00:00` } }
+      ]);
+
+      // Use recurrence WITHOUT exclusions to avoid mock response being consumed
+      const cleanRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [],
+        exclusions: [],
+      };
+
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Weekly with Overrides',
+        recurrence: cleanRecurrence,
+        eventType: 'seriesMaster',
+        occurrenceOverrides: [
+          {
+            occurrenceDate,
+            categories: ['Override Category'],
+            locationDisplayNames: 'Override Room',
+          },
+        ],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      // First call is createCalendarEvent (series), then getRecurringEventInstances + updateCalendarEvent for override
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+      const overrideUpdate = updateCalls.find(c => c.eventId === mockOccId);
+      expect(overrideUpdate).toBeDefined();
+      expect(overrideUpdate.eventData.categories).toEqual(['Override Category']);
+      expect(overrideUpdate.eventData.location.displayName).toBe('Override Room');
+      expect(overrideUpdate.eventData.locations).toEqual([
+        { displayName: 'Override Room', locationType: 'default' },
+      ]);
+    });
+  });
 });

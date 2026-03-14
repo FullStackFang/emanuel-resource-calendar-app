@@ -64,6 +64,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   const [savingDraft, setSavingDraft] = useState(false);
   const [pendingDraftConfirmation, setPendingDraftConfirmation] = useState(false);
 
+  // Derived: true when viewing a single occurrence of a draft recurring series
+  const isDraftOccurrenceEdit = isDraft && editScope === 'thisEvent';
+
   // Ref to hold form data getter function (set by child form component)
   const formDataGetterRef = useRef(null);
 
@@ -1111,6 +1114,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
 
     // Draft-specific state
     isDraft,
+    isDraftOccurrenceEdit,
     draftId,
     showDraftDialog,
     savingDraft,

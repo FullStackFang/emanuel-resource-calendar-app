@@ -1913,6 +1913,60 @@ async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, series
 }
 
 /**
+ * Sync occurrence-level overrides (categories, locations) to Graph after series creation.
+ * Non-fatal: failure does not block publish.
+ */
+async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesMasterGraphId, occurrenceOverrides, eventData) {
+  const results = { synced: [], failed: [] };
+  if (!occurrenceOverrides?.length) return results;
+
+  for (const override of occurrenceOverrides) {
+    const hasCategories = override.categories !== undefined;
+    const hasLocations = override.locationDisplayNames !== undefined;
+    if (!hasCategories && !hasLocations) continue;
+
+    try {
+      const dayStart = `${override.occurrenceDate}T00:00:00`;
+      const dayEnd = `${override.occurrenceDate}T23:59:59`;
+
+      const instances = await graphApiService.getRecurringEventInstances(
+        calendarOwner, calendarId, seriesMasterGraphId, dayStart, dayEnd
+      );
+      const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+      const occDate = new Date(override.occurrenceDate);
+      const match = instanceList.find(inst =>
+        new Date(inst.start?.dateTime).toDateString() === occDate.toDateString()
+      );
+
+      if (match) {
+        const patch = {};
+        if (hasCategories) {
+          patch.categories = override.categories;
+        }
+        if (hasLocations) {
+          const locDispName = override.locationDisplayNames || '';
+          patch.location = { displayName: locDispName, locationType: 'default' };
+          patch.locations = locDispName
+            .split('; ')
+            .filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' }));
+        }
+        await graphApiService.updateCalendarEvent(calendarOwner, calendarId, match.id, patch);
+        results.synced.push({ date: override.occurrenceDate, graphId: match.id });
+      } else {
+        logger.warn('No Graph occurrence found for override date:', { date: override.occurrenceDate });
+        results.failed.push({ date: override.occurrenceDate, reason: 'no matching instance' });
+      }
+    } catch (err) {
+      logger.warn('Failed to sync occurrence override to Graph:', { date: override.occurrenceDate, error: err.message });
+      results.failed.push({ date: override.occurrenceDate, reason: err.message });
+    }
+  }
+
+  return results;
+}
+
+/**
  * Check for scheduling conflicts with existing reservations
  * Considers setup and teardown times when checking overlaps
  * @param {Object} reservation - The reservation to check
@@ -13786,6 +13840,13 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       return res.status(404).json({ error: 'Draft not found' });
     }
 
+    // Prevent submitting individual occurrences — must submit the series master
+    if (draft.eventType === 'occurrence') {
+      return res.status(400).json({
+        error: 'Cannot submit individual occurrences. Submit the series master instead.'
+      });
+    }
+
     // Look up user and check role for auto-publish
     const user = await findUserByIdentity(usersCollection, userId, userEmail);
 
@@ -13928,6 +13989,10 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           timeZone: 'America/New_York'
         },
         location: { displayName: Array.isArray(locationDisplayNames) ? locationDisplayNames.join('; ') : locationDisplayNames },
+        locations: (Array.isArray(locationDisplayNames) ? locationDisplayNames.join('; ') : (locationDisplayNames || ''))
+          .split('; ')
+          .filter(Boolean)
+          .map(name => ({ displayName: name, locationType: 'default' })),
         body: {
           contentType: 'Text',
           content: cd.eventDescription || ''
@@ -13972,6 +14037,18 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
           );
         } catch (syncError) {
           logger.warn('Failed to sync recurrence exceptions to Graph on draft auto-publish:', syncError.message);
+        }
+      }
+
+      // Sync occurrence-level overrides (categories, locations) to Graph
+      const draftOccurrenceOverrides = draft.occurrenceOverrides || cd.occurrenceOverrides;
+      if (draftOccurrenceOverrides?.length) {
+        try {
+          await syncOccurrenceOverridesToGraph(
+            calendarOwner, draft.calendarId || null, createdEvent.id, draftOccurrenceOverrides, graphEventData
+          );
+        } catch (overrideSyncError) {
+          logger.warn('Failed to sync occurrence overrides to Graph on draft auto-publish:', overrideSyncError.message);
         }
       }
 
@@ -18721,7 +18798,10 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         const offsiteAddress = event.calendarData?.offsiteAddress || event.offsiteAddress;
         const offsiteLat = event.calendarData?.offsiteLat || event.offsiteLat;
         const offsiteLon = event.calendarData?.offsiteLon || event.offsiteLon;
-        const locationDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
+        const rawLocationDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
+        const locationDisplayNames = Array.isArray(rawLocationDisplayNames)
+          ? rawLocationDisplayNames.join('; ')
+          : (rawLocationDisplayNames || '');
 
         let graphLocation = { displayName: locationDisplayNames };
 
@@ -18756,6 +18836,12 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
             timeZone: eventTimezone
           },
           location: graphLocation,
+          locations: isOffsite
+            ? [graphLocation]
+            : locationDisplayNames
+              .split('; ')
+              .filter(Boolean)
+              .map(name => ({ displayName: name, locationType: 'default' })),
           body: {
             contentType: 'Text',
             content: event.calendarData?.eventDescription || event.graphData?.bodyPreview || ''
@@ -18816,6 +18902,19 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
             calendarEventResult.recurrenceSyncResults = syncResults;
           } catch (syncError) {
             logger.warn('Failed to sync recurrence exceptions to Graph on publish:', syncError.message);
+          }
+        }
+
+        // Sync occurrence-level overrides (categories, locations) to Graph
+        const eventOccurrenceOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
+        if (eventOccurrenceOverrides?.length) {
+          try {
+            const overrideSyncResults = await syncOccurrenceOverridesToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, eventOccurrenceOverrides, graphEventData
+            );
+            calendarEventResult.occurrenceOverrideSyncResults = overrideSyncResults;
+          } catch (overrideSyncError) {
+            logger.warn('Failed to sync occurrence overrides to Graph on publish:', overrideSyncError.message);
           }
         }
       } catch (error) {
@@ -20758,6 +20857,17 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
                 dateTime: overrideFields.endDateTime + ':00',
                 timeZone: event.graphData?.end?.timeZone || 'America/New_York'
               };
+            }
+            if (overrideFields.categories !== undefined) {
+              graphUpdate.categories = overrideFields.categories;
+            }
+            if (overrideFields.locationDisplayNames !== undefined) {
+              const locDispName = overrideFields.locationDisplayNames || '';
+              graphUpdate.location = { displayName: locDispName, locationType: 'default' };
+              graphUpdate.locations = locDispName
+                .split('; ')
+                .filter(Boolean)
+                .map(name => ({ displayName: name, locationType: 'default' }));
             }
             if (Object.keys(graphUpdate).length > 0) {
               await graphApiService.updateCalendarEvent(

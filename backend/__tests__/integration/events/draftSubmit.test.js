@@ -519,4 +519,90 @@ describe('Draft Submit Tests (DS-1 to DS-13)', () => {
       expect(res.body.graphEventId).toBeDefined();
     });
   });
+
+  describe('DS-14: Auto-publish sends locations array to Graph', () => {
+    it('should include locations array in Graph payload for multi-room draft', async () => {
+      const draft = createDraftEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Multi-Room Draft',
+        locationDisplayNames: 'Chapel; Social Hall',
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .post(`/api/room-reservations/draft/${saved._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls.length).toBe(1);
+      expect(graphCalls[0].eventData.locations).toEqual([
+        { displayName: 'Chapel', locationType: 'default' },
+        { displayName: 'Social Hall', locationType: 'default' },
+      ]);
+    });
+  });
+
+  describe('DS-15: Auto-publish handles array locationDisplayNames', () => {
+    it('should join array locationDisplayNames for Graph payload', async () => {
+      const draft = createDraftEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Array Location Draft',
+        locationDisplayNames: ['Room A', 'Room B'],
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .post(`/api/room-reservations/draft/${saved._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const graphCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(graphCalls[0].eventData.location.displayName).toBe('Room A; Room B');
+      expect(graphCalls[0].eventData.locations).toHaveLength(2);
+    });
+  });
+
+  describe('DS-16: Auto-publish syncs occurrenceOverrides to Graph', () => {
+    it('should PATCH Graph occurrences with overrides after auto-publish', async () => {
+      const occurrenceDate = '2026-03-17';
+      const mockOccId = 'mock-draft-occ-override';
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccId, start: { dateTime: `${occurrenceDate}T14:00:00` }, end: { dateTime: `${occurrenceDate}T15:00:00` } }
+      ]);
+
+      const weeklyRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+      };
+
+      const draft = createDraftEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Draft with Overrides',
+        recurrence: weeklyRecurrence,
+        eventType: 'seriesMaster',
+        occurrenceOverrides: [
+          {
+            occurrenceDate,
+            categories: ['Special Event'],
+          },
+        ],
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .post(`/api/room-reservations/draft/${saved._id}/submit`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+      const overrideUpdate = updateCalls.find(c => c.eventId === mockOccId);
+      expect(overrideUpdate).toBeDefined();
+      expect(overrideUpdate.eventData.categories).toEqual(['Special Event']);
+    });
+  });
 });

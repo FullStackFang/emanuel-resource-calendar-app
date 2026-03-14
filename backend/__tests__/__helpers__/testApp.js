@@ -1060,11 +1060,21 @@ function createTestApp(options = {}) {
 
       if (canAutoPublish) {
         // Auto-publish path for admins/approvers
+        const draftLocDisplayNames = cd.locationDisplayNames || draft.graphData?.location?.displayName || '';
+        const draftLocDisplayNamesStr = Array.isArray(draftLocDisplayNames)
+          ? draftLocDisplayNames.join('; ')
+          : (draftLocDisplayNames || '');
         const draftGraphData = {
           subject: cd.eventTitle,
           startDateTime: cd.startDateTime,
           endDateTime: cd.endDateTime,
           eventDescription: cd.eventDescription,
+          categories: cd.categories || [],
+          location: { displayName: draftLocDisplayNamesStr },
+          locations: draftLocDisplayNamesStr
+            .split('; ')
+            .filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' })),
         };
         // Include recurrence if draft has recurring pattern
         const draftRecurrence = draft.recurrence || cd.recurrence;
@@ -1096,6 +1106,37 @@ function createTestApp(options = {}) {
               TEST_CALENDAR_OWNER, null, graphResult.id, draftRecurrence, draftGraphData
             );
           } catch (syncError) { /* ignore in tests */ }
+        }
+
+        // Sync occurrence-level overrides to Graph
+        const draftOccOverrides = draft.occurrenceOverrides || cd.occurrenceOverrides;
+        if (draftOccOverrides?.length) {
+          for (const override of draftOccOverrides) {
+            const hasCats = override.categories !== undefined;
+            const hasLocs = override.locationDisplayNames !== undefined;
+            if (!hasCats && !hasLocs) continue;
+            try {
+              const dayStart = `${override.occurrenceDate}T00:00:00`;
+              const dayEnd = `${override.occurrenceDate}T23:59:59`;
+              const instances = await graphApiMock.getRecurringEventInstances(
+                TEST_CALENDAR_OWNER, null, graphResult.id, dayStart, dayEnd
+              );
+              const instanceList = Array.isArray(instances) ? instances : [];
+              const match = instanceList.find(inst =>
+                inst.start?.dateTime?.startsWith(override.occurrenceDate)
+              );
+              if (match) {
+                const patch = {};
+                if (hasCats) patch.categories = override.categories;
+                if (hasLocs) {
+                  const ldn = override.locationDisplayNames || '';
+                  patch.location = { displayName: ldn, locationType: 'default' };
+                  patch.locations = ldn.split('; ').filter(Boolean).map(n => ({ displayName: n, locationType: 'default' }));
+                }
+                await graphApiMock.updateCalendarEvent(TEST_CALENDAR_OWNER, null, match.id, patch);
+              }
+            } catch (e) { /* ignore */ }
+          }
         }
 
         const draftPublishSet = {
@@ -1453,11 +1494,21 @@ function createTestApp(options = {}) {
       }
 
       // Build Graph event data
+      const rawLocDisplayNames = event.calendarData?.locationDisplayNames || event.graphData?.location?.displayName || '';
+      const locDisplayNamesStr = Array.isArray(rawLocDisplayNames)
+        ? rawLocDisplayNames.join('; ')
+        : (rawLocDisplayNames || '');
       const graphEventData = {
         subject: event.eventTitle,
         startDateTime: event.startDateTime,
         endDateTime: event.endDateTime,
         eventDescription: event.eventDescription,
+        categories: event.calendarData?.categories || event.categories || [],
+        location: { displayName: locDisplayNamesStr },
+        locations: locDisplayNamesStr
+          .split('; ')
+          .filter(Boolean)
+          .map(name => ({ displayName: name, locationType: 'default' })),
       };
 
       // Include recurrence if event has a recurring pattern
@@ -1492,6 +1543,37 @@ function createTestApp(options = {}) {
             TEST_CALENDAR_OWNER, null, graphResult.id, publishRecurrence, graphEventData
           );
         } catch (syncError) { /* ignore in tests */ }
+      }
+
+      // Sync occurrence-level overrides to Graph
+      const eventOccOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
+      if (eventOccOverrides?.length) {
+        for (const override of eventOccOverrides) {
+          const hasCats = override.categories !== undefined;
+          const hasLocs = override.locationDisplayNames !== undefined;
+          if (!hasCats && !hasLocs) continue;
+          try {
+            const dayStart = `${override.occurrenceDate}T00:00:00`;
+            const dayEnd = `${override.occurrenceDate}T23:59:59`;
+            const instances = await graphApiMock.getRecurringEventInstances(
+              TEST_CALENDAR_OWNER, null, graphResult.id, dayStart, dayEnd
+            );
+            const instanceList = Array.isArray(instances) ? instances : [];
+            const match = instanceList.find(inst =>
+              inst.start?.dateTime?.startsWith(override.occurrenceDate)
+            );
+            if (match) {
+              const patch = {};
+              if (hasCats) patch.categories = override.categories;
+              if (hasLocs) {
+                const ldn = override.locationDisplayNames || '';
+                patch.location = { displayName: ldn, locationType: 'default' };
+                patch.locations = ldn.split('; ').filter(Boolean).map(n => ({ displayName: n, locationType: 'default' }));
+              }
+              await graphApiMock.updateCalendarEvent(TEST_CALENDAR_OWNER, null, match.id, patch);
+            }
+          } catch (e) { /* ignore */ }
+        }
       }
 
       // Update event status
@@ -3325,6 +3407,55 @@ function createTestApp(options = {}) {
             $set: { lastModifiedDateTime: new Date() }
           }
         );
+
+        // Graph sync: if published, update the specific occurrence in Graph
+        const storedGraphId = event.graphData?.id;
+        if (storedGraphId && event.calendarOwner) {
+          try {
+            const dayStart = `${dateKey}T00:00:00`;
+            const dayEnd = `${dateKey}T23:59:59`;
+            const seriesMasterId = updates.seriesMasterId;
+            const instances = await graphApiMock.getRecurringEventInstances(
+              event.calendarOwner, event.calendarId, seriesMasterId || storedGraphId,
+              dayStart, dayEnd
+            );
+            const match = (instances || []).find(occ =>
+              occ.start?.dateTime?.startsWith(dateKey)
+            );
+            if (match) {
+              const graphUpdate = {};
+              if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
+              if (overrideFields.startDateTime) {
+                graphUpdate.start = {
+                  dateTime: overrideFields.startDateTime + ':00',
+                  timeZone: event.graphData?.start?.timeZone || 'America/New_York'
+                };
+              }
+              if (overrideFields.endDateTime) {
+                graphUpdate.end = {
+                  dateTime: overrideFields.endDateTime + ':00',
+                  timeZone: event.graphData?.end?.timeZone || 'America/New_York'
+                };
+              }
+              if (overrideFields.categories !== undefined) {
+                graphUpdate.categories = overrideFields.categories;
+              }
+              if (overrideFields.locationDisplayNames !== undefined) {
+                const locDispName = overrideFields.locationDisplayNames || '';
+                graphUpdate.location = { displayName: locDispName, locationType: 'default' };
+                graphUpdate.locations = locDispName
+                  .split('; ')
+                  .filter(Boolean)
+                  .map(name => ({ displayName: name, locationType: 'default' }));
+              }
+              if (Object.keys(graphUpdate).length > 0) {
+                await graphApiMock.updateCalendarEvent(
+                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                );
+              }
+            }
+          } catch (graphErr) { /* non-fatal */ }
+        }
 
         // Mirror to calendarData.occurrenceOverrides
         const updatedDoc = await testCollections.events.findOne(query);

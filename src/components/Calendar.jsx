@@ -7392,6 +7392,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
           onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
+          isDraftOccurrenceEdit={reviewModal.isDraftOccurrenceEdit}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
           reservation={reviewModal.currentItem}

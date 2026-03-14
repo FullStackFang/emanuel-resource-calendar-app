@@ -83,6 +83,7 @@ export default function ReviewModal({
   onDraftDialogDiscard = null,
   onDraftDialogCancel = null,
   canSaveDraft = true,
+  isDraftOccurrenceEdit = false,
   // Edit request props (for requesters to request changes to published events)
   onRequestEdit = null,
   canRequestEdit = false,
@@ -694,7 +695,8 @@ export default function ReviewModal({
                     type="button"
                     className={`action-btn publish-btn ${localConfirming === 'submitDraft' ? 'confirming' : ''}`}
                     onClick={() => handleLocalConfirmClick('submitDraft', onSubmitDraft)}
-                    disabled={isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
+                    disabled={isDraftOccurrenceEdit || isSaving || savingDraft || !isFormValid || (anyConfirming && localConfirming !== 'submitDraft')}
+                    title={isDraftOccurrenceEdit ? 'Open the series master to submit all occurrences' : undefined}
                   >
                     {isSaving
                       ? 'Submitting...'
