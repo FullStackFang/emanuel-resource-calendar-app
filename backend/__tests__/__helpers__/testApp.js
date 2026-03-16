@@ -780,9 +780,11 @@ function createTestApp(options = {}) {
       if (editScope === 'thisEvent' && occurrenceDate) {
         const dateKey = occurrenceDate.split('T')[0];
 
-        // Validate dateKey falls within series range
-        const recRange = draft.calendarData?.recurrence?.range;
-        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+        // Validate dateKey falls within series range (additions are valid even outside range)
+        const recurrence = draft.calendarData?.recurrence;
+        const recRange = recurrence?.range;
+        const additions = recurrence?.additions || [];
+        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
           return res.status(400).json({ error: 'Occurrence date is outside series range' });
         }
 
@@ -3344,9 +3346,11 @@ function createTestApp(options = {}) {
       if (editScope === 'thisEvent' && occurrenceDate) {
         const dateKey = occurrenceDate.split('T')[0];
 
-        // Validate dateKey falls within series range
-        const recRange = event.calendarData?.recurrence?.range || event.recurrence?.range;
-        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+        // Validate dateKey falls within series range (additions are valid even outside range)
+        const recurrence = event.calendarData?.recurrence || event.recurrence;
+        const recRange = recurrence?.range;
+        const additions = recurrence?.additions || [];
+        if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
           return res.status(400).json({ error: 'Occurrence date is outside series range' });
         }
 

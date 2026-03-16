@@ -2992,11 +2992,14 @@ import ConflictDialog from './shared/ConflictDialog';
             {event.subject}
           </div>
           
-          {viewType !== 'month' && event.location?.displayName && event.location.displayName !== 'Unspecified' && (
-            <div className="event-location" style={styles}>
-              {event.location.displayName}
-            </div>
-          )}
+          {viewType !== 'month' && (() => {
+            const locText = getEventField(event, 'locationDisplayNames', '')?.trim() || event.location?.displayName?.trim() || '';
+            return locText && locText !== 'Unspecified' ? (
+              <div className="event-location" style={styles}>
+                {locText}
+              </div>
+            ) : null;
+          })()}
           
           {viewType === 'day' && 
             Object.entries(event).filter(([key, value]) => 
@@ -3530,8 +3533,9 @@ import ConflictDialog from './shared/ConflictDialog';
           return eventCategories.includes(selectedFilter);
         } else {
           // For locations
-          const eventLocations = event.location?.displayName 
-            ? event.location.displayName.split('; ').map(loc => loc.trim())
+          const locDisplayText = getEventField(event, 'locationDisplayNames', '')?.trim() || event.location?.displayName?.trim() || '';
+          const eventLocations = locDisplayText
+            ? locDisplayText.split('; ').map(loc => loc.trim())
             : [];
             
           if (selectedFilter === 'Unspecified') {

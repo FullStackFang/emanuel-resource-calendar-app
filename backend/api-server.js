@@ -13635,8 +13635,10 @@ app.put('/api/room-reservations/draft/:id', verifyToken, async (req, res) => {
       if (!draft) {
         return res.status(404).json({ error: 'Draft not found for occurrence edit' });
       }
-      const recRange = draft.calendarData?.recurrence?.range;
-      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+      const recurrence = draft.calendarData?.recurrence;
+      const recRange = recurrence?.range;
+      const additions = recurrence?.additions || [];
+      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
         return res.status(400).json({ error: 'Occurrence date is outside series range' });
       }
 
@@ -20778,8 +20780,10 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       const dateKey = updates.occurrenceDate.split('T')[0];
 
       // Validate dateKey falls within series range
-      const recRange = event.calendarData?.recurrence?.range || event.recurrence?.range;
-      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate)) {
+      const recurrence = event.calendarData?.recurrence || event.recurrence;
+      const recRange = recurrence?.range;
+      const additions = recurrence?.additions || [];
+      if (recRange?.endDate && (dateKey < recRange.startDate || dateKey > recRange.endDate) && !additions.includes(dateKey)) {
         return res.status(400).json({ error: 'Occurrence date is outside series range' });
       }
 
