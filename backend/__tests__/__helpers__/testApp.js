@@ -3757,29 +3757,92 @@ function createTestApp(options = {}) {
       delete mongoUpdate.occurrenceOverrides;
       delete mongoUpdate.exceptionEventIds;
 
-      // CASCADE: When editing a series master, propagate changed fields into occurrenceOverrides
-      if (event.eventType === 'seriesMaster') {
+      // CASCADE: When editing a series master with allEvents scope (or no scope),
+      // propagate changed fields into occurrenceOverrides — mirrors production normalizedEqual logic
+      if (event.eventType === 'seriesMaster' && (!editScope || editScope === 'allEvents')) {
         const existingOverrides = event.occurrenceOverrides || [];
         if (existingOverrides.length > 0) {
+          const cd = event.calendarData || {};
+
+          // Match production normalizedEqual — guards undefined on stored side (b)
+          const normalizedEqual = (a, b, type) => {
+            if (a === undefined) return true;
+            if (type === 'objectIdArray') {
+              const aStr = (Array.isArray(a) ? a : []).map(String).sort();
+              const bStr = (Array.isArray(b) ? b : []).map(String).sort();
+              return JSON.stringify(aStr) === JSON.stringify(bStr);
+            }
+            if (type === 'time') {
+              const norm = (t) => t ? String(t).substring(0, 5) : '';
+              return norm(a) === norm(b);
+            }
+            if (type === 'array') {
+              const aArr = Array.isArray(a) ? a : [];
+              const bArr = Array.isArray(b) ? b : [];
+              return JSON.stringify([...aArr].sort()) === JSON.stringify([...bArr].sort());
+            }
+            if (typeof a === 'object' && a !== null) {
+              const bNorm = (b === undefined || b === null) ? (Array.isArray(a) ? [] : {}) : b;
+              if (typeof bNorm !== 'object') return false;
+              return JSON.stringify(a) === JSON.stringify(bNorm);
+            }
+            if (b === undefined || b === null) b = '';
+            if (a === null) a = '';
+            return a === b;
+          };
+
+          const cascadeChanges = {
+            eventTitle: !normalizedEqual(updates.eventTitle, cd.eventTitle),
+            startTime: !normalizedEqual(updates.startTime, cd.startTime, 'time'),
+            endTime: !normalizedEqual(updates.endTime, cd.endTime, 'time'),
+            locations: !normalizedEqual(
+              mongoUpdate['calendarData.locations'] || updates.locations,
+              cd.locations,
+              'objectIdArray'
+            ),
+            locationDisplayNames: !normalizedEqual(
+              mongoUpdate['calendarData.locationDisplayNames'] || updates.locationDisplayNames,
+              cd.locationDisplayNames
+            ),
+            categories: !normalizedEqual(updates.categories, cd.categories, 'array'),
+            eventDescription: !normalizedEqual(updates.eventDescription, cd.eventDescription),
+            services: !normalizedEqual(updates.services, cd.services),
+          };
+
+          // Returns true if the override has its own independent value for this field
+          const overrideHasOwnValue = (override, field, masterOldValue, type) => {
+            if (override[field] === undefined) return false;
+            return !normalizedEqual(override[field], masterOldValue, type);
+          };
+
           const updatedOverrides = existingOverrides.map(override => {
             const updated = { ...override };
-            if (updates.eventTitle !== undefined) updated.eventTitle = updates.eventTitle;
-            if (updates.startTime !== undefined) {
+            if (cascadeChanges.eventTitle && !overrideHasOwnValue(override, 'eventTitle', cd.eventTitle)) {
+              updated.eventTitle = updates.eventTitle;
+            }
+            if (cascadeChanges.startTime && !overrideHasOwnValue(override, 'startTime', cd.startTime, 'time')) {
               updated.startTime = updates.startTime;
               updated.startDateTime = `${override.occurrenceDate}T${updates.startTime}`;
             }
-            if (updates.endTime !== undefined) {
+            if (cascadeChanges.endTime && !overrideHasOwnValue(override, 'endTime', cd.endTime, 'time')) {
               updated.endTime = updates.endTime;
               updated.endDateTime = `${override.occurrenceDate}T${updates.endTime}`;
             }
-            if (updates.locations !== undefined) {
-              updated.locations = updates.locations;
+            if (cascadeChanges.locations && !overrideHasOwnValue(override, 'locations', cd.locations, 'objectIdArray')) {
+              updated.locations = mongoUpdate['calendarData.locations'] || updates.locations;
             }
-            if (updates.locationDisplayNames !== undefined) {
-              updated.locationDisplayNames = updates.locationDisplayNames;
+            if (cascadeChanges.locationDisplayNames && !overrideHasOwnValue(override, 'locationDisplayNames', cd.locationDisplayNames)) {
+              updated.locationDisplayNames = mongoUpdate['calendarData.locationDisplayNames'] || updates.locationDisplayNames;
             }
-            if (updates.categories !== undefined) updated.categories = updates.categories;
-            if (updates.eventDescription !== undefined) updated.eventDescription = updates.eventDescription;
+            if (cascadeChanges.categories && !overrideHasOwnValue(override, 'categories', cd.categories, 'array')) {
+              updated.categories = updates.categories;
+            }
+            if (cascadeChanges.eventDescription && !overrideHasOwnValue(override, 'eventDescription', cd.eventDescription)) {
+              updated.eventDescription = updates.eventDescription;
+            }
+            if (cascadeChanges.services && !overrideHasOwnValue(override, 'services', cd.services)) {
+              updated.services = updates.services;
+            }
             return updated;
           });
           mongoUpdate.occurrenceOverrides = updatedOverrides;

@@ -4225,6 +4225,22 @@ async function upsertUnifiedEvent(userId, calendarId, graphEvent, internalData =
       importedAt: internalData.importedAt,
     };
 
+    // Preserve locally-edited datetime fields for enriched events (admin-created/saved)
+    // Gate: if existingEvent has a status (meaning it was created/enriched by the app),
+    // preserve its calendarData datetimes rather than overwriting with potentially-stale Graph data
+    if (existingEvent?.status && existingEvent?.calendarData?.startDateTime) {
+      unifiedEvent.calendarData.startDateTime = existingEvent.calendarData.startDateTime;
+      unifiedEvent.calendarData.endDateTime = existingEvent.calendarData.endDateTime;
+      unifiedEvent.calendarData.startDate = existingEvent.calendarData.startDate;
+      unifiedEvent.calendarData.startTime = existingEvent.calendarData.startTime;
+      unifiedEvent.calendarData.endDate = existingEvent.calendarData.endDate;
+      unifiedEvent.calendarData.endTime = existingEvent.calendarData.endTime;
+      unifiedEvent.startDateTime = existingEvent.calendarData.startDateTime;
+      unifiedEvent.endDateTime = existingEvent.calendarData.endDateTime;
+      unifiedEvent.calendarData.eventTitle = existingEvent.calendarData.eventTitle || unifiedEvent.calendarData.eventTitle;
+      unifiedEvent.eventTitle = existingEvent.calendarData.eventTitle || unifiedEvent.eventTitle;
+    }
+
     // Preserve original user-defined recurrence pattern if it exists
     if (existingEvent?.calendarData?.recurrence || existingEvent?.internalData?.recurrence) {
       unifiedEvent.calendarData.recurrence = existingEvent.calendarData?.recurrence || existingEvent.internalData.recurrence;
@@ -21248,12 +21264,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Pre-compute combined datetimes from separate date/time fields (frontend sends them separately)
         // This must happen BEFORE building the Graph payload so the correct times are used
         const graphTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
-        const resolvedStartDateTime = updates.startDateTime
-          || (updates.startDate && updates.startTime ? `${updates.startDate}T${updates.startTime}:00` : null)
-          || cd.startDateTime || event.graphData?.start?.dateTime;
-        const resolvedEndDateTime = updates.endDateTime
-          || (updates.endDate && updates.endTime ? `${updates.endDate}T${updates.endTime}:00` : null)
-          || cd.endDateTime || event.graphData?.end?.dateTime;
+        // Prioritize explicit date+time components (user's intent) over startDateTime (may be stale from graphData)
+        const resolvedStartDateTime = (updates.startDate && updates.startTime)
+          ? `${updates.startDate}T${updates.startTime}:00`
+          : (updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime);
+        const resolvedEndDateTime = (updates.endDate && updates.endTime)
+          ? `${updates.endDate}T${updates.endTime}:00`
+          : (updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime);
 
         // Prepare Graph API update payload
         // Build Graph API update with ONLY Graph-compatible fields
@@ -21908,43 +21925,98 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     if (event.eventType === 'seriesMaster' && (!editScope || editScope === 'allEvents')) {
       const existingOverrides = event.occurrenceOverrides || [];
       if (existingOverrides.length > 0) {
+        // Cascade-specific change detection with type normalization.
+        // Unlike graphChanges (computed pre-normalization for Graph sync), these compare
+        // the FINAL normalized values to avoid ObjectId/string and datetime format false positives.
+        const normalizedEqual = (a, b, type) => {
+          if (a === undefined) return true; // field not sent = unchanged
+          if (type === 'objectIdArray') {
+            const aStr = (Array.isArray(a) ? a : []).map(String).sort();
+            const bStr = (Array.isArray(b) ? b : []).map(String).sort();
+            return JSON.stringify(aStr) === JSON.stringify(bStr);
+          }
+          if (type === 'time') {
+            // Normalize '14:00' vs '14:00:00' — compare only HH:MM
+            const norm = (t) => t ? String(t).substring(0, 5) : '';
+            return norm(a) === norm(b);
+          }
+          if (type === 'array') {
+            const aArr = Array.isArray(a) ? a : [];
+            const bArr = Array.isArray(b) ? b : [];
+            return JSON.stringify([...aArr].sort()) === JSON.stringify([...bArr].sort());
+          }
+          // Generic object comparison — normalize undefined/null stored value
+          if (typeof a === 'object' && a !== null) {
+            const bNorm = (b === undefined || b === null) ? (Array.isArray(a) ? [] : {}) : b;
+            if (typeof bNorm !== 'object') return false;
+            return JSON.stringify(a) === JSON.stringify(bNorm);
+          }
+          // Primitive comparison — treat undefined/null stored values as empty string
+          if (b === undefined || b === null) b = '';
+          if (a === null) a = '';
+          return a === b;
+        };
+
+        const cascadeChanges = {
+          eventTitle: !normalizedEqual(updates.eventTitle, cd.eventTitle),
+          startTime: !normalizedEqual(updates.startTime, cd.startTime, 'time'),
+          endTime: !normalizedEqual(updates.endTime, cd.endTime, 'time'),
+          locations: !normalizedEqual(
+            finalUpdateOperations['calendarData.locations'],
+            cd.locations,
+            'objectIdArray'
+          ),
+          locationDisplayNames: !normalizedEqual(
+            finalUpdateOperations['calendarData.locationDisplayNames'],
+            cd.locationDisplayNames
+          ),
+          isOffsite: !normalizedEqual(updates.isOffsite, cd.isOffsite) ||
+                     !normalizedEqual(updates.offsiteName, cd.offsiteName) ||
+                     !normalizedEqual(updates.offsiteAddress, cd.offsiteAddress),
+          categories: !normalizedEqual(updates.categories, cd.categories, 'array'),
+          eventDescription: !normalizedEqual(updates.eventDescription, cd.eventDescription),
+          services: !normalizedEqual(updates.services, cd.services),
+        };
+
+        // Returns true if the override has its own independent value for this field
+        // (i.e., override's current value differs from the master's OLD value).
+        // If true, the cascade should skip this field for this override.
+        const overrideHasOwnValue = (override, field, masterOldValue, type) => {
+          if (override[field] === undefined) return false; // no override value = inherits from master
+          return !normalizedEqual(override[field], masterOldValue, type);
+        };
+
         const updatedOverrides = existingOverrides.map(override => {
           const updated = { ...override };
-          // Cascade title if changed
-          if (updates.eventTitle !== undefined) {
+          if (cascadeChanges.eventTitle && !overrideHasOwnValue(override, 'eventTitle', cd.eventTitle)) {
             updated.eventTitle = updates.eventTitle;
           }
-          // Cascade time if changed (use the override's own date)
-          if (updates.startTime !== undefined) {
+          if (cascadeChanges.startTime && !overrideHasOwnValue(override, 'startTime', cd.startTime, 'time')) {
             updated.startTime = updates.startTime;
             updated.startDateTime = `${override.occurrenceDate}T${updates.startTime}`;
           }
-          if (updates.endTime !== undefined) {
+          if (cascadeChanges.endTime && !overrideHasOwnValue(override, 'endTime', cd.endTime, 'time')) {
             updated.endTime = updates.endTime;
             updated.endDateTime = `${override.occurrenceDate}T${updates.endTime}`;
           }
-          // Cascade location if changed
-          if (finalUpdateOperations['calendarData.locations'] !== undefined) {
+          if (cascadeChanges.locations && !overrideHasOwnValue(override, 'locations', cd.locations, 'objectIdArray')) {
             updated.locations = finalUpdateOperations['calendarData.locations'];
           }
-          if (finalUpdateOperations['calendarData.locationDisplayNames'] !== undefined) {
+          if (cascadeChanges.locationDisplayNames && !overrideHasOwnValue(override, 'locationDisplayNames', cd.locationDisplayNames)) {
             updated.locationDisplayNames = finalUpdateOperations['calendarData.locationDisplayNames'];
           }
-          if (updates.isOffsite !== undefined) {
+          if (cascadeChanges.isOffsite && !overrideHasOwnValue(override, 'isOffsite', cd.isOffsite)) {
             updated.isOffsite = updates.isOffsite;
             if (updates.offsiteName !== undefined) updated.offsiteName = updates.offsiteName;
             if (updates.offsiteAddress !== undefined) updated.offsiteAddress = updates.offsiteAddress;
           }
-          // Cascade categories if changed
-          if (updates.categories !== undefined) {
+          if (cascadeChanges.categories && !overrideHasOwnValue(override, 'categories', cd.categories, 'array')) {
             updated.categories = updates.categories;
           }
-          // Cascade description if changed
-          if (updates.eventDescription !== undefined) {
+          if (cascadeChanges.eventDescription && !overrideHasOwnValue(override, 'eventDescription', cd.eventDescription)) {
             updated.eventDescription = updates.eventDescription;
           }
-          // Cascade services if changed
-          if (updates.services !== undefined) {
+          if (cascadeChanges.services && !overrideHasOwnValue(override, 'services', cd.services)) {
             updated.services = updates.services;
           }
           return updated;
@@ -21954,11 +22026,14 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         logger.info('Cascaded master edit to occurrenceOverrides:', {
           count: updatedOverrides.length,
           changedFields: [
-            updates.eventTitle !== undefined && 'eventTitle',
-            updates.startTime !== undefined && 'startTime',
-            updates.endTime !== undefined && 'endTime',
-            finalUpdateOperations['calendarData.locations'] !== undefined && 'locations',
-            updates.categories !== undefined && 'categories',
+            cascadeChanges.eventTitle && 'eventTitle',
+            cascadeChanges.startTime && 'startTime',
+            cascadeChanges.endTime && 'endTime',
+            cascadeChanges.locations && 'locations',
+            cascadeChanges.locationDisplayNames && 'locationDisplayNames',
+            cascadeChanges.categories && 'categories',
+            cascadeChanges.eventDescription && 'eventDescription',
+            cascadeChanges.services && 'services',
           ].filter(Boolean),
         });
       }

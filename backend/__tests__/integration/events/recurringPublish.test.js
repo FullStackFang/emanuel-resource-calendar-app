@@ -998,11 +998,11 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       // eventType must remain seriesMaster (protected by backend)
       expect(updated.eventType).toBe('seriesMaster');
 
-      // occurrenceOverrides must still exist (not wiped) and cascade the new title
+      // occurrenceOverrides must still exist (not wiped)
       expect(updated.occurrenceOverrides).toHaveLength(1);
       expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-20');
-      // Title cascades from master edit to overrides
-      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Updated Title');
+      // Override had independent title ('Override Title' != master's old title) — preserved, not cascaded
+      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Override Title');
       // Time should remain from original override (not changed in this edit)
       expect(updated.occurrenceOverrides[0].startTime).toBe('12:00');
       expect(updated.occurrenceOverrides[0].endTime).toBe('13:00');
@@ -1157,10 +1157,26 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
         pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
         range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
       };
+      // Override values MATCH master's old values (inherited) — cascade should update them
       const master = createRecurringSeriesMaster({
         status: 'published',
+        eventTitle: 'Old Master Title',
         recurrence,
         graphData: { id: 'graph-master-rp27', subject: 'Override Cascade Test' },
+        calendarData: {
+          eventTitle: 'Old Master Title',
+          eventDescription: '',
+          startDateTime: '2026-03-18T12:00:00',
+          endDateTime: '2026-03-18T13:00:00',
+          startDate: '2026-03-18',
+          startTime: '12:00',
+          endDate: '2026-03-18',
+          endTime: '13:00',
+          categories: ['Old Category'],
+          locations: [oldLocationId],
+          locationDisplayNames: 'Old Room',
+          services: [],
+        },
         occurrenceOverrides: [
           {
             occurrenceDate: '2026-03-20',
@@ -1168,7 +1184,7 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
             endTime: '13:00',
             startDateTime: '2026-03-20T12:00',
             endDateTime: '2026-03-20T13:00',
-            eventTitle: 'Old Override Title',
+            eventTitle: 'Old Master Title',
             locations: [oldLocationId],
             locationDisplayNames: 'Old Room',
             categories: ['Old Category'],
@@ -1188,13 +1204,15 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
           locations: [newLocationId.toString()],
           locationDisplayNames: 'New Room',
           categories: ['New Category'],
+          eventDescription: '',
+          services: [],
           _version: saved._version,
         })
         .expect(200);
 
       const updated = res.body.event;
 
-      // occurrenceOverrides should be cascaded with the new values
+      // Override inherited from master (same values) — should be cascaded with the new values
       expect(updated.occurrenceOverrides).toHaveLength(1);
       const override = updated.occurrenceOverrides[0];
       expect(override.occurrenceDate).toBe('2026-03-20');
@@ -1207,6 +1225,243 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       expect(override.categories).toEqual(['New Category']);
     });
 
+    it('RP-28: should not overwrite exception overrides when frontend sends all fields unchanged', async () => {
+      const { ObjectId } = require('mongodb');
+      const masterLocationId = new ObjectId();
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      // Create master with explicit calendarData so we control exact field values
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Weekly Standup',
+        categories: ['Meeting'],
+        eventDescription: 'Team standup',
+        recurrence,
+        graphData: { id: 'graph-master-rp28', subject: 'Weekly Standup' },
+        calendarData: {
+          eventTitle: 'Weekly Standup',
+          eventDescription: 'Team standup',
+          startDateTime: '2026-03-18T10:00:00',
+          endDateTime: '2026-03-18T11:00:00',
+          startDate: '2026-03-18',
+          startTime: '10:00',
+          endDate: '2026-03-18',
+          endTime: '11:00',
+          categories: ['Meeting'],
+          locations: [masterLocationId],
+          locationDisplayNames: 'Main Room',
+          services: [],
+          setupTime: null,
+          teardownTime: null,
+          doorOpenTime: null,
+          doorCloseTime: null,
+          setupTimeMinutes: 0,
+          teardownTimeMinutes: 0,
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Special Exception Title',
+            startTime: '14:00',
+            endTime: '15:00',
+            startDateTime: '2026-03-20T14:00',
+            endDateTime: '2026-03-20T15:00',
+            categories: ['Special'],
+            eventDescription: 'Special event description',
+            locations: [masterLocationId],
+            locationDisplayNames: 'Exception Room',
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Simulate frontend behavior: send ALL fields with current master values (no actual changes).
+      // Locations sent as STRINGS (mimicking frontend) — must not trigger false positive cascade
+      // against ObjectId values stored in calendarData.
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Weekly Standup',
+          startTime: '10:00',
+          endTime: '11:00',
+          startDate: '2026-03-18',
+          endDate: '2026-03-18',
+          startDateTime: '2026-03-18T10:00:00',
+          endDateTime: '2026-03-18T11:00:00',
+          categories: ['Meeting'],
+          eventDescription: 'Team standup',
+          locations: [masterLocationId.toString()],
+          locationDisplayNames: 'Main Room',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      const override = updated.occurrenceOverrides[0];
+
+      // ALL exception-specific values must be preserved — none should be overwritten by master values
+      expect(override.eventTitle).toBe('Special Exception Title');
+      expect(override.startTime).toBe('14:00');
+      expect(override.endTime).toBe('15:00');
+      expect(override.startDateTime).toBe('2026-03-20T14:00');
+      expect(override.endDateTime).toBe('2026-03-20T15:00');
+      expect(override.categories).toEqual(['Special']);
+      expect(override.eventDescription).toBe('Special event description');
+      expect(override.locationDisplayNames).toBe('Exception Room');
+    });
+
+    it('RP-29: allEvents edit with changed title preserves unchanged location overrides despite ObjectId type mismatch', async () => {
+      const { ObjectId } = require('mongodb');
+      const masterLocationId = new ObjectId();
+      const overrideLocationId = new ObjectId();
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Original Title',
+        recurrence,
+        graphData: { id: 'graph-master-rp29', subject: 'Original Title' },
+        calendarData: {
+          eventTitle: 'Original Title',
+          eventDescription: 'Some description',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [masterLocationId],
+          locationDisplayNames: 'Master Room',
+          services: [],
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Original Title',  // same as master — should cascade
+            startTime: '09:00',
+            endTime: '10:00',
+            startDateTime: '2026-03-20T09:00',
+            endDateTime: '2026-03-20T10:00',
+            locations: [overrideLocationId],  // different from master — independent, should NOT cascade
+            locationDisplayNames: 'Override Room',
+            categories: ['General'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Edit only the title. Send locations as STRINGS (mimicking frontend) — same as master.
+      // The override has DIFFERENT locations that must be preserved.
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'Updated Series Title',
+          locations: [masterLocationId.toString()],
+          locationDisplayNames: 'Master Room',
+          categories: ['General'],
+          startTime: '09:00',
+          endTime: '10:00',
+          eventDescription: 'Some description',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      const override = updated.occurrenceOverrides[0];
+
+      // Title SHOULD be cascaded (it changed)
+      expect(override.eventTitle).toBe('Updated Series Title');
+
+      // Locations should NOT be cascaded (master locations unchanged — string/ObjectId match)
+      expect(override.locationDisplayNames).toBe('Override Room');
+      // The override's locations array should still contain the override-specific location
+      expect(override.locations.map(String)).toEqual([overrideLocationId.toString()]);
+
+      // Time and categories should NOT be cascaded (unchanged)
+      expect(override.startTime).toBe('09:00');
+      expect(override.endTime).toBe('10:00');
+      expect(override.categories).toEqual(['General']);
+    });
+
+    it('RP-30: should not crash when services is an empty object {}', async () => {
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      // Production stores services as {} (empty object), not [] (empty array)
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Service Object Test',
+        recurrence,
+        graphData: { id: 'graph-master-rp30', subject: 'Service Object Test' },
+        calendarData: {
+          eventTitle: 'Service Object Test',
+          eventDescription: 'Testing services as object',
+          startDateTime: '2026-03-18T10:00:00',
+          endDateTime: '2026-03-18T11:00:00',
+          startDate: '2026-03-18',
+          startTime: '10:00',
+          endDate: '2026-03-18',
+          endTime: '11:00',
+          categories: ['General'],
+          locations: [],
+          locationDisplayNames: '',
+          services: {},  // ← production data shape: empty object, NOT array
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Service Object Test',  // same as master — should cascade
+            startTime: '10:00',
+            endTime: '11:00',
+            startDateTime: '2026-03-20T10:00',
+            endDateTime: '2026-03-20T11:00',
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Change only the title, send services as {} (matching production frontend behavior)
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'Updated Service Object Test',
+          services: {},  // ← frontend sends back the same empty object
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      expect(updated.eventTitle).toBe('Updated Service Object Test');
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+
+      // Title cascaded (override inherited master's old title), override preserved
+      const override = updated.occurrenceOverrides[0];
+      expect(override.eventTitle).toBe('Updated Service Object Test');
+    });
+
     it('should preserve override fields that were NOT changed in the master edit', async () => {
       const recurrence = {
         pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
@@ -1214,15 +1469,30 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       };
       const master = createRecurringSeriesMaster({
         status: 'published',
+        eventTitle: 'Partial Cascade Test',
         recurrence,
         graphData: { id: 'graph-master-rp27b', subject: 'Partial Cascade Test' },
+        calendarData: {
+          eventTitle: 'Partial Cascade Test',
+          eventDescription: '',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [],
+          locationDisplayNames: '',
+          services: [],
+        },
         occurrenceOverrides: [
           {
             occurrenceDate: '2026-03-20',
-            startTime: '12:00',
-            endTime: '13:00',
-            eventTitle: 'Custom Override Title',
-            locationDisplayNames: 'Custom Room',
+            startTime: '12:00',         // independent (differs from master 09:00)
+            endTime: '13:00',           // independent (differs from master 10:00)
+            eventTitle: 'Partial Cascade Test',  // inherited from master — will cascade
+            locationDisplayNames: 'Custom Room', // independent (differs from master '')
           },
         ],
         owner: adminUser,
@@ -1242,10 +1512,342 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       const updated = res.body.event;
       const override = updated.occurrenceOverrides[0];
       expect(override.eventTitle).toBe('Updated Title Only');
-      // These should remain unchanged since only title was edited
+      // These should remain unchanged — independent override values, not cascaded
       expect(override.startTime).toBe('12:00');
       expect(override.endTime).toBe('13:00');
       expect(override.locationDisplayNames).toBe('Custom Room');
+    });
+
+    it('RP-31: should not false-cascade when stored calendarData has undefined fields', async () => {
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Undefined Fields Test',
+        recurrence,
+        graphData: { id: 'graph-master-rp31', subject: 'Undefined Fields Test' },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            startTime: '14:00',            // independent (differs from master)
+            endTime: '15:00',              // independent (differs from master)
+            eventTitle: 'Undefined Fields Test',  // inherited from master — will cascade
+            locationDisplayNames: 'Override Room', // independent
+          },
+        ],
+        owner: adminUser,
+      });
+
+      // Deliberately remove fields from calendarData to simulate older documents
+      // that don't have services, eventDescription, or locationDisplayNames stored
+      delete master.calendarData.services;
+      delete master.calendarData.eventDescription;
+      delete master.calendarData.locationDisplayNames;
+
+      const [saved] = await insertEvents(db, [master]);
+
+      // Edit only the title with allEvents scope — nothing else should cascade
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'RP-31 Title Change',
+          services: {},  // frontend sends default empty object
+          eventDescription: '',  // frontend sends empty string
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+
+      const override = updated.occurrenceOverrides[0];
+      // Title should cascade (it actually changed)
+      expect(override.eventTitle).toBe('RP-31 Title Change');
+      // These override values must NOT be overwritten — the master fields didn't change,
+      // the stored side was just undefined (older doc)
+      expect(override.startTime).toBe('14:00');
+      expect(override.endTime).toBe('15:00');
+      expect(override.locationDisplayNames).toBe('Override Room');
+    });
+
+    it('RP-CASCADE-1: edit series master location -> override with independent location is preserved', async () => {
+      const { ObjectId } = require('mongodb');
+      const masterLocationId = new ObjectId();
+      const newMasterLocationId = new ObjectId();
+      const overrideLocationId = new ObjectId();
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Cascade Location Test',
+        recurrence,
+        graphData: { id: 'graph-cascade-1', subject: 'Cascade Location Test' },
+        calendarData: {
+          eventTitle: 'Cascade Location Test',
+          eventDescription: '',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [masterLocationId],
+          locationDisplayNames: '65th Street Lobby',
+          services: [],
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Cascade Location Test',
+            startTime: '09:00',
+            endTime: '10:00',
+            startDateTime: '2026-03-20T09:00',
+            endDateTime: '2026-03-20T10:00',
+            locations: [overrideLocationId],
+            locationDisplayNames: '66th St., 4th Floor Conference Room',
+            categories: ['General'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Change master location from '65th Street Lobby' to 'Beth-El Chapel'
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'Cascade Location Test',
+          locations: [newMasterLocationId.toString()],
+          locationDisplayNames: 'Beth-El Chapel',
+          categories: ['General'],
+          startTime: '09:00',
+          endTime: '10:00',
+          eventDescription: '',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      const override = updated.occurrenceOverrides[0];
+
+      // Master location changed, but override had its own independent location — must be preserved
+      expect(override.locationDisplayNames).toBe('66th St., 4th Floor Conference Room');
+      expect(override.locations.map(String)).toEqual([overrideLocationId.toString()]);
+    });
+
+    it('RP-CASCADE-2: edit series master location -> override that inherited master location IS updated', async () => {
+      const { ObjectId } = require('mongodb');
+      const masterLocationId = new ObjectId();
+      const newMasterLocationId = new ObjectId();
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Cascade Inherit Test',
+        recurrence,
+        graphData: { id: 'graph-cascade-2', subject: 'Cascade Inherit Test' },
+        calendarData: {
+          eventTitle: 'Cascade Inherit Test',
+          eventDescription: '',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [masterLocationId],
+          locationDisplayNames: '65th Street Lobby',
+          services: [],
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Cascade Inherit Test',
+            startTime: '09:00',
+            endTime: '10:00',
+            startDateTime: '2026-03-20T09:00',
+            endDateTime: '2026-03-20T10:00',
+            // Override has SAME location as master — should inherit cascade
+            locations: [masterLocationId],
+            locationDisplayNames: '65th Street Lobby',
+            categories: ['General'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Change master location
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'Cascade Inherit Test',
+          locations: [newMasterLocationId.toString()],
+          locationDisplayNames: 'Beth-El Chapel',
+          categories: ['General'],
+          startTime: '09:00',
+          endTime: '10:00',
+          eventDescription: '',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      const override = updated.occurrenceOverrides[0];
+
+      // Override had same location as master (inherited) — should be updated to new location
+      expect(override.locationDisplayNames).toBe('Beth-El Chapel');
+      expect(override.locations.map(String)).toEqual([newMasterLocationId.toString()]);
+    });
+
+    it('RP-CASCADE-3: edit series master title -> override with independent title is preserved', async () => {
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Original Master Title',
+        recurrence,
+        graphData: { id: 'graph-cascade-3', subject: 'Original Master Title' },
+        calendarData: {
+          eventTitle: 'Original Master Title',
+          eventDescription: '',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [],
+          locationDisplayNames: '',
+          services: [],
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Special Guest Speaker',
+            startTime: '09:00',
+            endTime: '10:00',
+            startDateTime: '2026-03-20T09:00',
+            endDateTime: '2026-03-20T10:00',
+            categories: ['General'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Change master title
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'New Master Title',
+          startTime: '09:00',
+          endTime: '10:00',
+          eventDescription: '',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      const override = updated.occurrenceOverrides[0];
+
+      // Override had independent title — must be preserved
+      expect(override.eventTitle).toBe('Special Guest Speaker');
+      // Master title should be updated
+      expect(updated.eventTitle).toBe('New Master Title');
+    });
+
+    it('RP-CASCADE-4: edit series master time -> override with independent time is preserved', async () => {
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        eventTitle: 'Time Cascade Test',
+        recurrence,
+        graphData: { id: 'graph-cascade-4', subject: 'Time Cascade Test' },
+        calendarData: {
+          eventTitle: 'Time Cascade Test',
+          eventDescription: '',
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+          categories: ['General'],
+          locations: [],
+          locationDisplayNames: '',
+          services: [],
+        },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            eventTitle: 'Time Cascade Test',
+            startTime: '14:00',
+            endTime: '16:00',
+            startDateTime: '2026-03-20T14:00',
+            endDateTime: '2026-03-20T16:00',
+            categories: ['General'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Change master time from 09:00-10:00 to 11:00-12:00
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'allEvents',
+          eventTitle: 'Time Cascade Test',
+          startTime: '11:00',
+          endTime: '12:00',
+          eventDescription: '',
+          services: [],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      const override = updated.occurrenceOverrides[0];
+
+      // Override had independent time (14:00-16:00) — must be preserved
+      expect(override.startTime).toBe('14:00');
+      expect(override.endTime).toBe('16:00');
+      expect(override.startDateTime).toBe('2026-03-20T14:00');
+      expect(override.endDateTime).toBe('2026-03-20T16:00');
     });
   });
 });
