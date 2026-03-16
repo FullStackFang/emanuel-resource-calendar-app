@@ -1786,19 +1786,6 @@ function buildEffectiveEditData(event) {
  * @param {string} timeZone - IANA timezone (e.g., 'America/New_York')
  * @returns {Object|null} Graph API compatible { pattern, range } or null
  */
-
-/**
- * Normalize datetime string to ensure seconds suffix for Graph API.
- * Graph API expects at minimum "YYYY-MM-DDTHH:MM:SS".
- * Frontend often sends "YYYY-MM-DDTHH:MM" (no seconds).
- */
-function normalizeGraphDateTime(dt) {
-  if (!dt) return dt;
-  // "2026-03-18T15:00" → "2026-03-18T15:00:00"
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dt)) return `${dt}:00`;
-  return dt;
-}
-
 function buildGraphRecurrence(recurrence, timeZone) {
   if (!recurrence?.pattern || !recurrence?.range) return null;
 
@@ -20183,11 +20170,11 @@ app.put('/api/admin/events/:id/publish-edit', verifyToken, async (req, res) => {
         const graphUpdate = {
           subject: finalChanges.eventTitle || cd.eventTitle || event.graphData?.subject,
           start: {
-            dateTime: normalizeGraphDateTime((finalChanges.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime || '').replace(/Z$/, '')),
+            dateTime: (finalChanges.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime || '').replace(/Z$/, ''),
             timeZone: event.graphData?.start?.timeZone || 'America/New_York'
           },
           end: {
-            dateTime: normalizeGraphDateTime((finalChanges.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime || '').replace(/Z$/, '')),
+            dateTime: (finalChanges.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime || '').replace(/Z$/, ''),
             timeZone: event.graphData?.end?.timeZone || 'America/New_York'
           }
         };
@@ -20865,13 +20852,13 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
             if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
             if (overrideFields.startDateTime) {
               graphUpdate.start = {
-                dateTime: normalizeGraphDateTime(overrideFields.startDateTime),
+                dateTime: overrideFields.startDateTime + ':00',
                 timeZone: event.graphData?.start?.timeZone || 'America/New_York'
               };
             }
             if (overrideFields.endDateTime) {
               graphUpdate.end = {
-                dateTime: normalizeGraphDateTime(overrideFields.endDateTime),
+                dateTime: overrideFields.endDateTime + ':00',
                 timeZone: event.graphData?.end?.timeZone || 'America/New_York'
               };
             }
@@ -20954,7 +20941,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         );
 
         const roomDocs = await locationsCollection.find({
-          _id: { $in: roomIds }
+          _id: { $in: roomIds },
+          isReservable: true
         }).toArray();
 
         // Build array of separate location objects for Graph API
@@ -21201,11 +21189,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         const graphUpdate = {
           subject: updates.eventTitle || cd.eventTitle || event.graphData?.subject,
           start: {
-            dateTime: normalizeGraphDateTime(updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime),
+            dateTime: updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime,
             timeZone: updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
           },
           end: {
-            dateTime: normalizeGraphDateTime(updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime),
+            dateTime: updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime,
             timeZone: updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
           }
         };
@@ -21421,12 +21409,6 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     // 1. Initial sync from Outlook (stores raw Graph API response)
     // 2. Graph API response comes back after updating an event (sync response to local)
     // The publish endpoint now reads from calendarData to create Graph events.
-
-    // Ensure eventType matches recurrence data (fix stale 'singleInstance' on recurring events)
-    const effectiveRecurrence = updates.recurrence || event.recurrence || event.calendarData?.recurrence;
-    if (effectiveRecurrence?.pattern && effectiveRecurrence?.range) {
-      updateOperations.eventType = 'seriesMaster';
-    }
 
     // Handle requestedRooms -> locations array conversion and display name generation
     // If requestedRooms exists but locations doesn't, use requestedRooms (for backward compatibility)
