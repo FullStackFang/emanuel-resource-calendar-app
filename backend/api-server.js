@@ -1853,7 +1853,7 @@ function buildGraphRecurrence(recurrence, timeZone) {
  * @param {Object} eventData - Graph event data (for building addition events)
  * @returns {Promise<{cancelledOccurrences: Array, additionEventIds: Array}>}
  */
-async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, seriesId, recurrence, eventData) {
+async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, seriesId, recurrence, eventData, occurrenceOverrides = []) {
   const results = { cancelledOccurrences: [], additionEventIds: [] };
 
   // --- EXCLUSIONS: Cancel specific occurrences ---
@@ -1901,6 +1901,20 @@ async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, series
           categories: eventData.categories,
         };
 
+        // Apply occurrence override data if present (avoids extra PATCH round-trip)
+        const override = occurrenceOverrides.find(o => o.occurrenceDate === additionDate);
+        if (override) {
+          if (override.categories !== undefined) {
+            additionEvent.categories = override.categories;
+          }
+          if (override.locationDisplayNames !== undefined) {
+            const locDispName = override.locationDisplayNames || '';
+            additionEvent.location = { displayName: locDispName, locationType: 'default' };
+            additionEvent.locations = locDispName.split('; ').filter(Boolean)
+              .map(name => ({ displayName: name, locationType: 'default' }));
+          }
+        }
+
         const created = await graphApiService.createCalendarEvent(calendarOwner, calendarId, additionEvent);
         results.additionEventIds.push({ date: additionDate, graphId: created.id });
       } catch (err) {
@@ -1916,7 +1930,7 @@ async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, series
  * Sync occurrence-level overrides (categories, locations) to Graph after series creation.
  * Non-fatal: failure does not block publish.
  */
-async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesMasterGraphId, occurrenceOverrides, eventData) {
+async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesMasterGraphId, occurrenceOverrides, eventData, additionEventIds = []) {
   const results = { synced: [], failed: [] };
   if (!occurrenceOverrides?.length) return results;
 
@@ -1926,6 +1940,23 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
     if (!hasCategories && !hasLocations) continue;
 
     try {
+      // Fast-path: if this date is an addition (standalone event, not a series instance),
+      // PATCH the standalone event directly instead of querying series instances
+      const additionEntry = additionEventIds.find(e => e.date === override.occurrenceDate);
+      if (additionEntry) {
+        const patch = {};
+        if (hasCategories) patch.categories = override.categories;
+        if (hasLocations) {
+          const locDispName = override.locationDisplayNames || '';
+          patch.location = { displayName: locDispName, locationType: 'default' };
+          patch.locations = locDispName.split('; ').filter(Boolean)
+            .map(name => ({ displayName: name, locationType: 'default' }));
+        }
+        await graphApiService.updateCalendarEvent(calendarOwner, calendarId, additionEntry.graphId, patch);
+        results.synced.push({ date: override.occurrenceDate, graphId: additionEntry.graphId });
+        continue;
+      }
+
       const dayStart = `${override.occurrenceDate}T00:00:00`;
       const dayEnd = `${override.occurrenceDate}T23:59:59`;
 
@@ -1933,9 +1964,8 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
         calendarOwner, calendarId, seriesMasterGraphId, dayStart, dayEnd
       );
       const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
-      const occDate = new Date(override.occurrenceDate);
       const match = instanceList.find(inst =>
-        new Date(inst.start?.dateTime).toDateString() === occDate.toDateString()
+        inst.start?.dateTime?.startsWith(override.occurrenceDate)
       );
 
       if (match) {
@@ -14031,11 +14061,12 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       );
 
       // Fix 6: Sync exclusions/additions to Graph after series creation
+      const draftOccurrenceOverrides = draft.occurrenceOverrides || cd.occurrenceOverrides;
       let draftSyncResults = null;
       if (draftRecurrence && (draftRecurrence.exclusions?.length || draftRecurrence.additions?.length)) {
         try {
           draftSyncResults = await syncRecurrenceExceptionsToGraph(
-            calendarOwner, draft.calendarId || null, createdEvent.id, draftRecurrence, graphEventData
+            calendarOwner, draft.calendarId || null, createdEvent.id, draftRecurrence, graphEventData, draftOccurrenceOverrides || []
           );
         } catch (syncError) {
           logger.warn('Failed to sync recurrence exceptions to Graph on draft auto-publish:', syncError.message);
@@ -14043,11 +14074,11 @@ app.post('/api/room-reservations/draft/:id/submit', verifyToken, async (req, res
       }
 
       // Sync occurrence-level overrides (categories, locations) to Graph
-      const draftOccurrenceOverrides = draft.occurrenceOverrides || cd.occurrenceOverrides;
       if (draftOccurrenceOverrides?.length) {
         try {
           await syncOccurrenceOverridesToGraph(
-            calendarOwner, draft.calendarId || null, createdEvent.id, draftOccurrenceOverrides, graphEventData
+            calendarOwner, draft.calendarId || null, createdEvent.id, draftOccurrenceOverrides, graphEventData,
+            draftSyncResults?.additionEventIds || []
           );
         } catch (overrideSyncError) {
           logger.warn('Failed to sync occurrence overrides to Graph on draft auto-publish:', overrideSyncError.message);
@@ -14473,17 +14504,19 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
           );
 
           // Sync exclusions/additions to Graph after series creation
+          const ownerRestoreOverrides = reservation.occurrenceOverrides || reservation.calendarData?.occurrenceOverrides;
+          let ownerRestoreSyncResults = null;
           if (restoreRecurrence && (restoreRecurrence.exclusions?.length || restoreRecurrence.additions?.length)) {
             try {
-              const syncResults = await syncRecurrenceExceptionsToGraph(
-                calendarOwner, calendarId, createdEvent.id, restoreRecurrence, graphEventData
+              ownerRestoreSyncResults = await syncRecurrenceExceptionsToGraph(
+                calendarOwner, calendarId, createdEvent.id, restoreRecurrence, graphEventData, ownerRestoreOverrides || []
               );
               const exceptionUpdate = {};
-              if (syncResults.cancelledOccurrences.length) {
-                exceptionUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              if (ownerRestoreSyncResults.cancelledOccurrences.length) {
+                exceptionUpdate['graphData.cancelledOccurrences'] = ownerRestoreSyncResults.cancelledOccurrences;
               }
-              if (syncResults.additionEventIds.length) {
-                exceptionUpdate.exceptionEventIds = syncResults.additionEventIds;
+              if (ownerRestoreSyncResults.additionEventIds.length) {
+                exceptionUpdate.exceptionEventIds = ownerRestoreSyncResults.additionEventIds;
               }
               if (Object.keys(exceptionUpdate).length) {
                 await unifiedEventsCollection.updateOne(
@@ -14493,6 +14526,18 @@ app.put('/api/room-reservations/:id/restore', verifyToken, async (req, res) => {
               }
             } catch (syncError) {
               logger.warn('Failed to sync recurrence exceptions to Graph on owner restore:', syncError.message);
+            }
+          }
+
+          // Sync occurrence-level overrides (categories, locations) to Graph
+          if (ownerRestoreOverrides?.length) {
+            try {
+              await syncOccurrenceOverridesToGraph(
+                calendarOwner, calendarId, createdEvent.id, ownerRestoreOverrides, graphEventData,
+                ownerRestoreSyncResults?.additionEventIds || []
+              );
+            } catch (overrideSyncError) {
+              logger.warn('Failed to sync occurrence overrides to Graph on owner restore:', overrideSyncError.message);
             }
           }
 
@@ -14718,17 +14763,19 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
           );
 
           // Sync exclusions/additions to Graph after series creation
+          const adminRestoreOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
+          let adminRestoreSyncResults = null;
           if (adminRestoreRecurrence && (adminRestoreRecurrence.exclusions?.length || adminRestoreRecurrence.additions?.length)) {
             try {
-              const syncResults = await syncRecurrenceExceptionsToGraph(
-                calendarOwner, calendarId, createdEvent.id, adminRestoreRecurrence, graphEventData
+              adminRestoreSyncResults = await syncRecurrenceExceptionsToGraph(
+                calendarOwner, calendarId, createdEvent.id, adminRestoreRecurrence, graphEventData, adminRestoreOverrides || []
               );
               const exceptionUpdate = {};
-              if (syncResults.cancelledOccurrences.length) {
-                exceptionUpdate['graphData.cancelledOccurrences'] = syncResults.cancelledOccurrences;
+              if (adminRestoreSyncResults.cancelledOccurrences.length) {
+                exceptionUpdate['graphData.cancelledOccurrences'] = adminRestoreSyncResults.cancelledOccurrences;
               }
-              if (syncResults.additionEventIds.length) {
-                exceptionUpdate.exceptionEventIds = syncResults.additionEventIds;
+              if (adminRestoreSyncResults.additionEventIds.length) {
+                exceptionUpdate.exceptionEventIds = adminRestoreSyncResults.additionEventIds;
               }
               if (Object.keys(exceptionUpdate).length) {
                 await unifiedEventsCollection.updateOne(
@@ -14738,6 +14785,18 @@ app.put('/api/admin/events/:id/restore', verifyToken, async (req, res) => {
               }
             } catch (syncError) {
               logger.warn('Failed to sync recurrence exceptions to Graph on admin restore:', syncError.message);
+            }
+          }
+
+          // Sync occurrence-level overrides (categories, locations) to Graph
+          if (adminRestoreOverrides?.length) {
+            try {
+              await syncOccurrenceOverridesToGraph(
+                calendarOwner, calendarId, createdEvent.id, adminRestoreOverrides, graphEventData,
+                adminRestoreSyncResults?.additionEventIds || []
+              );
+            } catch (overrideSyncError) {
+              logger.warn('Failed to sync occurrence overrides to Graph on admin restore:', overrideSyncError.message);
             }
           }
 
@@ -18895,24 +18954,26 @@ app.put('/api/admin/events/:id/publish', verifyToken, async (req, res) => {
         logger.info('Graph calendar event created:', { graphEventId, calendarOwner: selectedCalendarOwner });
 
         // Fix 6: Sync exclusions/additions to Graph after series creation
+        const eventOccurrenceOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
+        let publishSyncResults = null;
         if (publishRecurrence && (publishRecurrence.exclusions?.length || publishRecurrence.additions?.length)) {
           try {
-            const syncResults = await syncRecurrenceExceptionsToGraph(
-              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence, graphEventData
+            publishSyncResults = await syncRecurrenceExceptionsToGraph(
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, publishRecurrence, graphEventData, eventOccurrenceOverrides || []
             );
             // Store results — will be persisted in the Graph update step below
-            calendarEventResult.recurrenceSyncResults = syncResults;
+            calendarEventResult.recurrenceSyncResults = publishSyncResults;
           } catch (syncError) {
             logger.warn('Failed to sync recurrence exceptions to Graph on publish:', syncError.message);
           }
         }
 
         // Sync occurrence-level overrides (categories, locations) to Graph
-        const eventOccurrenceOverrides = event.occurrenceOverrides || event.calendarData?.occurrenceOverrides;
         if (eventOccurrenceOverrides?.length) {
           try {
             const overrideSyncResults = await syncOccurrenceOverridesToGraph(
-              selectedCalendarOwner, selectedCalendarId, createdEvent.id, eventOccurrenceOverrides, graphEventData
+              selectedCalendarOwner, selectedCalendarId, createdEvent.id, eventOccurrenceOverrides, graphEventData,
+              publishSyncResults?.additionEventIds || []
             );
             calendarEventResult.occurrenceOverrideSyncResults = overrideSyncResults;
           } catch (overrideSyncError) {
@@ -21134,11 +21195,12 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
     }
 
     // DEBUG: Always log Graph sync decision
-    logger.info('=== GRAPH SYNC DECISION ===', {
+    logger.info('=== GRAPH SYNC GATE CHECK ===', {
+      storedGraphEventId: storedGraphEventId || 'MISSING',
       hasGraphSyncableChanges,
       graphChanges,
-      storedGraphEventId: storedGraphEventId || 'MISSING',
-      hasCalendarOwner: !!event.calendarOwner
+      hasCalendarOwner: !!event.calendarOwner,
+      willSync: !!(storedGraphEventId && hasGraphSyncableChanges && event.calendarOwner)
     });
 
     if (hasGraphSyncableChanges) {
@@ -21183,17 +21245,27 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           logger.debug('Updating entire series', { seriesMasterId });
         }
 
+        // Pre-compute combined datetimes from separate date/time fields (frontend sends them separately)
+        // This must happen BEFORE building the Graph payload so the correct times are used
+        const graphTimezone = updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York';
+        const resolvedStartDateTime = updates.startDateTime
+          || (updates.startDate && updates.startTime ? `${updates.startDate}T${updates.startTime}:00` : null)
+          || cd.startDateTime || event.graphData?.start?.dateTime;
+        const resolvedEndDateTime = updates.endDateTime
+          || (updates.endDate && updates.endTime ? `${updates.endDate}T${updates.endTime}:00` : null)
+          || cd.endDateTime || event.graphData?.end?.dateTime;
+
         // Prepare Graph API update payload
         // Build Graph API update with ONLY Graph-compatible fields
         // Use calendarData (cd) as fallback source (defined earlier in this function)
         const graphUpdate = {
           subject: updates.eventTitle || cd.eventTitle || event.graphData?.subject,
           start: {
-            dateTime: updates.startDateTime || cd.startDateTime || event.graphData?.start?.dateTime,
+            dateTime: resolvedStartDateTime,
             timeZone: updates.startTimeZone || event.graphData?.start?.timeZone || 'America/New_York'
           },
           end: {
-            dateTime: updates.endDateTime || cd.endDateTime || event.graphData?.end?.dateTime,
+            dateTime: resolvedEndDateTime,
             timeZone: updates.endTimeZone || event.graphData?.end?.timeZone || 'America/New_York'
           }
         };
@@ -21335,8 +21407,132 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
           returnedLocation: graphSyncResult.location,
           returnedSubject: graphSyncResult.subject
         });
+
+        // CASCADE: When editing a series master (allEvents or no scope), also update
+        // addition events and occurrence overrides in Graph so changes propagate fully.
+        if (event.eventType === 'seriesMaster' && (!editScope || editScope === 'allEvents')) {
+          // Update addition events (standalone events linked via exceptionEventIds)
+          const additionEventIds = event.exceptionEventIds || [];
+          if (additionEventIds.length > 0) {
+            for (const addition of additionEventIds) {
+              try {
+                const additionPatch = {};
+                if (graphUpdate.subject) additionPatch.subject = graphUpdate.subject;
+                if (graphUpdate.body) additionPatch.body = graphUpdate.body;
+                if (graphUpdate.categories) additionPatch.categories = graphUpdate.categories;
+                if (graphUpdate.location) additionPatch.location = graphUpdate.location;
+                if (graphUpdate.locations) additionPatch.locations = graphUpdate.locations;
+                // Update time: keep the addition's own date but use the new time-of-day
+                if (resolvedStartDateTime && resolvedEndDateTime) {
+                  const startTimePart = resolvedStartDateTime.split('T')[1] || '09:00:00';
+                  const endTimePart = resolvedEndDateTime.split('T')[1] || '10:00:00';
+                  additionPatch.start = {
+                    dateTime: `${addition.date}T${startTimePart}`,
+                    timeZone: graphTimezone
+                  };
+                  additionPatch.end = {
+                    dateTime: `${addition.date}T${endTimePart}`,
+                    timeZone: graphTimezone
+                  };
+                }
+                // Apply occurrence override if present (overrides take precedence)
+                const override = (event.occurrenceOverrides || []).find(o => o.occurrenceDate === addition.date);
+                if (override) {
+                  if (override.eventTitle) additionPatch.subject = override.eventTitle;
+                  if (override.startTime && override.endTime) {
+                    additionPatch.start = { dateTime: `${addition.date}T${override.startTime}:00`, timeZone: graphTimezone };
+                    additionPatch.end = { dateTime: `${addition.date}T${override.endTime}:00`, timeZone: graphTimezone };
+                  }
+                  if (override.locationDisplayNames !== undefined) {
+                    const locDispName = override.locationDisplayNames || '';
+                    additionPatch.location = { displayName: locDispName, locationType: 'default' };
+                    additionPatch.locations = locDispName.split('; ').filter(Boolean)
+                      .map(name => ({ displayName: name, locationType: 'default' }));
+                  }
+                  if (override.categories !== undefined) additionPatch.categories = override.categories;
+                }
+                if (Object.keys(additionPatch).length > 0) {
+                  await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, addition.graphId, additionPatch);
+                  logger.info('Cascaded master edit to addition event:', { date: addition.date, graphId: addition.graphId });
+                }
+              } catch (addErr) {
+                logger.warn('Non-fatal: failed to cascade edit to addition event:', { date: addition.date, error: addErr.message });
+              }
+            }
+          }
+
+          // Update occurrence overrides that have Graph exceptions (regular occurrences within the series)
+          const occurrenceOverrides = event.occurrenceOverrides || [];
+          if (occurrenceOverrides.length > 0 && storedGraphEventId) {
+            for (const override of occurrenceOverrides) {
+              // Skip additions — already handled above
+              if (additionEventIds.some(a => a.date === override.occurrenceDate)) continue;
+
+              try {
+                // Find the Graph occurrence for this date
+                const dayStart = `${override.occurrenceDate}T00:00:00`;
+                const dayEnd = `${override.occurrenceDate}T23:59:59`;
+                const instances = await graphApiService.getRecurringEventInstances(
+                  event.calendarOwner, event.calendarId, storedGraphEventId,
+                  dayStart, dayEnd
+                );
+                const instanceList = Array.isArray(instances) ? instances : (instances?.value || []);
+                const match = instanceList.find(occ =>
+                  occ.start?.dateTime?.startsWith(override.occurrenceDate)
+                );
+                if (match) {
+                  const occPatch = {};
+                  // Apply master-level changes first
+                  if (graphUpdate.subject) occPatch.subject = graphUpdate.subject;
+                  if (graphUpdate.location) occPatch.location = graphUpdate.location;
+                  if (graphUpdate.locations) occPatch.locations = graphUpdate.locations;
+                  if (graphUpdate.categories) occPatch.categories = graphUpdate.categories;
+                  // Then apply override-specific values (override takes precedence)
+                  if (override.eventTitle) occPatch.subject = override.eventTitle;
+                  if (override.startTime && override.endTime) {
+                    occPatch.start = { dateTime: `${override.occurrenceDate}T${override.startTime}:00`, timeZone: graphTimezone };
+                    occPatch.end = { dateTime: `${override.occurrenceDate}T${override.endTime}:00`, timeZone: graphTimezone };
+                  }
+                  if (override.locationDisplayNames !== undefined) {
+                    const locDispName = override.locationDisplayNames || '';
+                    occPatch.location = { displayName: locDispName, locationType: 'default' };
+                    occPatch.locations = locDispName.split('; ').filter(Boolean)
+                      .map(name => ({ displayName: name, locationType: 'default' }));
+                  }
+                  if (override.categories !== undefined) occPatch.categories = override.categories;
+                  if (Object.keys(occPatch).length > 0) {
+                    await graphApiService.updateCalendarEvent(event.calendarOwner, event.calendarId, match.id, occPatch);
+                    logger.info('Cascaded master edit to occurrence override:', { date: override.occurrenceDate });
+                  }
+                }
+              } catch (occErr) {
+                logger.warn('Non-fatal: failed to cascade edit to occurrence override:', { date: override.occurrenceDate, error: occErr.message });
+              }
+            }
+          }
+        }
       } catch (graphError) {
-        logger.error('Failed to update Graph event:', graphError);
+        logger.error('=== GRAPH SYNC FAILED ===', {
+          eventId: id,
+          targetEventId,
+          calendarOwner: event.calendarOwner,
+          calendarId: event.calendarId,
+          editScope,
+          // Error details from graphApiService
+          httpStatus: graphError.status,
+          errorMessage: graphError.message,
+          graphErrorBody: graphError.graphError,
+          // What we tried to send
+          payloadSummary: {
+            subject: graphUpdate.subject,
+            'start.dateTime': graphUpdate.start?.dateTime,
+            'end.dateTime': graphUpdate.end?.dateTime,
+            locationDisplayName: graphUpdate.location?.displayName,
+            locationsCount: graphUpdate.locations?.length,
+            hasRecurrence: !!graphUpdate.recurrence,
+            hasCategories: !!graphUpdate.categories,
+          }
+        });
         // Continue with MongoDB update even if Graph sync fails
       }
     }
@@ -21370,11 +21566,28 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       _isPreProcessed: _isPreProcessed, // Frontend-only flag
       changeKey: _changeKey, // Generated server-side
       pendingEditRequest: _pendingEditRequest, // Managed by dedicated endpoints (request-edit, publish-edit, reject-edit)
+      eventType: _eventType, // Protected: backend owns eventType lifecycle (set by publish/draft-submit)
+      occurrenceOverrides: _occurrenceOverrides, // Protected: managed by occurrence override endpoints only
+      exceptionEventIds: _exceptionEventIds, // Protected: managed by publish/restore only
       ...safeUpdates
     } = updates;
 
     // Build update operations with field syncing (same as creation flow)
     const updateOperations = { ...safeUpdates };
+
+    // PROTECT eventType: Use the DB value, never trust the frontend.
+    // eventType is only set to 'seriesMaster' by publish/draft-submit endpoints.
+    // If the existing event is a seriesMaster and recurrence is being cleared, downgrade to singleInstance.
+    const incomingRecurrence = updates.recurrence || safeUpdates.recurrence;
+    if (event.eventType === 'seriesMaster') {
+      // Only downgrade if recurrence is explicitly being removed
+      if (incomingRecurrence && !incomingRecurrence.pattern && !incomingRecurrence.range) {
+        updateOperations.eventType = 'singleInstance';
+      } else {
+        updateOperations.eventType = 'seriesMaster';
+      }
+    }
+    // For non-masters, don't touch eventType (leave as-is in DB)
 
     // Sync body.content to eventDescription (deferred from Graph sync block above)
     if (updates.body?.content) {
@@ -21559,7 +21772,8 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       'eventSeriesId', 'seriesLength', 'seriesIndex',
       'requesterName', 'requesterEmail', 'department', 'phone',
       'attendeeCount', 'priority', 'specialRequirements',
-      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes'
+      'contactName', 'contactEmail', 'isOnBehalfOf', 'reviewNotes',
+      'recurrence'
     ];
 
     const finalUpdateOperations = {};
@@ -21571,6 +21785,11 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         // Keep non-calendar fields as-is (graphData.*, status, etc.)
         finalUpdateOperations[key] = value;
       }
+    }
+
+    // Sync recurrence to top-level (Calendar.jsx reads top-level recurrence for expansion)
+    if (finalUpdateOperations['calendarData.recurrence'] !== undefined) {
+      finalUpdateOperations['recurrence'] = finalUpdateOperations['calendarData.recurrence'];
     }
 
     // Track approver modifications on pending events for publish notification emails.
@@ -21680,6 +21899,68 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
         }
       } catch (mergeErr) {
         logger.warn('Failed to merge approver edits into proposedChanges (non-blocking):', mergeErr.message);
+      }
+    }
+
+    // CASCADE: When editing a series master (allEvents or no scope), propagate changed fields
+    // into occurrenceOverrides so the calendar expansion uses the updated values.
+    // Only update fields that were explicitly changed in this edit.
+    if (event.eventType === 'seriesMaster' && (!editScope || editScope === 'allEvents')) {
+      const existingOverrides = event.occurrenceOverrides || [];
+      if (existingOverrides.length > 0) {
+        const updatedOverrides = existingOverrides.map(override => {
+          const updated = { ...override };
+          // Cascade title if changed
+          if (updates.eventTitle !== undefined) {
+            updated.eventTitle = updates.eventTitle;
+          }
+          // Cascade time if changed (use the override's own date)
+          if (updates.startTime !== undefined) {
+            updated.startTime = updates.startTime;
+            updated.startDateTime = `${override.occurrenceDate}T${updates.startTime}`;
+          }
+          if (updates.endTime !== undefined) {
+            updated.endTime = updates.endTime;
+            updated.endDateTime = `${override.occurrenceDate}T${updates.endTime}`;
+          }
+          // Cascade location if changed
+          if (finalUpdateOperations['calendarData.locations'] !== undefined) {
+            updated.locations = finalUpdateOperations['calendarData.locations'];
+          }
+          if (finalUpdateOperations['calendarData.locationDisplayNames'] !== undefined) {
+            updated.locationDisplayNames = finalUpdateOperations['calendarData.locationDisplayNames'];
+          }
+          if (updates.isOffsite !== undefined) {
+            updated.isOffsite = updates.isOffsite;
+            if (updates.offsiteName !== undefined) updated.offsiteName = updates.offsiteName;
+            if (updates.offsiteAddress !== undefined) updated.offsiteAddress = updates.offsiteAddress;
+          }
+          // Cascade categories if changed
+          if (updates.categories !== undefined) {
+            updated.categories = updates.categories;
+          }
+          // Cascade description if changed
+          if (updates.eventDescription !== undefined) {
+            updated.eventDescription = updates.eventDescription;
+          }
+          // Cascade services if changed
+          if (updates.services !== undefined) {
+            updated.services = updates.services;
+          }
+          return updated;
+        });
+        finalUpdateOperations['occurrenceOverrides'] = updatedOverrides;
+        finalUpdateOperations['calendarData.occurrenceOverrides'] = updatedOverrides;
+        logger.info('Cascaded master edit to occurrenceOverrides:', {
+          count: updatedOverrides.length,
+          changedFields: [
+            updates.eventTitle !== undefined && 'eventTitle',
+            updates.startTime !== undefined && 'startTime',
+            updates.endTime !== undefined && 'endTime',
+            finalUpdateOperations['calendarData.locations'] !== undefined && 'locations',
+            updates.categories !== undefined && 'categories',
+          ].filter(Boolean),
+        });
       }
     }
 

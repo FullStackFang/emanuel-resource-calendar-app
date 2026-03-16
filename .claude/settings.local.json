@@ -74,7 +74,8 @@
       "Bash(git commit:*)",
       "Bash(npx -y acorn --ecma2020 --module src/components/RoomReservationFormBase.jsx 2>&1 | tail -5)",
       "Bash(find /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/src/components -maxdepth 1 -type f -name \"*.jsx\" | xargs basename -a | sort)",
-      "Bash(find /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/src -type f \\\\\\( -name \"*.js\" -o -name \"*.jsx\" \\\\\\) 2>/dev/null | xargs grep -l \"chat\\\\|message\\\\|AI\\\\|assistant\" 2>/dev/null | head -20)"
+      "Bash(find /mnt/c/Users/Stephen.Fang/OneDrive/Documents/workspace/github.com/fullstackfang/emanuel-resource-calendar-app/src -type f \\\\\\( -name \"*.js\" -o -name \"*.jsx\" \\\\\\) 2>/dev/null | xargs grep -l \"chat\\\\|message\\\\|AI\\\\|assistant\" 2>/dev/null | head -20)",
+      "Bash(git revert:*)"
     ],
     "deny": []
   }

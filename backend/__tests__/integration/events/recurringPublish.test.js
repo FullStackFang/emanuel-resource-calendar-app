@@ -786,4 +786,466 @@ describe('Recurring Event Publish Tests (RP-1 to RP-12)', () => {
       ]);
     });
   });
+
+  describe('RP-19: Addition date with occurrence override applies override at creation', () => {
+    it('should create addition event with override location instead of series default', async () => {
+      const additionDate = '2026-04-14';
+
+      const recurrenceWithAddition = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [additionDate],
+        exclusions: [],
+      };
+
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Series with Addition Override',
+        recurrence: recurrenceWithAddition,
+        eventType: 'seriesMaster',
+        occurrenceOverrides: [
+          {
+            occurrenceDate: additionDate,
+            categories: ['Special Addition'],
+            locationDisplayNames: '66th Street Lobby',
+          },
+        ],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      // The addition createCalendarEvent call should have override data baked in
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      // First call = series master, second call = addition event
+      expect(createCalls.length).toBe(2);
+      const additionCall = createCalls[1];
+      expect(additionCall.eventData.categories).toEqual(['Special Addition']);
+      expect(additionCall.eventData.location.displayName).toBe('66th Street Lobby');
+      expect(additionCall.eventData.locations).toEqual([
+        { displayName: '66th Street Lobby', locationType: 'default' },
+      ]);
+
+      // The override sync may also PATCH the addition via additionEventIds fast-path
+      // (redundant but harmless). The key assertion is that createCalendarEvent
+      // already had the override data baked in at creation time above.
+    });
+  });
+
+  describe('RP-20: Regular occurrence override uses startsWith matching', () => {
+    it('should PATCH a regular series occurrence with override data', async () => {
+      const occurrenceDate = '2026-03-17';
+      const mockOccId = 'mock-occ-startswith-test';
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        { id: mockOccId, start: { dateTime: `${occurrenceDate}T14:00:00` }, end: { dateTime: `${occurrenceDate}T15:00:00` } }
+      ]);
+
+      const cleanRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [],
+        exclusions: [],
+      };
+
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Series Override startsWith',
+        recurrence: cleanRecurrence,
+        eventType: 'seriesMaster',
+        occurrenceOverrides: [
+          {
+            occurrenceDate,
+            locationDisplayNames: 'Chapel',
+          },
+        ],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      const overrideUpdate = updateCalls.find(c => c.eventId === mockOccId);
+      expect(overrideUpdate).toBeDefined();
+      expect(overrideUpdate.eventData.location.displayName).toBe('Chapel');
+    });
+  });
+
+  describe('RP-21: Addition without override uses series master defaults', () => {
+    it('should create addition event with series defaults when no override exists', async () => {
+      const additionDate = '2026-04-14';
+
+      const recurrenceWithAddition = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [additionDate],
+        exclusions: [],
+      };
+
+      const event = createPendingEvent({
+        userId: requesterUser.odataId,
+        requesterEmail: requesterUser.email,
+        eventTitle: 'Series No Override Addition',
+        recurrence: recurrenceWithAddition,
+        eventType: 'seriesMaster',
+        // No occurrenceOverrides for the addition date
+        occurrenceOverrides: [],
+      });
+      const [saved] = await insertEvents(db, [event]);
+
+      await request(app)
+        .put(ENDPOINTS.PUBLISH_EVENT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(createCalls.length).toBe(2); // series master + addition
+      const additionCall = createCalls[1];
+      // Should use series master defaults (categories from event, not overridden)
+      expect(additionCall.eventData.subject).toBe('Series No Override Addition');
+      // No override location applied
+      expect(additionCall.eventData.locations).toBeUndefined();
+    });
+  });
+
+  describe('RP-22: Draft auto-publish applies override to addition', () => {
+    it('should create addition event with override data on draft auto-publish', async () => {
+      const additionDate = '2026-04-14';
+
+      const draftRecurrence = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['tuesday'], firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-10', endDate: '2026-06-30' },
+        additions: [additionDate],
+        exclusions: [],
+      };
+
+      const draft = createDraftEvent({
+        userId: adminUser.odataId,
+        requesterEmail: adminUser.email,
+        eventTitle: 'Draft with Addition Override',
+        recurrence: draftRecurrence,
+        eventType: 'seriesMaster',
+        occurrenceOverrides: [
+          {
+            occurrenceDate: additionDate,
+            categories: ['Draft Override Cat'],
+            locationDisplayNames: 'Greenwald Hall',
+          },
+        ],
+      });
+      const [saved] = await insertEvents(db, [draft]);
+
+      await request(app)
+        .post(ENDPOINTS.SUBMIT_DRAFT(saved._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ _version: saved._version })
+        .expect(200);
+
+      const createCalls = graphApiMock.getCallHistory('createCalendarEvent');
+      expect(createCalls.length).toBe(2); // series master + addition
+      const additionCall = createCalls[1];
+      expect(additionCall.eventData.categories).toEqual(['Draft Override Cat']);
+      expect(additionCall.eventData.location.displayName).toBe('Greenwald Hall');
+    });
+  });
+
+  describe('RP-23: Admin save on seriesMaster preserves eventType and recurring metadata', () => {
+    it('should not overwrite eventType, occurrenceOverrides, or exceptionEventIds on admin save', async () => {
+      // Create a published seriesMaster with occurrenceOverrides and exceptionEventIds
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+        additions: ['2026-03-21'],
+        exclusions: ['2026-03-19'],
+      };
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        recurrence,
+        graphData: { id: 'graph-master-rp23', subject: 'Original Title' },
+        occurrenceOverrides: [
+          { occurrenceDate: '2026-03-20', startTime: '12:00', endTime: '13:00', eventTitle: 'Override Title' },
+        ],
+        exceptionEventIds: [
+          { date: '2026-03-21', graphId: 'graph-addition-rp23' },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Admin edits the title — frontend would send eventType: null (or singleInstance in old code)
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Updated Title',
+          eventType: 'singleInstance', // BUG: frontend used to send this
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+
+      // eventType must remain seriesMaster (protected by backend)
+      expect(updated.eventType).toBe('seriesMaster');
+
+      // occurrenceOverrides must still exist (not wiped) and cascade the new title
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-20');
+      // Title cascades from master edit to overrides
+      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Updated Title');
+      // Time should remain from original override (not changed in this edit)
+      expect(updated.occurrenceOverrides[0].startTime).toBe('12:00');
+      expect(updated.occurrenceOverrides[0].endTime).toBe('13:00');
+
+      // exceptionEventIds must be untouched
+      expect(updated.exceptionEventIds).toHaveLength(1);
+      expect(updated.exceptionEventIds[0].date).toBe('2026-03-21');
+
+      // recurrence must be preserved (additions + exclusions)
+      const savedRecurrence = updated.calendarData?.recurrence || updated.recurrence;
+      expect(savedRecurrence.additions).toEqual(['2026-03-21']);
+      expect(savedRecurrence.exclusions).toEqual(['2026-03-19']);
+
+      // Title should actually update
+      expect(updated.calendarData?.eventTitle || updated.eventTitle).toBe('Updated Title');
+    });
+  });
+
+  describe('RP-24: Admin save syncs recurrence to calendarData', () => {
+    it('should write recurrence to both top-level and calendarData when updated', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        graphData: { id: 'graph-master-rp24', subject: 'Recurrence Sync Test' },
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      const newRecurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-04-01', endDate: '2026-04-05' },
+        additions: ['2026-04-07'],
+        exclusions: ['2026-04-03'],
+      };
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          recurrence: newRecurrence,
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+
+      // Both top-level and calendarData.recurrence should have the new value
+      expect(updated.recurrence).toEqual(newRecurrence);
+      expect(updated.calendarData.recurrence).toEqual(newRecurrence);
+
+      // eventType should remain seriesMaster
+      expect(updated.eventType).toBe('seriesMaster');
+    });
+  });
+
+  describe('RP-25: Admin save resolves time from separate startDate/startTime fields for Graph sync', () => {
+    it('should use combined date+time fields in Graph update when startDateTime is not sent', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        graphData: { id: 'graph-master-rp25', subject: 'Time Resolve Test' },
+        owner: adminUser,
+        calendarData: {
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+          startDate: '2026-03-18',
+          startTime: '09:00',
+          endDate: '2026-03-18',
+          endTime: '10:00',
+        },
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      graphApiMock.clearCallHistory();
+
+      // Frontend sends separate date/time fields, NOT startDateTime
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          startDate: '2026-03-18',
+          startTime: '13:00',
+          endDate: '2026-03-18',
+          endTime: '14:00',
+          _version: saved._version,
+        })
+        .expect(200);
+
+      // Verify Graph was called with the resolved combined datetime
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+      const masterCall = updateCalls[0];
+      expect(masterCall.eventData.startDateTime).toBe('2026-03-18T13:00:00');
+      expect(masterCall.eventData.endDateTime).toBe('2026-03-18T14:00:00');
+    });
+  });
+
+  describe('RP-26: Admin save cascades title and time to addition events in Graph', () => {
+    it('should update addition events via Graph when editing a seriesMaster', async () => {
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        graphData: { id: 'graph-master-rp26', subject: 'Cascade Test' },
+        exceptionEventIds: [
+          { date: '2026-03-21', graphId: 'graph-addition-rp26' },
+        ],
+        owner: adminUser,
+        calendarData: {
+          startDateTime: '2026-03-18T09:00:00',
+          endDateTime: '2026-03-18T10:00:00',
+        },
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      graphApiMock.clearCallHistory();
+
+      await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Updated Cascade Title',
+          startDate: '2026-03-18',
+          startTime: '14:00',
+          endDate: '2026-03-18',
+          endTime: '15:00',
+          _version: saved._version,
+        })
+        .expect(200);
+
+      // Verify Graph was called for both master and addition
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls.length).toBeGreaterThanOrEqual(2);
+
+      // First call: series master update
+      const masterCall = updateCalls[0];
+      expect(masterCall.eventData.subject).toBe('Updated Cascade Title');
+
+      // Second call: addition event update with cascaded title and time
+      const additionCall = updateCalls[1];
+      expect(additionCall.eventId).toBe('graph-addition-rp26');
+      expect(additionCall.eventData.subject).toBe('Updated Cascade Title');
+      // Addition should use the new time-of-day with its own date (2026-03-21)
+      expect(additionCall.eventData.startDateTime).toContain('2026-03-21T14:00');
+      expect(additionCall.eventData.endDateTime).toContain('2026-03-21T15:00');
+    });
+  });
+
+  describe('RP-27: Admin save on seriesMaster cascades changed fields into occurrenceOverrides', () => {
+    it('should update override title, time, and location when master is edited', async () => {
+      const { ObjectId } = require('mongodb');
+      const oldLocationId = new ObjectId();
+      const newLocationId = new ObjectId();
+
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        recurrence,
+        graphData: { id: 'graph-master-rp27', subject: 'Override Cascade Test' },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            startTime: '12:00',
+            endTime: '13:00',
+            startDateTime: '2026-03-20T12:00',
+            endDateTime: '2026-03-20T13:00',
+            eventTitle: 'Old Override Title',
+            locations: [oldLocationId],
+            locationDisplayNames: 'Old Room',
+            categories: ['Old Category'],
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'New Master Title',
+          startTime: '15:00',
+          endTime: '16:00',
+          locations: [newLocationId.toString()],
+          locationDisplayNames: 'New Room',
+          categories: ['New Category'],
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+
+      // occurrenceOverrides should be cascaded with the new values
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      const override = updated.occurrenceOverrides[0];
+      expect(override.occurrenceDate).toBe('2026-03-20');
+      expect(override.eventTitle).toBe('New Master Title');
+      expect(override.startTime).toBe('15:00');
+      expect(override.endTime).toBe('16:00');
+      expect(override.startDateTime).toBe('2026-03-20T15:00');
+      expect(override.endDateTime).toBe('2026-03-20T16:00');
+      expect(override.locationDisplayNames).toBe('New Room');
+      expect(override.categories).toEqual(['New Category']);
+    });
+
+    it('should preserve override fields that were NOT changed in the master edit', async () => {
+      const recurrence = {
+        pattern: { type: 'daily', interval: 1, firstDayOfWeek: 'sunday' },
+        range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      };
+      const master = createRecurringSeriesMaster({
+        status: 'published',
+        recurrence,
+        graphData: { id: 'graph-master-rp27b', subject: 'Partial Cascade Test' },
+        occurrenceOverrides: [
+          {
+            occurrenceDate: '2026-03-20',
+            startTime: '12:00',
+            endTime: '13:00',
+            eventTitle: 'Custom Override Title',
+            locationDisplayNames: 'Custom Room',
+          },
+        ],
+        owner: adminUser,
+      });
+      const [saved] = await insertEvents(db, [master]);
+
+      // Only change the title — location and time should be preserved from override
+      const res = await request(app)
+        .put(`/api/admin/events/${saved._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          eventTitle: 'Updated Title Only',
+          _version: saved._version,
+        })
+        .expect(200);
+
+      const updated = res.body.event;
+      const override = updated.occurrenceOverrides[0];
+      expect(override.eventTitle).toBe('Updated Title Only');
+      // These should remain unchanged since only title was edited
+      expect(override.startTime).toBe('12:00');
+      expect(override.endTime).toBe('13:00');
+      expect(override.locationDisplayNames).toBe('Custom Room');
+    });
+  });
 });

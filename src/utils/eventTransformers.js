@@ -282,7 +282,7 @@ export function transformEventToFlatStructure(event) {
     seriesIndex: event.seriesIndex || null,
     seriesLength: event.seriesLength || null,
     // Recurring event metadata (authoritative top-level, with graphData fallback)
-    eventType: getField(event, 'eventType') || event.graphData?.type || 'singleInstance',
+    eventType: getField(event, 'eventType') || event.graphData?.type || null,
     seriesMasterId: getField(event, 'seriesMasterId') || event.graphData?.seriesMasterId || null,
     recurrence: getField(event, 'recurrence') || event.graphData?.recurrence || null,
 

@@ -255,6 +255,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       // Remove requestedRooms to avoid confusion (locations is the single source of truth)
       delete bodyData.requestedRooms;
 
+      // Protect backend-owned fields: eventType, occurrenceOverrides, exceptionEventIds
+      // These are managed by publish/draft-submit/occurrence-override endpoints only
+      delete bodyData.eventType;
+      delete bodyData.occurrenceOverrides;
+      delete bodyData.exceptionEventIds;
+
       const response = await fetch(endpoint, {
         method: 'PUT',
         headers: {
