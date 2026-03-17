@@ -368,20 +368,6 @@
   border-radius: var(--radius-md);
 }
 
-/* Custom decorative clock icon for time inputs */
-.time-fields-stack .form-group::after {
-  content: '';
-  position: absolute;
-  right: 10px;
-  bottom: 30px;
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-  opacity: 0.45;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 6v6l4 2'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
-}
 
 /* Required time fields (startTime, endTime) get a subtle left accent */
 .time-fields-stack .form-group.required-field {
@@ -642,8 +628,14 @@
   box-shadow: 0 0 0 3px var(--color-primary-100);
 }
 
-/* Date Picker Icon (kept — useful for opening the date picker popup) */
+/* Date picker native indicator hidden — DatePickerInput provides a custom button */
 .form-group input[type="date"]::-webkit-calendar-picker-indicator {
+  display: none !important;
+  -webkit-appearance: none;
+}
+
+/* Time Picker Icon — styled to match date picker */
+.time-fields-stack input[type="time"]::-webkit-calendar-picker-indicator {
   background-color: var(--color-primary-500);
   border-radius: var(--radius-sm);
   padding: 3px;
@@ -653,16 +645,9 @@
   height: 18px;
 }
 
-.form-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
+.time-fields-stack input[type="time"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
   background-color: var(--color-primary-600);
-}
-
-/* Time Picker Icon — hidden to remove extra tab stop.
-   The HH:MM:AM/PM segments remain fully keyboard-accessible. */
-.time-fields-stack input[type="time"]::-webkit-calendar-picker-indicator {
-  display: none;
-  -webkit-appearance: none;
 }
 
 /* Hide Firefox inner clear button on time inputs */

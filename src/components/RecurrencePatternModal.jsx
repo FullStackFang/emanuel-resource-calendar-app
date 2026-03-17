@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import './RecurrencePatternModal.css';
+import DatePickerInput from './DatePickerInput';
 import { logger } from '../utils/logger';
 import {
   calculateRecurrenceDates,
@@ -354,8 +355,7 @@ export default function RecurrencePatternModal({
               {/* Start Date */}
               <div className="recurrence-start-row">
                 <label>Start</label>
-                <input
-                  type="date"
+                <DatePickerInput
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
                   className="recurrence-start-date-input"
@@ -416,8 +416,7 @@ export default function RecurrencePatternModal({
               {endType === 'endDate' && (
                 <div className="recurrence-end-date-picker">
                   <label>End date</label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="recurrence-end-date-input"

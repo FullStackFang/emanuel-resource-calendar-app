@@ -1,6 +1,7 @@
 // src/components/EventSyncAdmin.jsx
 import React, { useState, useEffect } from 'react';
 import eventDataService from '../services/eventDataService';
+import DatePickerInput from './DatePickerInput';
 import './EventSyncAdmin.css';
 import './Admin.css';
 import CalendarSelector from './CalendarSelector';
@@ -201,9 +202,8 @@ export default function EventSyncAdmin({
         <div className="form-row">
           <div className="form-group">
             <label htmlFor="syncStartDate">Start Date:</label>
-            <input
+            <DatePickerInput
               id="syncStartDate"
-              type="date"
               value={dateRange.start}
               onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
               disabled={loading}
@@ -211,9 +211,8 @@ export default function EventSyncAdmin({
           </div>
           <div className="form-group">
             <label htmlFor="syncEndDate">End Date:</label>
-            <input
+            <DatePickerInput
               id="syncEndDate"
-              type="date"
               value={dateRange.end}
               onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
               disabled={loading}

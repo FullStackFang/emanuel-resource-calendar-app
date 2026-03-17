@@ -4,6 +4,8 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import SchedulingAssistant from './SchedulingAssistant';
+import TimePickerInput from './TimePickerInput';
+import DatePickerInput from './DatePickerInput';
 import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
 import RecurrencePatternModal from './RecurrencePatternModal';
@@ -1715,8 +1717,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="date"
+                <DatePickerInput
                   id="startDate"
                   name="startDate"
                   value={formData.startDate}
@@ -1738,8 +1739,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="date"
+                <DatePickerInput
                   id="endDate"
                   name="endDate"
                   value={formData.endDate}
@@ -1791,8 +1791,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="setupTime"
                   name="setupTime"
                   value={formData.setupTime}
@@ -1811,8 +1810,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="doorOpenTime"
                   name="doorOpenTime"
                   value={formData.doorOpenTime}
@@ -1831,8 +1829,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="startTime"
                   name="startTime"
                   value={formData.startTime}
@@ -1852,8 +1849,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="endTime"
                   name="endTime"
                   value={formData.endTime}
@@ -1873,8 +1869,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="doorCloseTime"
                   name="doorCloseTime"
                   value={formData.doorCloseTime}
@@ -1893,8 +1888,7 @@ export default function RoomReservationFormBase({
                     <span className="diff-arrow">→</span>
                   </div>
                 )}
-                <input
-                  type="time"
+                <TimePickerInput
                   id="teardownTime"
                   name="teardownTime"
                   value={formData.teardownTime}

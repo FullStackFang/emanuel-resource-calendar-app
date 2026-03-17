@@ -348,21 +348,10 @@
   background-color: var(--bg-primary);
 }
 
-/* Calendar icon styling for date inputs */
+/* Date picker native indicator hidden — DatePickerInput provides a custom button */
 .event-search-container .form-group input[type="date"]::-webkit-calendar-picker-indicator {
-  background-color: var(--color-primary-500);
-  color: var(--text-inverse);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  opacity: 0.8;
-  cursor: pointer;
-  width: 16px;
-  height: 16px;
-}
-
-.event-search-container .form-group input[type="date"]::-webkit-calendar-picker-indicator:hover {
-  opacity: 1;
-  background-color: var(--color-primary-600);
+  display: none !important;
+  -webkit-appearance: none;
 }
 
 .event-search-container .filters-container {

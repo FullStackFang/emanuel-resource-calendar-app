@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import APP_CONFIG from '../config/config';
+import DatePickerInput from './DatePickerInput';
 import { useRooms } from '../context/LocationContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { useReviewModal } from '../hooks/useReviewModal';
@@ -1013,9 +1014,9 @@ export default function MyReservations({ apiToken }) {
               </svg>
               From
             </label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <DatePickerInput value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             <label>To</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <DatePickerInput value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
           </div>
           <div className={`rr-status-filter${statusFilter ? ' active' : ''}`}>
             <label>

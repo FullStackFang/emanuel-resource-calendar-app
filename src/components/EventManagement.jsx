@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePermissions } from '../hooks/usePermissions';
 import { useNotification } from '../context/NotificationContext';
 import { useRooms } from '../context/LocationContext';
+import DatePickerInput from './DatePickerInput';
 import { usePolling } from '../hooks/usePolling';
 import { useDataRefreshBus } from '../hooks/useDataRefreshBus';
 import ConflictDialog from './shared/ConflictDialog';
@@ -480,14 +481,12 @@ export default function EventManagement({ apiToken }) {
         </div>
         <div className="em-date-filters">
           <label>From</label>
-          <input
-            type="date"
+          <DatePickerInput
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
           <label>To</label>
-          <input
-            type="date"
+          <DatePickerInput
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />

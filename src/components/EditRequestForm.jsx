@@ -4,6 +4,8 @@ import { logger } from '../utils/logger';
 import APP_CONFIG from '../config/config';
 import { useRooms } from '../context/LocationContext';
 import LocationListSelect from './LocationListSelect';
+import TimePickerInput from './TimePickerInput';
+import DatePickerInput from './DatePickerInput';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import './EditRequestForm.css';
@@ -363,8 +365,7 @@ export default function EditRequestForm({
               <div className="form-grid">
                 <div className="form-row">
                   <label htmlFor="startDate">Start Date *</label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     id="startDate"
                     name="startDate"
                     value={formData.startDate}
@@ -375,8 +376,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="startTime">Start Time *</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="startTime"
                     name="startTime"
                     value={formData.startTime}
@@ -387,8 +387,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="endDate">End Date *</label>
-                  <input
-                    type="date"
+                  <DatePickerInput
                     id="endDate"
                     name="endDate"
                     value={formData.endDate}
@@ -399,8 +398,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="endTime">End Time *</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="endTime"
                     name="endTime"
                     value={formData.endTime}
@@ -413,8 +411,7 @@ export default function EditRequestForm({
               <div className="form-grid">
                 <div className="form-row">
                   <label htmlFor="setupTime">Setup Time</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="setupTime"
                     name="setupTime"
                     value={formData.setupTime}
@@ -424,8 +421,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="teardownTime">Teardown Time</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="teardownTime"
                     name="teardownTime"
                     value={formData.teardownTime}
@@ -435,8 +431,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="doorOpenTime">Door Open Time</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="doorOpenTime"
                     name="doorOpenTime"
                     value={formData.doorOpenTime}
@@ -446,8 +441,7 @@ export default function EditRequestForm({
 
                 <div className="form-row">
                   <label htmlFor="doorCloseTime">Door Close Time</label>
-                  <input
-                    type="time"
+                  <TimePickerInput
                     id="doorCloseTime"
                     name="doorCloseTime"
                     value={formData.doorCloseTime}

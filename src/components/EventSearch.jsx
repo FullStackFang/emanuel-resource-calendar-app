@@ -1,5 +1,6 @@
 // src/components/EventSearch.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import DatePickerInput from './DatePickerInput';
 import {
   useQuery,
   useMutation,
@@ -846,16 +847,14 @@ function EventSearch({
             <div className="date-filters">
               <div className="form-group">
                 <label>From:</label>
-                <input 
-                  type="date" 
+                <DatePickerInput
                   value={dateRange.start}
                   onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
                 />
               </div>
               <div className="form-group">
                 <label>To:</label>
-                <input 
-                  type="date" 
+                <DatePickerInput
                   value={dateRange.end}
                   onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
                 />

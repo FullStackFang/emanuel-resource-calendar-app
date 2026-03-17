@@ -4,6 +4,8 @@ import MultiSelect from './MultiSelect';
 import SingleSelect from './SingleSelect';
 import EventPreviewModal from './EventPreviewModal';
 import EventAuditHistory from './EventAuditHistory';
+import TimePickerInput from './TimePickerInput';
+import DatePickerInput from './DatePickerInput';
 import { logger } from '../utils/logger';
 import { useNotification } from '../context/NotificationContext';
 import { extractTextFromHtml } from '../utils/textUtils';
@@ -996,8 +998,7 @@ function EventForm({
       <div className="google-datetime-row">
         <div className="form-icon">🕒</div>
         <div className="datetime-inputs">
-          <input
-            type="date"
+          <DatePickerInput
             name="startDate"
             value={formData.startDate}
             onChange={handleChange}
@@ -1007,8 +1008,7 @@ function EventForm({
           />
           {!isAllDay && (
             <>
-              <input
-                type="time"
+              <TimePickerInput
                 name="startTime"
                 value={formData.startTime}
                 onChange={handleChange}
@@ -1017,8 +1017,7 @@ function EventForm({
                 className="google-time-input"
               />
               <span className="time-separator">–</span>
-              <input
-                type="time"
+              <TimePickerInput
                 name="endTime"
                 value={formData.endTime}
                 onChange={handleChange}
@@ -1056,16 +1055,14 @@ function EventForm({
                 <span className="setup-teardown-label">Setup/Teardown</span>
                 {createRegistrationEvent && (
                   <>
-                    <input
-                      type="time"
+                    <TimePickerInput
                       value={setupTime || ''}
                       onChange={(e) => handleSetupTimeChange(e.target.value)}
                       className="google-time-input"
                       title="Setup time"
                     />
                     <span className="time-separator">–</span>
-                    <input
-                      type="time"
+                    <TimePickerInput
                       value={teardownTime || ''}
                       onChange={(e) => handleTeardownTimeChange(e.target.value)}
                       className="google-time-input"

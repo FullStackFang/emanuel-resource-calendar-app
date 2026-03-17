@@ -1,5 +1,7 @@
 import React from 'react';
 import './UnifiedFormLayout.css';
+import TimePickerInput from './TimePickerInput';
+import DatePickerInput from './DatePickerInput';
 
 /**
  * UnifiedFormLayout - Shared form layout component with consistent styling
@@ -134,8 +136,7 @@ const UnifiedFormLayout = ({
         )}
 
         {type === 'date' && (
-          <input
-            type="date"
+          <DatePickerInput
             id={fieldId}
             name={name}
             value={value || ''}
@@ -147,8 +148,7 @@ const UnifiedFormLayout = ({
         )}
 
         {type === 'time' && (
-          <input
-            type="time"
+          <TimePickerInput
             id={fieldId}
             name={name}
             value={value || ''}
