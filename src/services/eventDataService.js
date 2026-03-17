@@ -1,5 +1,6 @@
 // src/services/eventDataService.js
 import APP_CONFIG from '../config/config';
+import { logger } from '../utils/logger';
 
 const API_BASE_URL = APP_CONFIG.API_BASE_URL;
 
@@ -44,7 +45,7 @@ class EventDataService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error syncing events:', error);
+      logger.error('Error syncing events:', error);
       throw error;
     }
   }
@@ -71,7 +72,7 @@ class EventDataService {
       });
 
       if (!response.ok) {
-        console.error('Failed to fetch internal data, using Graph events only');
+        logger.error('Failed to fetch internal data, using Graph events only');
         return graphEvents;
       }
 
@@ -113,7 +114,7 @@ class EventDataService {
         };
       });
     } catch (error) {
-      console.error('Error enriching events:', error);
+      logger.error('Error enriching events:', error);
       // Return original events if enrichment fails
       return graphEvents;
     }
@@ -139,7 +140,7 @@ class EventDataService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error updating internal fields:', error);
+      logger.error('Error updating internal fields:', error);
       throw error;
     }
   }
@@ -160,7 +161,7 @@ class EventDataService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error fetching MEC categories:', error);
+      logger.error('Error fetching MEC categories:', error);
       return [];
     }
   }
@@ -184,7 +185,7 @@ class EventDataService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error deleting event from MongoDB:', error);
+      logger.error('Error deleting event from MongoDB:', error);
       throw error;
     }
   }
@@ -205,7 +206,7 @@ class EventDataService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error getting sync status:', error);
+      logger.error('Error getting sync status:', error);
       throw error;
     }
   }

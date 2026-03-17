@@ -1,5 +1,5 @@
 // api-server.js - Express API for MongoDB
-console.log('🚀 API SERVER FILE LOADED - CODE VERSION 2.0'); // Keep as console.log - runs before logger is imported
+// API server - version info available via /api/build-info
 const express = require('express');
 const Sentry = require('@sentry/node');
 const { MongoClient, ObjectId, GridFSBucket } = require('mongodb');
@@ -22307,6 +22307,26 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
           // Delete entire series - delete the series master
           logger.log('🔄 Deleting entire recurring series:', { seriesMasterId });
           deleteTargetId = seriesMasterId;
+        }
+
+        // Delete addition events (standalone Graph events not cascade-deleted with series master).
+        // Runs for any full-event deletion (allEvents scope, or no scope on a series master).
+        // Skipped for thisEvent scope (single occurrence handled above).
+        if (editScope !== 'thisEvent') {
+          const additionEventIds = event.exceptionEventIds || [];
+          if (additionEventIds.length > 0) {
+            logger.log('🔄 Deleting addition events from Graph:', { count: additionEventIds.length });
+            for (const addition of additionEventIds) {
+              try {
+                await graphApiService.deleteCalendarEvent(calendarOwner, calendarId || null, addition.graphId);
+                logger.log('✅ Deleted addition event:', { date: addition.date, graphId: addition.graphId });
+              } catch (addErr) {
+                if (!addErr.message?.includes('404') && addErr.status !== 404) {
+                  logger.warn('Failed to delete addition Graph event:', { date: addition.date, error: addErr.message });
+                }
+              }
+            }
+          }
         }
 
         logger.log('📡 Deleting Graph event:', {

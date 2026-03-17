@@ -344,7 +344,7 @@ export const isEventOnDay = (event, day, timezone = DEFAULT_TIMEZONE) => {
     const eventDateUTC = new Date(utcDateString);
     
     if (isNaN(eventDateUTC.getTime())) {
-      console.error('Invalid event date:', event.start.dateTime, event);
+      console.error('Invalid event date:', event.start.dateTime, event?.subject || event?.id);
       return false;
     }
     
@@ -364,7 +364,7 @@ export const isEventOnDay = (event, day, timezone = DEFAULT_TIMEZONE) => {
     
     return eventDay.getTime() === compareDay.getTime();
   } catch (err) {
-    console.error('Error comparing event date:', err, event);
+    console.error('Error comparing event date:', err, event?.subject || event?.id);
     return false;
   }
 };

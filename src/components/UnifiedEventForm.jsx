@@ -363,7 +363,6 @@ export default function UnifiedEventForm({
       }
 
     } catch (error) {
-      console.error('❌ Save error:', error);
       showError(error, { context: 'UnifiedEventForm.handleSaveChanges', userMessage: 'Failed to save changes' });
     } finally {
       setIsSaving(false);

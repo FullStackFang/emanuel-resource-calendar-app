@@ -1,5 +1,5 @@
 /**
- * Recurring Event Delete Tests (RD-1 to RD-10)
+ * Recurring Event Delete Tests (RD-1 to RD-13)
  *
  * Tests that deleting a single occurrence of a recurring event excludes
  * the date from recurrence.exclusions instead of soft-deleting the master.
@@ -24,8 +24,9 @@ const {
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
 const { COLLECTIONS, ENDPOINTS } = require('../../__helpers__/testConstants');
+const graphApiMock = require('../../__helpers__/graphApiMock');
 
-describe('Recurring Event Delete Tests (RD-1 to RD-10)', () => {
+describe('Recurring Event Delete Tests (RD-1 to RD-13)', () => {
   let mongoServer, mongoClient, db, app;
   let adminUser, approverUser;
   let adminToken, approverToken;
@@ -63,6 +64,7 @@ describe('Recurring Event Delete Tests (RD-1 to RD-10)', () => {
   beforeEach(async () => {
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
     await db.collection(COLLECTIONS.USERS).deleteMany({});
+    graphApiMock.clearCallHistory();
 
     adminUser = createAdmin();
     approverUser = createApprover();
@@ -493,5 +495,155 @@ describe('Recurring Event Delete Tests (RD-1 to RD-10)', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('InvalidEventType');
+  });
+
+  // RD-11: allEvents deletes addition events from Graph alongside series master
+  test('RD-11: allEvents scope deletes addition events from Graph', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      recurrence: {
+        ...dailyRecurrence,
+        additions: ['2026-03-15'],
+      },
+      startDateTime: new Date('2026-03-11T10:00:00'),
+      endDateTime: new Date('2026-03-11T11:00:00'),
+      calendarData: {
+        eventTitle: 'Series With Additions',
+        startDateTime: '2026-03-11T10:00:00',
+        endDateTime: '2026-03-11T11:00:00',
+      },
+      graphData: { id: 'series-master-graph-id' },
+      exceptionEventIds: [
+        { date: '2026-03-15', graphId: 'addition-graph-id-1' },
+        { date: '2026-03-16', graphId: 'addition-graph-id-2' },
+      ],
+    });
+    // Set seriesMasterId to graphData.id (as production does)
+    master.seriesMasterId = 'series-master-graph-id';
+    const inserted = await insertEvent(db, master);
+
+    const res = await request(app)
+      .delete(ENDPOINTS.DELETE_EVENT(inserted._id))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        editScope: 'allEvents',
+        _version: inserted._version,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // Verify soft-deleted in DB
+    const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: inserted._id });
+    expect(updated.status).toBe('deleted');
+    expect(updated.isDeleted).toBe(true);
+
+    // Verify Graph delete calls for addition events
+    const deleteCalls = graphApiMock.getCallHistory('deleteCalendarEvent');
+    const deletedIds = deleteCalls.map(c => c.eventId);
+    expect(deletedIds).toContain('addition-graph-id-1');
+    expect(deletedIds).toContain('addition-graph-id-2');
+    expect(deleteCalls).toHaveLength(2);
+  });
+
+  // RD-12: allEvents tolerates 404 on addition deletion (partial failure)
+  test('RD-12: allEvents tolerates 404 on addition and still deletes remaining', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      recurrence: {
+        ...dailyRecurrence,
+        additions: ['2026-03-15'],
+      },
+      startDateTime: new Date('2026-03-11T10:00:00'),
+      endDateTime: new Date('2026-03-11T11:00:00'),
+      calendarData: {
+        eventTitle: 'Series With Gone Addition',
+        startDateTime: '2026-03-11T10:00:00',
+        endDateTime: '2026-03-11T11:00:00',
+      },
+      graphData: { id: 'series-master-graph-id-2' },
+      exceptionEventIds: [
+        { date: '2026-03-15', graphId: 'gone-addition-id' },
+        { date: '2026-03-16', graphId: 'valid-addition-id' },
+      ],
+    });
+    master.seriesMasterId = 'series-master-graph-id-2';
+    const inserted = await insertEvent(db, master);
+
+    // Make deleteCalendarEvent throw 404 for the first addition
+    let callCount = 0;
+    const originalDelete = graphApiMock.deleteCalendarEvent;
+    graphApiMock.deleteCalendarEvent = async (owner, calId, eventId) => {
+      callCount++;
+      if (eventId === 'gone-addition-id') {
+        const err = new Error('404 Not Found');
+        err.status = 404;
+        throw err;
+      }
+      return originalDelete(owner, calId, eventId);
+    };
+
+    const res = await request(app)
+      .delete(ENDPOINTS.DELETE_EVENT(inserted._id))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        editScope: 'allEvents',
+        _version: inserted._version,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // Verify event is still soft-deleted despite the 404
+    const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: inserted._id });
+    expect(updated.status).toBe('deleted');
+    expect(updated.isDeleted).toBe(true);
+
+    // All 3 calls attempted (2 additions + 1 series master)
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  // RD-13: Delete without editScope still cleans up addition events
+  test('RD-13: delete without editScope still deletes addition events from Graph', async () => {
+    const master = createRecurringSeriesMaster({
+      status: 'published',
+      recurrence: {
+        ...dailyRecurrence,
+        additions: ['2026-03-15'],
+      },
+      startDateTime: new Date('2026-03-11T10:00:00'),
+      endDateTime: new Date('2026-03-11T11:00:00'),
+      calendarData: {
+        eventTitle: 'Series Deleted Without Scope',
+        startDateTime: '2026-03-11T10:00:00',
+        endDateTime: '2026-03-11T11:00:00',
+      },
+      graphData: { id: 'no-scope-master-graph-id' },
+      exceptionEventIds: [
+        { date: '2026-03-15', graphId: 'no-scope-addition-1' },
+      ],
+    });
+    master.seriesMasterId = 'no-scope-master-graph-id';
+    const inserted = await insertEvent(db, master);
+
+    // Delete WITHOUT editScope (like Calendar.jsx handleEventReviewModalDelete)
+    const res = await request(app)
+      .delete(ENDPOINTS.DELETE_EVENT(inserted._id))
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        _version: inserted._version,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // Verify soft-deleted
+    const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: inserted._id });
+    expect(updated.status).toBe('deleted');
+
+    // Verify addition was deleted from Graph even without editScope
+    const deleteCalls = graphApiMock.getCallHistory('deleteCalendarEvent');
+    const deletedIds = deleteCalls.map(c => c.eventId);
+    expect(deletedIds).toContain('no-scope-addition-1');
   });
 });

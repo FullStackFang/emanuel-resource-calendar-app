@@ -76,7 +76,7 @@ export const getUserDetails = async (userId) => {
   try {
     return await backendRequest(`/graph/users/${encodeURIComponent(userId)}`);
   } catch (error) {
-    console.error("Error getting user details:", error);
+    logger.error("Error getting user details:", error);
     throw error;
   }
 };
@@ -102,7 +102,7 @@ export const getCalendarEvents = async (userId, startDateTime, endDateTime, cale
 
     return await backendRequest(`/graph/events?${params}`);
   } catch (error) {
-    console.error("Error getting calendar events:", error);
+    logger.error("Error getting calendar events:", error);
     throw error;
   }
 };
@@ -117,7 +117,7 @@ export const getCalendars = async (userId) => {
     const params = new URLSearchParams({ userId });
     return await backendRequest(`/graph/calendars?${params}`);
   } catch (error) {
-    console.error("Error getting calendars:", error);
+    logger.error("Error getting calendars:", error);
     throw error;
   }
 };
@@ -144,7 +144,7 @@ export const searchUserCalendars = async (searchEmail) => {
     const params = new URLSearchParams({ email: searchEmail });
     return await backendRequest(`/graph/calendars/search?${params}`);
   } catch (error) {
-    console.error("Error searching user calendars:", error);
+    logger.error("Error searching user calendars:", error);
     throw error;
   }
 };
@@ -167,7 +167,7 @@ export const createCalendarEvent = async (userId, event, calendarId = null) => {
       })
     });
   } catch (error) {
-    console.error("Error creating calendar event:", error);
+    logger.error("Error creating calendar event:", error);
     throw error;
   }
 };
@@ -191,7 +191,7 @@ export const updateCalendarEvent = async (userId, eventId, eventData, calendarId
       })
     });
   } catch (error) {
-    console.error("Error updating calendar event:", error);
+    logger.error("Error updating calendar event:", error);
     throw error;
   }
 };
@@ -213,7 +213,7 @@ export const deleteCalendarEvent = async (userId, eventId, calendarId = null) =>
       method: 'DELETE'
     });
   } catch (error) {
-    console.error("Error deleting calendar event:", error);
+    logger.error("Error deleting calendar event:", error);
     throw error;
   }
 };
@@ -240,7 +240,7 @@ export const createLinkedEvents = async (userId, mainEventData, registrationEven
       })
     });
   } catch (error) {
-    console.error("Error creating linked events:", error);
+    logger.error("Error creating linked events:", error);
     throw error;
   }
 };
@@ -264,7 +264,7 @@ export const findLinkedEvent = async (userId, eventId, calendarId = null) => {
     if (error.status === 404) {
       return null;
     }
-    console.error("Error finding linked event:", error);
+    logger.error("Error finding linked event:", error);
     return null;
   }
 };
@@ -297,7 +297,7 @@ export const updateLinkedEvent = async (userId, sourceEventId, sourceEventData, 
       logger.log('No linked event found for', sourceEventId);
       return null;
     }
-    console.error("Error updating linked event:", error);
+    logger.error("Error updating linked event:", error);
     throw error;
   }
 };
@@ -325,7 +325,7 @@ export const deleteLinkedEvent = async (userId, eventId, calendarId = null) => {
       logger.log('Linked event already deleted:', eventId);
       return true;
     }
-    console.error("Error deleting linked event:", error);
+    logger.error("Error deleting linked event:", error);
     return false;
   }
 };
@@ -340,7 +340,7 @@ export const getOutlookCategories = async (userId) => {
     const params = new URLSearchParams({ userId });
     return await backendRequest(`/graph/categories?${params}`);
   } catch (error) {
-    console.error("Error getting Outlook categories:", error);
+    logger.error("Error getting Outlook categories:", error);
     throw error;
   }
 };
@@ -363,7 +363,7 @@ export const createOutlookCategory = async (userId, displayName, color) => {
       })
     });
   } catch (error) {
-    console.error("Error creating Outlook category:", error);
+    logger.error("Error creating Outlook category:", error);
     throw error;
   }
 };
@@ -378,7 +378,7 @@ export const getSchemaExtensions = async (ownerId = null) => {
     const params = ownerId ? new URLSearchParams({ ownerId }) : new URLSearchParams();
     return await backendRequest(`/graph/schema-extensions?${params}`);
   } catch (error) {
-    console.error("Error getting schema extensions:", error);
+    logger.error("Error getting schema extensions:", error);
     throw error;
   }
 };
@@ -395,7 +395,7 @@ export const createSchemaExtension = async (schemaData) => {
       body: JSON.stringify({ schemaData })
     });
   } catch (error) {
-    console.error("Error creating schema extension:", error);
+    logger.error("Error creating schema extension:", error);
     throw error;
   }
 };
@@ -413,7 +413,7 @@ export const updateSchemaExtension = async (schemaId, schemaData) => {
       body: JSON.stringify({ schemaData })
     });
   } catch (error) {
-    console.error("Error updating schema extension:", error);
+    logger.error("Error updating schema extension:", error);
     throw error;
   }
 };
@@ -429,7 +429,7 @@ export const deleteSchemaExtension = async (schemaId) => {
       method: 'DELETE'
     });
   } catch (error) {
-    console.error("Error deleting schema extension:", error);
+    logger.error("Error deleting schema extension:", error);
     throw error;
   }
 };
@@ -455,7 +455,7 @@ export const getRecurringEventInstances = async (userId, seriesMasterId, startDa
     }
     return await backendRequest(`/graph/events/${seriesMasterId}/instances?${params}`);
   } catch (error) {
-    console.error("Error getting recurring event instances:", error);
+    logger.error("Error getting recurring event instances:", error);
     throw error;
   }
 };
@@ -472,7 +472,7 @@ export const batchCalendarOperations = async (requests) => {
       body: JSON.stringify({ requests })
     });
   } catch (error) {
-    console.error("Error in batch operation:", error);
+    logger.error("Error in batch operation:", error);
     throw error;
   }
 };
@@ -486,7 +486,6 @@ export const batchCalendarOperations = async (requests) => {
  * @deprecated Use backend webhook management instead
  */
 export const createCalendarWebhook = async (/* userId, notificationUrl, calendarId */) => {
-  console.warn('createCalendarWebhook: Webhooks should be managed server-side with app permissions');
   throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
@@ -495,7 +494,6 @@ export const createCalendarWebhook = async (/* userId, notificationUrl, calendar
  * @deprecated Use backend webhook management instead
  */
 export const renewCalendarWebhook = async (/* subscriptionId */) => {
-  console.warn('renewCalendarWebhook: Webhooks should be managed server-side with app permissions');
   throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
@@ -504,7 +502,6 @@ export const renewCalendarWebhook = async (/* subscriptionId */) => {
  * @deprecated Use backend webhook management instead
  */
 export const deleteCalendarWebhook = async (/* subscriptionId */) => {
-  console.warn('deleteCalendarWebhook: Webhooks should be managed server-side with app permissions');
   throw new Error('Webhook management should be done via backend admin endpoints');
 };
 
@@ -513,6 +510,5 @@ export const deleteCalendarWebhook = async (/* subscriptionId */) => {
  * @deprecated Webhook processing happens server-side
  */
 export const processWebhookNotification = async (/* notification */) => {
-  console.warn('processWebhookNotification: Webhooks are processed server-side');
   throw new Error('Webhook processing happens on the backend');
 };

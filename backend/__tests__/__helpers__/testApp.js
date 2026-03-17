@@ -1939,6 +1939,22 @@ function createTestApp(options = {}) {
       }
 
       // Soft delete (allEvents scope or non-recurring)
+      // Delete addition events (standalone Graph events, not cascade-deleted with series master)
+      // Runs for any full-event deletion (allEvents or no scope), skipped for thisEvent
+      if (editScope !== 'thisEvent' && event.exceptionEventIds?.length) {
+        for (const addition of event.exceptionEventIds) {
+          try {
+            await graphApiMock.deleteCalendarEvent(
+              event.calendarOwner || 'templeeventssandbox@emanuelnyc.org',
+              event.calendarId || null,
+              addition.graphId
+            );
+          } catch (addErr) {
+            // 404 = already gone, skip
+          }
+        }
+      }
+
       const now = new Date();
       await testCollections.events.updateOne(query, {
         $set: {

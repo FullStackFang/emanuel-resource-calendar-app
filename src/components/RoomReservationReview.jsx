@@ -251,7 +251,6 @@ export default function RoomReservationReview({
       }
 
     } catch (error) {
-      console.error('❌ Save error:', error);
       logger.error('Error saving changes:', error);
       showError(error, { context: 'RoomReservationReview.handleSaveChanges', userMessage: 'Failed to save changes' });
     } finally {
