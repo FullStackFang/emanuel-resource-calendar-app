@@ -3542,46 +3542,63 @@ function createTestApp(options = {}) {
         const storedGraphId = event.graphData?.id;
         if (storedGraphId && event.calendarOwner) {
           try {
-            const dayStart = `${dateKey}T00:00:00`;
-            const dayEnd = `${dateKey}T23:59:59`;
-            const seriesMasterId = updates.seriesMasterId;
-            const instances = await graphApiMock.getRecurringEventInstances(
-              event.calendarOwner, event.calendarId, seriesMasterId || storedGraphId,
-              dayStart, dayEnd
-            );
-            const match = (instances || []).find(occ =>
-              occ.start?.dateTime?.startsWith(dateKey)
-            );
-            if (match) {
-              const graphUpdate = {};
-              if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
-              if (overrideFields.startDateTime) {
-                graphUpdate.start = {
-                  dateTime: overrideFields.startDateTime + ':00',
-                  timeZone: event.graphData?.start?.timeZone || 'America/New_York'
-                };
-              }
-              if (overrideFields.endDateTime) {
-                graphUpdate.end = {
-                  dateTime: overrideFields.endDateTime + ':00',
-                  timeZone: event.graphData?.end?.timeZone || 'America/New_York'
-                };
-              }
-              if (overrideFields.categories !== undefined) {
-                graphUpdate.categories = overrideFields.categories;
-              }
-              if (overrideFields.locationDisplayNames !== undefined) {
-                const locDispName = overrideFields.locationDisplayNames || '';
-                graphUpdate.location = { displayName: locDispName, locationType: 'default' };
-                graphUpdate.locations = locDispName
-                  .split('; ')
-                  .filter(Boolean)
-                  .map(name => ({ displayName: name, locationType: 'default' }));
-              }
-              if (Object.keys(graphUpdate).length > 0) {
+            const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+
+            // Build graphUpdate from overrideFields
+            const graphUpdate = {};
+            if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
+            if (overrideFields.eventDescription !== undefined) {
+              graphUpdate.body = { contentType: 'html', content: overrideFields.eventDescription || '' };
+            }
+            if (overrideFields.startDateTime) {
+              graphUpdate.start = {
+                dateTime: overrideFields.startDateTime + ':00',
+                timeZone: graphTimezone
+              };
+            }
+            if (overrideFields.endDateTime) {
+              graphUpdate.end = {
+                dateTime: overrideFields.endDateTime + ':00',
+                timeZone: graphTimezone
+              };
+            }
+            if (overrideFields.categories !== undefined) {
+              graphUpdate.categories = overrideFields.categories;
+            }
+            if (overrideFields.locationDisplayNames !== undefined) {
+              const locDispName = overrideFields.locationDisplayNames || '';
+              graphUpdate.location = { displayName: locDispName, locationType: 'default' };
+              graphUpdate.locations = locDispName
+                .split('; ')
+                .filter(Boolean)
+                .map(name => ({ displayName: name, locationType: 'default' }));
+            }
+
+            if (Object.keys(graphUpdate).length > 0) {
+              // Fast-path: addition events are standalone, not series instances
+              const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
+
+              if (additionEntry) {
                 await graphApiMock.updateCalendarEvent(
-                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                  event.calendarOwner, event.calendarId, additionEntry.graphId, graphUpdate
                 );
+              } else {
+                // Regular occurrence — find instance via getRecurringEventInstances
+                const dayStart = `${dateKey}T00:00:00`;
+                const dayEnd = `${dateKey}T23:59:59`;
+                const seriesMasterId = updates.seriesMasterId;
+                const instances = await graphApiMock.getRecurringEventInstances(
+                  event.calendarOwner, event.calendarId, seriesMasterId || storedGraphId,
+                  dayStart, dayEnd
+                );
+                const match = (instances || []).find(occ =>
+                  occ.start?.dateTime?.startsWith(dateKey)
+                );
+                if (match) {
+                  await graphApiMock.updateCalendarEvent(
+                    event.calendarOwner, event.calendarId, match.id, graphUpdate
+                  );
+                }
               }
             }
           } catch (graphErr) { /* non-fatal */ }

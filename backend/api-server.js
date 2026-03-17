@@ -1904,6 +1904,16 @@ async function syncRecurrenceExceptionsToGraph(calendarOwner, calendarId, series
         // Apply occurrence override data if present (avoids extra PATCH round-trip)
         const override = occurrenceOverrides.find(o => o.occurrenceDate === additionDate);
         if (override) {
+          if (override.eventTitle) additionEvent.subject = override.eventTitle;
+          if (override.eventDescription !== undefined) {
+            additionEvent.body = { contentType: 'html', content: override.eventDescription || '' };
+          }
+          if (override.startTime) {
+            additionEvent.start = { dateTime: `${additionDate}T${override.startTime}:00`, timeZone: eventData.start?.timeZone || 'America/New_York' };
+          }
+          if (override.endTime) {
+            additionEvent.end = { dateTime: `${additionDate}T${override.endTime}:00`, timeZone: eventData.end?.timeZone || 'America/New_York' };
+          }
           if (override.categories !== undefined) {
             additionEvent.categories = override.categories;
           }
@@ -1937,7 +1947,10 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
   for (const override of occurrenceOverrides) {
     const hasCategories = override.categories !== undefined;
     const hasLocations = override.locationDisplayNames !== undefined;
-    if (!hasCategories && !hasLocations) continue;
+    const hasTitle = !!override.eventTitle;
+    const hasDescription = override.eventDescription !== undefined;
+    const hasTime = !!(override.startTime || override.endTime);
+    if (!hasCategories && !hasLocations && !hasTitle && !hasDescription && !hasTime) continue;
 
     try {
       // Fast-path: if this date is an addition (standalone event, not a series instance),
@@ -1945,6 +1958,16 @@ async function syncOccurrenceOverridesToGraph(calendarOwner, calendarId, seriesM
       const additionEntry = additionEventIds.find(e => e.date === override.occurrenceDate);
       if (additionEntry) {
         const patch = {};
+        if (hasTitle) patch.subject = override.eventTitle;
+        if (hasDescription) {
+          patch.body = { contentType: 'html', content: override.eventDescription || '' };
+        }
+        if (override.startTime) {
+          patch.start = { dateTime: `${override.occurrenceDate}T${override.startTime}:00`, timeZone: eventData?.start?.timeZone || 'America/New_York' };
+        }
+        if (override.endTime) {
+          patch.end = { dateTime: `${override.occurrenceDate}T${override.endTime}:00`, timeZone: eventData?.start?.timeZone || 'America/New_York' };
+        }
         if (hasCategories) patch.categories = override.categories;
         if (hasLocations) {
           const locDispName = override.locationDisplayNames || '';
@@ -20914,46 +20937,63 @@ app.put('/api/admin/events/:id', verifyToken, async (req, res) => {
       const storedGraphEventId = event.graphData?.id;
       if (storedGraphEventId && event.calendarOwner) {
         try {
-          const occDate = new Date(updates.occurrenceDate);
-          const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
-          const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
-          const instances = await graphApiService.getRecurringEventInstances(
-            event.calendarOwner, event.calendarId, seriesMasterId || storedGraphEventId,
-            dayStart.toISOString(), dayEnd.toISOString()
-          );
-          const match = (instances || []).find(occ =>
-            new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
-          );
-          if (match) {
-            const graphUpdate = {};
-            if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
-            if (overrideFields.startDateTime) {
-              graphUpdate.start = {
-                dateTime: overrideFields.startDateTime + ':00',
-                timeZone: event.graphData?.start?.timeZone || 'America/New_York'
-              };
-            }
-            if (overrideFields.endDateTime) {
-              graphUpdate.end = {
-                dateTime: overrideFields.endDateTime + ':00',
-                timeZone: event.graphData?.end?.timeZone || 'America/New_York'
-              };
-            }
-            if (overrideFields.categories !== undefined) {
-              graphUpdate.categories = overrideFields.categories;
-            }
-            if (overrideFields.locationDisplayNames !== undefined) {
-              const locDispName = overrideFields.locationDisplayNames || '';
-              graphUpdate.location = { displayName: locDispName, locationType: 'default' };
-              graphUpdate.locations = locDispName
-                .split('; ')
-                .filter(Boolean)
-                .map(name => ({ displayName: name, locationType: 'default' }));
-            }
-            if (Object.keys(graphUpdate).length > 0) {
+          const graphTimezone = event.graphData?.start?.timeZone || 'America/New_York';
+
+          // Build graphUpdate from overrideFields (shared by both addition and regular paths)
+          const graphUpdate = {};
+          if (overrideFields.eventTitle) graphUpdate.subject = overrideFields.eventTitle;
+          if (overrideFields.eventDescription !== undefined) {
+            graphUpdate.body = { contentType: 'html', content: overrideFields.eventDescription || '' };
+          }
+          if (overrideFields.startDateTime) {
+            graphUpdate.start = {
+              dateTime: overrideFields.startDateTime + ':00',
+              timeZone: graphTimezone
+            };
+          }
+          if (overrideFields.endDateTime) {
+            graphUpdate.end = {
+              dateTime: overrideFields.endDateTime + ':00',
+              timeZone: graphTimezone
+            };
+          }
+          if (overrideFields.categories !== undefined) {
+            graphUpdate.categories = overrideFields.categories;
+          }
+          if (overrideFields.locationDisplayNames !== undefined) {
+            const locDispName = overrideFields.locationDisplayNames || '';
+            graphUpdate.location = { displayName: locDispName, locationType: 'default' };
+            graphUpdate.locations = locDispName
+              .split('; ')
+              .filter(Boolean)
+              .map(name => ({ displayName: name, locationType: 'default' }));
+          }
+
+          if (Object.keys(graphUpdate).length > 0) {
+            // Fast-path: addition events are standalone Graph events, not series instances
+            const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
+
+            if (additionEntry) {
               await graphApiService.updateCalendarEvent(
-                event.calendarOwner, event.calendarId, match.id, graphUpdate
+                event.calendarOwner, event.calendarId, additionEntry.graphId, graphUpdate
               );
+            } else {
+              // Regular occurrence — find instance ID via getRecurringEventInstances
+              const occDate = new Date(updates.occurrenceDate);
+              const dayStart = new Date(occDate); dayStart.setHours(0, 0, 0, 0);
+              const dayEnd = new Date(occDate); dayEnd.setHours(23, 59, 59, 999);
+              const instances = await graphApiService.getRecurringEventInstances(
+                event.calendarOwner, event.calendarId, seriesMasterId || storedGraphEventId,
+                dayStart.toISOString(), dayEnd.toISOString()
+              );
+              const match = (instances || []).find(occ =>
+                new Date(occ.start.dateTime).toDateString() === occDate.toDateString()
+              );
+              if (match) {
+                await graphApiService.updateCalendarEvent(
+                  event.calendarOwner, event.calendarId, match.id, graphUpdate
+                );
+              }
             }
           }
         } catch (graphErr) {
@@ -22220,36 +22260,47 @@ app.delete('/api/admin/events/:id', verifyToken, async (req, res) => {
             editScope
           });
 
-          const occurrenceDateObj = new Date(occurrenceDate);
-          const startRange = new Date(occurrenceDateObj);
-          startRange.setHours(0, 0, 0, 0);
-          const endRange = new Date(occurrenceDateObj);
-          endRange.setHours(23, 59, 59, 999);
+          const dateKey = occurrenceDate.split('T')[0];
 
-          try {
-            const instances = await graphApiService.getRecurringEventInstances(
-              calendarOwner,
-              calendarId || null,
-              seriesMasterId,
-              startRange.toISOString(),
-              endRange.toISOString()
-            );
+          // Fast-path: addition events are standalone Graph events, not series instances
+          const additionEntry = (event.exceptionEventIds || []).find(e => e.date === dateKey);
 
-            if (instances && instances.length > 0) {
-              const targetOccurrence = instances.find(occ => {
-                const occStart = new Date(occ.start.dateTime);
-                return occStart.toDateString() === occurrenceDateObj.toDateString();
-              });
+          if (additionEntry) {
+            deleteTargetId = additionEntry.graphId;
+            logger.log('✅ Found addition event graphId:', deleteTargetId);
+          } else {
+            // Regular occurrence — find instance ID via getRecurringEventInstances
+            const occurrenceDateObj = new Date(occurrenceDate);
+            const startRange = new Date(occurrenceDateObj);
+            startRange.setHours(0, 0, 0, 0);
+            const endRange = new Date(occurrenceDateObj);
+            endRange.setHours(23, 59, 59, 999);
 
-              if (targetOccurrence) {
-                deleteTargetId = targetOccurrence.id;
-                logger.log('✅ Found occurrence ID:', deleteTargetId);
-              } else {
-                logger.log('⚠️ No matching occurrence found for date, using graphEventId');
+            try {
+              const instances = await graphApiService.getRecurringEventInstances(
+                calendarOwner,
+                calendarId || null,
+                seriesMasterId,
+                startRange.toISOString(),
+                endRange.toISOString()
+              );
+
+              if (instances && instances.length > 0) {
+                const targetOccurrence = instances.find(occ => {
+                  const occStart = new Date(occ.start.dateTime);
+                  return occStart.toDateString() === occurrenceDateObj.toDateString();
+                });
+
+                if (targetOccurrence) {
+                  deleteTargetId = targetOccurrence.id;
+                  logger.log('✅ Found occurrence ID:', deleteTargetId);
+                } else {
+                  logger.log('⚠️ No matching occurrence found for date, using graphEventId');
+                }
               }
+            } catch (instancesError) {
+              logger.log('⚠️ Failed to fetch instances:', instancesError.message);
             }
-          } catch (instancesError) {
-            logger.log('⚠️ Failed to fetch instances:', instancesError.message);
           }
 
         } else if (editScope === 'allEvents' && seriesMasterId) {

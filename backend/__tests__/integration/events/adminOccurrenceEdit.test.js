@@ -1,14 +1,9 @@
 /**
- * Admin Occurrence Edit Tests (AOE-1 to AOE-7)
+ * Admin Occurrence Edit Tests (AOE-1 to AOE-13)
  *
  * Tests per-occurrence editing via PUT /api/admin/events/:id with editScope='thisEvent':
- * - thisEvent scope writes to occurrenceOverrides on series master
- * - Location changes are stored in override; master calendarData.locations unchanged
- * - Same date re-edit is idempotent (one entry)
- * - Different dates accumulate separate entries
- * - allEvents scope updates master fields normally
- * - Out-of-range date returns 400
- * - Calendar-load reflects override on correct occurrence only
+ * AOE-1 to AOE-7: Core occurrence override CRUD
+ * AOE-8 to AOE-13: Addition occurrence Graph sync (exceptionEventIds fast-path)
  */
 
 const request = require('supertest');
@@ -28,6 +23,7 @@ const {
   insertEvents,
 } = require('../../__helpers__/eventFactory');
 const { createMockToken, initTestKeys } = require('../../__helpers__/authHelpers');
+const graphApiMock = require('../../__helpers__/graphApiMock');
 const { COLLECTIONS, STATUS, ENDPOINTS, TEST_CALENDAR_OWNER } = require('../../__helpers__/testConstants');
 
 describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
@@ -67,6 +63,8 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
     await db.collection(COLLECTIONS.EVENTS).deleteMany({});
     await db.collection(COLLECTIONS.LOCATIONS).deleteMany({});
     await db.collection(COLLECTIONS.AUDIT_HISTORY).deleteMany({});
+
+    graphApiMock.resetMocks();
 
     adminUser = createAdmin();
     requesterUser = createRequester();
@@ -320,6 +318,57 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
     });
   });
 
+  /**
+   * Helper to create a published series master with an addition date and exceptionEventIds.
+   * Daily 3/18-3/20 with addition on 3/21. Published with graphData.id set.
+   */
+  function createPublishedSeriesMasterWithAddition(overrides = {}) {
+    const recurrence = {
+      pattern: { type: 'daily', interval: 1 },
+      range: { type: 'endDate', startDate: '2026-03-18', endDate: '2026-03-20' },
+      additions: ['2026-03-21'],
+      exclusions: [],
+    };
+    return createRecurringSeriesMaster({
+      status: STATUS.PUBLISHED,
+      userId: requesterUser.odataId,
+      requesterEmail: requesterUser.email,
+      recurrence,
+      startDateTime: new Date('2026-03-18T14:00:00'),
+      endDateTime: new Date('2026-03-18T15:00:00'),
+      calendarOwner: TEST_CALENDAR_OWNER,
+      calendarId: 'test-calendar-id',
+      graphData: {
+        id: 'AAMkSeriesMaster123',
+        subject: 'Daily Standup',
+        start: { dateTime: '2026-03-18T14:00:00', timeZone: 'America/New_York' },
+        end: { dateTime: '2026-03-18T15:00:00', timeZone: 'America/New_York' },
+      },
+      exceptionEventIds: [
+        { date: '2026-03-21', graphId: 'AAMkAddition321' },
+      ],
+      locations: [locationA._id],
+      locationDisplayNames: ['Room A'],
+      calendarData: {
+        eventTitle: 'Daily Standup',
+        eventDescription: 'Original description',
+        startDateTime: '2026-03-18T14:00:00',
+        endDateTime: '2026-03-18T15:00:00',
+        startDate: '2026-03-18',
+        startTime: '14:00',
+        endDate: '2026-03-18',
+        endTime: '15:00',
+        locations: [locationA._id],
+        locationDisplayNames: 'Room A',
+        categories: ['Meeting'],
+        recurrence,
+        setupTimeMinutes: 0,
+        teardownTimeMinutes: 0,
+      },
+      ...overrides,
+    });
+  }
+
   describe('AOE-7: Calendar-load reflects override on correct occurrence only', () => {
     it('should show overridden data for the edited occurrence date', async () => {
       const master = createTestSeriesMaster({
@@ -354,6 +403,179 @@ describe('Admin Occurrence Edit Tests (AOE-1 to AOE-7)', () => {
       expect(found.occurrenceOverrides).toHaveLength(1);
       expect(found.occurrenceOverrides[0].occurrenceDate).toBe('2026-03-12');
       expect(found.occurrenceOverrides[0].eventTitle).toBe('Override Title');
+    });
+  });
+
+  // --- AOE-8 to AOE-13: Addition occurrence Graph sync ---
+
+  describe('AOE-8: thisEvent on addition date calls updateCalendarEvent with addition graphId', () => {
+    it('should use exceptionEventIds graphId, NOT getRecurringEventInstances', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-21',
+          eventTitle: 'Renamed Addition',
+          categories: ['Workshop'],
+        });
+
+      expect(res.status).toBe(200);
+
+      // Should call updateCalendarEvent with the addition's graphId
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].eventId).toBe('AAMkAddition321');
+      expect(updateCalls[0].eventData.subject).toBe('Renamed Addition');
+      expect(updateCalls[0].eventData.categories).toEqual(['Workshop']);
+
+      // Should NOT call getRecurringEventInstances (addition is standalone)
+      expect(graphApiMock.getCallHistory('getRecurringEventInstances')).toHaveLength(0);
+    });
+  });
+
+  describe('AOE-9: thisEvent on addition date syncs time changes', () => {
+    it('should send start/end with :00 suffix and timeZone', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-21',
+          startTime: '10:00',
+          endTime: '11:30',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].eventId).toBe('AAMkAddition321');
+      expect(updateCalls[0].eventData.start).toEqual({
+        dateTime: '2026-03-21T10:00:00',
+        timeZone: 'America/New_York',
+      });
+      expect(updateCalls[0].eventData.end).toEqual({
+        dateTime: '2026-03-21T11:30:00',
+        timeZone: 'America/New_York',
+      });
+    });
+  });
+
+  describe('AOE-10: thisEvent on addition date syncs eventDescription', () => {
+    it('should send body with contentType html', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-21',
+          eventDescription: 'Updated description for addition',
+        });
+
+      expect(res.status).toBe(200);
+
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].eventId).toBe('AAMkAddition321');
+      expect(updateCalls[0].eventData.body).toEqual({
+        contentType: 'html',
+        content: 'Updated description for addition',
+      });
+    });
+  });
+
+  describe('AOE-11: thisEvent on addition with no changed fields skips Graph call', () => {
+    it('should not call updateCalendarEvent when no Graph-syncable fields changed', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      // Send only occurrenceDate with no actual field changes
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-21',
+        });
+
+      expect(res.status).toBe(200);
+
+      // No Graph calls should be made
+      expect(graphApiMock.getCallHistory('updateCalendarEvent')).toHaveLength(0);
+      expect(graphApiMock.getCallHistory('getRecurringEventInstances')).toHaveLength(0);
+    });
+  });
+
+  describe('AOE-12: Graph failure on addition edit is non-fatal', () => {
+    it('should save to MongoDB even when Graph API fails', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      // Make Graph API fail
+      graphApiMock.setMockError('updateCalendarEvent', new Error('Graph API 503'));
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-21',
+          eventTitle: 'Should still save to MongoDB',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      // Verify override was written to MongoDB despite Graph failure
+      const updated = await db.collection(COLLECTIONS.EVENTS).findOne({ _id: master._id });
+      expect(updated.occurrenceOverrides).toHaveLength(1);
+      expect(updated.occurrenceOverrides[0].eventTitle).toBe('Should still save to MongoDB');
+    });
+  });
+
+  describe('AOE-13: Regular (non-addition) occurrence still uses getRecurringEventInstances', () => {
+    it('should call getRecurringEventInstances for dates within the recurrence pattern', async () => {
+      const master = createPublishedSeriesMasterWithAddition();
+      await insertEvents(db, [master]);
+
+      // Mock instances response for the regular occurrence date
+      graphApiMock.setMockResponse('getRecurringEventInstances', [
+        {
+          id: 'AAMkInstance0319',
+          start: { dateTime: '2026-03-19T14:00:00' },
+          end: { dateTime: '2026-03-19T15:00:00' },
+        },
+      ]);
+
+      const res = await request(app)
+        .put(ENDPOINTS.UPDATE_EVENT(master._id))
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          editScope: 'thisEvent',
+          occurrenceDate: '2026-03-19',
+          eventTitle: 'Modified Regular Occurrence',
+        });
+
+      expect(res.status).toBe(200);
+
+      // Should call getRecurringEventInstances (regular occurrence, not an addition)
+      expect(graphApiMock.getCallHistory('getRecurringEventInstances')).toHaveLength(1);
+
+      // Should call updateCalendarEvent with the instance ID from getRecurringEventInstances
+      const updateCalls = graphApiMock.getCallHistory('updateCalendarEvent');
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].eventId).toBe('AAMkInstance0319');
+      expect(updateCalls[0].eventData.subject).toBe('Modified Regular Occurrence');
     });
   });
 });
