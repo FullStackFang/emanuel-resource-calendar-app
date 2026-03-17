@@ -1830,6 +1830,11 @@ import ConflictDialog from './shared/ConflictDialog';
                   ? {
                       ...event.graphData,
                       eventId: event.graphData.id,
+                      // Override start/end with authoritative values from calendarData/top-level
+                      // (graphData.start/end may be stale if Graph sync lagged after admin save)
+                      start: event.start || event.graphData?.start,
+                      end: event.end || event.graphData?.end,
+                      subject: event.eventTitle || event.calendarData?.eventTitle || event.graphData?.subject,
                       recurrence: recurrence
                     }
                   : {

@@ -114,8 +114,9 @@ export function transformEventToFlatStructure(event) {
 
   // Extract datetime strings from Graph format
   // Use getField for calendarData support with top-level fallback
-  const startDateTime = isCalendarEvent ? event.start?.dateTime : (event.graphData?.start?.dateTime || getField(event, 'startDateTime'));
-  const endDateTime = isCalendarEvent ? event.end?.dateTime : (event.graphData?.end?.dateTime || getField(event, 'endDateTime'));
+  // Prefer calendarData (authoritative after admin save) over graphData (may be stale if Graph sync lagged)
+  const startDateTime = isCalendarEvent ? event.start?.dateTime : (getField(event, 'startDateTime') || event.graphData?.start?.dateTime);
+  const endDateTime = isCalendarEvent ? event.end?.dateTime : (getField(event, 'endDateTime') || event.graphData?.end?.dateTime);
 
   // Parse datetime strings into separate date/time fields for form consumption
   // If already flat, preserve the existing values
