@@ -13,7 +13,6 @@ import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
-import RecurringConflictSummary from './RecurringConflictSummary';
 import { RecurringIcon } from './shared/CalendarIcons';
 import useDepartments from '../hooks/useDepartments';
 import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
@@ -103,7 +102,14 @@ export default function RoomReservationFormBase({
   isEditRequestMode = false,    // When true, show inline diffs and allow editing
   isViewingEditRequest = false, // When true, show inline diffs but keep form read-only
   originalData = null,          // Original form data for comparison (shows strikethrough when changed)
-  onConflictChange = null       // Callback when scheduling conflicts change: (hasConflicts, totalConflicts) => void
+  onConflictChange = null,      // Callback when scheduling conflicts change: (hasConflicts, totalConflicts) => void
+
+  // Lifted recurrence state (from RoomReservationReview) — when provided, these override internal state
+  externalRecurrencePattern = undefined,     // Recurrence pattern object or null
+  onRecurrencePatternChange = null,          // Callback: (pattern) => void
+  externalShowRecurrenceModal = undefined,   // Boolean
+  onShowRecurrenceModalChange = null,        // Callback: (show) => void
+  onSwitchToRecurrenceTab = null             // Callback to switch ReviewModal to recurrence tab
 }) {
   // Load departments from database
   const { departments: departmentsList } = useDepartments();
@@ -165,11 +171,19 @@ export default function RoomReservationFormBase({
   const [currentEventId, setCurrentEventId] = useState(initialData?.eventId || null); // Current event ID for highlighting
   const [loadingEventId, setLoadingEventId] = useState(null); // Event ID currently being loaded
 
-  // Recurrence state
-  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
-  const [recurrencePattern, setRecurrencePattern] = useState(
+  // Recurrence state — uses external (lifted) state when provided, falls back to internal for creation mode
+  const [_internalShowRecurrenceModal, _setInternalShowRecurrenceModal] = useState(false);
+  const [_internalRecurrencePattern, _setInternalRecurrencePattern] = useState(
     initialData?.recurrence || initialData?.graphData?.recurrence || null
   ); // { pattern, range }
+
+  const isRecurrenceLifted = externalRecurrencePattern !== undefined;
+  const recurrencePattern = isRecurrenceLifted ? externalRecurrencePattern : _internalRecurrencePattern;
+  const setRecurrencePattern = isRecurrenceLifted
+    ? (val) => { if (onRecurrencePatternChange) onRecurrencePatternChange(typeof val === 'function' ? val(externalRecurrencePattern) : val); }
+    : _setInternalRecurrencePattern;
+  const showRecurrenceModal = externalShowRecurrenceModal !== undefined ? externalShowRecurrenceModal : _internalShowRecurrenceModal;
+  const setShowRecurrenceModal = onShowRecurrenceModalChange || _setInternalShowRecurrenceModal;
 
   // Category state - check categories first (correct field), mecCategories is deprecated
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -321,13 +335,14 @@ export default function RoomReservationFormBase({
   }, [selectedServices]);
 
   // Sync recurrencePattern when initialData changes (e.g., when loading a saved draft)
-  // Mirrors the categories/services sync pattern above
+  // Mirrors the categories/services sync pattern above — only when using internal state
   const recurrenceKey = JSON.stringify(initialData?.recurrence || null);
   useEffect(() => {
+    if (isRecurrenceLifted) return; // External state is managed by parent
     const newRecurrence = initialData?.recurrence || null;
-    setRecurrencePattern(newRecurrence);
+    _setInternalRecurrencePattern(newRecurrence);
     recurrencePatternRef.current = newRecurrence;
-  }, [recurrenceKey]);
+  }, [recurrenceKey, isRecurrenceLifted]);
 
   const { rooms, loading: roomsLoading } = useRooms();
 
@@ -1459,7 +1474,7 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Recurrence Card — 3 modes: invite, active summary, read-only context */}
+            {/* Recurrence Card — compact summary with link to Recurrence tab */}
             {(() => {
               const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
               const hasPattern = Boolean(activeRecurrence);
@@ -1483,18 +1498,20 @@ export default function RoomReservationFormBase({
                 );
               }
 
-              // Mode 2: Has pattern — active summary card
-              if (hasPattern && canEditRecurrence) {
+              // Mode 2: Has pattern — compact summary with link to Recurrence tab
+              if (hasPattern) {
                 const summary = formatRecurrenceSummaryEnhanced(
                   activeRecurrence.pattern,
                   activeRecurrence.range,
                   activeRecurrence.additions,
                   activeRecurrence.exclusions
                 );
+                const addCount = activeRecurrence.additions?.length || 0;
+                const exclCount = activeRecurrence.exclusions?.length || 0;
 
                 return (
                   <div className="recurrence-trigger-section">
-                    <div className="recurrence-active-card">
+                    <div className="recurrence-active-card recurrence-active-card--compact">
                       <div className="recurrence-active-header">
                         <div className="recurrence-active-header-left">
                           <RecurringIcon size={18} />
@@ -1506,72 +1523,37 @@ export default function RoomReservationFormBase({
                         <button
                           type="button"
                           className="recurrence-edit-link"
-                          onClick={() => setShowRecurrenceModal(true)}
-                          disabled={fieldsDisabled}
+                          onClick={() => onSwitchToRecurrenceTab ? onSwitchToRecurrenceTab() : setShowRecurrenceModal(true)}
                         >
-                          Edit Recurrence
+                          Manage Recurrence &rarr;
                         </button>
                       </div>
                       <div className="recurrence-active-body">
                         {summary.base}
-                        {summary.exclusions && summary.exclusions.length > 0 && (
-                          <> {summary.exclusions.map((d, i) => (
-                            <span key={`exc-${i}`} style={{color: 'red', fontWeight: '500'}}>
-                              {i === 0 ? ' (excluded: ' : ', '}{d.text}
-                            </span>
-                          ))}<span style={{color: 'red'}}>)</span></>
+                      </div>
+                      <div className="recurrence-stats-row">
+                        {summary.occurrenceCount && (
+                          <span className="recurrence-stat">
+                            <strong>{summary.occurrenceCount}</strong> occurrences
+                          </span>
                         )}
-                        {summary.additions && summary.additions.length > 0 && (
-                          <> {summary.additions.map((d, i) => (
-                            <span key={`add-${i}`} style={{color: 'green', fontWeight: '500'}}>
-                              {i === 0 ? ' (ad-hoc: ' : ', '}{d.text}
-                            </span>
-                          ))}<span style={{color: 'green'}}>)</span></>
+                        {addCount > 0 && (
+                          <span className="recurrence-stat" style={{color: 'var(--color-success-500)'}}>
+                            +{addCount} added
+                          </span>
+                        )}
+                        {exclCount > 0 && (
+                          <span className="recurrence-stat" style={{color: 'var(--color-error-500)'}}>
+                            {exclCount} excluded
+                          </span>
                         )}
                       </div>
-                      {(summary.occurrenceCount || summary.nextOccurrences?.length > 0) && (
-                        <div className="recurrence-stats-row">
-                          {summary.occurrenceCount && (
-                            <span className="recurrence-stat">
-                              <strong>{summary.occurrenceCount}</strong> occurrences
-                            </span>
-                          )}
-                          {summary.seriesRange?.start && summary.seriesRange?.end && (
-                            <span className="recurrence-stat">
-                              <strong>{summary.seriesRange.start}</strong> &ndash; <strong>{summary.seriesRange.end}</strong>
-                            </span>
-                          )}
-                          {summary.nextOccurrences?.length > 0 && (
-                            <div className="recurrence-next-occurrences">
-                              <strong>Next:</strong> {summary.nextOccurrences.join(', ')}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {/* Recurring Conflict Summary — integrated into recurrence card */}
-                      {formData.startDate && formData.startTime && assistantRooms.length > 0 && (
-                        <RecurringConflictSummary
-                          recurrence={activeRecurrence}
-                          roomIds={assistantRooms.map(r => r._id?.toString?.() || r._id)}
-                          startDateTime={`${formData.startDate}T${formData.startTime}:00`}
-                          endDateTime={formData.endDate && formData.endTime
-                            ? `${formData.endDate}T${formData.endTime}:00`
-                            : `${formData.startDate}T${formData.endTime || '23:59'}:00`}
-                          setupTimeMinutes={formData.setupTimeMinutes || 0}
-                          teardownTimeMinutes={formData.teardownTimeMinutes || 0}
-                          excludeEventId={initialData?._id?.toString?.() || initialData?.id || null}
-                          apiToken={apiToken}
-                          isAllowedConcurrent={formData.isAllowedConcurrent || false}
-                          categories={formData.categories || []}
-                          inline
-                        />
-                      )}
                     </div>
                   </div>
                 );
               }
 
-              // Mode 3: No pattern — invitation card
+              // Mode 3: No pattern — compact invitation with link to Recurrence tab
               if (canEditRecurrence) {
                 return (
                   <div className="recurrence-trigger-section">
@@ -1586,7 +1568,7 @@ export default function RoomReservationFormBase({
                       <button
                         type="button"
                         className="recurrence-trigger-btn"
-                        onClick={() => setShowRecurrenceModal(true)}
+                        onClick={() => onSwitchToRecurrenceTab ? onSwitchToRecurrenceTab() : setShowRecurrenceModal(true)}
                         disabled={fieldsDisabled}
                       >
                         Set Up Recurrence

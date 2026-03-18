@@ -9,7 +9,7 @@ import RoomReservationFormBase from './RoomReservationFormBase';
 import EventAuditHistory from './EventAuditHistory';
 import AttachmentsSection from './AttachmentsSection';
 import ConflictDialog from './shared/ConflictDialog';
-import RecurringConflictSummary from './RecurringConflictSummary';
+import RecurrenceTabContent from './RecurrenceTabContent';
 import './RoomReservationForm.css';
 
 /**
@@ -46,6 +46,7 @@ export default function RoomReservationReview({
   createCalendarEvent = true,
   onCreateCalendarEventChange = () => {},
   activeTab = 'details',
+  setActiveTab = null, // Callback to switch ReviewModal tab (injected by ReviewModal via cloneElement)
   editScope = null, // For recurring events: 'thisEvent' | 'allEvents' | null
   onFormValidChange = null, // Callback when form validity changes
   readOnly = false, // Read-only mode for viewers
@@ -60,6 +61,28 @@ export default function RoomReservationReview({
   // In edit request mode, override readOnly to allow editing
   // In viewing edit request mode, force readOnly
   const effectiveReadOnly = isViewingEditRequest || (readOnly && !isEditRequestMode);
+
+  // Lifted recurrence state — shared between Details tab (form) and Recurrence tab
+  const [recurrencePattern, setRecurrencePattern] = useState(null);
+  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
+  const recurrencePatternRef = useRef(null);
+
+  // Initialize recurrence from reservation data
+  useEffect(() => {
+    const recurrence = reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.graphData?.recurrence || null;
+    setRecurrencePattern(recurrence);
+    recurrencePatternRef.current = recurrence;
+  }, [reservation]);
+
+  // Keep ref in sync
+  useEffect(() => { recurrencePatternRef.current = recurrencePattern; }, [recurrencePattern]);
+
+  // Handle recurrence pattern changes from form or recurrence tab
+  const handleRecurrencePatternChange = useCallback((pattern) => {
+    setRecurrencePattern(pattern);
+    recurrencePatternRef.current = pattern;
+  }, []);
+
   // Review-specific state
   const [isSaving, setIsSaving] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -419,6 +442,11 @@ export default function RoomReservationReview({
           isViewingEditRequest={isViewingEditRequest}
           originalData={originalData}
           onConflictChange={handleConflictChange}
+          externalRecurrencePattern={recurrencePattern}
+          onRecurrencePatternChange={handleRecurrencePatternChange}
+          externalShowRecurrenceModal={showRecurrenceModal}
+          onShowRecurrenceModalChange={setShowRecurrenceModal}
+          onSwitchToRecurrenceTab={setActiveTab ? () => setActiveTab('recurrence') : null}
           renderAdditionalContent={() => (
             <>
               {/* Tab: Attachments */}
@@ -502,21 +530,19 @@ export default function RoomReservationReview({
                 </div>
               )}
 
-              {/* Tab: Conflicts (for published recurring events) */}
-              {activeTab === 'conflicts' && reservation?.eventType === 'seriesMaster' && (
+              {/* Tab: Recurrence (managed by RecurrenceTabContent component) */}
+              {activeTab === 'recurrence' && (
                 <div className="tab-content-pad">
-                  <RecurringConflictSummary
-                    readOnly={true}
-                    recurrence={reservation.recurrence || reservation.calendarData?.recurrence}
-                    roomIds={(reservation.calendarData?.locations || reservation.locations || []).map(id => id?.toString?.() || id)}
-                    startDateTime={reservation.calendarData?.startDateTime || reservation.startDateTime}
-                    endDateTime={reservation.calendarData?.endDateTime || reservation.endDateTime}
-                    setupTimeMinutes={reservation.calendarData?.setupTimeMinutes || 0}
-                    teardownTimeMinutes={reservation.calendarData?.teardownTimeMinutes || 0}
-                    excludeEventId={reservation._id?.toString?.() || reservation.id}
+                  <RecurrenceTabContent
+                    recurrencePattern={recurrencePattern}
+                    onRecurrencePatternChange={handleRecurrencePatternChange}
+                    showRecurrenceModal={showRecurrenceModal}
+                    onShowRecurrenceModal={setShowRecurrenceModal}
+                    reservation={reservation}
+                    formData={formDataRef.current ? formDataRef.current() : null}
                     apiToken={apiToken}
-                    isAllowedConcurrent={reservation.isAllowedConcurrent || false}
-                    categories={reservation.calendarData?.categories || reservation.categories || []}
+                    editScope={editScope}
+                    readOnly={effectiveReadOnly}
                   />
                 </div>
               )}

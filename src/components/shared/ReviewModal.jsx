@@ -150,8 +150,11 @@ export default function ReviewModal({
   // Scheduling conflict state (from SchedulingAssistant)
   hasSchedulingConflicts = false, // Hard conflicts (published events)
   hasSoftConflicts = false, // Soft conflicts (pending edit proposals)
-  // Recurring event data (for Conflicts tab)
+  // Recurring event data (for Recurrence tab)
   reservation = null,
+  // Recurrence tab props (auto-detected from reservation if not explicitly set)
+  hasRecurrence: hasRecurrenceProp = null,
+  canEditRecurrence: canEditRecurrenceProp = null,
   // Event owner info (displayed as pills in action bar)
   requesterName = '',
   requesterDepartment = ''
@@ -163,6 +166,12 @@ export default function ReviewModal({
   // Hard conflicts: block non-admins, allow admin override
   // Soft conflicts: show warning but don't disable buttons (handled by useReviewModal confirmation)
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
+
+  // Auto-detect recurrence from reservation if not explicitly provided
+  const hasRecurrence = hasRecurrenceProp !== null ? hasRecurrenceProp
+    : Boolean(reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.eventType === 'seriesMaster');
+  const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp
+    : (isAdmin || canApproveReservations || !isRequesterOnly);
 
   // Lock body scroll when modal is open (runs before paint to prevent jitter)
   useScrollLock(isOpen);
@@ -896,6 +905,16 @@ export default function ReviewModal({
             >
               Additional Info
             </div>
+            {/* Recurrence tab — visible when recurrence exists OR user can create one */}
+            {(hasRecurrence || canEditRecurrence) && (
+              <div
+                className={`event-type-tab ${activeTab === 'recurrence' ? 'active' : ''}`}
+                onClick={() => setActiveTab('recurrence')}
+              >
+                Recurrence
+                {hasRecurrence && <span className="tab-active-dot" />}
+              </div>
+            )}
             <div
               className={`event-type-tab ${activeTab === 'attachments' ? 'active' : ''}`}
               onClick={() => setActiveTab('attachments')}
@@ -908,16 +927,6 @@ export default function ReviewModal({
                 onClick={() => setActiveTab('history')}
               >
                 {historyCount > 0 ? `History (${historyCount})` : 'History'}
-              </div>
-            )}
-            {reservation?.eventType === 'seriesMaster' && reservation?.status === 'published' && (
-              <div
-                className={`event-type-tab ${activeTab === 'conflicts' ? 'active' : ''}`}
-                onClick={() => setActiveTab('conflicts')}
-              >
-                {reservation?.recurringConflictSnapshot?.conflictCount > 0
-                  ? `Conflicts (${reservation.recurringConflictSnapshot.conflictCount})`
-                  : 'Conflicts'}
               </div>
             )}
             {isAdmin && (
@@ -936,7 +945,7 @@ export default function ReviewModal({
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
               {React.isValidElement(children)
-                ? React.cloneElement(children, { activeTab, isEditRequestMode, isViewingEditRequest, originalData })
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData })
                 : children}
             </div>
           </div>
