@@ -1890,6 +1890,7 @@ import ConflictDialog from './shared/ConflictDialog';
                     isRecurringOccurrence: true,
                     masterEventId: event.eventId,
                     hasOccurrenceOverride: occurrence.hasOccurrenceOverride || false,
+                    isAdHocAddition: occurrence.isAdHocAddition || false,
                     // Occurrence position in series (e.g., 2 of 5)
                     occurrenceNumber,
                     totalOccurrences: totalInSeries,

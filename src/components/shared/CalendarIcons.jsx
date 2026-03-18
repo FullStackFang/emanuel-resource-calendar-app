@@ -32,6 +32,16 @@ export const RecurringIcon = ({ size = 12, className = '' }) => (
   </svg>
 );
 
+export const RecurringExceptionIcon = ({ size = 12, className = '' }) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M2.5 8a5.5 5.5 0 0 1 9.3-4" />
+    <polyline points="12 1 12 4.5 8.5 4.5" />
+    <path d="M13.5 8a5.5 5.5 0 0 1-9.3 4" />
+    <polyline points="4 15 4 11.5 7.5 11.5" />
+    <line x1="2" y1="14" x2="14" y2="2" strokeWidth="2" />
+  </svg>
+);
+
 export const WarningIcon = ({ size = 12, className = '' }) => (
   <svg {...svgProps(size, className)} fill="currentColor" strokeWidth="0">
     <path d="M8.87 1.52a1 1 0 0 0-1.74 0L.88 13a1 1 0 0 0 .87 1.5h12.5a1 1 0 0 0 .87-1.5L8.87 1.52z" />

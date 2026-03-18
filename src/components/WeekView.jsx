@@ -4,7 +4,7 @@ import { logger } from '../utils/logger';
 import { useTimezone } from '../context/TimezoneContext';
 import { formatEventTime, ensureUTCFormat } from '../utils/timezoneUtils';
 import { sortEventsByStartTime } from '../utils/eventTransformers';
-import { RecurringIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
+import { RecurringIcon, RecurringExceptionIcon, WarningIcon, ConcurrentIcon, TimerIcon, PencilIcon, ThumbTackIcon, TimelineIcon } from './shared/CalendarIcons';
 import './shared/CalendarIcons.css';
 
 const WeekView = memo(({
@@ -445,7 +445,9 @@ const WeekView = memo(({
                                 alignItems: 'center',
                                 gap: '2px'
                               }}>
-                                <RecurringIcon size={12} />
+                                {(event.hasOccurrenceOverride || event.isAdHocAddition)
+                                  ? <RecurringExceptionIcon size={12} />
+                                  : <RecurringIcon size={12} />}
                               </div>
                             )}
                             {/* Overlap badge - shows when multiple events at same time */}

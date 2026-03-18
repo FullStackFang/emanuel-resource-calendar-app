@@ -332,6 +332,7 @@ export function expandRecurringSeries(masterEvent, startDate, endDate, exception
       isRecurring: true,
       isException: hasOverride,
       hasOccurrenceOverride: hasOverride,
+      isAdHocAddition: true,
     });
   }
 
