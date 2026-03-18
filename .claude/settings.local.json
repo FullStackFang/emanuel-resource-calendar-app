@@ -79,7 +79,8 @@
       "Bash(openspec new:*)",
       "Bash(openspec status:*)",
       "Bash(openspec instructions:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(npx openspec:*)"
     ],
     "deny": []
   }

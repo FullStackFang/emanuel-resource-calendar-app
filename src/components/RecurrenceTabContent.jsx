@@ -3,13 +3,13 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import APP_CONFIG from '../config/config';
+import DatePickerInput from './DatePickerInput';
 import { RecurringIcon } from './shared/CalendarIcons';
-import RecurrencePatternModal from './RecurrencePatternModal';
+import { logger } from '../utils/logger';
 import {
   calculateAllSeriesDates,
   calculateRecurrenceDates,
   formatRecurrenceSummary,
-  isDateInPattern
 } from '../utils/recurrenceUtils';
 import './RecurrenceTabContent.css';
 
@@ -24,32 +24,56 @@ function formatDate(dateStr) {
 }
 
 /**
- * Convert YYYY-MM-DD to Date-friendly string for DatePicker
+ * Convert Date to YYYY-MM-DD string using local date getters
  */
 function toDateStr(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+const DAYS_OPTIONS = [
+  { value: 'sunday', label: 'S' },
+  { value: 'monday', label: 'M' },
+  { value: 'tuesday', label: 'T' },
+  { value: 'wednesday', label: 'W' },
+  { value: 'thursday', label: 'T' },
+  { value: 'friday', label: 'F' },
+  { value: 'saturday', label: 'S' },
+];
+
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
 /**
- * RecurrenceTabContent — Dedicated tab content for managing recurring event patterns.
+ * RecurrenceTabContent — Dedicated tab for managing recurring event patterns.
  *
- * Empty state: Shows CTA to create recurrence.
- * Management view: Two-column layout with pattern summary + mini-calendar (left)
- * and scrollable occurrence list with inline conflict display (right).
+ * Inline editor (left column): frequency, interval, day-of-week buttons, end date, calendar preview.
+ * Occurrence list (right column): scrollable list with conflict display, toggleable to occurrence detail editor.
  */
 export default function RecurrenceTabContent({
   recurrencePattern,
   onRecurrencePatternChange,
-  showRecurrenceModal,
-  onShowRecurrenceModal,
+  occurrenceOverrides: liftedOverrides,
+  onOccurrenceOverridesChange,
   reservation,
   formData,
   apiToken,
   editScope,
   readOnly = false,
 }) {
+  // ── Pattern editor state ──────────────────────────────────────
+  const [frequency, setFrequency] = useState('weekly');
+  const [interval, setIntervalVal] = useState(1);
+  const [daysOfWeek, setDaysOfWeek] = useState(['monday']);
+  const [patternStartDate, setPatternStartDate] = useState('');
+  const [endType, setEndType] = useState('endDate');
+  const [endDate, setEndDate] = useState('');
+  const [occurrenceCount, setOccurrenceCount] = useState(10);
+
+  // ── View state ────────────────────────────────────────────────
   const [viewMonth, setViewMonth] = useState(() => new Date());
-  const [filter, setFilter] = useState('all'); // 'all' | 'added' | 'excluded' | 'conflicts'
+  const [selectedOccurrence, setSelectedOccurrence] = useState(null); // YYYY-MM-DD or null
+  const [occurrenceEdits, setOccurrenceEdits] = useState({}); // { field: value } for current detail
+
+  // ── Conflict state ────────────────────────────────────────────
   const [conflictData, setConflictData] = useState(null);
   const [conflictLoading, setConflictLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
@@ -58,56 +82,172 @@ export default function RecurrenceTabContent({
   const abortControllerRef = useRef(null);
 
   const hasPattern = Boolean(recurrencePattern?.pattern && recurrencePattern?.range);
-
-  // Determine if user can edit recurrence
   const canEdit = !readOnly && editScope !== 'thisEvent';
 
-  // Get event start date for initializing modal
+  // Get event start date for defaults
   const eventStartDate = formData?.startDate || reservation?.calendarData?.startDate || reservation?.startDate || '';
 
-  // Build the full list of pattern dates (not including additions)
+  // ── Initialize editor state from recurrencePattern ────────────
+  useEffect(() => {
+    if (recurrencePattern) {
+      const { pattern, range } = recurrencePattern;
+      if (pattern) {
+        setFrequency(pattern.type || 'weekly');
+        setIntervalVal(pattern.interval || 1);
+        if (pattern.daysOfWeek?.length > 0) setDaysOfWeek(pattern.daysOfWeek);
+      }
+      if (range) {
+        setPatternStartDate(range.startDate || eventStartDate || toDateStr(new Date()));
+        setEndType(range.type || 'endDate');
+        if (range.endDate) setEndDate(range.endDate);
+        if (range.numberOfOccurrences) setOccurrenceCount(range.numberOfOccurrences);
+      }
+    } else {
+      // Defaults for creation mode
+      setFrequency('weekly');
+      setIntervalVal(1);
+      setEndType('endDate');
+      setOccurrenceCount(10);
+
+      const defaultStart = eventStartDate || toDateStr(new Date());
+      setPatternStartDate(defaultStart);
+      setViewMonth(new Date(defaultStart + 'T00:00:00'));
+
+      // Auto-select day of week from start date
+      const startObj = new Date(defaultStart + 'T00:00:00');
+      setDaysOfWeek([DAY_NAMES[startObj.getDay()]]);
+
+      // Default end date: 3 months out
+      const defaultEnd = new Date(defaultStart + 'T00:00:00');
+      defaultEnd.setMonth(defaultEnd.getMonth() + 3);
+      setEndDate(toDateStr(defaultEnd));
+    }
+  }, [recurrencePattern, eventStartDate]);
+
+  // ── Build pattern object from editor state ────────────────────
+  const buildPatternObject = useCallback(() => {
+    if (!patternStartDate) return null;
+
+    // Adjust start date for weekly recurrence to match selected day
+    let adjustedStartDate = patternStartDate;
+    if (frequency === 'weekly' && daysOfWeek.length > 0) {
+      const startObj = new Date(patternStartDate + 'T00:00:00');
+      const startDayOfWeek = DAY_NAMES[startObj.getDay()];
+      if (!daysOfWeek.includes(startDayOfWeek)) {
+        const selectedIndices = daysOfWeek.map(d => DAY_NAMES.indexOf(d)).sort((a, b) => a - b);
+        const currentIdx = startObj.getDay();
+        let nextIdx = selectedIndices.find(idx => idx > currentIdx);
+        if (nextIdx === undefined) nextIdx = selectedIndices[0] + 7;
+        const adjusted = new Date(startObj);
+        adjusted.setDate(adjusted.getDate() + (nextIdx - currentIdx));
+        adjustedStartDate = toDateStr(adjusted);
+      }
+    }
+
+    const pattern = {
+      type: frequency,
+      interval: parseInt(interval),
+      daysOfWeek: frequency === 'weekly' ? daysOfWeek : undefined,
+      firstDayOfWeek: 'sunday',
+    };
+
+    const range = {
+      type: endType,
+      startDate: adjustedStartDate,
+      endDate: endType === 'endDate' ? endDate : undefined,
+      numberOfOccurrences: endType === 'numbered' ? parseInt(occurrenceCount) : undefined,
+    };
+
+    return { pattern, range };
+  }, [frequency, interval, daysOfWeek, patternStartDate, endType, endDate, occurrenceCount]);
+
+  // ── Propagate editor changes to parent ────────────────────────
+  const applyPatternChanges = useCallback(() => {
+    const built = buildPatternObject();
+    if (!built) return;
+
+    // Calculate all pattern dates for cleanup
+    let allPatternDates = [];
+    const rangeStart = new Date(built.range.startDate + 'T00:00:00');
+    let rangeEnd;
+    if (built.range.type === 'endDate' && built.range.endDate) {
+      rangeEnd = new Date(built.range.endDate + 'T00:00:00');
+    } else {
+      rangeEnd = new Date(rangeStart);
+      rangeEnd.setFullYear(rangeEnd.getFullYear() + 2);
+    }
+    const cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+    while (cursor <= rangeEnd) {
+      const monthDates = calculateRecurrenceDates(built.pattern, built.range, cursor);
+      monthDates.forEach(d => { if (!allPatternDates.includes(d)) allPatternDates.push(d); });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    // Clean additions/exclusions
+    const existingAdditions = recurrencePattern?.additions || [];
+    const existingExclusions = recurrencePattern?.exclusions || [];
+    const cleanedAdditions = existingAdditions.filter(d => !allPatternDates.includes(d));
+    const cleanedExclusions = existingExclusions.filter(d => allPatternDates.includes(d));
+
+    onRecurrencePatternChange({
+      ...built,
+      additions: cleanedAdditions,
+      exclusions: cleanedExclusions,
+    });
+  }, [buildPatternObject, recurrencePattern, onRecurrencePatternChange]);
+
+  // Auto-apply when editor fields change (only if pattern already exists)
+  const prevEditorKey = useRef('');
+  useEffect(() => {
+    if (!hasPattern) return;
+    const key = JSON.stringify({ frequency, interval, daysOfWeek, patternStartDate, endType, endDate, occurrenceCount });
+    if (key !== prevEditorKey.current) {
+      prevEditorKey.current = key;
+      applyPatternChanges();
+    }
+  }, [hasPattern, frequency, interval, daysOfWeek, patternStartDate, endType, endDate, occurrenceCount, applyPatternChanges]);
+
+  // ── Create recurrence (for empty state) ───────────────────────
+  const handleCreate = useCallback(() => {
+    applyPatternChanges();
+  }, [applyPatternChanges]);
+
+  // ── Day toggle handler ────────────────────────────────────────
+  const handleDayToggle = useCallback((day) => {
+    setDaysOfWeek(prev => {
+      if (prev.includes(day)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(d => d !== day);
+      }
+      return [...prev, day].sort((a, b) => DAY_NAMES.indexOf(a) - DAY_NAMES.indexOf(b));
+    });
+  }, []);
+
+  // ── Build occurrence list ─────────────────────────────────────
   const patternDatesOnly = useMemo(() => {
     if (!hasPattern) return [];
-    // Calculate all pattern dates (without additions/exclusions applied) for classification
     const patternOnly = { ...recurrencePattern, additions: [], exclusions: [] };
     return calculateAllSeriesDates(patternOnly);
   }, [recurrencePattern, hasPattern]);
 
   const patternDateSet = useMemo(() => new Set(patternDatesOnly), [patternDatesOnly]);
 
-  // Build occurrence list: merge pattern dates, additions, exclusions
   const occurrences = useMemo(() => {
     if (!hasPattern) return [];
-
     const additions = recurrencePattern.additions || [];
     const exclusions = recurrencePattern.exclusions || [];
     const exclusionSet = new Set(exclusions);
-    const additionSet = new Set(additions);
-
     const items = [];
 
-    // Pattern dates (including ones that are excluded)
     for (const dateStr of patternDatesOnly) {
-      if (exclusionSet.has(dateStr)) {
-        items.push({ date: dateStr, type: 'excluded' });
-      } else {
-        items.push({ date: dateStr, type: 'pattern' });
-      }
+      items.push({ date: dateStr, type: exclusionSet.has(dateStr) ? 'excluded' : 'pattern' });
     }
 
-    // Also add excluded dates that were pattern dates but not in the patternDatesOnly set
-    // (because calculateAllSeriesDates with no exclusions wouldn't include them if they're excluded)
-    // Actually patternDatesOnly has no exclusions applied, so all pattern dates are there.
-    // We need to add exclusions that are pattern dates but might have been excluded before expansion
     for (const dateStr of exclusions) {
-      if (!patternDateSet.has(dateStr)) {
-        // Excluded date that isn't a pattern date — might be stale, skip
-      } else if (!items.find(i => i.date === dateStr)) {
-        items.push({ date: dateStr, type: 'excluded' });
-      }
+      if (!patternDateSet.has(dateStr) || items.find(i => i.date === dateStr)) continue;
+      items.push({ date: dateStr, type: 'excluded' });
     }
 
-    // Ad-hoc additions
     for (const dateStr of additions) {
       if (!exclusionSet.has(dateStr) && !patternDateSet.has(dateStr)) {
         items.push({ date: dateStr, type: 'added' });
@@ -118,17 +258,21 @@ export default function RecurrenceTabContent({
     return items;
   }, [recurrencePattern, hasPattern, patternDatesOnly, patternDateSet]);
 
-  // Current month pattern dates for the mini-calendar
+  // Current month pattern dates for calendar
   const monthPatternDates = useMemo(() => {
-    if (!hasPattern) return [];
-    return calculateRecurrenceDates(
-      recurrencePattern.pattern,
-      recurrencePattern.range,
-      viewMonth
-    );
-  }, [recurrencePattern, hasPattern, viewMonth]);
+    if (!hasPattern) {
+      // Preview from editor state
+      if (!patternStartDate) return [];
+      return calculateRecurrenceDates(
+        { type: frequency, interval, daysOfWeek },
+        { startDate: patternStartDate, endDate: endType === 'endDate' ? endDate : null, type: endType },
+        viewMonth
+      );
+    }
+    return calculateRecurrenceDates(recurrencePattern.pattern, recurrencePattern.range, viewMonth);
+  }, [recurrencePattern, hasPattern, viewMonth, frequency, interval, daysOfWeek, patternStartDate, endType, endDate]);
 
-  // Fetch conflict data
+  // ── Conflict fetching ─────────────────────────────────────────
   const fetchConflicts = useCallback(async () => {
     if (!hasPattern || !apiToken) return;
 
@@ -175,9 +319,7 @@ export default function RecurrenceTabContent({
         setConflictData(await response.json());
       }
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        setConflictData(null);
-      }
+      if (err.name !== 'AbortError') setConflictData(null);
     } finally {
       setConflictLoading(false);
     }
@@ -188,21 +330,17 @@ export default function RecurrenceTabContent({
     return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
   }, [hasPattern, fetchConflicts]);
 
-  // Build conflict lookup by date
   const conflictsByDate = useMemo(() => {
     if (!conflictData?.conflicts) return {};
     const map = {};
-    for (const c of conflictData.conflicts) {
-      map[c.occurrenceDate] = c;
-    }
+    for (const c of conflictData.conflicts) map[c.occurrenceDate] = c;
     return map;
   }, [conflictData]);
 
-  // Calendar click handler for add/exclude toggling
+  // ── Calendar date click (add/exclude toggle) ──────────────────
   const handleCalendarDateClick = useCallback((date) => {
     if (!canEdit || !hasPattern) return;
     const dateStr = toDateStr(date);
-
     const isPatternDate = monthPatternDates.includes(dateStr) || patternDateSet.has(dateStr);
     const exclusions = recurrencePattern.exclusions || [];
     const additions = recurrencePattern.additions || [];
@@ -222,21 +360,20 @@ export default function RecurrenceTabContent({
     onRecurrencePatternChange(newPattern);
   }, [canEdit, hasPattern, recurrencePattern, monthPatternDates, patternDateSet, onRecurrencePatternChange]);
 
-  // Remove ad-hoc addition
+  // ── Occurrence list actions ───────────────────────────────────
   const handleRemoveAddition = useCallback((dateStr) => {
     if (!canEdit) return;
     const additions = (recurrencePattern.additions || []).filter(d => d !== dateStr);
     onRecurrencePatternChange({ ...recurrencePattern, additions });
   }, [canEdit, recurrencePattern, onRecurrencePatternChange]);
 
-  // Restore excluded date
   const handleRestoreExclusion = useCallback((dateStr) => {
     if (!canEdit) return;
     const exclusions = (recurrencePattern.exclusions || []).filter(d => d !== dateStr);
     onRecurrencePatternChange({ ...recurrencePattern, exclusions });
   }, [canEdit, recurrencePattern, onRecurrencePatternChange]);
 
-  // Remove recurrence with two-click confirmation
+  // ── Remove recurrence (two-click) ────────────────────────────
   const handleRemoveRecurrence = useCallback(() => {
     if (!confirmRemove) {
       setConfirmRemove(true);
@@ -252,7 +389,7 @@ export default function RecurrenceTabContent({
     return () => { if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current); };
   }, []);
 
-  // Toggle expanded row
+  // ── Toggle conflict row expand ────────────────────────────────
   const toggleRow = useCallback((dateStr) => {
     setExpandedRows(prev => {
       const next = new Set(prev);
@@ -262,27 +399,29 @@ export default function RecurrenceTabContent({
     });
   }, []);
 
-  // Filter occurrences
+  // ── Occurrence overrides ──────────────────────────────────────
+  const overrides = liftedOverrides || reservation?.occurrenceOverrides || [];
+  const overridesByDate = useMemo(() => {
+    const map = {};
+    for (const o of overrides) map[o.occurrenceDate] = o;
+    return map;
+  }, [overrides]);
+
+  // ── Filter to exceptions only (added, excluded, conflicts, overrides) ──
   const filteredOccurrences = useMemo(() => {
-    if (filter === 'all') return occurrences;
-    if (filter === 'added') return occurrences.filter(o => o.type === 'added');
-    if (filter === 'excluded') return occurrences.filter(o => o.type === 'excluded');
-    if (filter === 'conflicts') return occurrences.filter(o => conflictsByDate[o.date]);
-    return occurrences;
-  }, [occurrences, filter, conflictsByDate]);
+    return occurrences.filter(o =>
+      o.type === 'added' ||
+      o.type === 'excluded' ||
+      conflictsByDate[o.date] ||
+      overridesByDate[o.date]
+    );
+  }, [occurrences, conflictsByDate, overridesByDate]);
 
-  // Pattern save handler from modal
-  const handlePatternSave = useCallback((pattern) => {
-    onRecurrencePatternChange(pattern);
-    onShowRecurrenceModal(false);
-  }, [onRecurrencePatternChange, onShowRecurrenceModal]);
-
-  // Get time display from form data or reservation
+  // ── Time display / Room display ───────────────────────────────
   const timeDisplay = useMemo(() => {
     const start = formData?.startTime || reservation?.calendarData?.startTime || '';
     const end = formData?.endTime || reservation?.calendarData?.endTime || '';
     if (!start || !end) return '';
-    // Simple formatting HH:MM → h:mm AM/PM
     const fmt = (t) => {
       const [h, m] = t.split(':').map(Number);
       const ampm = h >= 12 ? 'PM' : 'AM';
@@ -292,118 +431,234 @@ export default function RecurrenceTabContent({
     return `${fmt(start)} - ${fmt(end)}`;
   }, [formData, reservation]);
 
-  // Get room names for display
   const roomDisplay = useMemo(() => {
     const locationNames = formData?.locationDisplayNames || reservation?.locationDisplayNames;
-    if (locationNames) {
-      return Array.isArray(locationNames) ? locationNames.join(', ') : locationNames;
-    }
+    if (locationNames) return Array.isArray(locationNames) ? locationNames.join(', ') : locationNames;
     return '';
   }, [formData, reservation]);
 
-  // Summary text
+  // Summary text for display
   const summaryText = useMemo(() => {
-    if (!hasPattern) return '';
+    if (!hasPattern) {
+      // Preview from editor state
+      if (!patternStartDate) return '';
+      return formatRecurrenceSummary(
+        { type: frequency, interval, daysOfWeek },
+        { type: endType, startDate: patternStartDate, endDate, numberOfOccurrences: occurrenceCount }
+      );
+    }
     return formatRecurrenceSummary(recurrencePattern.pattern, recurrencePattern.range);
-  }, [recurrencePattern, hasPattern]);
+  }, [recurrencePattern, hasPattern, frequency, interval, daysOfWeek, patternStartDate, endType, endDate, occurrenceCount]);
 
   // Counts
   const additionCount = recurrencePattern?.additions?.length || 0;
   const exclusionCount = recurrencePattern?.exclusions?.length || 0;
   const conflictCount = conflictData?.conflictingOccurrences || 0;
 
-  // ─── EMPTY STATE ────────────────────────────────────────────
-  if (!hasPattern) {
-    return (
-      <div className="recurrence-tab-empty">
-        <RecurringIcon size={36} className="recurrence-tab-empty-icon" />
-        <h3 className="recurrence-tab-empty-title">No Recurring Schedule</h3>
-        <p className="recurrence-tab-empty-desc">
-          This is a one-time event. Set up a recurring schedule to repeat it automatically on selected days.
-        </p>
-        {canEdit && (
-          <button
-            type="button"
-            className="recurrence-tab-create-btn"
-            onClick={() => onShowRecurrenceModal(true)}
+  // ── Occurrence detail helpers ─────────────────────────────────
+  const getEffectiveValue = useCallback((dateStr, field) => {
+    // Check local edits first
+    if (occurrenceEdits[field] !== undefined) return occurrenceEdits[field];
+    // Then existing override
+    const override = overridesByDate[dateStr];
+    if (override && override[field] !== undefined) return override[field];
+    // Fall back to master
+    const masterSources = {
+      eventTitle: formData?.eventTitle || reservation?.eventTitle || reservation?.calendarData?.eventTitle || '',
+      startTime: formData?.startTime || reservation?.calendarData?.startTime || '',
+      endTime: formData?.endTime || reservation?.calendarData?.endTime || '',
+      setupTime: formData?.setupTime || reservation?.calendarData?.setupTime || '',
+      teardownTime: formData?.teardownTime || reservation?.calendarData?.teardownTime || '',
+      doorOpenTime: formData?.doorOpenTime || reservation?.calendarData?.doorOpenTime || '',
+      doorCloseTime: formData?.doorCloseTime || reservation?.calendarData?.doorCloseTime || '',
+      categories: formData?.categories || reservation?.calendarData?.categories || [],
+    };
+    return masterSources[field] ?? '';
+  }, [occurrenceEdits, overridesByDate, formData, reservation]);
+
+  const handleOccurrenceFieldChange = useCallback((field, value) => {
+    setOccurrenceEdits(prev => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleOpenOccurrenceDetail = useCallback((dateStr) => {
+    setSelectedOccurrence(dateStr);
+    // Pre-populate edits from existing override
+    const override = overridesByDate[dateStr];
+    if (override) {
+      const edits = {};
+      for (const field of ['eventTitle', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'categories']) {
+        if (override[field] !== undefined) edits[field] = override[field];
+      }
+      setOccurrenceEdits(edits);
+    } else {
+      setOccurrenceEdits({});
+    }
+  }, [overridesByDate]);
+
+  const handleBackToList = useCallback(() => {
+    // Commit any pending edits to the overrides array
+    if (selectedOccurrence && Object.keys(occurrenceEdits).length > 0 && onOccurrenceOverridesChange) {
+      const dateKey = selectedOccurrence;
+      const existingOverride = overridesByDate[dateKey];
+      const newOverride = {
+        ...(existingOverride || {}),
+        occurrenceDate: dateKey,
+        ...occurrenceEdits,
+      };
+
+      // Build updated overrides: replace or append
+      const updatedOverrides = existingOverride
+        ? overrides.map(o => o.occurrenceDate === dateKey ? newOverride : o)
+        : [...overrides, newOverride];
+
+      onOccurrenceOverridesChange(updatedOverrides);
+    }
+
+    setSelectedOccurrence(null);
+    setOccurrenceEdits({});
+  }, [selectedOccurrence, occurrenceEdits, overrides, overridesByDate, onOccurrenceOverridesChange]);
+
+  // ─────────────────────────────────────────────────────────────
+  // RENDER: Left Column — Pattern Editor (always shown)
+  // ─────────────────────────────────────────────────────────────
+
+  const renderPatternEditor = () => (
+    <div className="recurrence-tab-left">
+      {/* Calendar Preview */}
+      <div className="recurrence-tab-calendar">
+        <DatePicker
+          inline
+          selected={null}
+          onChange={hasPattern ? handleCalendarDateClick : undefined}
+          onMonthChange={setViewMonth}
+          dayClassName={(date) => {
+            const dateStr = toDateStr(date);
+            if (hasPattern) {
+              if ((recurrencePattern.exclusions || []).includes(dateStr)) return 'adhoc-exclusion';
+              if ((recurrencePattern.additions || []).includes(dateStr)) return 'adhoc-addition';
+            }
+            if (monthPatternDates.includes(dateStr) || patternDateSet.has(dateStr)) return 'recurrence-pattern';
+            return '';
+          }}
+        />
+        <div className="calendar-legend">
+          <div className="legend-item">
+            <div className="legend-color recurrence-pattern-color" />
+            <span>Pattern</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-color adhoc-addition-color" />
+            <span>Added</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-color adhoc-exclusion-color" />
+            <span>Excluded</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Pattern Controls */}
+      <div className="recurrence-tab-editor">
+        {/* Start Date */}
+        <div className="recurrence-editor-row">
+          <label>Start</label>
+          <DatePickerInput
+            value={patternStartDate}
+            onChange={(e) => setPatternStartDate(e.target.value)}
+            className="recurrence-editor-date-input"
+            disabled={!canEdit}
+          />
+        </div>
+
+        {/* Frequency + Interval */}
+        <div className="recurrence-editor-row">
+          <span className="repeat-icon">&#8635;</span>
+          <label>Every</label>
+          <input
+            type="number"
+            min="1"
+            max="999"
+            value={interval}
+            onChange={(e) => setIntervalVal(Math.max(1, parseInt(e.target.value) || 1))}
+            className="recurrence-editor-interval"
+            disabled={!canEdit}
+          />
+          <select
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value)}
+            className="recurrence-editor-frequency"
+            disabled={!canEdit}
           >
-            Create Recurrence
+            <option value="daily">day{interval > 1 ? 's' : ''}</option>
+            <option value="weekly">week{interval > 1 ? 's' : ''}</option>
+            <option value="monthly">month{interval > 1 ? 's' : ''}</option>
+            <option value="yearly">year{interval > 1 ? 's' : ''}</option>
+          </select>
+        </div>
+
+        {/* Day-of-Week Buttons */}
+        {frequency === 'weekly' && (
+          <div className="recurrence-editor-days">
+            {DAYS_OPTIONS.map(day => (
+              <button
+                key={day.value}
+                type="button"
+                className={`recurrence-day-circle ${daysOfWeek.includes(day.value) ? 'selected' : ''}`}
+                onClick={() => canEdit && handleDayToggle(day.value)}
+                disabled={!canEdit}
+              >
+                {day.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Summary */}
+        {summaryText && (
+          <div className="recurrence-editor-summary">{summaryText}</div>
+        )}
+
+        {/* End Date */}
+        {endType === 'endDate' && (
+          <div className="recurrence-editor-row">
+            <label>End</label>
+            <DatePickerInput
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="recurrence-editor-date-input"
+              min={patternStartDate}
+              disabled={!canEdit}
+            />
+            {canEdit && (
+              <button type="button" className="recurrence-link-btn" onClick={() => setEndType('noEnd')}>
+                Remove
+              </button>
+            )}
+          </div>
+        )}
+        {endType === 'noEnd' && canEdit && (
+          <button type="button" className="recurrence-link-btn" onClick={() => setEndType('endDate')}>
+            Add end date
           </button>
         )}
 
-        <RecurrencePatternModal
-          isOpen={showRecurrenceModal}
-          onClose={() => onShowRecurrenceModal(false)}
-          onSave={handlePatternSave}
-          initialPattern={null}
-          eventStartDate={eventStartDate}
-          existingSeriesDates={[]}
-        />
-      </div>
-    );
-  }
-
-  // ─── MANAGEMENT VIEW ────────────────────────────────────────
-  return (
-    <div className="recurrence-tab-management">
-      {/* Left Column — Pattern + Calendar */}
-      <div className="recurrence-tab-left">
-        <div className="recurrence-tab-pattern-card">
-          <div className="recurrence-tab-pattern-header">
-            <RecurringIcon size={16} />
-            <span className="recurrence-tab-pattern-title">Pattern</span>
-          </div>
-          <p className="recurrence-tab-pattern-summary">{summaryText}</p>
-          <div className="recurrence-tab-pattern-stats">
+        {/* Stats (when pattern exists) */}
+        {hasPattern && (
+          <div className="recurrence-editor-stats">
             <span>{occurrences.filter(o => o.type !== 'excluded').length} occurrences</span>
             {additionCount > 0 && <span className="stat-added">+{additionCount} added</span>}
             {exclusionCount > 0 && <span className="stat-excluded">{exclusionCount} excluded</span>}
             {conflictCount > 0 && <span className="stat-conflicts">{conflictCount} conflicts</span>}
           </div>
-          {canEdit && (
-            <button
-              type="button"
-              className="recurrence-tab-edit-btn"
-              onClick={() => onShowRecurrenceModal(true)}
-            >
-              Edit Pattern
-            </button>
-          )}
-        </div>
+        )}
 
-        {/* Interactive Mini-Calendar */}
-        <div className="recurrence-tab-calendar">
-          <DatePicker
-            inline
-            selected={null}
-            onChange={handleCalendarDateClick}
-            onMonthChange={setViewMonth}
-            dayClassName={(date) => {
-              const dateStr = toDateStr(date);
-              if ((recurrencePattern.exclusions || []).includes(dateStr)) return 'adhoc-exclusion';
-              if ((recurrencePattern.additions || []).includes(dateStr)) return 'adhoc-addition';
-              if (monthPatternDates.includes(dateStr) || patternDateSet.has(dateStr)) return 'recurrence-pattern';
-              return '';
-            }}
-          />
-          <div className="calendar-legend">
-            <div className="legend-item">
-              <div className="legend-color recurrence-pattern-color" />
-              <span>Pattern</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color adhoc-addition-color" />
-              <span>Added</span>
-            </div>
-            <div className="legend-item">
-              <div className="legend-color adhoc-exclusion-color" />
-              <span>Excluded</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Remove Recurrence */}
-        {canEdit && (
+        {/* Create / Remove */}
+        {!hasPattern && canEdit && (
+          <button type="button" className="recurrence-tab-create-btn" onClick={handleCreate}>
+            Create Recurrence
+          </button>
+        )}
+        {hasPattern && canEdit && (
           <button
             type="button"
             className={`recurrence-tab-remove-btn ${confirmRemove ? 'confirm' : ''}`}
@@ -413,145 +668,302 @@ export default function RecurrenceTabContent({
           </button>
         )}
       </div>
+    </div>
+  );
 
-      {/* Right Column — Occurrence List */}
-      <div className="recurrence-tab-right">
-        <div className="recurrence-tab-list-header">
-          <h3 className="recurrence-tab-list-title">
-            Occurrences ({filteredOccurrences.length})
-          </h3>
-          <div className="recurrence-tab-filters">
-            {['all', 'added', 'excluded', 'conflicts'].map(f => (
+  // ─────────────────────────────────────────────────────────────
+  // RENDER: Right Column — Occurrence List or Detail Editor
+  // ─────────────────────────────────────────────────────────────
+
+  const renderOccurrenceDetail = () => {
+    if (!selectedOccurrence) return null;
+    const occ = occurrences.find(o => o.date === selectedOccurrence);
+    const isExcluded = occ?.type === 'excluded';
+
+    if (isExcluded) {
+      return (
+        <div className="recurrence-tab-right">
+          <div className="recurrence-detail-header">
+            <button type="button" className="recurrence-back-btn" onClick={handleBackToList}>
+              &#8592; Back to list
+            </button>
+            <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
+          </div>
+          <div className="recurrence-detail-excluded">
+            <span>This date is excluded from the series.</span>
+            {canEdit && (
               <button
-                key={f}
                 type="button"
-                className={`recurrence-tab-filter ${filter === f ? 'active' : ''}`}
-                onClick={() => setFilter(f)}
+                className="recurrence-occ-action recurrence-occ-action--restore"
+                onClick={() => { handleRestoreExclusion(selectedOccurrence); handleBackToList(); }}
               >
-                {f === 'all' ? 'All' : f === 'added' ? 'Added' : f === 'excluded' ? 'Excluded' : 'Conflicts'}
-                {f === 'conflicts' && conflictCount > 0 && (
-                  <span className="filter-count">{conflictCount}</span>
-                )}
+                Restore
               </button>
-            ))}
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const hasOverride = Boolean(overridesByDate[selectedOccurrence]);
+
+    return (
+      <div className="recurrence-tab-right">
+        <div className="recurrence-detail-header">
+          <button type="button" className="recurrence-back-btn" onClick={handleBackToList}>
+            &#8592; Back to list
+          </button>
+          <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
+          {hasOverride && <span className="recurrence-customized-badge">Customized</span>}
+        </div>
+
+        <div className="recurrence-detail-fields">
+          <div className="recurrence-detail-field">
+            <label>Title</label>
+            <input
+              type="text"
+              value={getEffectiveValue(selectedOccurrence, 'eventTitle')}
+              onChange={(e) => handleOccurrenceFieldChange('eventTitle', e.target.value)}
+              disabled={!canEdit}
+              className="recurrence-detail-input"
+            />
+          </div>
+
+          <div className="recurrence-detail-row">
+            <div className="recurrence-detail-field">
+              <label>Start Time</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'startTime')}
+                onChange={(e) => handleOccurrenceFieldChange('startTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
+            <div className="recurrence-detail-field">
+              <label>End Time</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'endTime')}
+                onChange={(e) => handleOccurrenceFieldChange('endTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
+          </div>
+
+          <div className="recurrence-detail-row">
+            <div className="recurrence-detail-field">
+              <label>Setup</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'setupTime')}
+                onChange={(e) => handleOccurrenceFieldChange('setupTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
+            <div className="recurrence-detail-field">
+              <label>Teardown</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'teardownTime')}
+                onChange={(e) => handleOccurrenceFieldChange('teardownTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
+          </div>
+
+          <div className="recurrence-detail-row">
+            <div className="recurrence-detail-field">
+              <label>Door Open</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'doorOpenTime')}
+                onChange={(e) => handleOccurrenceFieldChange('doorOpenTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
+            <div className="recurrence-detail-field">
+              <label>Door Close</label>
+              <input
+                type="time"
+                value={getEffectiveValue(selectedOccurrence, 'doorCloseTime')}
+                onChange={(e) => handleOccurrenceFieldChange('doorCloseTime', e.target.value)}
+                disabled={!canEdit}
+                className="recurrence-detail-input"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="recurrence-tab-list">
-          {filteredOccurrences.length === 0 && (
-            <div className="recurrence-tab-list-empty">
-              No {filter === 'all' ? '' : filter} occurrences found.
-            </div>
-          )}
-          {filteredOccurrences.map((occ) => {
-            const conflict = conflictsByDate[occ.date];
-            const isExpanded = expandedRows.has(occ.date);
-
-            return (
-              <div
-                key={occ.date}
-                className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${conflict ? 'recurrence-occ-row--conflict' : ''}`}
-              >
-                <div
-                  className="recurrence-occ-main"
-                  onClick={conflict ? () => toggleRow(occ.date) : undefined}
-                  style={conflict ? { cursor: 'pointer' } : undefined}
-                >
-                  {/* Type indicator */}
-                  <span className={`recurrence-occ-indicator recurrence-occ-indicator--${occ.type}`}>
-                    {occ.type === 'added' && '+'}
-                    {occ.type === 'excluded' && '\u2715'}
-                    {occ.type === 'pattern' && '\u2713'}
+        {/* Conflict info for this date */}
+        {conflictsByDate[selectedOccurrence] && (
+          <div className="recurrence-detail-conflicts">
+            <span className="recurrence-detail-conflicts-title">Scheduling Conflicts</span>
+            {(conflictsByDate[selectedOccurrence].hardConflicts || []).map((hc, i) => (
+              <div key={i} className="recurrence-occ-conflict-item">
+                <span className="conflict-item-title">{hc.eventTitle || 'Untitled event'}</span>
+                <span className="conflict-item-time">
+                  {hc.startDateTime && hc.endDateTime
+                    ? `${new Date(hc.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${new Date(hc.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                    : ''}
+                </span>
+                {hc.roomNames && (
+                  <span className="conflict-item-room">
+                    {Array.isArray(hc.roomNames) ? hc.roomNames.join(', ') : hc.roomNames}
                   </span>
-
-                  {/* Date */}
-                  <span className={`recurrence-occ-date ${occ.type === 'excluded' ? 'recurrence-occ-date--excluded' : ''}`}>
-                    {formatDate(occ.date)}
-                  </span>
-
-                  {/* Time + Room (not for excluded) */}
-                  {occ.type !== 'excluded' && timeDisplay && (
-                    <span className="recurrence-occ-time">{timeDisplay}</span>
-                  )}
-                  {occ.type !== 'excluded' && roomDisplay && (
-                    <span className="recurrence-occ-room">{roomDisplay}</span>
-                  )}
-
-                  {/* Conflict icon */}
-                  {conflict && occ.type !== 'excluded' && (
-                    <span className="recurrence-occ-conflict-icon" title="Scheduling conflict">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                        <line x1="12" y1="9" x2="12" y2="13" />
-                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                      </svg>
-                    </span>
-                  )}
-
-                  {/* Actions */}
-                  {canEdit && occ.type === 'added' && (
-                    <button
-                      type="button"
-                      className="recurrence-occ-action recurrence-occ-action--remove"
-                      onClick={(e) => { e.stopPropagation(); handleRemoveAddition(occ.date); }}
-                      title="Remove addition"
-                    >
-                      Remove
-                    </button>
-                  )}
-                  {canEdit && occ.type === 'excluded' && (
-                    <button
-                      type="button"
-                      className="recurrence-occ-action recurrence-occ-action--restore"
-                      onClick={(e) => { e.stopPropagation(); handleRestoreExclusion(occ.date); }}
-                      title="Restore date"
-                    >
-                      Restore
-                    </button>
-                  )}
-                </div>
-
-                {/* Expanded conflict details */}
-                {isExpanded && conflict && (
-                  <div className="recurrence-occ-conflict-details">
-                    {(conflict.hardConflicts || []).map((hc, i) => (
-                      <div key={i} className="recurrence-occ-conflict-item">
-                        <span className="conflict-item-title">{hc.eventTitle || 'Untitled event'}</span>
-                        <span className="conflict-item-time">
-                          {hc.startDateTime && hc.endDateTime
-                            ? `${new Date(hc.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${new Date(hc.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-                            : ''}
-                        </span>
-                        {hc.roomNames && (
-                          <span className="conflict-item-room">
-                            {Array.isArray(hc.roomNames) ? hc.roomNames.join(', ') : hc.roomNames}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 )}
               </div>
-            );
-          })}
-        </div>
-
-        {conflictLoading && (
-          <div className="recurrence-tab-conflict-loading">
-            Checking conflicts...
+            ))}
           </div>
         )}
       </div>
+    );
+  };
 
-      {/* Recurrence Pattern Modal */}
-      <RecurrencePatternModal
-        isOpen={showRecurrenceModal}
-        onClose={() => onShowRecurrenceModal(false)}
-        onSave={handlePatternSave}
-        initialPattern={recurrencePattern}
-        eventStartDate={eventStartDate}
-        existingSeriesDates={[]}
-      />
+  const renderOccurrenceList = () => (
+    <div className="recurrence-tab-right">
+      <div className="recurrence-tab-list-header">
+        <span className="recurrence-tab-list-title">
+          Exceptions ({filteredOccurrences.length})
+        </span>
+        <span className="recurrence-tab-list-subtitle">
+          {occurrences.filter(o => o.type === 'pattern').length} occurrences total
+        </span>
+      </div>
+
+      <div className="recurrence-tab-list">
+        {filteredOccurrences.length === 0 && (
+          <div className="recurrence-tab-list-empty">
+            No exceptions or conflicts.
+          </div>
+        )}
+        {filteredOccurrences.map((occ) => {
+          const conflict = conflictsByDate[occ.date];
+          const isExpanded = expandedRows.has(occ.date);
+          const hasOverride = Boolean(overridesByDate[occ.date]);
+
+          return (
+            <div
+              key={occ.date}
+              className={`recurrence-occ-row recurrence-occ-row--${occ.type} ${conflict ? 'recurrence-occ-row--conflict' : ''}`}
+            >
+              <div
+                className="recurrence-occ-main"
+                onClick={() => handleOpenOccurrenceDetail(occ.date)}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className={`recurrence-occ-indicator recurrence-occ-indicator--${occ.type}`}>
+                  {occ.type === 'added' && '+'}
+                  {occ.type === 'excluded' && '\u2715'}
+                  {occ.type === 'pattern' && '\u2713'}
+                </span>
+
+                <span className={`recurrence-occ-date ${occ.type === 'excluded' ? 'recurrence-occ-date--excluded' : ''}`}>
+                  {formatDate(occ.date)}
+                </span>
+
+                {occ.type !== 'excluded' && timeDisplay && (
+                  <span className="recurrence-occ-time">{timeDisplay}</span>
+                )}
+                {occ.type !== 'excluded' && roomDisplay && (
+                  <span className="recurrence-occ-room">{roomDisplay}</span>
+                )}
+
+                {/* Customized indicator */}
+                {hasOverride && occ.type !== 'excluded' && (
+                  <span className="recurrence-occ-customized" title="This occurrence has been customized">
+                    &#9889;
+                  </span>
+                )}
+
+                {conflict && occ.type !== 'excluded' && (
+                  <span
+                    className="recurrence-occ-conflict-icon"
+                    title="Scheduling conflict"
+                    onClick={(e) => { e.stopPropagation(); toggleRow(occ.date); }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                      <line x1="12" y1="9" x2="12" y2="13" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                  </span>
+                )}
+
+                {canEdit && occ.type === 'added' && (
+                  <button
+                    type="button"
+                    className="recurrence-occ-action recurrence-occ-action--remove"
+                    onClick={(e) => { e.stopPropagation(); handleRemoveAddition(occ.date); }}
+                    title="Remove addition"
+                  >
+                    Remove
+                  </button>
+                )}
+                {canEdit && occ.type === 'excluded' && (
+                  <button
+                    type="button"
+                    className="recurrence-occ-action recurrence-occ-action--restore"
+                    onClick={(e) => { e.stopPropagation(); handleRestoreExclusion(occ.date); }}
+                    title="Restore date"
+                  >
+                    Restore
+                  </button>
+                )}
+              </div>
+
+              {isExpanded && conflict && (
+                <div className="recurrence-occ-conflict-details">
+                  {(conflict.hardConflicts || []).map((hc, i) => (
+                    <div key={i} className="recurrence-occ-conflict-item">
+                      <span className="conflict-item-title">{hc.eventTitle || 'Untitled event'}</span>
+                      <span className="conflict-item-time">
+                        {hc.startDateTime && hc.endDateTime
+                          ? `${new Date(hc.startDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${new Date(hc.endDateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                          : ''}
+                      </span>
+                      {hc.roomNames && (
+                        <span className="conflict-item-room">
+                          {Array.isArray(hc.roomNames) ? hc.roomNames.join(', ') : hc.roomNames}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {conflictLoading && (
+        <div className="recurrence-tab-conflict-loading">Checking conflicts...</div>
+      )}
+    </div>
+  );
+
+  // ─────────────────────────────────────────────────────────────
+  // MAIN RENDER
+  // ─────────────────────────────────────────────────────────────
+
+  return (
+    <div className="recurrence-tab-management">
+      {renderPatternEditor()}
+      {hasPattern
+        ? (selectedOccurrence ? renderOccurrenceDetail() : renderOccurrenceList())
+        : (
+          <div className="recurrence-tab-right recurrence-tab-right--empty">
+            <div className="recurrence-tab-empty-hint">
+              <RecurringIcon size={28} className="recurrence-tab-empty-icon" />
+              <p>Configure a recurrence pattern on the left, then click <strong>Create Recurrence</strong> to see occurrences here.</p>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 }

@@ -10,17 +10,11 @@ vi.mock('react-datepicker', () => ({
 }));
 vi.mock('react-datepicker/dist/react-datepicker.css', () => ({}));
 
-// Mock RecurrencePatternModal
-vi.mock('../../../components/RecurrencePatternModal', () => ({
-  default: ({ isOpen, onSave, onClose }) =>
-    isOpen ? (
-      <div data-testid="recurrence-modal">
-        <button onClick={() => onSave({ pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] }, range: { startDate: '2026-03-16', type: 'noEnd' } })}>
-          Save Pattern
-        </button>
-        <button onClick={onClose}>Close Modal</button>
-      </div>
-    ) : null,
+// Mock DatePickerInput
+vi.mock('../../../components/DatePickerInput', () => ({
+  default: ({ value, onChange, ...props }) => (
+    <input data-testid="date-picker-input" value={value || ''} onChange={onChange} {...props} />
+  ),
 }));
 
 // Mock CalendarIcons
@@ -31,6 +25,11 @@ vi.mock('../../../components/shared/CalendarIcons', () => ({
 // Mock config
 vi.mock('../../../config/config', () => ({
   default: { API_BASE_URL: 'http://localhost:3001/api' },
+}));
+
+// Mock logger
+vi.mock('../../../utils/logger', () => ({
+  logger: { debug: vi.fn(), warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 import RecurrenceTabContent from '../../../components/RecurrenceTabContent';
@@ -45,8 +44,6 @@ const weeklyPattern = {
 const defaultProps = {
   recurrencePattern: null,
   onRecurrencePatternChange: vi.fn(),
-  showRecurrenceModal: false,
-  onShowRecurrenceModal: vi.fn(),
   reservation: { _id: 'evt1', eventId: 'evt1' },
   formData: { startDate: '2026-03-16', startTime: '10:00', endDate: '2026-03-16', endTime: '11:00', requestedRooms: [] },
   apiToken: 'test-token',
@@ -63,16 +60,25 @@ describe('RecurrenceTabContent', () => {
     });
   });
 
-  // ─── Empty State ─────────────────────────────────────────
+  // ─── Inline Editor (No Pattern) ─────────────────────────
 
-  describe('Empty State', () => {
-    it('renders empty state when no recurrence pattern exists', () => {
-      render(<RecurrenceTabContent {...defaultProps} />);
-      expect(screen.getByText('No Recurring Schedule')).toBeInTheDocument();
-      expect(screen.getByText(/one-time event/i)).toBeInTheDocument();
+  describe('Inline Editor - No Pattern', () => {
+    it('renders two-column layout even when no pattern exists', () => {
+      const { container } = render(<RecurrenceTabContent {...defaultProps} />);
+      expect(container.querySelector('.recurrence-tab-management')).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-tab-left')).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-tab-right')).toBeInTheDocument();
     });
 
-    it('shows Create Recurrence button when user can edit', () => {
+    it('renders inline editor fields when no pattern exists', () => {
+      render(<RecurrenceTabContent {...defaultProps} />);
+      // Frequency selector should be present
+      expect(screen.getByDisplayValue(/week/i)).toBeInTheDocument();
+      // Calendar should be present
+      expect(screen.getByTestId('mock-datepicker')).toBeInTheDocument();
+    });
+
+    it('shows Create Recurrence button when no pattern and user can edit', () => {
       render(<RecurrenceTabContent {...defaultProps} />);
       expect(screen.getByRole('button', { name: /create recurrence/i })).toBeInTheDocument();
     });
@@ -82,21 +88,25 @@ describe('RecurrenceTabContent', () => {
       expect(screen.queryByRole('button', { name: /create recurrence/i })).not.toBeInTheDocument();
     });
 
-    it('opens RecurrencePatternModal when Create Recurrence is clicked', () => {
+    it('calls onRecurrencePatternChange when Create Recurrence is clicked', () => {
       render(<RecurrenceTabContent {...defaultProps} />);
       fireEvent.click(screen.getByRole('button', { name: /create recurrence/i }));
-      expect(defaultProps.onShowRecurrenceModal).toHaveBeenCalledWith(true);
+      expect(defaultProps.onRecurrencePatternChange).toHaveBeenCalled();
+      const call = defaultProps.onRecurrencePatternChange.mock.calls[0][0];
+      expect(call).toHaveProperty('pattern');
+      expect(call).toHaveProperty('range');
+      expect(call.pattern.type).toBe('weekly');
     });
 
-    it('renders the modal when showRecurrenceModal is true', () => {
-      render(<RecurrenceTabContent {...defaultProps} showRecurrenceModal={true} />);
-      expect(screen.getByTestId('recurrence-modal')).toBeInTheDocument();
+    it('shows empty hint in right column when no pattern exists', () => {
+      render(<RecurrenceTabContent {...defaultProps} />);
+      expect(screen.getByText(/configure a recurrence pattern/i)).toBeInTheDocument();
     });
   });
 
-  // ─── Management View ─────────────────────────────────────
+  // ─── Inline Editor (With Pattern) ──────────────────────
 
-  describe('Management View', () => {
+  describe('Inline Editor - With Pattern', () => {
     it('renders two-column layout when recurrence pattern exists', () => {
       const { container } = render(
         <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
@@ -106,19 +116,24 @@ describe('RecurrenceTabContent', () => {
       expect(container.querySelector('.recurrence-tab-right')).toBeInTheDocument();
     });
 
-    it('displays pattern summary text', () => {
+    it('populates editor fields from existing pattern', () => {
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      // formatRecurrenceSummary for weekly with Mon, Wed should contain day abbreviations
-      expect(screen.getByText(/occurs every/i)).toBeInTheDocument();
+      // Frequency should show 'weekly'
+      expect(screen.getByDisplayValue(/week/i)).toBeInTheDocument();
     });
 
-    it('shows occurrence count stats', () => {
+    it('renders calendar with correct styling classes', () => {
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
+      expect(screen.getByTestId('mock-datepicker')).toBeInTheDocument();
+    });
+
+    it('shows occurrence stats', () => {
       const { container } = render(
         <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
       );
-      // The pattern card stats section shows "N occurrences"
-      const statsSection = container.querySelector('.recurrence-tab-pattern-stats');
-      expect(statsSection.textContent).toMatch(/\d+ occurrences/);
+      const stats = container.querySelector('.recurrence-editor-stats');
+      expect(stats).toBeInTheDocument();
+      expect(stats.textContent).toMatch(/\d+ occurrences/);
     });
 
     it('shows addition and exclusion counts', () => {
@@ -127,14 +142,9 @@ describe('RecurrenceTabContent', () => {
       expect(screen.getByText(/1 excluded/i)).toBeInTheDocument();
     });
 
-    it('renders Edit Pattern button', () => {
+    it('does NOT render RecurrencePatternModal', () => {
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      expect(screen.getByRole('button', { name: /edit pattern/i })).toBeInTheDocument();
-    });
-
-    it('renders mini-calendar', () => {
-      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      expect(screen.getByTestId('mock-datepicker')).toBeInTheDocument();
+      expect(screen.queryByTestId('recurrence-modal')).not.toBeInTheDocument();
     });
 
     it('renders Remove Recurrence button', () => {
@@ -144,20 +154,54 @@ describe('RecurrenceTabContent', () => {
 
     it('hides edit controls when readOnly', () => {
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} readOnly={true} />);
-      expect(screen.queryByRole('button', { name: /edit pattern/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /remove recurrence/i })).not.toBeInTheDocument();
     });
   });
 
-  // ─── Occurrence List ─────────────────────────────────────
+  // ─── Exceptions-Only List ─────────────────────────────────
 
-  describe('Occurrence List', () => {
-    it('renders occurrence rows for pattern dates', () => {
+  describe('Exceptions-Only List', () => {
+    it('shows only exceptions (added/excluded), not plain pattern dates', () => {
       const { container } = render(
         <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
       );
+      // Should NOT have any pattern-only rows
       const patternRows = container.querySelectorAll('.recurrence-occ-row--pattern');
-      expect(patternRows.length).toBeGreaterThan(0);
+      expect(patternRows.length).toBe(0);
+      // Should have added and excluded rows
+      const addedRows = container.querySelectorAll('.recurrence-occ-row--added');
+      const excludedRows = container.querySelectorAll('.recurrence-occ-row--excluded');
+      expect(addedRows.length).toBe(1);
+      expect(excludedRows.length).toBe(1);
+    });
+
+    it('displays Exceptions header with count', () => {
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
+      expect(screen.getByText(/Exceptions \(2\)/)).toBeInTheDocument();
+    });
+
+    it('displays total pattern occurrences as subtitle', () => {
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
+      expect(screen.getByText(/occurrences total/)).toBeInTheDocument();
+    });
+
+    it('shows empty state when no exceptions exist', () => {
+      const patternNoExceptions = {
+        pattern: { type: 'weekly', interval: 1, daysOfWeek: ['monday'] },
+        range: { startDate: '2026-03-16', endDate: '2026-04-15', type: 'endDate' },
+        additions: [],
+        exclusions: [],
+      };
+      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={patternNoExceptions} />);
+      expect(screen.getByText(/No exceptions or conflicts/)).toBeInTheDocument();
+    });
+
+    it('does not render filter tabs', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      expect(container.querySelector('.recurrence-tab-filters')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^All$/i })).not.toBeInTheDocument();
     });
 
     it('renders addition rows with green styling', () => {
@@ -177,10 +221,8 @@ describe('RecurrenceTabContent', () => {
     });
 
     it('shows Remove action on added rows', () => {
-      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      const removeButtons = screen.getAllByRole('button', { name: /remove/i });
-      // At least one Remove button (for the addition) — filter out 'Remove Recurrence'
-      const additionRemove = removeButtons.filter(b => b.textContent === 'Remove');
+      const { container } = render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
+      const additionRemove = container.querySelectorAll('.recurrence-occ-action--remove');
       expect(additionRemove.length).toBe(1);
     });
 
@@ -190,12 +232,14 @@ describe('RecurrenceTabContent', () => {
     });
 
     it('calls onRecurrencePatternChange when Remove addition is clicked', () => {
-      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      const removeButtons = screen.getAllByRole('button', { name: /^Remove$/i });
-      fireEvent.click(removeButtons[0]);
-      expect(defaultProps.onRecurrencePatternChange).toHaveBeenCalledWith(
-        expect.objectContaining({ additions: [] })
+      const { container } = render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
+      defaultProps.onRecurrencePatternChange.mockClear();
+      const removeBtn = container.querySelector('.recurrence-occ-action--remove');
+      fireEvent.click(removeBtn);
+      const matchingCall = defaultProps.onRecurrencePatternChange.mock.calls.find(
+        call => call[0]?.additions && call[0].additions.length === 0
       );
+      expect(matchingCall).toBeTruthy();
     });
 
     it('calls onRecurrencePatternChange when Restore exclusion is clicked', () => {
@@ -205,45 +249,17 @@ describe('RecurrenceTabContent', () => {
         expect.objectContaining({ exclusions: [] })
       );
     });
-  });
 
-  // ─── Filter Bar ──────────────────────────────────────────
-
-  describe('Filter Bar', () => {
-    it('renders all filter options', () => {
-      render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
-      expect(screen.getByRole('button', { name: /^All$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^Added$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /^Excluded$/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /conflicts/i })).toBeInTheDocument();
-    });
-
-    it('All filter is active by default', () => {
+    it('shows customized indicator on rows with occurrence overrides', () => {
+      const reservationWithOverrides = {
+        ...defaultProps.reservation,
+        occurrenceOverrides: [{ occurrenceDate: '2026-03-16', eventTitle: 'Custom Title' }],
+      };
       const { container } = render(
-        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} reservation={reservationWithOverrides} />
       );
-      const allBtn = container.querySelector('.recurrence-tab-filter.active');
-      expect(allBtn.textContent).toBe('All');
-    });
-
-    it('clicking Added filter shows only addition rows', () => {
-      const { container } = render(
-        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
-      );
-      fireEvent.click(screen.getByRole('button', { name: /^Added$/i }));
-      const rows = container.querySelectorAll('.recurrence-occ-row');
-      expect(rows.length).toBe(1);
-      expect(rows[0].classList.contains('recurrence-occ-row--added')).toBe(true);
-    });
-
-    it('clicking Excluded filter shows only excluded rows', () => {
-      const { container } = render(
-        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
-      );
-      fireEvent.click(screen.getByRole('button', { name: /^Excluded$/i }));
-      const rows = container.querySelectorAll('.recurrence-occ-row');
-      expect(rows.length).toBe(1);
-      expect(rows[0].classList.contains('recurrence-occ-row--excluded')).toBe(true);
+      const customized = container.querySelectorAll('.recurrence-occ-customized');
+      expect(customized.length).toBeGreaterThan(0);
     });
   });
 
@@ -260,9 +276,59 @@ describe('RecurrenceTabContent', () => {
     it('second click clears recurrence pattern', () => {
       render(<RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />);
       const btn = screen.getByRole('button', { name: /remove recurrence/i });
-      fireEvent.click(btn); // first click — confirm state
-      fireEvent.click(screen.getByRole('button', { name: /confirm/i })); // second click — remove
+      fireEvent.click(btn);
+      fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
       expect(defaultProps.onRecurrencePatternChange).toHaveBeenCalledWith(null);
+    });
+  });
+
+  // ─── Occurrence Detail Editing ──────────────────────────
+
+  describe('Occurrence Detail Editing', () => {
+    it('clicking occurrence row opens detail view', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      // Click the first row (added or excluded)
+      const rows = container.querySelectorAll('.recurrence-occ-main');
+      expect(rows.length).toBeGreaterThan(0);
+      fireEvent.click(rows[0]);
+      // Should show back button
+      expect(screen.getByText(/back to list/i)).toBeInTheDocument();
+    });
+
+    it('detail view shows editable fields for non-excluded occurrence', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      // Click the added row (not excluded)
+      const addedRow = container.querySelector('.recurrence-occ-row--added .recurrence-occ-main');
+      fireEvent.click(addedRow);
+      const detailFields = container.querySelector('.recurrence-detail-fields');
+      expect(detailFields).toBeInTheDocument();
+      expect(screen.getByText('Title')).toBeInTheDocument();
+      expect(screen.getByText('Start Time')).toBeInTheDocument();
+      expect(screen.getByText('End Time')).toBeInTheDocument();
+    });
+
+    it('back to list returns to occurrence list', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      const rows = container.querySelectorAll('.recurrence-occ-main');
+      fireEvent.click(rows[0]);
+      fireEvent.click(screen.getByText(/back to list/i));
+      expect(container.querySelector('.recurrence-tab-list-header')).toBeInTheDocument();
+    });
+
+    it('excluded occurrence shows restore action, no editable fields', () => {
+      const { container } = render(
+        <RecurrenceTabContent {...defaultProps} recurrencePattern={weeklyPattern} />
+      );
+      const excludedRow = container.querySelector('.recurrence-occ-row--excluded .recurrence-occ-main');
+      fireEvent.click(excludedRow);
+      expect(screen.getByText(/excluded from the series/i)).toBeInTheDocument();
+      expect(container.querySelector('.recurrence-detail-fields')).not.toBeInTheDocument();
     });
   });
 });

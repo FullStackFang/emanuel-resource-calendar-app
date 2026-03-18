@@ -1,41 +1,388 @@
 /* ─── RecurrenceTabContent ─── */
 
-/* ── Empty State ── */
-.recurrence-tab-empty {
+/* ── Two-Column Layout ── */
+.recurrence-tab-management {
+  display: flex;
+  gap: var(--space-5);
+  min-height: 400px;
+}
+
+.recurrence-tab-left {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-4);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+}
+
+.recurrence-tab-right {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.recurrence-tab-right--empty {
   align-items: center;
   justify-content: center;
-  padding: var(--space-8) var(--space-4);
+}
+
+.recurrence-tab-empty-hint {
   text-align: center;
-  min-height: 300px;
+  color: var(--text-tertiary);
+  padding: var(--space-8) var(--space-4);
+}
+
+.recurrence-tab-empty-hint p {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  max-width: 320px;
+  margin: var(--space-3) auto 0;
 }
 
 .recurrence-tab-empty-icon {
   color: var(--text-tertiary);
-  margin-bottom: var(--space-3);
 }
 
-.recurrence-tab-empty-title {
-  font-size: var(--text-lg);
+/* ═══════════════════════════════════════════════════════════════
+   CALENDAR — Ported from RecurrencePatternModal.css
+   ═══════════════════════════════════════════════════════════════ */
+
+.recurrence-tab-calendar {
+  width: 320px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  background: var(--bg-primary);
+}
+
+.recurrence-tab-calendar .react-datepicker {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  font-family: inherit;
+  width: 100%;
+}
+
+.recurrence-tab-calendar .react-datepicker__month-container {
+  width: 100%;
+}
+
+.recurrence-tab-calendar .react-datepicker__header {
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  padding-top: var(--space-3);
+}
+
+.recurrence-tab-calendar .react-datepicker__current-month {
   font-weight: var(--font-semibold);
+  font-size: var(--text-base);
   color: var(--text-primary);
-  margin: 0 0 var(--space-2) 0;
+  margin-bottom: var(--space-2);
 }
 
-.recurrence-tab-empty-desc {
-  font-size: var(--text-sm);
+.recurrence-tab-calendar .react-datepicker__day-name {
   color: var(--text-secondary);
-  max-width: 400px;
-  margin: 0 0 var(--space-5) 0;
-  line-height: 1.5;
+  font-weight: var(--font-medium);
+  font-size: var(--text-sm);
+  width: 2.2rem;
+  line-height: 2.2rem;
+  margin: 0.1rem;
 }
 
+.recurrence-tab-calendar .react-datepicker__day {
+  width: 2.2rem;
+  line-height: 2.2rem;
+  margin: 0.1rem;
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  transition: var(--transition-all);
+}
+
+.recurrence-tab-calendar .react-datepicker__day:hover {
+  background-color: var(--bg-tertiary);
+  cursor: pointer;
+}
+
+/* Pattern Dates - Primary Color */
+.recurrence-tab-calendar .react-datepicker__day.recurrence-pattern {
+  background-color: var(--color-primary-50);
+  color: var(--color-primary-600);
+  font-weight: var(--font-semibold);
+}
+
+.recurrence-tab-calendar .react-datepicker__day.recurrence-pattern:hover {
+  background-color: var(--color-primary-100);
+}
+
+/* Added Dates - Success Color */
+.recurrence-tab-calendar .react-datepicker__day.adhoc-addition {
+  background-color: var(--color-success-50);
+  color: var(--color-success-600);
+  font-weight: var(--font-semibold);
+}
+
+.recurrence-tab-calendar .react-datepicker__day.adhoc-addition:hover {
+  background-color: var(--color-success-100);
+}
+
+/* Excluded Dates - Error Color with Strikethrough */
+.recurrence-tab-calendar .react-datepicker__day.adhoc-exclusion {
+  background-color: var(--color-error-50);
+  color: var(--color-error-500);
+  text-decoration: line-through;
+  font-weight: var(--font-semibold);
+}
+
+.recurrence-tab-calendar .react-datepicker__day.adhoc-exclusion:hover {
+  background-color: var(--color-error-100);
+}
+
+/* Calendar Legend */
+.recurrence-tab-calendar .calendar-legend {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+  font-size: var(--text-xs);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+}
+
+.recurrence-tab-calendar .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.recurrence-tab-calendar .legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.recurrence-tab-calendar .recurrence-pattern-color {
+  background-color: var(--color-primary-50);
+  border: 1px solid var(--color-primary-500);
+}
+
+.recurrence-tab-calendar .adhoc-addition-color {
+  background-color: var(--color-success-50);
+  border: 1px solid var(--color-success-500);
+}
+
+.recurrence-tab-calendar .adhoc-exclusion-color {
+  background-color: var(--color-error-50);
+  border: 1px solid var(--color-error-500);
+  position: relative;
+}
+
+.recurrence-tab-calendar .adhoc-exclusion-color::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--color-error-500);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE PATTERN EDITOR
+   ═══════════════════════════════════════════════════════════════ */
+
+.recurrence-tab-editor {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  background: var(--bg-secondary);
+}
+
+.recurrence-editor-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.recurrence-editor-row label {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  font-weight: var(--font-medium);
+  min-width: 36px;
+}
+
+.recurrence-editor-row .repeat-icon {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+.recurrence-editor-date-input {
+  flex: 1;
+  min-width: 120px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.recurrence-editor-date-input:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+
+.recurrence-editor-interval {
+  width: 50px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: center;
+  outline: none;
+}
+
+.recurrence-editor-interval:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+
+.recurrence-editor-frequency {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  outline: none;
+}
+
+.recurrence-editor-frequency:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+
+.recurrence-editor-frequency option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Day-of-Week Circles */
+.recurrence-editor-days {
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.recurrence-day-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: var(--transition-all);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recurrence-day-circle:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+
+.recurrence-day-circle.selected {
+  background: var(--color-primary-500);
+  border-color: var(--color-primary-500);
+  color: var(--text-inverse);
+}
+
+.recurrence-day-circle.selected:hover {
+  background: var(--color-primary-600);
+  border-color: var(--color-primary-600);
+}
+
+.recurrence-day-circle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Summary */
+.recurrence-editor-summary {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+  padding: var(--space-2);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  font-style: italic;
+}
+
+/* Stats */
+.recurrence-editor-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.recurrence-editor-stats .stat-added {
+  color: var(--color-success-500);
+  font-weight: var(--font-medium);
+}
+
+.recurrence-editor-stats .stat-excluded {
+  color: var(--color-error-500);
+  font-weight: var(--font-medium);
+}
+
+.recurrence-editor-stats .stat-conflicts {
+  color: var(--color-warning-500);
+  font-weight: var(--font-medium);
+}
+
+/* Link buttons */
+.recurrence-link-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary-500);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.recurrence-link-btn:hover {
+  color: var(--color-primary-600);
+}
+
+/* Create Button */
 .recurrence-tab-create-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   color: white;
@@ -51,154 +398,7 @@
   transform: translateY(-1px);
 }
 
-/* ── Management View (Two-Column) ── */
-.recurrence-tab-management {
-  display: flex;
-  gap: var(--space-5);
-  min-height: 400px;
-}
-
-.recurrence-tab-left {
-  width: 320px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  position: sticky;
-  top: 0;
-  align-self: flex-start;
-}
-
-.recurrence-tab-right {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ── Pattern Card ── */
-.recurrence-tab-pattern-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-}
-
-.recurrence-tab-pattern-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.recurrence-tab-pattern-title {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-}
-
-.recurrence-tab-pattern-summary {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin: 0 0 var(--space-3) 0;
-  line-height: 1.4;
-  white-space: pre-line;
-}
-
-.recurrence-tab-pattern-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-bottom: var(--space-3);
-}
-
-.recurrence-tab-pattern-stats .stat-added {
-  color: var(--color-success-500);
-  font-weight: var(--font-medium);
-}
-
-.recurrence-tab-pattern-stats .stat-excluded {
-  color: var(--color-error-500);
-  font-weight: var(--font-medium);
-}
-
-.recurrence-tab-pattern-stats .stat-conflicts {
-  color: var(--color-warning-500);
-  font-weight: var(--font-medium);
-}
-
-.recurrence-tab-edit-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  color: var(--color-primary-500);
-  background: transparent;
-  border: 1px solid var(--color-primary-500);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: var(--transition-all);
-}
-
-.recurrence-tab-edit-btn:hover {
-  background: var(--color-primary-500);
-  color: white;
-}
-
-/* ── Mini Calendar ── */
-.recurrence-tab-calendar {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-2);
-  background: var(--bg-primary);
-}
-
-.recurrence-tab-calendar .react-datepicker {
-  border: none;
-  font-size: 0.85rem;
-  width: 100%;
-}
-
-.recurrence-tab-calendar .react-datepicker__month-container {
-  width: 100%;
-}
-
-.recurrence-tab-calendar .calendar-legend {
-  display: flex;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-1) 0;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-.recurrence-tab-calendar .legend-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.recurrence-tab-calendar .legend-color {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.recurrence-tab-calendar .recurrence-pattern-color {
-  background: var(--color-primary-500);
-}
-
-.recurrence-tab-calendar .adhoc-addition-color {
-  background: var(--color-success-500);
-}
-
-.recurrence-tab-calendar .adhoc-exclusion-color {
-  background: var(--color-error-500);
-}
-
-/* ── Remove Recurrence Button ── */
+/* Remove Button */
 .recurrence-tab-remove-btn {
   display: inline-flex;
   align-items: center;
@@ -226,65 +426,31 @@
   animation: pulse-confirm 1s ease-in-out infinite;
 }
 
-/* ── Occurrence List ── */
+/* ═══════════════════════════════════════════════════════════════
+   OCCURRENCE LIST (tightened)
+   ═══════════════════════════════════════════════════════════════ */
+
 .recurrence-tab-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 .recurrence-tab-list-title {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.recurrence-tab-filters {
-  display: flex;
-  gap: 4px;
-}
-
-.recurrence-tab-filter {
-  padding: 2px var(--space-2);
   font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  color: var(--text-tertiary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: var(--transition-all);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.recurrence-tab-filter:hover {
-  border-color: var(--color-primary-300);
-  color: var(--text-secondary);
-}
-
-.recurrence-tab-filter.active {
-  background: var(--color-primary-500);
-  color: white;
-  border-color: var(--color-primary-500);
-}
-
-.recurrence-tab-filter .filter-count {
-  font-size: 10px;
-  background: rgba(255, 255, 255, 0.25);
-  padding: 0 4px;
-  border-radius: var(--radius-full);
   font-weight: var(--font-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.recurrence-tab-filter:not(.active) .filter-count {
-  background: var(--color-warning-500);
-  color: white;
+.recurrence-tab-list-subtitle {
+  font-size: var(--text-2xs);
+  color: var(--text-tertiary);
+  font-weight: normal;
 }
 
 .recurrence-tab-list {
@@ -292,7 +458,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .recurrence-tab-list-empty {
@@ -302,9 +468,9 @@
   font-size: var(--text-sm);
 }
 
-/* ── Occurrence Row ── */
+/* ── Occurrence Row (tighter) ── */
 .recurrence-occ-row {
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
   overflow: hidden;
   transition: var(--transition-all);
@@ -312,25 +478,26 @@
 
 .recurrence-occ-row:hover {
   border-color: var(--border-strong);
+  background: var(--bg-secondary);
 }
 
 .recurrence-occ-main {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  min-height: 30px;
 }
 
 /* Type indicators */
 .recurrence-occ-indicator {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: var(--font-bold);
   flex-shrink: 0;
 }
@@ -367,10 +534,10 @@
 }
 
 .recurrence-occ-date {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   font-weight: var(--font-medium);
   color: var(--text-primary);
-  min-width: 160px;
+  min-width: 140px;
 }
 
 .recurrence-occ-date--excluded {
@@ -379,18 +546,26 @@
 }
 
 .recurrence-occ-time {
-  font-size: var(--text-xs);
+  font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .recurrence-occ-room {
-  font-size: var(--text-xs);
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  max-width: 160px;
+}
+
+/* Customized indicator */
+.recurrence-occ-customized {
+  font-size: 11px;
+  color: var(--color-primary-500);
+  flex-shrink: 0;
+  title: 'Customized';
 }
 
 .recurrence-occ-conflict-icon {
@@ -404,8 +579,8 @@
 /* Actions */
 .recurrence-occ-action {
   margin-left: auto;
-  padding: 2px var(--space-2);
-  font-size: var(--text-xs);
+  padding: 1px var(--space-2);
+  font-size: 11px;
   font-weight: var(--font-medium);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -437,19 +612,19 @@
 
 /* Conflict details (expanded) */
 .recurrence-occ-conflict-details {
-  padding: var(--space-2) var(--space-3) var(--space-2) calc(20px + var(--space-5));
+  padding: var(--space-1) var(--space-2) var(--space-1) calc(18px + var(--space-4));
   border-top: 1px solid var(--border-default);
   background: var(--color-warning-50, rgba(245, 158, 11, 0.04));
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .recurrence-occ-conflict-item {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-xs);
+  gap: var(--space-2);
+  font-size: 11px;
 }
 
 .conflict-item-title {
@@ -474,6 +649,127 @@
   color: var(--text-tertiary);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   OCCURRENCE DETAIL EDITOR
+   ═══════════════════════════════════════════════════════════════ */
+
+.recurrence-detail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.recurrence-back-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary-500);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: 0;
+  font-weight: var(--font-medium);
+}
+
+.recurrence-back-btn:hover {
+  color: var(--color-primary-600);
+  text-decoration: underline;
+}
+
+.recurrence-detail-date {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.recurrence-customized-badge {
+  font-size: 11px;
+  color: var(--color-primary-500);
+  background: var(--color-primary-50, rgba(59, 110, 184, 0.08));
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-weight: var(--font-medium);
+}
+
+.recurrence-detail-excluded {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.recurrence-detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.recurrence-detail-row {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.recurrence-detail-row .recurrence-detail-field {
+  flex: 1;
+}
+
+.recurrence-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recurrence-detail-field label {
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.recurrence-detail-input {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  outline: none;
+  width: 100%;
+}
+
+.recurrence-detail-input:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+
+.recurrence-detail-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--bg-secondary);
+}
+
+.recurrence-detail-conflicts {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--color-warning-50, rgba(245, 158, 11, 0.04));
+  border: 1px solid var(--color-warning-300, rgba(245, 158, 11, 0.3));
+  border-radius: var(--radius-md);
+}
+
+.recurrence-detail-conflicts-title {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--color-warning-500);
+  margin-bottom: var(--space-2);
+  display: block;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
   .recurrence-tab-management {
@@ -482,14 +778,24 @@
 
   .recurrence-tab-left {
     width: 100%;
+    flex-direction: column;
     position: static;
   }
 
+  .recurrence-tab-calendar,
+  .recurrence-tab-editor {
+    width: 100%;
+  }
+
   .recurrence-occ-date {
-    min-width: 120px;
+    min-width: 100px;
   }
 
   .recurrence-occ-room {
     display: none;
+  }
+
+  .recurrence-detail-row {
+    flex-direction: column;
   }
 }

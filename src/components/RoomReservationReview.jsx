@@ -64,23 +64,37 @@ export default function RoomReservationReview({
 
   // Lifted recurrence state — shared between Details tab (form) and Recurrence tab
   const [recurrencePattern, setRecurrencePattern] = useState(null);
-  const [showRecurrenceModal, setShowRecurrenceModal] = useState(false);
   const recurrencePatternRef = useRef(null);
 
-  // Initialize recurrence from reservation data
+  // Lifted occurrence overrides — edited via Recurrence tab's detail view
+  const [occurrenceOverrides, setOccurrenceOverrides] = useState([]);
+  const occurrenceOverridesRef = useRef([]);
+
+  // Initialize recurrence and overrides from reservation data
   useEffect(() => {
     const recurrence = reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.graphData?.recurrence || null;
     setRecurrencePattern(recurrence);
     recurrencePatternRef.current = recurrence;
+
+    const overrides = reservation?.occurrenceOverrides || reservation?.calendarData?.occurrenceOverrides || [];
+    setOccurrenceOverrides(overrides);
+    occurrenceOverridesRef.current = overrides;
   }, [reservation]);
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => { recurrencePatternRef.current = recurrencePattern; }, [recurrencePattern]);
+  useEffect(() => { occurrenceOverridesRef.current = occurrenceOverrides; }, [occurrenceOverrides]);
 
   // Handle recurrence pattern changes from form or recurrence tab
   const handleRecurrencePatternChange = useCallback((pattern) => {
     setRecurrencePattern(pattern);
     recurrencePatternRef.current = pattern;
+  }, []);
+
+  // Handle occurrence override changes from recurrence tab detail editor
+  const handleOccurrenceOverridesChange = useCallback((overrides) => {
+    setOccurrenceOverrides(overrides);
+    occurrenceOverridesRef.current = overrides;
   }, []);
 
   // Review-specific state
@@ -325,7 +339,9 @@ export default function RoomReservationReview({
       setupTimeMinutes,
       teardownTimeMinutes,
       locations: formData.requestedRooms, // Use locations field as single source of truth
-      _version: eventVersion
+      _version: eventVersion,
+      // Include occurrence overrides from recurrence tab detail editing
+      ...(occurrenceOverridesRef.current?.length > 0 && { occurrenceOverrides: occurrenceOverridesRef.current }),
     };
 
     // Only remove separate date/time fields for submission flow (not draft saves)
@@ -444,9 +460,6 @@ export default function RoomReservationReview({
           onConflictChange={handleConflictChange}
           externalRecurrencePattern={recurrencePattern}
           onRecurrencePatternChange={handleRecurrencePatternChange}
-          externalShowRecurrenceModal={showRecurrenceModal}
-          onShowRecurrenceModalChange={setShowRecurrenceModal}
-          onSwitchToRecurrenceTab={setActiveTab ? () => setActiveTab('recurrence') : null}
           renderAdditionalContent={() => (
             <>
               {/* Tab: Attachments */}
@@ -536,8 +549,8 @@ export default function RoomReservationReview({
                   <RecurrenceTabContent
                     recurrencePattern={recurrencePattern}
                     onRecurrencePatternChange={handleRecurrencePatternChange}
-                    showRecurrenceModal={showRecurrenceModal}
-                    onShowRecurrenceModal={setShowRecurrenceModal}
+                    occurrenceOverrides={occurrenceOverrides}
+                    onOccurrenceOverridesChange={handleOccurrenceOverridesChange}
                     reservation={reservation}
                     formData={formDataRef.current ? formDataRef.current() : null}
                     apiToken={apiToken}

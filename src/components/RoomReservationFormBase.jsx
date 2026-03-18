@@ -8,14 +8,13 @@ import TimePickerInput from './TimePickerInput';
 import DatePickerInput from './DatePickerInput';
 import LocationListSelect from './LocationListSelect';
 import MultiDatePicker from './MultiDatePicker';
-import RecurrencePatternModal from './RecurrencePatternModal';
 import OffsiteLocationModal from './OffsiteLocationModal';
 import CategorySelectorModal from './CategorySelectorModal';
 import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { RecurringIcon } from './shared/CalendarIcons';
 import useDepartments from '../hooks/useDepartments';
-import { formatRecurrenceSummaryEnhanced } from '../utils/recurrenceUtils';
+
 import { extractTextFromHtml } from '../utils/textUtils';
 import { usePermissions } from '../hooks/usePermissions';
 import './RoomReservationForm.css';
@@ -107,9 +106,6 @@ export default function RoomReservationFormBase({
   // Lifted recurrence state (from RoomReservationReview) — when provided, these override internal state
   externalRecurrencePattern = undefined,     // Recurrence pattern object or null
   onRecurrencePatternChange = null,          // Callback: (pattern) => void
-  externalShowRecurrenceModal = undefined,   // Boolean
-  onShowRecurrenceModalChange = null,        // Callback: (show) => void
-  onSwitchToRecurrenceTab = null             // Callback to switch ReviewModal to recurrence tab
 }) {
   // Load departments from database
   const { departments: departmentsList } = useDepartments();
@@ -172,7 +168,6 @@ export default function RoomReservationFormBase({
   const [loadingEventId, setLoadingEventId] = useState(null); // Event ID currently being loaded
 
   // Recurrence state — uses external (lifted) state when provided, falls back to internal for creation mode
-  const [_internalShowRecurrenceModal, _setInternalShowRecurrenceModal] = useState(false);
   const [_internalRecurrencePattern, _setInternalRecurrencePattern] = useState(
     initialData?.recurrence || initialData?.graphData?.recurrence || null
   ); // { pattern, range }
@@ -182,8 +177,6 @@ export default function RoomReservationFormBase({
   const setRecurrencePattern = isRecurrenceLifted
     ? (val) => { if (onRecurrencePatternChange) onRecurrencePatternChange(typeof val === 'function' ? val(externalRecurrencePattern) : val); }
     : _setInternalRecurrencePattern;
-  const showRecurrenceModal = externalShowRecurrenceModal !== undefined ? externalShowRecurrenceModal : _internalShowRecurrenceModal;
-  const setShowRecurrenceModal = onShowRecurrenceModalChange || _setInternalShowRecurrenceModal;
 
   // Category state - check categories first (correct field), mecCategories is deprecated
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -1474,112 +1467,7 @@ export default function RoomReservationFormBase({
               </div>
             )}
 
-            {/* Recurrence Card — compact summary with link to Recurrence tab */}
-            {(() => {
-              const activeRecurrence = recurrencePattern || initialData.graphData?.recurrence || initialData.recurrence;
-              const hasPattern = Boolean(activeRecurrence);
-              const isDraftEvent = reservationStatus === 'draft' || initialData.status === 'draft';
-              const canEditRecurrence = (
-                (!initialData.eventId && !initialData.id && editScope !== 'thisEvent') ||
-                (isDraftEvent && editScope !== 'thisEvent') ||
-                editScope === 'allEvents' ||
-                (hasPattern && editScope !== 'thisEvent')
-              );
-
-              // Mode 1: Single occurrence — read-only context card
-              if (editScope === 'thisEvent') {
-                return (
-                  <div className="recurrence-trigger-section">
-                    <div className="recurrence-readonly-card">
-                      <RecurringIcon size={18} />
-                      <span>This event is part of a recurring series. To edit the recurrence pattern, choose &quot;All events in the series&quot; when opening the event.</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              // Mode 2: Has pattern — compact summary with link to Recurrence tab
-              if (hasPattern) {
-                const summary = formatRecurrenceSummaryEnhanced(
-                  activeRecurrence.pattern,
-                  activeRecurrence.range,
-                  activeRecurrence.additions,
-                  activeRecurrence.exclusions
-                );
-                const addCount = activeRecurrence.additions?.length || 0;
-                const exclCount = activeRecurrence.exclusions?.length || 0;
-
-                return (
-                  <div className="recurrence-trigger-section">
-                    <div className="recurrence-active-card recurrence-active-card--compact">
-                      <div className="recurrence-active-header">
-                        <div className="recurrence-active-header-left">
-                          <RecurringIcon size={18} />
-                          <span className="recurrence-active-title">Recurring Series</span>
-                          {editScope === 'allEvents' && (
-                            <span className="recurrence-scope-badge">Series Master</span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          className="recurrence-edit-link"
-                          onClick={() => onSwitchToRecurrenceTab ? onSwitchToRecurrenceTab() : setShowRecurrenceModal(true)}
-                        >
-                          Manage Recurrence &rarr;
-                        </button>
-                      </div>
-                      <div className="recurrence-active-body">
-                        {summary.base}
-                      </div>
-                      <div className="recurrence-stats-row">
-                        {summary.occurrenceCount && (
-                          <span className="recurrence-stat">
-                            <strong>{summary.occurrenceCount}</strong> occurrences
-                          </span>
-                        )}
-                        {addCount > 0 && (
-                          <span className="recurrence-stat" style={{color: 'var(--color-success-500)'}}>
-                            +{addCount} added
-                          </span>
-                        )}
-                        {exclCount > 0 && (
-                          <span className="recurrence-stat" style={{color: 'var(--color-error-500)'}}>
-                            {exclCount} excluded
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              // Mode 3: No pattern — compact invitation with link to Recurrence tab
-              if (canEditRecurrence) {
-                return (
-                  <div className="recurrence-trigger-section">
-                    <div className="recurrence-trigger-card">
-                      <div className="recurrence-trigger-left">
-                        <RecurringIcon size={20} />
-                        <div>
-                          <span className="recurrence-trigger-title">Recurring Event</span>
-                          <span className="recurrence-trigger-desc">Repeat this event on a schedule</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="recurrence-trigger-btn"
-                        onClick={() => onSwitchToRecurrenceTab ? onSwitchToRecurrenceTab() : setShowRecurrenceModal(true)}
-                        disabled={fieldsDisabled}
-                      >
-                        Set Up Recurrence
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-
-              return null;
-            })()}
+            {/* Recurrence is managed entirely via the Recurrence tab */}
 
             {/* Set All Day */}
             <div className="time-field-row">
@@ -2269,16 +2157,6 @@ export default function RoomReservationFormBase({
 
       {/* Render additional content (tabs, attachments, history, etc.) */}
       {renderAdditionalContent && renderAdditionalContent()}
-
-      {/* Recurrence Pattern Modal */}
-      <RecurrencePatternModal
-        isOpen={showRecurrenceModal}
-        onClose={() => setShowRecurrenceModal(false)}
-        onSave={handleRecurrenceSave}
-        initialPattern={recurrencePattern}
-        eventStartDate={formData.startDate}
-        existingSeriesDates={seriesEvents.map(e => e.startDate?.split('T')[0]).filter(Boolean)}
-      />
 
       {/* Offsite Location Modal */}
       <OffsiteLocationModal
