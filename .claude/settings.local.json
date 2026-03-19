@@ -80,7 +80,8 @@
       "Bash(openspec status:*)",
       "Bash(openspec instructions:*)",
       "Bash(cp:*)",
-      "Bash(npx openspec:*)"
+      "Bash(npx openspec:*)",
+      "Bash(echo \"EXIT:$?\")"
     ],
     "deny": []
   }

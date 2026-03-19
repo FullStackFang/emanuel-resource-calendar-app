@@ -11,6 +11,7 @@ import {
   calculateRecurrenceDates,
   formatRecurrenceSummary,
 } from '../utils/recurrenceUtils';
+import { useRooms } from '../context/LocationContext';
 import './RecurrenceTabContent.css';
 
 /**
@@ -73,12 +74,44 @@ export default function RecurrenceTabContent({
   const [selectedOccurrence, setSelectedOccurrence] = useState(null); // YYYY-MM-DD or null
   const [occurrenceEdits, setOccurrenceEdits] = useState({}); // { field: value } for current detail
 
+  // ── Inline picker state ─────────────────────────────────────
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showRoomPicker, setShowRoomPicker] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+  const [showSecondaryTimes, setShowSecondaryTimes] = useState(false);
+
+  // ── Room data from context ──────────────────────────────────
+  const { rooms, getLocationName } = useRooms();
+  const reservableRooms = useMemo(() =>
+    rooms.filter(r => r.isReservable === true),
+    [rooms]
+  );
+
+  // ── Lazy category fetch ──────────────────────────────────────
+  const fetchCategoriesOnce = useCallback(async () => {
+    if (categoriesLoaded) return;
+    try {
+      const res = await fetch(`${APP_CONFIG.API_BASE_URL}/categories`, {
+        headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableCategories(data);
+      }
+    } catch (err) {
+      logger.error('Failed to fetch categories', err);
+    }
+    setCategoriesLoaded(true);
+  }, [categoriesLoaded, apiToken]);
+
   // ── Conflict state ────────────────────────────────────────────
   const [conflictData, setConflictData] = useState(null);
   const [conflictLoading, setConflictLoading] = useState(false);
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [confirmRemove, setConfirmRemove] = useState(false);
   const confirmTimerRef = useRef(null);
+  const editorTouchedRef = useRef(false);
   const abortControllerRef = useRef(null);
 
   const hasPattern = Boolean(recurrencePattern?.pattern && recurrencePattern?.range);
@@ -89,6 +122,7 @@ export default function RecurrenceTabContent({
 
   // ── Initialize editor state from recurrencePattern ────────────
   useEffect(() => {
+    editorTouchedRef.current = false;
     if (recurrencePattern) {
       const { pattern, range } = recurrencePattern;
       if (pattern) {
@@ -196,10 +230,10 @@ export default function RecurrenceTabContent({
     });
   }, [buildPatternObject, recurrencePattern, onRecurrencePatternChange]);
 
-  // Auto-apply when editor fields change (only if pattern already exists)
+  // Auto-apply when editor fields change (if pattern exists OR user has interacted with editor)
   const prevEditorKey = useRef('');
   useEffect(() => {
-    if (!hasPattern) return;
+    if (!hasPattern && !editorTouchedRef.current) return;
     const key = JSON.stringify({ frequency, interval, daysOfWeek, patternStartDate, endType, endDate, occurrenceCount });
     if (key !== prevEditorKey.current) {
       prevEditorKey.current = key;
@@ -209,11 +243,13 @@ export default function RecurrenceTabContent({
 
   // ── Create recurrence (for empty state) ───────────────────────
   const handleCreate = useCallback(() => {
+    editorTouchedRef.current = true;
     applyPatternChanges();
   }, [applyPatternChanges]);
 
   // ── Day toggle handler ────────────────────────────────────────
   const handleDayToggle = useCallback((day) => {
+    editorTouchedRef.current = true;
     setDaysOfWeek(prev => {
       if (prev.includes(day)) {
         if (prev.length === 1) return prev;
@@ -465,6 +501,7 @@ export default function RecurrenceTabContent({
     // Fall back to master
     const masterSources = {
       eventTitle: formData?.eventTitle || reservation?.eventTitle || reservation?.calendarData?.eventTitle || '',
+      eventDescription: formData?.eventDescription || reservation?.eventDescription || reservation?.calendarData?.eventDescription || '',
       startTime: formData?.startTime || reservation?.calendarData?.startTime || '',
       endTime: formData?.endTime || reservation?.calendarData?.endTime || '',
       setupTime: formData?.setupTime || reservation?.calendarData?.setupTime || '',
@@ -472,6 +509,8 @@ export default function RecurrenceTabContent({
       doorOpenTime: formData?.doorOpenTime || reservation?.calendarData?.doorOpenTime || '',
       doorCloseTime: formData?.doorCloseTime || reservation?.calendarData?.doorCloseTime || '',
       categories: formData?.categories || reservation?.calendarData?.categories || [],
+      locations: formData?.requestedRooms || reservation?.calendarData?.locations || reservation?.locations || [],
+      locationDisplayNames: formData?.locationDisplayNames || reservation?.locationDisplayNames || reservation?.calendarData?.locationDisplayNames || '',
     };
     return masterSources[field] ?? '';
   }, [occurrenceEdits, overridesByDate, formData, reservation]);
@@ -486,7 +525,7 @@ export default function RecurrenceTabContent({
     const override = overridesByDate[dateStr];
     if (override) {
       const edits = {};
-      for (const field of ['eventTitle', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'categories']) {
+      for (const field of ['eventTitle', 'eventDescription', 'startTime', 'endTime', 'setupTime', 'teardownTime', 'doorOpenTime', 'doorCloseTime', 'categories', 'locations', 'locationDisplayNames']) {
         if (override[field] !== undefined) edits[field] = override[field];
       }
       setOccurrenceEdits(edits);
@@ -516,6 +555,9 @@ export default function RecurrenceTabContent({
 
     setSelectedOccurrence(null);
     setOccurrenceEdits({});
+    setShowRoomPicker(false);
+    setShowCategoryPicker(false);
+    setShowSecondaryTimes(false);
   }, [selectedOccurrence, occurrenceEdits, overrides, overridesByDate, onOccurrenceOverridesChange]);
 
   // ─────────────────────────────────────────────────────────────
@@ -564,7 +606,7 @@ export default function RecurrenceTabContent({
           <label>Start</label>
           <DatePickerInput
             value={patternStartDate}
-            onChange={(e) => setPatternStartDate(e.target.value)}
+            onChange={(e) => { editorTouchedRef.current = true; setPatternStartDate(e.target.value); }}
             className="recurrence-editor-date-input"
             disabled={!canEdit}
           />
@@ -579,13 +621,13 @@ export default function RecurrenceTabContent({
             min="1"
             max="999"
             value={interval}
-            onChange={(e) => setIntervalVal(Math.max(1, parseInt(e.target.value) || 1))}
+            onChange={(e) => { editorTouchedRef.current = true; setIntervalVal(Math.max(1, parseInt(e.target.value) || 1)); }}
             className="recurrence-editor-interval"
             disabled={!canEdit}
           />
           <select
             value={frequency}
-            onChange={(e) => setFrequency(e.target.value)}
+            onChange={(e) => { editorTouchedRef.current = true; setFrequency(e.target.value); }}
             className="recurrence-editor-frequency"
             disabled={!canEdit}
           >
@@ -624,20 +666,20 @@ export default function RecurrenceTabContent({
             <label>End</label>
             <DatePickerInput
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => { editorTouchedRef.current = true; setEndDate(e.target.value); }}
               className="recurrence-editor-date-input"
               min={patternStartDate}
               disabled={!canEdit}
             />
             {canEdit && (
-              <button type="button" className="recurrence-link-btn" onClick={() => setEndType('noEnd')}>
+              <button type="button" className="recurrence-link-btn" onClick={() => { editorTouchedRef.current = true; setEndType('noEnd'); }}>
                 Remove
               </button>
             )}
           </div>
         )}
         {endType === 'noEnd' && canEdit && (
-          <button type="button" className="recurrence-link-btn" onClick={() => setEndType('endDate')}>
+          <button type="button" className="recurrence-link-btn" onClick={() => { editorTouchedRef.current = true; setEndType('endDate'); }}>
             Add end date
           </button>
         )}
@@ -682,15 +724,25 @@ export default function RecurrenceTabContent({
 
     if (isExcluded) {
       return (
-        <div className="recurrence-tab-right">
+        <div className="recurrence-tab-right recurrence-tab-right--detail">
           <div className="recurrence-detail-header">
             <button type="button" className="recurrence-back-btn" onClick={handleBackToList}>
-              &#8592; Back to list
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 12L6 8l4-4" />
+              </svg>
             </button>
-            <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
+            <div className="recurrence-detail-header-text">
+              <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
+            </div>
           </div>
           <div className="recurrence-detail-excluded">
-            <span>This date is excluded from the series.</span>
+            <div className="recurrence-detail-excluded-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M5 19L19 5" />
+              </svg>
+            </div>
+            <span>This date is excluded from the series</span>
             {canEdit && (
               <button
                 type="button"
@@ -708,16 +760,21 @@ export default function RecurrenceTabContent({
     const hasOverride = Boolean(overridesByDate[selectedOccurrence]);
 
     return (
-      <div className="recurrence-tab-right">
+      <div className="recurrence-tab-right recurrence-tab-right--detail">
         <div className="recurrence-detail-header">
           <button type="button" className="recurrence-back-btn" onClick={handleBackToList}>
-            &#8592; Back to list
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 12L6 8l4-4" />
+            </svg>
           </button>
-          <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
-          {hasOverride && <span className="recurrence-customized-badge">Customized</span>}
+          <div className="recurrence-detail-header-text">
+            <span className="recurrence-detail-date">{formatDate(selectedOccurrence)}</span>
+            {hasOverride && <span className="recurrence-customized-badge">Customized</span>}
+          </div>
         </div>
 
         <div className="recurrence-detail-fields">
+          {/* Title */}
           <div className="recurrence-detail-field">
             <label>Title</label>
             <input
@@ -729,9 +786,23 @@ export default function RecurrenceTabContent({
             />
           </div>
 
-          <div className="recurrence-detail-row">
-            <div className="recurrence-detail-field">
-              <label>Start Time</label>
+          {/* Description */}
+          <div className="recurrence-detail-field">
+            <label>Description</label>
+            <textarea
+              value={getEffectiveValue(selectedOccurrence, 'eventDescription')}
+              onChange={(e) => handleOccurrenceFieldChange('eventDescription', e.target.value)}
+              disabled={!canEdit}
+              className="recurrence-detail-input recurrence-detail-textarea"
+              rows={1}
+              placeholder="Event description"
+            />
+          </div>
+
+          {/* Start / End (inline labels, group break) */}
+          <div className="recurrence-detail-row recurrence-detail-group-break">
+            <div className="recurrence-detail-field recurrence-detail-field--inline">
+              <label>Start</label>
               <input
                 type="time"
                 value={getEffectiveValue(selectedOccurrence, 'startTime')}
@@ -740,8 +811,8 @@ export default function RecurrenceTabContent({
                 className="recurrence-detail-input"
               />
             </div>
-            <div className="recurrence-detail-field">
-              <label>End Time</label>
+            <div className="recurrence-detail-field recurrence-detail-field--inline">
+              <label>End</label>
               <input
                 type="time"
                 value={getEffectiveValue(selectedOccurrence, 'endTime')}
@@ -752,49 +823,236 @@ export default function RecurrenceTabContent({
             </div>
           </div>
 
-          <div className="recurrence-detail-row">
-            <div className="recurrence-detail-field">
-              <label>Setup</label>
-              <input
-                type="time"
-                value={getEffectiveValue(selectedOccurrence, 'setupTime')}
-                onChange={(e) => handleOccurrenceFieldChange('setupTime', e.target.value)}
-                disabled={!canEdit}
-                className="recurrence-detail-input"
-              />
+          {/* Secondary times disclosure */}
+          {(() => {
+            const hasSecondaryTimes = Boolean(
+              getEffectiveValue(selectedOccurrence, 'setupTime') ||
+              getEffectiveValue(selectedOccurrence, 'teardownTime') ||
+              getEffectiveValue(selectedOccurrence, 'doorOpenTime') ||
+              getEffectiveValue(selectedOccurrence, 'doorCloseTime')
+            );
+            const isOpen = showSecondaryTimes || hasSecondaryTimes;
+
+            // Read-only with no values: render nothing
+            if (!canEdit && !hasSecondaryTimes) return null;
+
+            return (
+              <>
+                <div
+                  className="recurrence-detail-disclosure"
+                  onClick={() => setShowSecondaryTimes(prev => !prev)}
+                >
+                  <svg
+                    className={`recurrence-detail-disclosure-chevron ${isOpen ? 'expanded' : ''}`}
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M4 2l4 4-4 4" />
+                  </svg>
+                  <span className="recurrence-detail-disclosure-label">Additional Times</span>
+                  <span className="recurrence-detail-disclosure-line" />
+                </div>
+
+                <div className={`recurrence-detail-collapsible ${isOpen ? 'expanded' : ''}`}>
+                  <div className="recurrence-detail-collapsible-inner">
+                    <div className="recurrence-detail-row">
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Setup</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'setupTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('setupTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Teardown</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'teardownTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('teardownTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="recurrence-detail-row">
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Door Open</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'doorOpenTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('doorOpenTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                      <div className="recurrence-detail-field recurrence-detail-field--inline">
+                        <label>Door Close</label>
+                        <input
+                          type="time"
+                          value={getEffectiveValue(selectedOccurrence, 'doorCloseTime')}
+                          onChange={(e) => handleOccurrenceFieldChange('doorCloseTime', e.target.value)}
+                          disabled={!canEdit}
+                          className="recurrence-detail-input"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Divider */}
+          <hr className="recurrence-detail-divider" />
+
+          {/* Categories (group break) */}
+          <div className="recurrence-detail-field">
+            <label>Categories</label>
+            <div className="recurrence-detail-chips">
+              {(getEffectiveValue(selectedOccurrence, 'categories') || []).map((cat, i) => (
+                <span key={i} className="recurrence-detail-chip">
+                  {cat}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="recurrence-chip-remove"
+                      onClick={() => {
+                        const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
+                        handleOccurrenceFieldChange('categories', current.filter((_, idx) => idx !== i));
+                      }}
+                    >
+                      &times;
+                    </button>
+                  )}
+                </span>
+              ))}
+              {canEdit && (
+                <button
+                  type="button"
+                  className="recurrence-chip-add"
+                  onClick={() => {
+                    setShowCategoryPicker(prev => !prev);
+                    setShowRoomPicker(false);
+                    fetchCategoriesOnce();
+                  }}
+                >
+                  + Add
+                </button>
+              )}
             </div>
-            <div className="recurrence-detail-field">
-              <label>Teardown</label>
-              <input
-                type="time"
-                value={getEffectiveValue(selectedOccurrence, 'teardownTime')}
-                onChange={(e) => handleOccurrenceFieldChange('teardownTime', e.target.value)}
-                disabled={!canEdit}
-                className="recurrence-detail-input"
-              />
+            <div className={`recurrence-inline-picker-wrap ${showCategoryPicker ? 'open' : ''}`}>
+              <div className="recurrence-category-picker">
+                {availableCategories
+                  .filter(cat => {
+                    const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
+                    return !current.includes(cat.name);
+                  })
+                  .map(cat => (
+                    <button
+                      key={cat._id || cat.name}
+                      type="button"
+                      className="recurrence-category-picker-item"
+                      onClick={() => {
+                        const current = getEffectiveValue(selectedOccurrence, 'categories') || [];
+                        handleOccurrenceFieldChange('categories', [...current, cat.name]);
+                        setShowCategoryPicker(false);
+                      }}
+                    >
+                      <span
+                        className="recurrence-category-dot"
+                        style={{ backgroundColor: cat.color || 'var(--text-tertiary)' }}
+                      />
+                      {cat.name}
+                    </button>
+                  ))}
+              </div>
             </div>
           </div>
 
-          <div className="recurrence-detail-row">
-            <div className="recurrence-detail-field">
-              <label>Door Open</label>
-              <input
-                type="time"
-                value={getEffectiveValue(selectedOccurrence, 'doorOpenTime')}
-                onChange={(e) => handleOccurrenceFieldChange('doorOpenTime', e.target.value)}
-                disabled={!canEdit}
-                className="recurrence-detail-input"
-              />
+          {/* Locations */}
+          <div className="recurrence-detail-field">
+            <label>Locations</label>
+            <div className="recurrence-detail-chips">
+              {(() => {
+                const locIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
+                return locIds.map((locId, i) => (
+                  <span key={i} className="recurrence-detail-chip">
+                    {getLocationName(locId)}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className="recurrence-chip-remove"
+                        onClick={() => {
+                          const currentIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
+                          handleOccurrenceFieldChange('locations', currentIds.filter((_, idx) => idx !== i));
+                          const updatedIds = currentIds.filter((_, idx) => idx !== i);
+                          handleOccurrenceFieldChange('locationDisplayNames',
+                            updatedIds.map(id => getLocationName(id)).join(', ')
+                          );
+                        }}
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </span>
+                ));
+              })()}
+              {canEdit && (
+                <button
+                  type="button"
+                  className="recurrence-chip-add"
+                  onClick={() => {
+                    setShowRoomPicker(prev => !prev);
+                    setShowCategoryPicker(false);
+                  }}
+                >
+                  + Add
+                </button>
+              )}
             </div>
-            <div className="recurrence-detail-field">
-              <label>Door Close</label>
-              <input
-                type="time"
-                value={getEffectiveValue(selectedOccurrence, 'doorCloseTime')}
-                onChange={(e) => handleOccurrenceFieldChange('doorCloseTime', e.target.value)}
-                disabled={!canEdit}
-                className="recurrence-detail-input"
-              />
+            <div className={`recurrence-inline-picker-wrap ${showRoomPicker ? 'open' : ''}`}>
+              <div className="recurrence-category-picker">
+                {reservableRooms
+                  .filter(room => {
+                    const currentIds = (getEffectiveValue(selectedOccurrence, 'locations') || []).map(id => id?.toString?.() || id);
+                    return !currentIds.includes(room._id?.toString?.() || room._id);
+                  })
+                  .map(room => (
+                    <button
+                      key={room._id}
+                      type="button"
+                      className="recurrence-category-picker-item"
+                      onClick={() => {
+                        const currentIds = getEffectiveValue(selectedOccurrence, 'locations') || [];
+                        const updatedIds = [...currentIds, room._id];
+                        handleOccurrenceFieldChange('locations', updatedIds);
+                        handleOccurrenceFieldChange('locationDisplayNames',
+                          updatedIds.map(id => getLocationName(id)).join(', ')
+                        );
+                        setShowRoomPicker(false);
+                      }}
+                    >
+                      <span className="recurrence-category-dot" style={{ backgroundColor: 'var(--color-primary-400)' }} />
+                      {room.name}
+                      {room.capacity && <span className="recurrence-room-capacity">({room.capacity})</span>}
+                    </button>
+                  ))}
+                {reservableRooms.filter(room => {
+                  const currentIds = (getEffectiveValue(selectedOccurrence, 'locations') || []).map(id => id?.toString?.() || id);
+                  return !currentIds.includes(room._id?.toString?.() || room._id);
+                }).length === 0 && (
+                  <div className="recurrence-room-picker-empty">No more rooms available</div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -959,7 +1217,7 @@ export default function RecurrenceTabContent({
           <div className="recurrence-tab-right recurrence-tab-right--empty">
             <div className="recurrence-tab-empty-hint">
               <RecurringIcon size={28} className="recurrence-tab-empty-icon" />
-              <p>Configure a recurrence pattern on the left, then click <strong>Create Recurrence</strong> to see occurrences here.</p>
+              <p>Configure a recurrence pattern on the left to get started. Changes save automatically when you click <strong>Save Draft</strong>.</p>
             </div>
           </div>
         )
