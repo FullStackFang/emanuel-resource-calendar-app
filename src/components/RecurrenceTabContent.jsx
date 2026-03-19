@@ -392,8 +392,27 @@ export default function RecurrenceTabContent({
 
   // ── Calendar date click (add/exclude toggle) ──────────────────
   const handleCalendarDateClick = useCallback((date) => {
-    if (!canEdit || !hasPattern) return;
+    if (!canEdit) return;
     const dateStr = toDateStr(date);
+
+    // Auto-create pattern if none exists
+    if (!hasPattern) {
+      const built = buildPatternObject();
+      if (!built) return;
+      editorTouchedRef.current = true;
+      hasUncommittedEditsRef.current = false;
+      onHasUncommittedRecurrence?.(false);
+      // If the clicked date is already a pattern date, just create the pattern
+      // Otherwise, add it as an ad-hoc addition
+      const patternDates = calculateAllSeriesDates({ ...built, additions: [], exclusions: [] });
+      if (patternDates.includes(dateStr)) {
+        onRecurrencePatternChange({ ...built, additions: [], exclusions: [] });
+      } else {
+        onRecurrencePatternChange({ ...built, additions: [dateStr], exclusions: [] });
+      }
+      return;
+    }
+
     const isPatternDate = monthPatternDates.includes(dateStr) || patternDateSet.has(dateStr);
     const exclusions = recurrencePattern.exclusions || [];
     const additions = recurrencePattern.additions || [];
@@ -411,7 +430,7 @@ export default function RecurrenceTabContent({
       newPattern = { ...recurrencePattern, additions: [...additions, dateStr] };
     }
     onRecurrencePatternChange(newPattern);
-  }, [canEdit, hasPattern, recurrencePattern, monthPatternDates, patternDateSet, onRecurrencePatternChange]);
+  }, [canEdit, hasPattern, buildPatternObject, recurrencePattern, monthPatternDates, patternDateSet, onRecurrencePatternChange, onHasUncommittedRecurrence]);
 
   // ── Occurrence list actions ───────────────────────────────────
   const handleRemoveAddition = useCallback((dateStr) => {
@@ -588,7 +607,7 @@ export default function RecurrenceTabContent({
         <DatePicker
           inline
           selected={null}
-          onChange={hasPattern ? handleCalendarDateClick : undefined}
+          onChange={canEdit ? handleCalendarDateClick : undefined}
           onMonthChange={setViewMonth}
           dayClassName={(date) => {
             const dateStr = toDateStr(date);
