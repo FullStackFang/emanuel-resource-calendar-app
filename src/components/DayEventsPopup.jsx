@@ -286,9 +286,11 @@ const DayEventsPopup = ({
                   {/* Status badges */}
                   {isPending && <div className="dep-status-badge dep-badge-pending">PENDING</div>}
                   {hasPendingEditRequest && <div className="dep-status-badge dep-badge-edit-pending">EDIT PENDING</div>}
-                  {event.occurrenceNumber > 0 && (event.totalOccurrences > 0 || event.isInfiniteSeries) && (
+                  {event.isRecurringOccurrence && (
                     <span className="dep-status-badge" style={{ color: '#1e40af', backgroundColor: '#dbeafe', border: '1px solid rgba(96, 165, 250, 0.5)' }}>
-                      {event.occurrenceNumber}/{event.isInfiniteSeries ? '\u221E' : event.totalOccurrences}
+                      {event.showOccurrenceNumbers
+                        ? `${event.occurrenceNumber}/${event.totalOccurrences}${event.isInfiniteSeries ? '\u221E' : ''}`
+                        : '\u21BB'}
                     </span>
                   )}
 

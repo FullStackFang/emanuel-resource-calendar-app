@@ -1868,6 +1868,7 @@ import ConflictDialog from './shared/ConflictDialog';
                 // Determine if this is an infinite series (no end date)
                 const isInfiniteSeries = recurrence.range?.type === 'noEnd';
                 const visibleCount = occurrences.length;
+                const showOccurrenceNumbers = visibleCount > 1;
 
                 // Convert each occurrence to our event format
                 // Use view-relative counting: position within visible occurrences, not absolute series position
@@ -1904,8 +1905,9 @@ import ConflictDialog from './shared/ConflictDialog';
                     isAdHocAddition: occurrence.isAdHocAddition || false,
                     // Occurrence position in series (e.g., "2/5" for finite, "2/∞" for infinite)
                     occurrenceNumber,
-                    totalOccurrences: isInfiniteSeries ? Infinity : visibleCount,
+                    totalOccurrences: visibleCount,
                     isInfiniteSeries,
+                    showOccurrenceNumbers,
                     // Apply any title/description overrides from the expansion
                     subject: occurrence.subject || event.subject,
                     eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,
