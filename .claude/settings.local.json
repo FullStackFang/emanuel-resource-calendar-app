@@ -81,7 +81,8 @@
       "Bash(openspec instructions:*)",
       "Bash(cp:*)",
       "Bash(npx openspec:*)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git show:*)"
     ],
     "deny": []
   }

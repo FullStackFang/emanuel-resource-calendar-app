@@ -5967,6 +5967,10 @@ app.post('/api/events/load', verifyToken, async (req, res) => {
       logger.log(`🔍 First event: ${transformedLoadEvents[0]?.subject}, start: ${transformedLoadEvents[0]?.start?.dateTime}`);
     }
 
+    // Ensure top-level totalEvents is accurate (per-calendar sub-objects update their own counts,
+    // but the top-level field was never incremented — fix for frontend guards that check it)
+    loadResults.totalEvents = transformedLoadEvents.length;
+
     return res.status(200).json({
       loadResults: loadResults,
       events: transformedLoadEvents,

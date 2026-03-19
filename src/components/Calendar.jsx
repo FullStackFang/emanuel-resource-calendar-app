@@ -174,6 +174,7 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Memoization cache for recurring event expansion (prevents redundant calculations)
     const expansionCacheRef = useRef(new Map());
+    const loadInProgressRef = useRef(false);
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
     const eventReviewFormDataGetterRef = useRef(null);
@@ -1655,6 +1656,12 @@ import ConflictDialog from './shared/ConflictDialog';
         return false;
       }
 
+      if (loadInProgressRef.current) {
+        logger.debug('loadEventsUnified: Load already in progress, skipping');
+        return false;
+      }
+      loadInProgressRef.current = true;
+
       // Clear recurring expansion cache on force refresh so edited series masters
       // are re-expanded with their updated data (locations, times, title, etc.)
       if (forceRefresh) {
@@ -1986,7 +1993,7 @@ import ConflictDialog from './shared/ConflictDialog';
         } else {
           // No events returned but no errors - this might be legitimate (empty calendar)
           // Clear events when 0 events returned, regardless of loading strategy
-          if (loadResult.loadResults?.totalEvents === 0) {
+          if (loadResult.count === 0 && loadResult.events?.length === 0) {
             setAllEvents([]);
             logger.info(`Cleared events - selected calendar has 0 events (source: ${loadResult.source})`);
             return true;
@@ -2000,6 +2007,7 @@ import ConflictDialog from './shared/ConflictDialog';
         logger.error('loadEventsUnified failed:', error);
         return false;
       } finally {
+        loadInProgressRef.current = false;
         if (!silent) setLoading(false);
         setLastFetchedAt(Date.now());
       }
@@ -2040,7 +2048,7 @@ import ConflictDialog from './shared/ConflictDialog';
       if (reviewModal.isOpen || eventReviewModal?.isOpen) return;
       loadEvents(false, null, { silent: true });
     }, [loadEvents, reviewModal.isOpen, eventReviewModal?.isOpen]);
-    usePolling(silentCalendarRefresh, 120_000, !!apiToken && !isDemoMode);
+    usePolling(silentCalendarRefresh, 120_000, !!apiToken && !isDemoMode && !initializing);
 
     // Manual refresh handler for FreshnessIndicator
     const handleManualCalendarRefresh = useCallback(async () => {
