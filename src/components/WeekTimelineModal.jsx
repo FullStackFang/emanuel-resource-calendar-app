@@ -339,13 +339,13 @@ export default function WeekTimelineModal({
                               gap: '2px'
                             }}>
                               <RecurringIcon size={12} />
-                              {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                              {event.occurrenceNumber > 0 && (event.totalOccurrences > 0 || event.isInfiniteSeries) && (
                                 <span style={{
                                   fontSize: '7px', fontWeight: 700, color: '#1e40af',
                                   backgroundColor: '#dbeafe', padding: '1px 3px',
                                   borderRadius: '3px', border: '1px solid rgba(96, 165, 250, 0.5)'
                                 }}>
-                                  {event.occurrenceNumber}/{event.totalOccurrences}
+                                  {event.occurrenceNumber}/{event.isInfiniteSeries ? '\u221E' : event.totalOccurrences}
                                 </span>
                               )}
                             </div>

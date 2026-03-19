@@ -1855,16 +1855,31 @@ import ConflictDialog from './shared/ConflictDialog';
                   eventOverrides
                 );
 
-                // Calculate full series dates for occurrence position (e.g., "2/5")
-                const allSeriesDates = calculateAllSeriesDates(recurrence);
-                const totalInSeries = allSeriesDates.length;
+                // Determine if this is an infinite series (no end date)
+                const isInfiniteSeries = recurrence.range?.type === 'noEnd';
+
+                // For finite series, calculate full series dates for absolute position (e.g., "3/10")
+                // For infinite series, use visible index within current view (e.g., "1/∞", "2/∞")
+                let allSeriesDates = [];
+                let totalInSeries = 0;
+                if (!isInfiniteSeries) {
+                  allSeriesDates = calculateAllSeriesDates(recurrence);
+                  totalInSeries = allSeriesDates.length;
+                }
 
                 // Convert each occurrence to our event format
+                let visibleIndex = 0;
                 occurrences.forEach(occurrence => {
+                  visibleIndex++;
                   const occurrenceDate = occurrence.start.dateTime.split('T')[0];
-                  const occurrenceNumber = totalInSeries > 0
-                    ? allSeriesDates.indexOf(occurrenceDate) + 1
-                    : 0;
+                  let occurrenceNumber;
+                  if (isInfiniteSeries) {
+                    occurrenceNumber = visibleIndex;
+                  } else {
+                    occurrenceNumber = totalInSeries > 0
+                      ? allSeriesDates.indexOf(occurrenceDate) + 1
+                      : 0;
+                  }
 
                   expandedOccurrences.push({
                     ...event,
@@ -1891,9 +1906,10 @@ import ConflictDialog from './shared/ConflictDialog';
                     masterEventId: event.eventId,
                     hasOccurrenceOverride: occurrence.hasOccurrenceOverride || false,
                     isAdHocAddition: occurrence.isAdHocAddition || false,
-                    // Occurrence position in series (e.g., 2 of 5)
+                    // Occurrence position in series (e.g., "2/5" for finite, "2/∞" for infinite)
                     occurrenceNumber,
-                    totalOccurrences: totalInSeries,
+                    totalOccurrences: isInfiniteSeries ? Infinity : totalInSeries,
+                    isInfiniteSeries,
                     // Apply any title/description overrides from the expansion
                     subject: occurrence.subject || event.subject,
                     eventTitle: occurrence.eventTitle || event.eventTitle || event.calendarData?.eventTitle,

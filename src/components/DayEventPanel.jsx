@@ -286,9 +286,9 @@ const DayEventPanel = memo(({
                       EDIT PENDING
                     </div>
                   )}
-                  {event.occurrenceNumber > 0 && event.totalOccurrences > 0 && (
+                  {event.occurrenceNumber > 0 && (event.totalOccurrences > 0 || event.isInfiniteSeries) && (
                     <span className="event-status-badge badge-recurrence" style={{ fontSize: '10px', padding: '2px 8px' }}>
-                      {event.occurrenceNumber}/{event.totalOccurrences}
+                      {event.occurrenceNumber}/{event.isInfiniteSeries ? '\u221E' : event.totalOccurrences}
                     </span>
                   )}
 
