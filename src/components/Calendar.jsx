@@ -14,7 +14,7 @@
   import DayTimelineModal from './DayTimelineModal';
   import { logger } from '../utils/logger';
   import calendarDebug from '../utils/calendarDebug';
-  import { transformRecurrenceForGraphAPI, expandRecurringSeries, calculateAllSeriesDates } from '../utils/recurrenceUtils';
+  import { transformRecurrenceForGraphAPI, expandRecurringSeries } from '../utils/recurrenceUtils';
   import { transformEventToFlatStructure, sortEventsByStartTime } from '../utils/eventTransformers';
   import { computeApproverChanges } from '../utils/editRequestUtils';
   import './Calendar.css';
@@ -1867,29 +1867,15 @@ import ConflictDialog from './shared/ConflictDialog';
 
                 // Determine if this is an infinite series (no end date)
                 const isInfiniteSeries = recurrence.range?.type === 'noEnd';
-
-                // For finite series, calculate full series dates for absolute position (e.g., "3/10")
-                // For infinite series, use visible index within current view (e.g., "1/∞", "2/∞")
-                let allSeriesDates = [];
-                let totalInSeries = 0;
-                if (!isInfiniteSeries) {
-                  allSeriesDates = calculateAllSeriesDates(recurrence);
-                  totalInSeries = allSeriesDates.length;
-                }
+                const visibleCount = occurrences.length;
 
                 // Convert each occurrence to our event format
+                // Use view-relative counting: position within visible occurrences, not absolute series position
                 let visibleIndex = 0;
                 occurrences.forEach(occurrence => {
                   visibleIndex++;
                   const occurrenceDate = occurrence.start.dateTime.split('T')[0];
-                  let occurrenceNumber;
-                  if (isInfiniteSeries) {
-                    occurrenceNumber = visibleIndex;
-                  } else {
-                    occurrenceNumber = totalInSeries > 0
-                      ? allSeriesDates.indexOf(occurrenceDate) + 1
-                      : 0;
-                  }
+                  const occurrenceNumber = visibleIndex;
 
                   expandedOccurrences.push({
                     ...event,
@@ -1918,7 +1904,7 @@ import ConflictDialog from './shared/ConflictDialog';
                     isAdHocAddition: occurrence.isAdHocAddition || false,
                     // Occurrence position in series (e.g., "2/5" for finite, "2/∞" for infinite)
                     occurrenceNumber,
-                    totalOccurrences: isInfiniteSeries ? Infinity : totalInSeries,
+                    totalOccurrences: isInfiniteSeries ? Infinity : visibleCount,
                     isInfiniteSeries,
                     // Apply any title/description overrides from the expansion
                     subject: occurrence.subject || event.subject,
