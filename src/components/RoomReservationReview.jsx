@@ -75,6 +75,9 @@ export default function RoomReservationReview({
   const occurrenceOverridesRef = useRef([]);
 
   // Initialize recurrence and overrides from reservation data
+  // Only re-initialize when the reservation identity changes (new event loaded),
+  // not on every keystroke (which creates a new `reservation` object reference)
+  const reservationId = reservation?._id || reservation?.eventId;
   useEffect(() => {
     const recurrence = reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.graphData?.recurrence || null;
     setRecurrencePattern(recurrence);
@@ -84,7 +87,7 @@ export default function RoomReservationReview({
     const overrides = reservation?.occurrenceOverrides || reservation?.calendarData?.occurrenceOverrides || [];
     setOccurrenceOverrides(overrides);
     occurrenceOverridesRef.current = overrides;
-  }, [reservation]); // eslint-disable-line react-hooks/exhaustive-deps -- onRecurrenceExists is stable (setState from parent)
+  }, [reservationId]); // eslint-disable-line react-hooks/exhaustive-deps -- onRecurrenceExists is stable (setState from parent); reservationId changes on event identity change (including occurrence-to-master swap)
 
   // Keep refs in sync
   useEffect(() => { recurrencePatternRef.current = recurrencePattern; }, [recurrencePattern]);

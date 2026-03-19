@@ -254,7 +254,12 @@ export default function RoomReservationFormBase({
     // The _isPreProcessed flag indicates all fields are already in the correct format
     if (initialData?._isPreProcessed) {
       logger.debug('Syncing pre-processed form fields from initialData');
-      setFormData(prev => ({ ...prev, ...initialData }));
+      setFormData(prev => {
+        // Exclude fields managed by dedicated state (recurrence, categories, services, occurrenceOverrides)
+        // These have their own sync useEffects and should not be overwritten by the formData spread
+        const { recurrence, categories, services, occurrenceOverrides, ...rest } = initialData;
+        return { ...prev, ...rest };
+      });
       return;
     }
 

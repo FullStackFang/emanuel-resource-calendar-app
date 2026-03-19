@@ -82,7 +82,8 @@
       "Bash(cp:*)",
       "Bash(npx openspec:*)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Read(//tmp/**)"
     ],
     "deny": []
   }
