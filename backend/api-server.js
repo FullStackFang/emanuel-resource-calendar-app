@@ -6576,30 +6576,21 @@ app.get('/api/events/list/counts', verifyToken, async (req, res) => {
       res.json({ all, ...counts });
 
     } else if (view === 'approval-queue') {
-      // Single aggregation instead of 5 parallel countDocuments
-      const pipeline = [
-        { $match: {
-          isDeleted: { $ne: true },
-          roomReservationData: { $exists: true, $ne: null },
-          status: { $in: ['pending', 'room-reservation-request', 'published', 'rejected'] }
-        }},
-        { $group: {
-          _id: null,
-          all: { $sum: 1 },
-          pending: { $sum: { $cond: [{ $in: ['$status', ['pending', 'room-reservation-request']] }, 1, 0] } },
-          publishedTotal: { $sum: { $cond: [{ $eq: ['$status', 'published'] }, 1, 0] } },
-          published_edit: { $sum: { $cond: [{ $and: [
-            { $eq: ['$status', 'published'] },
-            { $eq: ['$pendingEditRequest.status', 'pending'] }
-          ]}, 1, 0] } },
-          rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } }
-        }}
-      ];
+      const baseFilter = {
+        isDeleted: { $ne: true },
+        roomReservationData: { $exists: true, $ne: null }
+      };
 
-      const [result] = await unifiedEventsCollection.aggregate(pipeline).toArray();
-      const counts = result || { all: 0, pending: 0, publishedTotal: 0, published_edit: 0, rejected: 0 };
-      const published = counts.publishedTotal - counts.published_edit;
-      res.json({ all: counts.all, pending: counts.pending, published, published_edit: counts.published_edit, rejected: counts.rejected });
+      const [pending, publishedTotal, published_edit, rejected] = await Promise.all([
+        unifiedEventsCollection.countDocuments({ ...baseFilter, status: { $in: ['pending', 'room-reservation-request'] } }),
+        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'published' }),
+        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'published', 'pendingEditRequest.status': 'pending' }),
+        unifiedEventsCollection.countDocuments({ ...baseFilter, status: 'rejected' })
+      ]);
+
+      const all = pending + publishedTotal + rejected;
+      const published = publishedTotal - published_edit;
+      res.json({ all, pending, published, published_edit, rejected });
 
     } else if (view === 'admin-browse') {
       // Single aggregation instead of 6 parallel countDocuments

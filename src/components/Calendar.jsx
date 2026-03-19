@@ -174,6 +174,8 @@ import ConflictDialog from './shared/ConflictDialog';
 
     // Memoization cache for recurring event expansion (prevents redundant calculations)
     const expansionCacheRef = useRef(new Map());
+    const categoriesInitializedRef = useRef(false);
+    const locationsInitializedRef = useRef(false);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
@@ -3271,8 +3273,8 @@ import ConflictDialog from './shared/ConflictDialog';
 
         // CATEGORY FILTERING - Show all events if all categories are selected
         if (selectedCategories.length === 0) {
-          // No categories selected = show NO events
-          categoryMatch = false;
+          // Not initialized yet → show all; user deselected all → hide
+          categoryMatch = !categoriesInitializedRef.current;
         } else if (selectedCategories.length === dynamicCategories.length) {
           // All categories selected = show ALL events regardless of category
           categoryMatch = true;
@@ -3290,8 +3292,8 @@ import ConflictDialog from './shared/ConflictDialog';
 
         // LOCATION FILTERING - Show all events if all locations are selected
         if (selectedLocations.length === 0) {
-          // No locations selected = show NO events
-          locationMatch = false;
+          // Not initialized yet → show all; user deselected all → hide
+          locationMatch = !locationsInitializedRef.current;
         } else if (selectedLocations.length === dynamicLocations.length) {
           // All locations selected = show ALL events regardless of location
           locationMatch = true;
@@ -6824,6 +6826,7 @@ import ConflictDialog from './shared/ConflictDialog';
     // Update selected locations when dynamic locations change - smart merging with stale pruning
     useEffect(() => {
       if (dynamicLocations.length > 0) {
+        locationsInitializedRef.current = true;
         if (selectedLocations.length === 0) {
           // Initial selection: select all locations
           setSelectedLocations(dynamicLocations);
@@ -6843,6 +6846,7 @@ import ConflictDialog from './shared/ConflictDialog';
     // Update selected categories when dynamic categories change - smart merging with stale pruning
     useEffect(() => {
       if (dynamicCategories.length > 0) {
+        categoriesInitializedRef.current = true;
         if (selectedCategories.length === 0) {
           // Initial selection: select all categories
           setSelectedCategories(dynamicCategories);
