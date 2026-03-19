@@ -83,6 +83,7 @@ const FeatureManagement = lazy(() => import('./components/FeatureManagement'));
 const EmailTestAdmin = lazy(() => import('./components/EmailTestAdmin'));
 const ErrorLogAdmin = lazy(() => import('./components/ErrorLogAdmin'));
 const EventManagement = lazy(() => import('./components/EventManagement'));
+const RSchedMapper = lazy(() => import('./components/RSchedMapper'));
 const AIChat = lazy(() => import('./components/AIChat'));
 
 function App() {
@@ -309,6 +310,7 @@ function App() {
                   <Route path="/admin/email-test" element={<EmailTestAdmin apiToken={apiToken} />} />
                   <Route path="/admin/error-logs" element={<ErrorLogAdmin apiToken={apiToken} />} />
                   <Route path="/admin/events" element={<EventManagement apiToken={apiToken} />} />
+                  <Route path="/admin/rsched-mapper" element={<RSchedMapper apiToken={apiToken} />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Suspense>

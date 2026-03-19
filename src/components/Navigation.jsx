@@ -213,6 +213,15 @@ export default function Navigation({ apiToken }) {
                     Event Management
                   </NavLink>
                 </li>
+                <li>
+                  <NavLink
+                    to="/admin/rsched-mapper"
+                    className={({ isActive }) => isActive ? 'active' : ''}
+                    onClick={handleDropdownLinkClick}
+                  >
+                    RSched Mapper
+                  </NavLink>
+                </li>
               </ul>
             )}
           </li>

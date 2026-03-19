@@ -1810,9 +1810,7 @@ import ConflictDialog from './shared/ConflictDialog';
           });
           const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
           const expandStart = start.split('T')[0];
-          const expandEndDate = new Date(end);
-          expandEndDate.setDate(expandEndDate.getDate() + 1);
-          const expandEnd = expandEndDate.toISOString().split('T')[0];
+          const expandEnd = end.split('T')[0];
           const cacheKey = `${expandStart}-${expandEnd}-${masterIds}`;
 
           // Check cache first
