@@ -83,7 +83,8 @@
       "Bash(npx openspec:*)",
       "Bash(echo \"EXIT:$?\")",
       "Bash(git show:*)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(head -c 500000 /home/fullstackfang/.claude/projects/-mnt-c-Users-Stephen-Fang-OneDrive-Documents-workspace-github-com-fullstackfang-emanuel-resource-calendar-app/275bdad9-e452-40f6-a514-b0020354711e.jsonl)"
     ],
     "deny": []
   }

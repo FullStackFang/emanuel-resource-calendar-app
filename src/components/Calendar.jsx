@@ -1809,8 +1809,12 @@ import ConflictDialog from './shared/ConflictDialog';
             return eventType === 'seriesMaster' && recurrence;
           });
           const masterIds = seriesMasters.map(m => m.eventId).sort().join(',');
-          const expandStart = start.split('T')[0];
-          const expandEnd = end.split('T')[0];
+          // Use local date getters — start/end are UTC ISO strings from formatDateRangeForAPI,
+          // which shift dates forward in negative-offset timezones (e.g. EDT).
+          // dateRange.start/end are local Date objects, safe for local-date expansion.
+          const pad = (n) => String(n).padStart(2, '0');
+          const expandStart = `${dateRange.start.getFullYear()}-${pad(dateRange.start.getMonth() + 1)}-${pad(dateRange.start.getDate())}`;
+          const expandEnd = `${dateRange.end.getFullYear()}-${pad(dateRange.end.getMonth() + 1)}-${pad(dateRange.end.getDate())}`;
           const cacheKey = `${expandStart}-${expandEnd}-${masterIds}`;
 
           // Check cache first

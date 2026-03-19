@@ -13026,6 +13026,8 @@ app.get('/api/locations', async (req, res) => {
       notes: location.notes || '',
       locationCode: location.locationCode || '',
       isReservable: location.isReservable || false, // Required for frontend filtering
+      rsKey: location.rsKey || '',
+      aliases: location.aliases || [],
       // Include additional metadata if present
       ...(location.coordinates && { coordinates: location.coordinates }),
       ...(location.address && { address: location.address }),

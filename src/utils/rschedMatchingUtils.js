@@ -56,10 +56,20 @@ export const RSCHED_ALIASES = {
   'Sanctuary': 'SNC',
   'Main Sanctuary': 'SNC',
 
+  // Isaac Mayer Wise Hall
+  'Isaac Mayer Wise Hall': 'IMW',
+  'IMW Hall': 'IMW',
+  'Wise Hall': 'IMW',
+  'IMW Kitchen': 'IMWK',
+
   // Meeting rooms
   'Board of Trustees Room': '800',
   'Board Room': '800',
   'Trustee Room': '800',
+  'Leventritt Room - 402': '402',
+  'Leventritt Room': '402',
+  '4th Floor Conf. Room': '405',
+  '405': '405',
 
   // Lounges
   '6th Floor Lounge - 602': '602',
@@ -70,25 +80,45 @@ export const RSCHED_ALIASES = {
   'Blumenthal Hall': 'BLU',
   'Greenwald Hall': 'GRN',
   'Skirball Hall': 'SKR',
+  'Leon Lowenstein': 'LOW',
+  'Lowenstein': 'LOW',
+  'Lowenstein Lobby': 'LOWL',
+
+  // Floors / Rooftops
+  '3rd Fl Play Roof': '3PR',
+  '9th Floor Rooftop': '9RF',
 
   // Religious School / Nursery
-  'Nursery School': 'N/S',
-  'Religious School': 'R/S',
+  'Nursery School': 'NS',
+  'Religious School': 'RS',
+  'Religious School Classroom': 'RS',
+  'Room 406 - Men\'s Club': '406',
 
   // Museum
   'Museum': 'MUS',
   'Herbert & Eileen Bernard Museum': 'MUS',
 
+  // Library
+  'Library': 'LIB',
+  'Ivan M. Stettenheim Library': 'LIB',
+
+  // Young Families
+  'Young Families Suite': 'YFS',
+
+  // Virtual
+  'Virtual 1': 'VIRTUAL',
+  'Virtual': 'VIRTUAL',
+
   // Other
   'Levy Center': 'LEV',
-  'Library': 'LIB',
   'Kitchen': 'KIT',
   'Lobby': 'LOB',
+  'Downtown': 'DT',
 
   // Notes (non-room locations in RSched)
   'Note1': 'NOTE',
   'Note2': 'NOTE',
-  'Archive': 'ARC',
+  'Archive': 'ARCHIVE',
 };
 
 /**
