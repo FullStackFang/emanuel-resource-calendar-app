@@ -5263,8 +5263,46 @@ async function getUnifiedEvents(userId, calendarOwner = null, startDate = null, 
       const pad = (n) => String(n).padStart(2, '0');
       const toLocalISO = (d) =>
         `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-      query['calendarData.startDateTime'] = { $lt: toLocalISO(endDate) };
-      query['calendarData.endDateTime'] = { $gt: toLocalISO(startDate) };
+      const startISO = toLocalISO(startDate);
+      const endISO = toLocalISO(endDate);
+      const startDateOnly = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
+
+      // SeriesMasters need special handling: their calendarData dates represent
+      // only the first occurrence, but they generate occurrences across the full
+      // recurrence range. Include them if their recurrence range overlaps the view window.
+      query.$and = [...(query.$and || []), {
+        $or: [
+          // Non-recurring events: standard overlap check
+          {
+            eventType: { $nin: ['seriesMaster'] },
+            'calendarData.startDateTime': { $lt: endISO },
+            'calendarData.endDateTime': { $gt: startISO }
+          },
+          // Events with no eventType (legacy/non-typed): standard overlap
+          {
+            eventType: { $exists: false },
+            'calendarData.startDateTime': { $lt: endISO },
+            'calendarData.endDateTime': { $gt: startISO }
+          },
+          // SeriesMasters: include if recurrence range overlaps the viewed window
+          // The frontend expandRecurringSeries() will generate only relevant occurrences
+          {
+            eventType: 'seriesMaster',
+            'calendarData.startDateTime': { $lt: endISO },  // series starts before window ends
+            $or: [
+              // endDate range overlaps (check both storage locations)
+              { 'recurrence.range.endDate': { $gte: startDateOnly } },
+              { 'calendarData.recurrence.range.endDate': { $gte: startDateOnly } },
+              // never-ending series (check both locations)
+              { 'recurrence.range.type': 'noEnd' },
+              { 'calendarData.recurrence.range.type': 'noEnd' },
+              // count-based (check both locations)
+              { 'recurrence.range.type': 'numbered' },
+              { 'calendarData.recurrence.range.type': 'numbered' }
+            ]
+          }
+        ]
+      }];
     }
 
     logger.debug('Calendar events query:', JSON.stringify(query));

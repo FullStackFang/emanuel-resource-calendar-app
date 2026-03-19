@@ -4308,10 +4308,42 @@ function createTestApp(options = {}) {
         ];
       }
 
-      // Date range filter
+      // Date range filter - seriesMasters need special handling since their
+      // calendarData dates only represent the first occurrence
       if (startDate && endDate) {
-        query['calendarData.startDateTime'] = { $lt: endDate };
-        query['calendarData.endDateTime'] = { $gt: startDate };
+        const startDateOnly = startDate.split('T')[0];
+        query.$and = [...(query.$and || []), {
+          $or: [
+            // Non-recurring events: standard overlap check
+            {
+              eventType: { $nin: ['seriesMaster'] },
+              'calendarData.startDateTime': { $lt: endDate },
+              'calendarData.endDateTime': { $gt: startDate }
+            },
+            // Events with no eventType (legacy/non-typed): standard overlap
+            {
+              eventType: { $exists: false },
+              'calendarData.startDateTime': { $lt: endDate },
+              'calendarData.endDateTime': { $gt: startDate }
+            },
+            // SeriesMasters: include if recurrence range overlaps viewed window
+            {
+              eventType: 'seriesMaster',
+              'calendarData.startDateTime': { $lt: endDate },
+              $or: [
+                // endDate range overlaps (check both storage locations)
+                { 'recurrence.range.endDate': { $gte: startDateOnly } },
+                { 'calendarData.recurrence.range.endDate': { $gte: startDateOnly } },
+                // never-ending series (check both locations)
+                { 'recurrence.range.type': 'noEnd' },
+                { 'calendarData.recurrence.range.type': 'noEnd' },
+                // count-based (check both locations)
+                { 'recurrence.range.type': 'numbered' },
+                { 'calendarData.recurrence.range.type': 'numbered' }
+              ]
+            }
+          ]
+        }];
       }
 
       const events = (await testCollections.events.find(query).toArray())
