@@ -16606,7 +16606,8 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
       address,
       description,
       notes,
-      isReservable
+      isReservable,
+      rsKey
     } = req.body;
 
     // Validate required fields
@@ -16624,7 +16625,31 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
       return res.status(409).json({ error: 'A location with this name already exists' });
     }
 
-    logger.log('Creating new location:', { name, building, floor });
+    // Generate or validate rsKey
+    let finalRsKey;
+    if (rsKey && rsKey.trim()) {
+      // User provided rsKey — check uniqueness
+      const rsKeyDuplicate = await locationsCollection.findOne({
+        rsKey: rsKey.trim(),
+        status: { $ne: 'merged' }
+      });
+      if (rsKeyDuplicate) {
+        return res.status(409).json({ error: `rsKey '${rsKey.trim()}' is already in use by '${rsKeyDuplicate.name}'` });
+      }
+      finalRsKey = rsKey.trim();
+    } else {
+      // Auto-generate from name initials (first letter of each word, uppercase)
+      const baseKey = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase();
+      let candidate = baseKey;
+      let suffix = 2;
+      while (await locationsCollection.findOne({ rsKey: candidate, status: { $ne: 'merged' } })) {
+        candidate = baseKey + suffix;
+        suffix++;
+      }
+      finalRsKey = candidate;
+    }
+
+    logger.log('Creating new location:', { name, building, floor, rsKey: finalRsKey });
 
     // Create location object
     const newLocation = {
@@ -16641,6 +16666,7 @@ app.post('/api/admin/locations', verifyToken, async (req, res) => {
       description: description?.trim() || '',
       notes: notes?.trim() || '',
       isReservable: isReservable === true,
+      rsKey: finalRsKey,
       status: 'approved',
       active: true,
       usageCount: 0,
@@ -16699,7 +16725,8 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
       address,
       description,
       notes,
-      isReservable
+      isReservable,
+      rsKey
     } = req.body;
 
     // Validate name if provided
@@ -16717,6 +16744,18 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
 
       if (duplicate) {
         return res.status(409).json({ error: 'A location with this name already exists' });
+      }
+    }
+
+    // Validate rsKey uniqueness if being changed
+    if (rsKey !== undefined && rsKey && rsKey.trim()) {
+      const rsKeyDuplicate = await locationsCollection.findOne({
+        rsKey: rsKey.trim(),
+        _id: { $ne: locationId },
+        status: { $ne: 'merged' }
+      });
+      if (rsKeyDuplicate) {
+        return res.status(409).json({ error: `rsKey '${rsKey.trim()}' is already in use by '${rsKeyDuplicate.name}'` });
       }
     }
 
@@ -16740,6 +16779,7 @@ app.put('/api/admin/locations/:id', verifyToken, async (req, res) => {
     if (description !== undefined) updateFields.description = description.trim();
     if (notes !== undefined) updateFields.notes = notes.trim();
     if (isReservable !== undefined) updateFields.isReservable = isReservable === true;
+    if (rsKey !== undefined) updateFields.rsKey = rsKey ? rsKey.trim() : '';
 
     await locationsCollection.updateOne(
       { _id: locationId },

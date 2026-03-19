@@ -113,6 +113,7 @@ export default function LocationReview({ apiToken }) {
       displayName: '',
       aliases: [],
       locationCode: '',
+      rsKey: '',
       building: '',
       floor: '',
       capacity: '',
@@ -133,6 +134,7 @@ export default function LocationReview({ apiToken }) {
       displayName: location.displayName || '',
       aliases: location.aliases || [],
       locationCode: location.locationCode || '',
+      rsKey: location.rsKey || '',
       building: location.building || '',
       floor: location.floor || '',
       capacity: location.capacity?.toString() || '',
@@ -596,6 +598,16 @@ export default function LocationReview({ apiToken }) {
                         onChange={(e) => setLocationFormData(prev => ({ ...prev, locationCode: e.target.value }))}
                         placeholder="e.g., TPL, CPL"
                       />
+                    </div>
+                    <div className="form-field">
+                      <label>RS Key</label>
+                      <input
+                        type="text"
+                        value={locationFormData.rsKey}
+                        onChange={(e) => setLocationFormData(prev => ({ ...prev, rsKey: e.target.value.toUpperCase() }))}
+                        placeholder="e.g., GH, LLL"
+                      />
+                      <small>Used for CSV import matching. Auto-generated from name if left blank.</small>
                     </div>
                   </div>
 

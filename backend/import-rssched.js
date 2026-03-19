@@ -845,7 +845,7 @@ async function importRsSched() {
 
         // Enrichment data in calendarData
         calendarData: {
-          categories: [],
+          categories: row.Categories ? row.Categories.split(',').map(c => c.trim()).filter(c => c) : [],
           setupTimeMinutes: 0,
           teardownTimeMinutes: 0,
           registrationNotes: '',
