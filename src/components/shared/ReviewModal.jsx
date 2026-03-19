@@ -6,6 +6,7 @@ import useScrollLock from '../../hooks/useScrollLock';
 import LoadingSpinner from './LoadingSpinner';
 import DraftSaveDialog from './DraftSaveDialog';
 import DiscardChangesDialog from './DiscardChangesDialog';
+import RecurrenceWarningDialog from './RecurrenceWarningDialog';
 import './ReviewModal.css';
 
 /**
@@ -157,7 +158,14 @@ export default function ReviewModal({
   canEditRecurrence: canEditRecurrenceProp = null,
   // Event owner info (displayed as pills in action bar)
   requesterName = '',
-  requesterDepartment = ''
+  requesterDepartment = '',
+  // Recurrence warning dialog props (for uncommitted recurrence edits on draft save)
+  showRecurrenceWarning = false,
+  onRecurrenceWarningCreateAndSave = null,
+  onRecurrenceWarningSaveWithout = null,
+  onRecurrenceWarningCancel = null,
+  createRecurrenceRef = null,
+  onHasUncommittedRecurrence = null
 }) {
   // Get admin status from permissions hook
   const { isAdmin, canApproveReservations } = usePermissions();
@@ -168,8 +176,16 @@ export default function ReviewModal({
   const hardConflictBlocks = hasSchedulingConflicts && !isAdmin;
 
   // Auto-detect recurrence from reservation if not explicitly provided
+  const hasRecurrenceFromReservation = Boolean(reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.eventType === 'seriesMaster');
+  const [liveHasRecurrence, setLiveHasRecurrence] = useState(false);
+
+  // Re-initialize from reservation when it changes
+  useEffect(() => {
+    setLiveHasRecurrence(hasRecurrenceFromReservation);
+  }, [hasRecurrenceFromReservation]);
+
   const hasRecurrence = hasRecurrenceProp !== null ? hasRecurrenceProp
-    : Boolean(reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.eventType === 'seriesMaster');
+    : (hasRecurrenceFromReservation || liveHasRecurrence);
   const canEditRecurrence = canEditRecurrenceProp !== null ? canEditRecurrenceProp
     : (isAdmin || canApproveReservations || !isRequesterOnly);
 
@@ -945,7 +961,7 @@ export default function ReviewModal({
           <div className="review-modal-scroll-area">
             <div className="review-modal-scroll-content">
               {React.isValidElement(children)
-                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData })
+                ? React.cloneElement(children, { activeTab, setActiveTab, isEditRequestMode, isViewingEditRequest, originalData, onRecurrenceExists: setLiveHasRecurrence, onHasUncommittedRecurrence, createRecurrenceRef })
                 : children}
             </div>
           </div>
@@ -981,6 +997,17 @@ export default function ReviewModal({
               maxLength={500}
             />
           </div>
+        )}
+
+        {/* Recurrence Warning Dialog - shown when saving draft with uncommitted recurrence edits */}
+        {showRecurrenceWarning && (
+          <RecurrenceWarningDialog
+            isOpen={showRecurrenceWarning}
+            onCreateAndSave={onRecurrenceWarningCreateAndSave}
+            onSaveWithout={onRecurrenceWarningSaveWithout}
+            onCancel={onRecurrenceWarningCancel}
+            saving={savingDraft}
+          />
         )}
 
         {/* Draft Save Dialog - shown when closing with unsaved changes */}

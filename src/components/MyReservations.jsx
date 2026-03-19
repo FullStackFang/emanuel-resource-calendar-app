@@ -1339,6 +1339,12 @@ export default function MyReservations({ apiToken }) {
         onDraftDialogDiscard={reviewModal.handleDraftDialogDiscard}
         onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
         onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
+        showRecurrenceWarning={reviewModal.showRecurrenceWarning}
+        onRecurrenceWarningCreateAndSave={reviewModal.handleRecurrenceWarningCreateAndSave}
+        onRecurrenceWarningSaveWithout={reviewModal.handleRecurrenceWarningSaveWithout}
+        onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
+        createRecurrenceRef={reviewModal.createRecurrenceRef}
+        onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}

@@ -59,6 +59,8 @@ export default function RecurrenceTabContent({
   apiToken,
   editScope,
   readOnly = false,
+  onHasUncommittedRecurrence = null,
+  createRecurrenceRef = null,
 }) {
   // ── Pattern editor state ──────────────────────────────────────
   const [frequency, setFrequency] = useState('weekly');
@@ -112,6 +114,7 @@ export default function RecurrenceTabContent({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const confirmTimerRef = useRef(null);
   const editorTouchedRef = useRef(false);
+  const hasUncommittedEditsRef = useRef(false);
   const abortControllerRef = useRef(null);
 
   const hasPattern = Boolean(recurrencePattern?.pattern && recurrencePattern?.range);
@@ -123,6 +126,8 @@ export default function RecurrenceTabContent({
   // ── Initialize editor state from recurrencePattern ────────────
   useEffect(() => {
     editorTouchedRef.current = false;
+    hasUncommittedEditsRef.current = false;
+    onHasUncommittedRecurrence?.(false);
     if (recurrencePattern) {
       const { pattern, range } = recurrencePattern;
       if (pattern) {
@@ -156,7 +161,7 @@ export default function RecurrenceTabContent({
       defaultEnd.setMonth(defaultEnd.getMonth() + 3);
       setEndDate(toDateStr(defaultEnd));
     }
-  }, [recurrencePattern, eventStartDate]);
+  }, [recurrencePattern, eventStartDate]); // eslint-disable-line react-hooks/exhaustive-deps -- onHasUncommittedRecurrence is stable (setState from parent)
 
   // ── Build pattern object from editor state ────────────────────
   const buildPatternObject = useCallback(() => {
@@ -244,12 +249,24 @@ export default function RecurrenceTabContent({
   // ── Create recurrence (for empty state) ───────────────────────
   const handleCreate = useCallback(() => {
     editorTouchedRef.current = true;
+    hasUncommittedEditsRef.current = false;
+    onHasUncommittedRecurrence?.(false);
     applyPatternChanges();
-  }, [applyPatternChanges]);
+  }, [applyPatternChanges, onHasUncommittedRecurrence]);
+
+  // Expose handleCreate to parent via ref (for programmatic "Create & Save")
+  useEffect(() => {
+    if (createRecurrenceRef) {
+      createRecurrenceRef.current = handleCreate;
+    }
+  }, [createRecurrenceRef, handleCreate]);
 
   // ── Day toggle handler ────────────────────────────────────────
   const handleDayToggle = useCallback((day) => {
-    editorTouchedRef.current = true;
+    if (!hasPattern) {
+      hasUncommittedEditsRef.current = true;
+      onHasUncommittedRecurrence?.(true);
+    }
     setDaysOfWeek(prev => {
       if (prev.includes(day)) {
         if (prev.length === 1) return prev;
@@ -257,7 +274,7 @@ export default function RecurrenceTabContent({
       }
       return [...prev, day].sort((a, b) => DAY_NAMES.indexOf(a) - DAY_NAMES.indexOf(b));
     });
-  }, []);
+  }, [hasPattern, onHasUncommittedRecurrence]);
 
   // ── Build occurrence list ─────────────────────────────────────
   const patternDatesOnly = useMemo(() => {
@@ -606,7 +623,7 @@ export default function RecurrenceTabContent({
           <label>Start</label>
           <DatePickerInput
             value={patternStartDate}
-            onChange={(e) => { editorTouchedRef.current = true; setPatternStartDate(e.target.value); }}
+            onChange={(e) => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setPatternStartDate(e.target.value); }}
             className="recurrence-editor-date-input"
             disabled={!canEdit}
           />
@@ -621,13 +638,13 @@ export default function RecurrenceTabContent({
             min="1"
             max="999"
             value={interval}
-            onChange={(e) => { editorTouchedRef.current = true; setIntervalVal(Math.max(1, parseInt(e.target.value) || 1)); }}
+            onChange={(e) => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setIntervalVal(Math.max(1, parseInt(e.target.value) || 1)); }}
             className="recurrence-editor-interval"
             disabled={!canEdit}
           />
           <select
             value={frequency}
-            onChange={(e) => { editorTouchedRef.current = true; setFrequency(e.target.value); }}
+            onChange={(e) => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setFrequency(e.target.value); }}
             className="recurrence-editor-frequency"
             disabled={!canEdit}
           >
@@ -666,20 +683,20 @@ export default function RecurrenceTabContent({
             <label>End</label>
             <DatePickerInput
               value={endDate}
-              onChange={(e) => { editorTouchedRef.current = true; setEndDate(e.target.value); }}
+              onChange={(e) => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setEndDate(e.target.value); }}
               className="recurrence-editor-date-input"
               min={patternStartDate}
               disabled={!canEdit}
             />
             {canEdit && (
-              <button type="button" className="recurrence-link-btn" onClick={() => { editorTouchedRef.current = true; setEndType('noEnd'); }}>
+              <button type="button" className="recurrence-link-btn" onClick={() => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setEndType('noEnd'); }}>
                 Remove
               </button>
             )}
           </div>
         )}
         {endType === 'noEnd' && canEdit && (
-          <button type="button" className="recurrence-link-btn" onClick={() => { editorTouchedRef.current = true; setEndType('endDate'); }}>
+          <button type="button" className="recurrence-link-btn" onClick={() => { if (!hasPattern) { hasUncommittedEditsRef.current = true; onHasUncommittedRecurrence?.(true); } setEndType('endDate'); }}>
             Add end date
           </button>
         )}

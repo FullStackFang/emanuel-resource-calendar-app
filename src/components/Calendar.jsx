@@ -176,6 +176,7 @@ import ConflictDialog from './shared/ConflictDialog';
     const expansionCacheRef = useRef(new Map());
     const categoriesInitializedRef = useRef(false);
     const locationsInitializedRef = useRef(false);
+    const eventReviewFormDataGetterRef = useRef(null);
     const MAX_EXPANSION_CACHE_SIZE = 5; // Keep last 5 expansions
 
     // Safe wrapper for setAllEvents to prevent accidentally clearing events
@@ -5530,6 +5531,7 @@ import ConflictDialog from './shared/ConflictDialog';
       setPendingSaveConfirmation(false); // Reset save confirmation
       setDraftId(null); // Reset draft ID
       setShowDraftSaveDialog(false);
+      eventReviewFormDataGetterRef.current = null; // Clear stale form data getter
     }, [eventReviewModal.mode, eventReviewModal.hasChanges, draftId]);
 
     /**
@@ -6239,7 +6241,8 @@ import ConflictDialog from './shared/ConflictDialog';
       setSavingDraft(true);
 
       try {
-        const payload = buildDraftPayload(eventData);
+        const processedData = eventReviewFormDataGetterRef.current?.({ skipValidation: true }) || eventData;
+        const payload = buildDraftPayload(processedData);
 
         const endpoint = draftId
           ? `${API_BASE_URL}/room-reservations/draft/${draftId}`
@@ -7423,6 +7426,12 @@ import ConflictDialog from './shared/ConflictDialog';
           onDraftDialogCancel={reviewModal.handleDraftDialogCancel}
           onSubmitDraft={reviewModal.isDraft ? reviewModal.handleSubmitDraft : null}
           isDraftOccurrenceEdit={reviewModal.isDraftOccurrenceEdit}
+          showRecurrenceWarning={reviewModal.showRecurrenceWarning}
+          onRecurrenceWarningCreateAndSave={reviewModal.handleRecurrenceWarningCreateAndSave}
+          onRecurrenceWarningSaveWithout={reviewModal.handleRecurrenceWarningSaveWithout}
+          onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
+          createRecurrenceRef={reviewModal.createRecurrenceRef}
+          onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
           reservation={reviewModal.currentItem}
@@ -7549,6 +7558,7 @@ import ConflictDialog from './shared/ConflictDialog';
                   setPendingSaveConfirmation(false);
                 }
               }}
+              onFormDataReady={(getter) => { eventReviewFormDataGetterRef.current = getter; }}
               onIsNavigatingChange={handleEventReviewIsNavigatingChange}
               onNavigateToSeriesEvent={handleNavigateToSeriesEvent}
               onFormValidChange={handleEventReviewFormValidChange}

@@ -53,7 +53,10 @@ export default function RoomReservationReview({
   isEditRequestMode = false, // Edit request mode - allows editing even when normally readOnly
   isViewingEditRequest = false, // Viewing an existing edit request (read-only with diff display)
   originalData = null, // Original form data for comparison in edit request mode (Option C inline diff)
-  onSchedulingConflictsChange = null // Callback when scheduling conflicts change: (hasConflicts) => void
+  onSchedulingConflictsChange = null, // Callback when scheduling conflicts change: (hasConflicts) => void
+  onRecurrenceExists = null, // Callback when recurrence pattern exists/changes: (hasRecurrence) => void (injected by ReviewModal via cloneElement)
+  onHasUncommittedRecurrence = null, // Callback when recurrence fields edited without creating pattern (injected by ReviewModal via cloneElement)
+  createRecurrenceRef = null // Ref to programmatically trigger "Create Recurrence" (injected by ReviewModal via cloneElement)
 }) {
   const { showError, showWarning } = useNotification();
   const { isAdmin } = usePermissions();
@@ -75,11 +78,12 @@ export default function RoomReservationReview({
     const recurrence = reservation?.recurrence || reservation?.calendarData?.recurrence || reservation?.graphData?.recurrence || null;
     setRecurrencePattern(recurrence);
     recurrencePatternRef.current = recurrence;
+    onRecurrenceExists?.(!!recurrence);
 
     const overrides = reservation?.occurrenceOverrides || reservation?.calendarData?.occurrenceOverrides || [];
     setOccurrenceOverrides(overrides);
     occurrenceOverridesRef.current = overrides;
-  }, [reservation]);
+  }, [reservation]); // eslint-disable-line react-hooks/exhaustive-deps -- onRecurrenceExists is stable (setState from parent)
 
   // Keep refs in sync
   useEffect(() => { recurrencePatternRef.current = recurrencePattern; }, [recurrencePattern]);
@@ -89,7 +93,8 @@ export default function RoomReservationReview({
   const handleRecurrencePatternChange = useCallback((pattern) => {
     setRecurrencePattern(pattern);
     recurrencePatternRef.current = pattern;
-  }, []);
+    onRecurrenceExists?.(!!pattern);
+  }, [onRecurrenceExists]);
 
   // Handle occurrence override changes from recurrence tab detail editor
   const handleOccurrenceOverridesChange = useCallback((overrides) => {
@@ -340,7 +345,8 @@ export default function RoomReservationReview({
       teardownTimeMinutes,
       locations: formData.requestedRooms, // Use locations field as single source of truth
       _version: eventVersion,
-      // Include occurrence overrides from recurrence tab detail editing
+      // Explicitly use refs for recurrence data (bypasses stale FormBase getter closures)
+      recurrence: recurrencePatternRef.current,
       ...(occurrenceOverridesRef.current?.length > 0 && { occurrenceOverrides: occurrenceOverridesRef.current }),
     };
 
@@ -556,6 +562,8 @@ export default function RoomReservationReview({
                     apiToken={apiToken}
                     editScope={editScope}
                     readOnly={effectiveReadOnly}
+                    onHasUncommittedRecurrence={onHasUncommittedRecurrence}
+                    createRecurrenceRef={createRecurrenceRef}
                   />
                 </div>
               )}

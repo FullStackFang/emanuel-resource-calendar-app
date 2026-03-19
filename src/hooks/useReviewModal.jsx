@@ -67,6 +67,11 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Derived: true when viewing a single occurrence of a draft recurring series
   const isDraftOccurrenceEdit = isDraft && editScope === 'thisEvent';
 
+  // Recurrence warning dialog state (for uncommitted recurrence edits on draft save)
+  const [hasUncommittedRecurrence, setHasUncommittedRecurrence] = useState(false);
+  const [showRecurrenceWarning, setShowRecurrenceWarning] = useState(false);
+  const createRecurrenceRef = useRef(null);
+
   // Ref to hold form data getter function (set by child form component)
   const formDataGetterRef = useRef(null);
 
@@ -188,6 +193,8 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
+    setHasUncommittedRecurrence(false); // Reset recurrence warning state
+    setShowRecurrenceWarning(false);
   }, [hasChanges, isDraft, currentItem]);
 
   /**
@@ -972,6 +979,12 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       return { success: false, error: 'Dates required' };
     }
 
+    // Check for uncommitted recurrence edits before confirmation
+    if (hasUncommittedRecurrence && !pendingDraftConfirmation) {
+      setShowRecurrenceWarning(true);
+      return { success: false, cancelled: true, needsRecurrenceDecision: true };
+    }
+
     // First click - show confirmation
     if (!pendingDraftConfirmation) {
       setPendingDraftConfirmation(true);
@@ -990,7 +1003,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       await closeModal(true);
     }
     return result;
-  }, [pendingDraftConfirmation, _executeDraftSave, closeModal, onSuccess, onError]);
+  }, [pendingDraftConfirmation, hasUncommittedRecurrence, _executeDraftSave, closeModal, onSuccess, onError]);
 
   /**
    * Submit an existing draft for approval
@@ -1086,6 +1099,39 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   }, []);
 
   /**
+   * Recurrence warning dialog handlers
+   */
+  const handleRecurrenceWarningCreateAndSave = useCallback(async () => {
+    setShowRecurrenceWarning(false);
+    // Programmatically trigger "Create Recurrence" in RecurrenceTabContent
+    if (createRecurrenceRef.current) {
+      createRecurrenceRef.current();
+    }
+    // Let state propagate, then execute draft save
+    setTimeout(async () => {
+      const result = await _executeDraftSave();
+      if (result.success) {
+        if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+        await closeModal(true);
+      }
+    }, 0);
+  }, [_executeDraftSave, closeModal, onSuccess]);
+
+  const handleRecurrenceWarningSaveWithout = useCallback(async () => {
+    setShowRecurrenceWarning(false);
+    setHasUncommittedRecurrence(false);
+    const result = await _executeDraftSave();
+    if (result.success) {
+      if (onSuccess) onSuccess({ ...result.data, savedAsDraft: true });
+      await closeModal(true);
+    }
+  }, [_executeDraftSave, closeModal, onSuccess]);
+
+  const handleRecurrenceWarningCancel = useCallback(() => {
+    setShowRecurrenceWarning(false);
+  }, []);
+
+  /**
    * Check if draft can be saved (needs eventTitle)
    */
   const canSaveDraft = useCallback(() => {
@@ -1151,6 +1197,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     handleDraftDialogDiscard,
     handleDraftDialogCancel,
     cancelDraftConfirmation,
-    canSaveDraft
+    canSaveDraft,
+
+    // Recurrence warning state and actions
+    hasUncommittedRecurrence,
+    setHasUncommittedRecurrence,
+    showRecurrenceWarning,
+    createRecurrenceRef,
+    handleRecurrenceWarningCreateAndSave,
+    handleRecurrenceWarningSaveWithout,
+    handleRecurrenceWarningCancel
   };
 }

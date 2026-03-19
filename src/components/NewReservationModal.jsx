@@ -1,5 +1,5 @@
 // src/components/NewReservationModal.jsx
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import RoomReservationReview from './RoomReservationReview';
 import ReviewModal from './shared/ReviewModal';
 import { useMsal } from '@azure/msal-react';
@@ -26,6 +26,9 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
   const [isSaving, setIsSaving] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [formData, setFormData] = useState(null);
+
+  // Ref for RoomReservationReview's getProcessedFormData getter
+  const formDataGetterRef = useRef(null);
 
   // Draft state
   const [showDraftDialog, setShowDraftDialog] = useState(false);
@@ -96,6 +99,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setSavingDraft(false);
     setDraftId(null);
     setIsDraftConfirming(false);
+    formDataGetterRef.current = null;
   }, []);
 
   const handleClose = useCallback(() => {
@@ -140,7 +144,8 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
       virtualMeetingUrl: data.virtualMeetingUrl || null,
       isOffsite: data.isOffsite || false,
       offsiteName: data.offsiteName || '',
-      offsiteAddress: data.offsiteAddress || ''
+      offsiteAddress: data.offsiteAddress || '',
+      recurrence: data.recurrence || null
     };
   }, []);
 
@@ -295,7 +300,8 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setSavingDraft(true);
     setIsDraftConfirming(false);
     try {
-      const payload = buildDraftPayload(formData);
+      const processedData = formDataGetterRef.current?.({ skipValidation: true }) || formData;
+      const payload = buildDraftPayload(processedData);
       const endpoint = draftId
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
@@ -335,7 +341,8 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
     setSavingDraft(true);
     let savedSuccessfully = false;
     try {
-      const payload = buildDraftPayload(formData);
+      const processedData = formDataGetterRef.current?.({ skipValidation: true }) || formData;
+      const payload = buildDraftPayload(processedData);
       const endpoint = draftId
         ? `${APP_CONFIG.API_BASE_URL}/room-reservations/draft/${draftId}`
         : `${APP_CONFIG.API_BASE_URL}/room-reservations/draft`;
@@ -406,6 +413,7 @@ export default function NewReservationModal({ apiToken, selectedCalendarId, avai
               setFormData(prev => ({ ...(prev || {}), ...updatedData }));
               setHasChanges(true);
             }}
+            onFormDataReady={(getter) => { formDataGetterRef.current = getter; }}
             onFormValidChange={setIsFormValid}
             readOnly={false}
           />
