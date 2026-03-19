@@ -54,6 +54,15 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
   // Pre-fetched availability data (fetched before modal opens)
   const [prefetchedAvailability, setPrefetchedAvailability] = useState(null);
 
+  // Pre-fetched series events data (fetched in parallel with availability)
+  const [prefetchedSeriesEvents, setPrefetchedSeriesEvents] = useState(null);
+
+  // Loading state: true while background data (availability, series events) is being fetched after modal opens
+  const [isLoadingData, setIsLoadingData] = useState(false);
+
+  // Counter to force child remount when currentItem is swapped (e.g., occurrence -> master)
+  const [reinitKey, setReinitKey] = useState(0);
+
   // Form validity state (controlled by child form component)
   const [isFormValid, setIsFormValid] = useState(true);
 
@@ -136,36 +145,86 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
       setDraftId(null);
     }
 
-    // Pre-fetch room availability for existing events with dates
-    // This ensures the modal opens with all data ready (no loading spinner inside)
-    let availability = null;
-    if (item.startDate && item.startTime && item.endDate && item.endTime) {
-      try {
-        const startDateTime = `${item.startDate}T${item.startTime}`;
-        const endDateTime = `${item.endDate}T${item.endTime}`;
-        const params = new URLSearchParams({
-          startDateTime,
-          endDateTime,
-          setupTimeMinutes: item.setupTimeMinutes || 0,
-          teardownTimeMinutes: item.teardownTimeMinutes || 0
-        });
-        const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
-        if (response.ok) {
-          availability = await response.json();
-        }
-      } catch (err) {
-        // Silently fail - form will re-fetch if needed
-        logger.debug('Pre-fetch availability failed, form will re-fetch:', err.message);
-      }
-    }
-
-    setPrefetchedAvailability(availability);
+    // Open modal IMMEDIATELY — no blocking fetches
+    setPrefetchedAvailability(null);
+    setPrefetchedSeriesEvents(null);
     setCurrentItem(item);
     setEditableData(item);
     setEventVersion(item._version || null);
     setHasChanges(false);
     setEditScope(scope);
     setIsOpen(true);
+
+    // Fetch availability and series events in background (non-blocking)
+    const hasDates = item.startDate && item.startTime && item.endDate && item.endTime;
+    const hasSeriesId = !!item.eventSeriesId;
+
+    if (hasDates || hasSeriesId) {
+      setIsLoadingData(true);
+
+      const promises = [];
+
+      // Availability prefetch
+      if (hasDates) {
+        const availabilityPromise = (async () => {
+          try {
+            const startDateTime = `${item.startDate}T${item.startTime}`;
+            const endDateTime = `${item.endDate}T${item.endTime}`;
+            const params = new URLSearchParams({
+              startDateTime,
+              endDateTime,
+              setupTimeMinutes: item.setupTimeMinutes || 0,
+              teardownTimeMinutes: item.teardownTimeMinutes || 0
+            });
+            const response = await fetch(`${APP_CONFIG.API_BASE_URL}/rooms/availability?${params}`);
+            if (response.ok) {
+              return await response.json();
+            }
+          } catch (err) {
+            logger.debug('Pre-fetch availability failed, form will re-fetch:', err.message);
+          }
+          return null;
+        })();
+        promises.push(availabilityPromise);
+      } else {
+        promises.push(Promise.resolve(null));
+      }
+
+      // Series events prefetch
+      if (hasSeriesId) {
+        const seriesPromise = (async () => {
+          try {
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiToken) headers['Authorization'] = `Bearer ${apiToken}`;
+            const response = await fetch(
+              `${APP_CONFIG.API_BASE_URL}/events/series/${item.eventSeriesId}`,
+              { headers }
+            );
+            if (response.ok) {
+              const data = await response.json();
+              return data.events || [];
+            }
+          } catch (err) {
+            logger.debug('Pre-fetch series events failed, form will re-fetch:', err.message);
+          }
+          return null;
+        })();
+        promises.push(seriesPromise);
+      } else {
+        promises.push(Promise.resolve(null));
+      }
+
+      const [availResult, seriesResult] = await Promise.allSettled(promises);
+
+      const availability = availResult.status === 'fulfilled' ? availResult.value : null;
+      const seriesEvents = seriesResult.status === 'fulfilled' ? seriesResult.value : null;
+
+      setPrefetchedAvailability(availability);
+      if (seriesEvents !== null) {
+        setPrefetchedSeriesEvents(seriesEvents);
+      }
+      setIsLoadingData(false);
+    }
   }, [apiToken]);
 
   /**
@@ -190,12 +249,25 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     setPendingDraftConfirmation(false); // Reset draft confirmation
     setEditScope(null); // Reset edit scope for recurring events
     setPrefetchedAvailability(null); // Clear prefetched availability data
+    setPrefetchedSeriesEvents(null); // Clear prefetched series events data
+    setIsLoadingData(false); // Clear loading state
     setIsDraft(false); // Reset draft state
     setDraftId(null);
     setShowDraftDialog(false);
     setHasUncommittedRecurrence(false); // Reset recurrence warning state
     setShowRecurrenceWarning(false);
   }, [hasChanges, isDraft, currentItem]);
+
+  /**
+   * Update the current item (e.g., when swapping occurrence for series master).
+   * Increments reinitKey to force child form remount.
+   */
+  const updateCurrentItem = useCallback((newItem) => {
+    setCurrentItem(newItem);
+    setEditableData(newItem);
+    setEventVersion(newItem._version || null);
+    setReinitKey(prev => prev + 1);
+  }, []);
 
   /**
    * Update editable data
@@ -1159,6 +1231,9 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     softConflictConfirmation, // Soft conflict confirmation dialog data
     editScope, // For recurring events: 'thisEvent' | 'allEvents' | null
     prefetchedAvailability, // Pre-fetched room availability data
+    prefetchedSeriesEvents, // Pre-fetched series events data
+    isLoadingData, // True while background data is loading after modal opens
+    reinitKey, // Counter to force child remount on item swap
 
     // Rejection reason state (for inline input)
     rejectionReason,
@@ -1176,6 +1251,7 @@ export function useReviewModal({ apiToken, graphToken, onSuccess, onError, selec
     openModal,
     closeModal,
     updateData,
+    updateCurrentItem, // Swap current item (e.g., occurrence -> master) with forced remount
     setIsFormValid,
     setFormDataGetter, // Set form data getter for live form data access
     getFormData, // Get live form data (for edit request handlers in parent components)

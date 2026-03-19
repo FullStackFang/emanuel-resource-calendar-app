@@ -14,6 +14,7 @@ import ServicesSelectorModal from './ServicesSelectorModal';
 import LoadingSpinner from './shared/LoadingSpinner';
 import { RecurringIcon } from './shared/CalendarIcons';
 import useDepartments from '../hooks/useDepartments';
+import { useBaseCategoriesQuery } from '../hooks/useCategoriesQuery';
 
 import { extractTextFromHtml } from '../utils/textUtils';
 import { usePermissions } from '../hooks/usePermissions';
@@ -106,6 +107,9 @@ export default function RoomReservationFormBase({
   // Lifted recurrence state (from RoomReservationReview) — when provided, these override internal state
   externalRecurrencePattern = undefined,     // Recurrence pattern object or null
   onRecurrencePatternChange = null,          // Callback: (pattern) => void
+
+  // Pre-fetched series events data from parent (for non-blocking modal open)
+  prefetchedSeriesEvents = null,
 }) {
   // Load departments from database
   const { departments: departmentsList } = useDepartments();
@@ -153,10 +157,22 @@ export default function RoomReservationFormBase({
   const [availability, setAvailability] = useState(prefetchedAvailability || []);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
   // Track if we used prefetched data (to skip initial fetch)
-  const usedPrefetchedData = useRef(!!prefetchedAvailability);
+  // When prefetchedAvailability is null on mount but will arrive later, treat as "in flight"
+  const usedPrefetchedData = useRef(!!prefetchedAvailability || prefetchedAvailability === null);
+  // Watch for late-arriving prefetched availability (from non-blocking modal open)
+  const prefetchArrived = useRef(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false); // Day availability loading for SchedulingAssistant
   const [timeErrors, setTimeErrors] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Handle late-arriving prefetched availability (Phase 1: non-blocking modal open)
+  useEffect(() => {
+    if (prefetchedAvailability != null && prefetchedAvailability.length > 0 && !prefetchArrived.current) {
+      setAvailability(prefetchedAvailability);
+      usedPrefetchedData.current = true; // suppress next time-change trigger
+      prefetchArrived.current = true;
+    }
+  }, [prefetchedAvailability]);
 
   // Ad hoc dates state - persistent container of additional dates
   const [showAdHocPicker, setShowAdHocPicker] = useState(false); // Show/hide calendar picker
@@ -188,33 +204,11 @@ export default function RoomReservationFormBase({
   const selectedCategoriesRef = useRef(selectedCategories);
   const selectedServicesRef = useRef({});
 
-  // Available categories for concurrent event restrictions (fetched from API)
-  const [availableCategories, setAvailableCategories] = useState([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
-
   // Get permissions - must be before useEffects that depend on isAdmin
   const { canEditField, isAdmin, canEditEvents } = usePermissions();
 
-  // Fetch available categories (for concurrent scheduling rules in SchedulingAssistant)
-  useEffect(() => {
-    if (availableCategories.length === 0) {
-      const fetchCategories = async () => {
-        try {
-          setCategoriesLoading(true);
-          const response = await fetch(`${APP_CONFIG.API_BASE_URL}/categories`);
-          if (response.ok) {
-            const data = await response.json();
-            setAvailableCategories(data);
-          }
-        } catch (err) {
-          console.error('Error fetching categories:', err);
-        } finally {
-          setCategoriesLoading(false);
-        }
-      };
-      fetchCategories();
-    }
-  }, [availableCategories.length]);
+  // Available categories via TanStack Query (cached, shared across components)
+  const { data: availableCategories = [], isLoading: categoriesLoading } = useBaseCategoriesQuery(apiToken);
 
   // Build category concurrent rules map: { categoryId: [allowedCategoryIds] }
   const categoryConcurrentRules = useMemo(() => {
@@ -493,18 +487,32 @@ export default function RoomReservationFormBase({
     }
   }, [initialData, currentReservationId]);
 
+  // Track whether prefetched series events have been applied
+  const usedPrefetchedSeriesData = useRef(false);
+
+  // Handle late-arriving prefetched series events
+  useEffect(() => {
+    if (prefetchedSeriesEvents != null && !usedPrefetchedSeriesData.current) {
+      setSeriesEvents(prefetchedSeriesEvents);
+      usedPrefetchedSeriesData.current = true;
+    }
+  }, [prefetchedSeriesEvents]);
+
   // Fetch series events when opening an event with eventSeriesId
   useEffect(() => {
+    // Skip if we already received or are expecting prefetched series data
+    if (usedPrefetchedSeriesData.current || prefetchedSeriesEvents !== null) {
+      return;
+    }
+
     const fetchSeriesEvents = async () => {
-      logger.log('🔍 Series Events Fetch - Initial Data:', {
+      logger.log('Series Events Fetch - Initial Data:', {
         hasEventSeriesId: !!initialData?.eventSeriesId,
         eventSeriesId: initialData?.eventSeriesId,
-        eventId: initialData?.eventId,
-        fullInitialData: initialData
+        eventId: initialData?.eventId
       });
 
       if (!initialData?.eventSeriesId) {
-        logger.log('❌ No eventSeriesId in initialData, skipping series fetch');
         setSeriesEvents([]);
         return;
       }
@@ -530,10 +538,8 @@ export default function RoomReservationFormBase({
         }
 
         const data = await response.json();
-        logger.log('✅ Series Events Fetched:', {
-          count: data.events?.length || 0,
-          events: data.events,
-          fullResponse: data
+        logger.log('Series Events Fetched:', {
+          count: data.events?.length || 0
         });
         setSeriesEvents(data.events || []);
         logger.debug(`Loaded ${data.events?.length || 0} events in series`);
@@ -544,7 +550,7 @@ export default function RoomReservationFormBase({
     };
 
     fetchSeriesEvents();
-  }, [initialData?.eventSeriesId, apiToken]);
+  }, [initialData?.eventSeriesId, apiToken, prefetchedSeriesEvents]);
 
   // Helper function to convert time difference to minutes
   const calculateTimeBufferMinutes = (eventTime, bufferTime) => {

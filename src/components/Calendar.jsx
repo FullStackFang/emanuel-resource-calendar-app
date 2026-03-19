@@ -4360,7 +4360,7 @@ import ConflictDialog from './shared/ConflictDialog';
      * @param {string} scope - 'thisEvent' or 'allEvents'
      */
     const handleRecurringScopeSelected = useCallback(async (scope) => {
-      let event = recurringScopeDialog.pendingEvent;
+      const event = recurringScopeDialog.pendingEvent;
 
       // Close the scope dialog
       setRecurringScopeDialog({ isOpen: false, pendingEvent: null });
@@ -4369,24 +4369,35 @@ import ConflictDialog from './shared/ConflictDialog';
 
       try {
         // For draft occurrences with 'allEvents' scope, resolve to the series master
-        if (scope === 'allEvents' && event.isRecurringOccurrence && event.masterEventId) {
+        const needsMasterFetch = scope === 'allEvents' && event.isRecurringOccurrence && event.masterEventId;
+
+        if (needsMasterFetch) {
+          // Check if master is already in current view
           const found = allEventsRef.current.find(e => e.eventId === event.masterEventId);
           if (found) {
-            event = found;
+            // Master available locally — open directly
+            await reviewModal.openModal(found, { editScope: scope });
           } else {
-            // Master not in current view — fetch via API
+            // Open modal immediately with occurrence data, fetch master in parallel
+            await reviewModal.openModal(event, { editScope: scope });
+
+            // Fetch master in background and swap when ready
             try {
               const res = await fetch(`${APP_CONFIG.API_BASE_URL}/room-reservations/${event._id}`, {
                 headers: { 'Authorization': `Bearer ${apiToken}` }
               });
-              if (res.ok) event = await res.json();
+              if (res.ok) {
+                const master = await res.json();
+                reviewModal.updateCurrentItem(master);
+              }
             } catch (err) {
               logger.warn('Could not fetch series master, using occurrence data');
             }
           }
+        } else {
+          // Non-occurrence or 'thisEvent' scope — open directly
+          await reviewModal.openModal(event, { editScope: scope });
         }
-        // Open review modal with the selected scope
-        await reviewModal.openModal(event, { editScope: scope });
       } catch (error) {
         logger.error('Error opening review modal:', error);
         showError(error, { context: 'Calendar.handleRecurringScopeSelected', userMessage: 'Failed to open review modal' });
@@ -7426,6 +7437,7 @@ import ConflictDialog from './shared/ConflictDialog';
           onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
           createRecurrenceRef={reviewModal.createRecurrenceRef}
           onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
+          isLoadingData={reviewModal.isLoadingData}
           hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
           hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
           reservation={reviewModal.currentItem}
@@ -7438,8 +7450,10 @@ import ConflictDialog from './shared/ConflictDialog';
         >
           {reviewModal.currentItem && (
             <RoomReservationReview
+              key={reviewModal.reinitKey}
               reservation={reviewModal.editableData}
               prefetchedAvailability={reviewModal.prefetchedAvailability}
+              prefetchedSeriesEvents={reviewModal.prefetchedSeriesEvents}
               apiToken={apiToken}
               graphToken={graphToken}
               onDataChange={reviewModal.updateData}

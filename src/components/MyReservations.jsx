@@ -1345,6 +1345,7 @@ export default function MyReservations({ apiToken }) {
         onRecurrenceWarningCancel={reviewModal.handleRecurrenceWarningCancel}
         createRecurrenceRef={reviewModal.createRecurrenceRef}
         onHasUncommittedRecurrence={reviewModal.setHasUncommittedRecurrence}
+        isLoadingData={reviewModal.isLoadingData}
         // Scheduling conflicts
         hasSchedulingConflicts={schedulingConflictInfo?.hasHardConflicts || false}
         hasSoftConflicts={schedulingConflictInfo?.hasSoftConflicts || false}
@@ -1353,8 +1354,10 @@ export default function MyReservations({ apiToken }) {
       >
         {reviewModal.currentItem && (
           <RoomReservationReview
+            key={reviewModal.reinitKey}
             reservation={reviewModal.editableData}
             prefetchedAvailability={reviewModal.prefetchedAvailability}
+            prefetchedSeriesEvents={reviewModal.prefetchedSeriesEvents}
             apiToken={apiToken}
             onDataChange={reviewModal.updateData}
             onFormDataReady={reviewModal.setFormDataGetter}

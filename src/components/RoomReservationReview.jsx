@@ -25,6 +25,7 @@ import './RoomReservationForm.css';
 export default function RoomReservationReview({
   reservation,
   prefetchedAvailability = null, // Pre-fetched room availability data from parent
+  prefetchedSeriesEvents = null, // Pre-fetched series events data from parent
   apiToken,
   graphToken, // Graph API token for calendar operations
   onApprove,
@@ -443,6 +444,7 @@ export default function RoomReservationReview({
         <RoomReservationFormBase
           initialData={initialData}
           prefetchedAvailability={prefetchedAvailability}
+          prefetchedSeriesEvents={prefetchedSeriesEvents}
           onDataChange={handleDataChange}
           onHasChangesChange={onHasChangesChange}
           onIsNavigatingChange={setIsNavigating}
