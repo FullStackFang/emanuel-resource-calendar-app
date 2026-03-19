@@ -185,6 +185,65 @@
   background-color: #ffedd5;
 }
 
+.dep-overlap-toggle {
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.dep-overlap-toggle:hover {
+  filter: brightness(0.92);
+}
+
+.dep-overlap-chevron {
+  font-size: 8px;
+  transition: transform 150ms ease;
+  line-height: 1;
+}
+
+.dep-chevron-open {
+  transform: rotate(180deg);
+}
+
+.dep-overlap-list {
+  margin: 2px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dep-overlap-list-item {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--color-warning-400);
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.dep-overlap-list-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.dep-overlap-list-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dep-overlap-list-time {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
 /* ==========================================================================
    EVENT TIME
    ========================================================================== */

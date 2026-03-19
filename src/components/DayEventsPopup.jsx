@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTimezone } from '../context/TimezoneContext';
 import { usePermissions } from '../hooks/usePermissions';
@@ -64,14 +64,13 @@ function getOverlapInfo(event, allEvents, groupBy) {
     const timeOverlaps = eventStart < otherEnd && eventEnd > otherStart;
     if (!timeOverlaps) return false;
 
-    if (groupBy === 'categories') {
-      const eventLocation = event.location?.displayName || '';
-      const otherLocation = other.location?.displayName || '';
-      const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
-      const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
-      if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
-        return false;
-      }
+    // Only flag as overlap if both events share the same physical location
+    const eventLocation = event.location?.displayName || '';
+    const otherLocation = other.location?.displayName || '';
+    const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
+    const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
+    if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
+      return false;
     }
     return true;
   });
@@ -79,7 +78,7 @@ function getOverlapInfo(event, allEvents, groupBy) {
   const hasParentEvent = overlapping.some(e => e.isAllowedConcurrent);
   const isParentEvent = event.isAllowedConcurrent ?? false;
 
-  return { overlapCount: overlapping.length, hasParentEvent, isParentEvent };
+  return { overlapCount: overlapping.length, overlappingEvents: overlapping, hasParentEvent, isParentEvent };
 }
 
 const DayEventsPopup = ({
@@ -97,6 +96,7 @@ const DayEventsPopup = ({
   const { userTimezone } = useTimezone();
   const { canSubmitReservation, canEditEvents } = usePermissions();
   const popupRef = useRef(null);
+  const [expandedOverlaps, setExpandedOverlaps] = useState({});
 
   // ESC key listener
   useEffect(() => {
@@ -166,7 +166,9 @@ const DayEventsPopup = ({
             <div className="dep-empty">No events scheduled</div>
           ) : (
             sortedEvents.map((event) => {
-              const { overlapCount, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents, groupBy);
+              const { overlapCount, overlappingEvents, hasParentEvent, isParentEvent } = getOverlapInfo(event, sortedEvents, groupBy);
+              const eventKey = event.eventId || event.id;
+              const isOverlapExpanded = !!expandedOverlaps[eventKey];
               const isPending = event.status === 'pending';
               const hasPendingEditRequest = !!event.showPendingEditBadge;
               const eventCategories = event.calendarData?.categories || event.categories || event.graphData?.categories || (event.category ? [event.category] : ['Uncategorized']);
@@ -197,11 +199,41 @@ const DayEventsPopup = ({
                     </div>
                   )}
 
-                  {/* Overlap badge */}
+                  {/* Overlap badge (click to expand) */}
                   {overlapCount > 0 && (
-                    <div className={`dep-overlap-badge ${hasParentEvent ? 'dep-overlap-nested' : 'dep-overlap-conflict'}`}>
-                      {hasParentEvent ? `+${overlapCount} nested` : <><WarningIcon size={10} /> {overlapCount + 1} overlapping</>}
-                    </div>
+                    <>
+                      <div
+                        className={`dep-overlap-badge dep-overlap-toggle ${hasParentEvent ? 'dep-overlap-nested' : 'dep-overlap-conflict'}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedOverlaps(prev => ({ ...prev, [eventKey]: !prev[eventKey] }));
+                        }}
+                        title="Click to see overlapping events"
+                      >
+                        {hasParentEvent
+                          ? `+${overlapCount} nested`
+                          : <><WarningIcon size={10} /> {overlapCount + 1} overlapping</>}
+                        <span className={`dep-overlap-chevron ${isOverlapExpanded ? 'dep-chevron-open' : ''}`}>&#9662;</span>
+                      </div>
+                      {isOverlapExpanded && (
+                        <div className="dep-overlap-list">
+                          {overlappingEvents.map(oe => (
+                            <div
+                              key={oe.eventId || oe.id}
+                              className="dep-overlap-list-item"
+                              onClick={(e) => { e.stopPropagation(); handleEventCardClick(oe, e); }}
+                            >
+                              <span className="dep-overlap-list-name">{oe.subject}</span>
+                              <span className="dep-overlap-list-time">
+                                {formatTime(oe.start?.dateTime, oe.subject, oe.start?.timeZone || oe.graphData?.start?.timeZone)}
+                                {' - '}
+                                {formatTime(oe.end?.dateTime, oe.subject, oe.end?.timeZone || oe.graphData?.end?.timeZone)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Time */}

@@ -121,19 +121,13 @@ const DayEventPanel = memo(({
 
                   if (!timeOverlaps) return false;
 
-                  // When grouped by categories, only same physical location = conflict
-                  if (groupBy === 'categories') {
-                    const eventLocation = event.location?.displayName || '';
-                    const otherLocation = other.location?.displayName || '';
-
-                    // Only consider it a conflict if both have the same specific physical location
-                    const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
-                    const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
-
-                    // No conflict unless both have the same specific location
-                    if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
-                      return false;
-                    }
+                  // Only flag as overlap if both events share the same physical location
+                  const eventLocation = event.location?.displayName || '';
+                  const otherLocation = other.location?.displayName || '';
+                  const eventHasLocation = eventLocation && eventLocation !== 'Unspecified';
+                  const otherHasLocation = otherLocation && otherLocation !== 'Unspecified';
+                  if (!eventHasLocation || !otherHasLocation || eventLocation !== otherLocation) {
+                    return false;
                   }
 
                   return true;
